@@ -1,0 +1,431 @@
+/* base styles */
+*{box-sizing:border-box}
+html,body{
+  margin:0;
+  padding:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#1f2937;
+  background:#fff;
+  min-height:100vh;
+}
+
+/* ===== Links ===== */
+a{color:black;text-decoration:none}
+a:hover{text-decoration:underline}
+a:visited{color:black}
+
+/* ===== Navigation (centered) ===== */
+.nav{
+  display:flex;
+  justify-content:center;   /* center the links */
+  flex-wrap:wrap;
+  align-items:center;
+  gap:18px;
+  width:100%;
+}
+nav a{ font-weight:500; }
+
+/* Remove hamburger */
+.nav-toggle{ display:none !important; }
+
+/* ===== Header (transparent over wallpaper) ===== */
+.site-header{
+  position:sticky;
+  top:0;
+  background:transparent !important; /* let wallpaper show */
+  border-bottom:0;                    /* no line under header */
+  z-index:10;
+}
+.header-inner{
+  display:flex;
+  flex-direction:column;    /* logo on top, nav below */
+  justify-content:center;
+  align-items:center;
+  gap:.5rem;
+  padding:.75rem 0;
+}
+
+/* Logo scales with viewport */
+.logo{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  font-weight:700;
+  margin:0 auto;
+}
+.logo img{
+  width: clamp(36px, 3.2vw, 48px);
+  height: clamp(36px, 3.2vw, 48px);
+}
+
+/* ===== Layout helpers ===== */
+.container{width:min(1100px,92%);margin:0 auto}
+.mt{margin-top:1rem}
+.mt-lg{margin-top:2rem}
+.btn{display:inline-block;padding:.7rem 1rem;border-radius:.5rem;border:1px solid #e5e7eb;background:#f9fafb;cursor:pointer}
+.btn-primary{background:#1d4ed8;color:#fff;border-color:#1d4ed8}
+.card{border:1px solid #e5e7eb;border-radius:.75rem;padding:1rem;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
+@media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
+
+/* ===== Hero (transparent over wallpaper) ===== */
+.hero{background:transparent !important;color:inherit}
+.hero-inner{padding:2.5rem 0}
+
+/* Session title already scales via clamp */
+.session-title{
+  margin:0 0 .5rem 0;
+  text-align:center;
+  font-size:clamp(1.25rem, 2.5vw, 2rem);
+  font-weight:800;
+  color:#000;
+  line-height:1.25;
+}
+
+/* ===== Misc text ===== */
+.price{font-weight:700}
+.tiny{font-size:.875rem;color:#6b7280;padding:1rem 0}
+.form label{display:block;margin-bottom:.75rem}
+.form input,.form select,.form textarea{width:100%;padding:.7rem;border-radius:.5rem;border:1px solid #d1d5db}
+
+/* ===== Per-attendee registration callout ===== */
+.reg-box{
+  border:2px solid #2563eb;
+  background:#eff6ff;
+  padding:12px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.reg-box .price-chip{
+  display:inline-block;
+  padding:2px 10px;
+  border-radius:9999px;
+  font-weight:700;
+  font-size:.85rem;
+  background:#1d4ed8;
+  color:#fff;
+  margin-left:.5rem;
+}
+.reg-box .hint{ font-size:.85rem; color:#475569; }
+.reg-box .title{ font-weight:800; }
+.reg-box.active{
+  border-color:#16a34a;
+  background:#ecfdf5;
+}
+
+/* ===== Wallpaper: full image + edge-to-edge fill (two layers) ===== */
+:root{
+  --wallpaper-url: url('/assets/img/wallpaper.jpg');
+  --wallpaper-opacity: 0.38;            /* brighter sharp layer */
+  --wallpaper-position: center center;  /* tweak if needed */
+}
+
+body{ position: relative; }
+
+/* Layer 1: blurred "cover" to fill edges so no bars show */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:0;                            /* behind content */
+  pointer-events:none;
+  background-image: var(--wallpaper-url);
+  background-size: cover;               /* fills entire viewport */
+  background-repeat: no-repeat;
+  background-position: var(--wallpaper-position);
+  filter: blur(18px);
+  transform: scale(1.08);               /* hide blur edges */
+  opacity: 0.10;                        /* lighter blur layer */
+}
+
+/* Layer 2: sharp full image (no cropping) */
+body::after{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:0;                            /* behind content */
+  pointer-events:none;
+  background-image: var(--wallpaper-url);
+  background-size: contain;             /* show 100% of image */
+  background-repeat: no-repeat;
+  background-position: var(--wallpaper-position);
+  opacity: var(--wallpaper-opacity);
+}
+
+/* Ensure real content stays above both layers */
+.site-header, main, .site-footer, .container, .card, .nav, header, footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Per-org overrides (auto swap images) */
+body[data-org="pa-2026"]::before,
+body[data-org="pa-2026"]::after {
+  background-image: url('/assets/img/pa-2026-watermark.jpg');
+}
+body[data-org="supreme-2027"]::before,
+body[data-org="supreme-2027"]::after {
+  background-image: url('/assets/img/supreme-2027-watermark.jpg');
+}
+
+/* Optional: mobile smoothness */
+@media (max-width: 768px) {
+  body::before, body::after { position: absolute; }
+}
+
+/* ===== New hero text styles ===== */
+.welcome-text{
+  text-align:center;
+  font-size:2rem;
+  margin-top:1rem;
+  margin-bottom:1rem;
+  font-weight:700;
+  color:black;
+}
+.org-intro{
+  text-align:center;
+  font-size:1rem;
+  max-width:700px;
+  margin:0 auto;
+  color:#222;
+}
+
+/* ===== Banquets page ===== */
+[data-page="banquets"] .page-title{
+  text-align:center;         /* center the "Banquets" heading */
+  margin:0 0 1rem 0;
+  font-weight:800;
+}
+
+/* Center ONLY the banquet cards grid */
+[data-page="banquets"] .grid-2{
+  display: grid;
+  justify-content: center;   /* center grid tracks */
+  justify-items: center;     /* center each card */
+  gap: 1.25rem;
+}
+
+/* Transparent banquet cards over wallpaper */
+[data-page="banquets"] .card{
+  background: rgba(255,255,255,0.40);
+  border-color: rgba(229,231,235,0.45);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+  width: 100%;
+  max-width: 360px;
+}
+
+/* Move LEFT by your chosen amount (negative = left) */
+:root { --banquets-shift-lg: -205px; }
+
+@media (min-width: 1024px) {
+  [data-page="banquets"] .grid-2{ transform: translateX(var(--banquets-shift-lg)) !important; }
+}
+@media (min-width: 1280px) {
+  [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 32px)) !important; }
+}
+@media (min-width: 1536px) {
+  [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 64px)) !important; }
+}
+
+/* Safety: ensure no nav separators appear */
+.nav a + a::before { content: none !important; }
+
+/* =============================================================================
+   ===== Shop page =====
+   Body must have class="shop" on shop.html
+============================================================================= */
+
+/* Hide Registration & Directory links on Shop page only */
+body.shop .nav a[href*="registration"],
+body.shop .nav a[href*="directory"] { display: none !important; }
+
+/* Stack & center the logo above the long title line */
+body.shop .header-inner { display:block; } /* avoid flex row issues */
+body.shop .logo{
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* <<< Updated: make logo same small size as home/banquets >>> */
+body.shop .logo img{
+  width: clamp(36px, 3.2vw, 48px);
+  height: clamp(36px, 3.2vw, 48px);
+}
+body.shop .logo span{
+  text-align:center;
+  font-weight:700;
+  font-size: clamp(1.05rem, 2.2vw, 1.4rem);
+  color:#1f2937;
+}
+
+/* Center the "Shop" title */
+body.shop main h1{
+  text-align:center;
+  margin: 20px 0 14px;
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-weight: 800;
+}
+
+/* Responsive product grid (up to 15 items) */
+.shop-grid{
+  --card-gap: 16px;
+  --card-radius: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--card-gap);
+  padding: 10px 14px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.item{
+  border: 1px solid #e5e7eb;
+  border-radius: var(--card-radius);
+  padding: 12px;
+  text-align: center;
+  background: #fff;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.item:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0,0,0,.06);
+}
+.thumb{ display:block; border:0; padding:0; background:none; cursor:zoom-in; width:100%; }
+.thumb img{
+  width:100%;
+  height:160px;
+  object-fit:cover;
+  border-radius:10px;
+}
+.item-name{ margin:10px 0 4px; font-size:1rem; font-weight:700; }
+.item-price{ margin:0; font-weight:600; opacity:.9; }
+
+/* Lightbox */
+.lightbox[hidden]{ display:none; }
+.lightbox{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.7);
+  display:grid;
+  place-items:center;
+  padding:20px;
+  z-index:1000;
+}
+.lightbox-img{
+  max-width:min(92vw, 1000px);
+  max-height:82vh;
+  border-radius:12px;
+  display:block;
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  background:#fff;
+}
+.lightbox-caption{
+  margin-top:10px;
+  color:#fff;
+  text-align:center;
+  font-weight:600;
+}
+.lightbox-close{
+  position:fixed;
+  top:14px;
+  right:16px;
+  font-size:32px;
+  line-height:1;
+  width:44px;
+  height:44px;
+  border-radius:50%;
+  border:none;
+  cursor:pointer;
+  background:#fff;
+  box-shadow:0 2px 10px rgba(0,0,0,.2);
+}
+
+/* <<< New overrides: make Shop cards match Banquet frosted style >>> */
+body.shop .item{
+  background: rgba(255,255,255,0.40);
+  border-color: rgba(229,231,235,0.45);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+}
+body.shop .item:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+}
+body.shop .item-name,
+body.shop .item-price{
+  color:#1f2937;
+}
+
+/* =============================================================================
+   ===== Order page (match Banquets frosted style)
+   Requires: <body data-page="order">
+============================================================================= */
+
+/* Hide Registration & Directory links on Order page only */
+[data-page="order"] .nav a[href*="registration"],
+[data-page="order"] .nav a[href*="directory"] { display: none !important; }
+
+/* Center the "Order" title like others */
+[data-page="order"] h1{
+  text-align:center;
+  margin: 20px 0 14px;
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-weight: 800;
+}
+
+/* Frosted cards identical to Banquets */
+[data-page="order"] .card{
+  background: rgba(255,255,255,0.40);
+  border-color: rgba(229,231,235,0.45);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+}
+
+/* ===== Order page layout improvements (Spacing: B, Inputs: 2) ===== */
+[data-page="order"] main {
+  margin-top: 3rem; /* Medium spacing from header */
+}
+
+/* Neat, consistent label + inputs */
+[data-page="order"] label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  font-size: 0.95rem;
+  gap: 4px;
+}
+
+/* Professional input style overrides just for Order page */
+[data-page="order"] input[type="text"],
+[data-page="order"] input[type="email"],
+[data-page="order"] input[type="tel"],
+[data-page="order"] input[type="number"] {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.25);
+  background: rgba(255,255,255,0.85);
+  box-shadow: 0 1px 2px rgba(0,0,0,.05) inset;
+}
+
+/* Improve spacing of grid rows within Order forms */
+[data-page="order"] .grid-2,
+[data-page="order"] .grid-3 {
+  gap: 1rem;
+}
+
+/* Make section headers stand out a touch */
+[data-page="order"] h2 {
+  margin-top: 0;
+  font-weight: 800;
+  font-size: 1.1rem;
+  border-bottom: 1px solid rgba(0,0,0,0.15);
+  padding-bottom: 6px;
+}

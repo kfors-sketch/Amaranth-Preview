@@ -1,0 +1,30 @@
+
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin (Local Preview)</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+  <style>.panel{background:rgba(255,255,255,.85);padding:12px;border-radius:10px;border:1px solid #ddd;margin:10px 0}</style>
+</head>
+<body>
+  <div class="wallpaper"></div>
+  <div class="page">
+    <header class="site-header"><h1>Admin (Local Preview)</h1></header>
+    <main>
+      <section class="panel">
+        <h2>Site Settings</h2>
+        <label>Product Catalog label <input id="label" value="Product Catalog"></label>
+        <label>Fee % <input id="feePct" type="number" step="0.1" value="2.9"></label>
+        <label>Fee flat <input id="feeFlat" type="number" step="0.01" value="0.30"></label>
+        <button id="save">Save (local)</button>
+        <p><small>This is a preview Admin placeholder. In production we will wire secure login and a database.</small></p>
+      </section>
+    </main>
+  </div>
+<script src="/assets/js/site-settings.js"></script>
+<script>
+document.getElementById('save').onclick = ()=>{
+  alert('Saved locally. (Production Admin will store settings in the database.)');
+};
+</script>
+</body></html>
