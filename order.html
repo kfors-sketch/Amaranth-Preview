@@ -112,31 +112,24 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    <script>
-  // Put this immediately AFTER Cart.load();
-  (function migrateLegacyCents(){
-    const st = Cart.get();
-    let changed = false;
-
-    (st.lines || []).forEach(l => {
-      const n = Number(l.unitPrice);
-      if (isFinite(n) && n > 0 && n < 1) {
-        // convert cents -> dollars (e.g., 0.60 -> 60.00)
-        l.unitPrice = Math.round(n * 100);
-        changed = true;
+    /* ---------------------------------------------------------
+       One-time migration: convert legacy "cents" prices to dollars
+       If any saved line has 0<n<1, treat as cents (e.g., 0.60 -> 60)
+    --------------------------------------------------------- */
+    (function migrateLegacyCents(){
+      const st = Cart.get();
+      let changed = false;
+      (st.lines || []).forEach(l => {
+        const n = Number(l.unitPrice);
+        if (isFinite(n) && n > 0 && n < 1) {
+          l.unitPrice = Math.round(n * 100);
+          changed = true;
+        }
+      });
+      if (changed) {
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
       }
-    });
-
-    if (changed) {
-      // use cart API to persist and re-render
-      // we need to update each line via updateLine so events fire properly
-      st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-      // If your Cart.updateLine already calls save(), the above loop is enough.
-      // Otherwise you can force a save event:
-      // Cart.save();
-    }
-  })();
-</script>
+    })();
 
     const list = document.getElementById('order-list');
     const sum  = document.getElementById('order-summary');
@@ -150,19 +143,22 @@
         const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
-          // Only show Notes (dietOther) if present. No "Diet:" line. Meal is already in itemName.
-          const notes = l?.meta?.dietOther
-            ? `<div style="margin-top:2px;"><span style="
-                  display:inline-block;padding:2px 8px;border-radius:9999px;
-                  background:#fff3cd;border:1px solid #facc15;color:#92400e;
-                  font-size:.78em;font-weight:600;">Notes: ${l.meta.dietOther}</span></div>`
+          // Only show Notes (if present). Meal already appears in itemName.
+          const notesPill = l?.meta?.notes
+            ? `<div style="margin-top:2px;">
+                 <span style="display:inline-block;padding:2px 8px;border-radius:9999px;
+                              background:#fff3cd;border:1px solid #facc15;color:#92400e;
+                              font-size:.78em;font-weight:600;">
+                   Notes: ${l.meta.notes}
+                 </span>
+               </div>`
             : '';
 
           return `
             <tr>
               <td>
                 <div>${l.itemName || ''}</div>
-                ${notes}
+                ${notesPill}
               </td>
               <td>${l.qty}</td>
               <td>${money(l.unitPrice)}</td>

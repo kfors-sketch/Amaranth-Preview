@@ -59,270 +59,263 @@
   <script src="assets/js/main.js" defer></script>
   <script src="assets/js/render-multi.js" defer></script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  Cart.load();
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    Cart.load();
 
-<script>
-  // Put this immediately AFTER Cart.load();
-  (function migrateLegacyCents(){
-    const st = Cart.get();
-    let changed = false;
-
-    (st.lines || []).forEach(l => {
-      const n = Number(l.unitPrice);
-      if (isFinite(n) && n > 0 && n < 1) {
-        // convert cents -> dollars (e.g., 0.60 -> 60.00)
-        l.unitPrice = Math.round(n * 100);
-        changed = true;
+    /* ---------------------------------------------------------
+       One-time migration: convert legacy "cents" prices to dollars
+       If any saved line has 0<n<1, treat as cents (e.g., 0.60 -> 60)
+    --------------------------------------------------------- */
+    (function migrateLegacyCents(){
+      const st = Cart.get();
+      let changed = false;
+      (st.lines || []).forEach(l => {
+        const n = Number(l.unitPrice);
+        if (isFinite(n) && n > 0 && n < 1) {
+          l.unitPrice = Math.round(n * 100);
+          changed = true;
+        }
+      });
+      if (changed) {
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
       }
-    });
+    })();
 
-    if (changed) {
-      // use cart API to persist and re-render
-      // we need to update each line via updateLine so events fire properly
-      st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-      // If your Cart.updateLine already calls save(), the above loop is enough.
-      // Otherwise you can force a save event:
-      // Cart.save();
+    // Treat 0<n<1 as cents and convert to dollars in UI / when adding to cart
+    function normalizePrice(p){
+      const n = Number(p);
+      if (!isFinite(n)) return 0;
+      return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
-  })();
-</script>
 
-  // --- Price normalizer: treat 0<n<1 as cents and convert to dollars ---
-  function normalizePrice(p){
-    const n = Number(p);
-    if (!isFinite(n)) return 0;
-    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
-  }
+    // ----- Attendees block -----
+    const list = document.getElementById('attendees');
+    const form = document.getElementById('attForm');
 
-  // ----- Attendees block -----
-  const list = document.getElementById('attendees');
-  const form = document.getElementById('attForm');
-
-  function renderAttendees(){
-    const st = Cart.get();
-    list.innerHTML = st.attendees.map(a=>`
-      <div class="att-card">
-        <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
-        <button data-del="${a.id}">Remove</button>
-      </div>
-    `).join('');
-    list.querySelectorAll('button[data-del]').forEach(btn=>{
-      btn.onclick = () => {
-        Cart.removeAttendee(btn.dataset.del);
-        renderAttendees();
-        refreshAllAttendeeSelects();     // keep selects in sync on delete too
-      };
-    });
-  }
-
-  // Helper: refill a given select with current attendees (with placeholder)
-  function populateSelectWithAttendees(sel){
-    const a = (Cart.get() || {}).attendees || [];
-    sel.innerHTML = '';
-
-    if (!a.length){
-      sel.disabled = true;
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Add attendee first';
-      sel.appendChild(opt);
-    } else {
-      sel.disabled = false;
-      const ph = document.createElement('option');
-      ph.value = '';
-      ph.textContent = 'Select attendee…';
-      ph.disabled = true;
-      ph.selected = true;
-      sel.appendChild(ph);
-
-      a.forEach(at=>{
-        const opt = document.createElement('option');
-        opt.value = at.id;
-        opt.textContent = at.name || at.email;
-        sel.appendChild(opt);
+    function renderAttendees(){
+      const st = Cart.get();
+      list.innerHTML = st.attendees.map(a=>`
+        <div class="att-card">
+          <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
+          <button data-del="${a.id}">Remove</button>
+        </div>
+      `).join('');
+      list.querySelectorAll('button[data-del]').forEach(btn=>{
+        btn.onclick = () => {
+          Cart.removeAttendee(btn.dataset.del);
+          renderAttendees();
+          refreshAllAttendeeSelects(); // keep selects in sync on delete
+        };
       });
     }
 
-    // Fire change so any button-enable logic reacts immediately
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  }
+    // Helper: refill a given select with current attendees (with placeholder)
+    function populateSelectWithAttendees(sel){
+      const a = (Cart.get() || {}).attendees || [];
+      sel.innerHTML = '';
 
-  // Helper: update all attendee selects in banquet cards
-  function refreshAllAttendeeSelects(){
-    document.querySelectorAll('.assign select').forEach(populateSelectWithAttendees);
-  }
+      if (!a.length){
+        sel.disabled = true;
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Add attendee first';
+        sel.appendChild(opt);
+      } else {
+        sel.disabled = false;
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = 'Select attendee…';
+        ph.disabled = true;
+        ph.selected = true;
+        sel.appendChild(ph);
 
-  form.onsubmit = (e)=>{
-    e.preventDefault();
-    const fd = new FormData(form);
-    Cart.addAttendee({
-      name: fd.get('name'),
-      email: fd.get('email'),
-      title: fd.get('title')
-    });
-    form.reset();
-    renderAttendees();
-    refreshAllAttendeeSelects();  // <-- make the dropdowns update immediately
-  };
-
-  renderAttendees();
-
-  // ----- Banquets block -----
-  const wrap = document.getElementById('banquets');
-
-  function attendeeSelect(){
-    const s = document.createElement('select');
-    populateSelectWithAttendees(s); // always use the helper above
-    return s;
-  }
-
-  function addBanquet(b){
-    if (b.active === false) return;
-
-    const div = document.createElement('div');
-    div.className = 'banquet-card';
-
-    // Base content (showing location) — meal/notes added below if applicable
-    div.innerHTML = `
-      <h3>${b.name}</h3>
-      <div><small>${b.datetime || ''}</small></div>
-      ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
-      <p>${b.description || ''}</p>
-
-      <label>Ticket:
-        <select class="opt"></select>
-      </label>
-
-      <div class="meal"></div>   <!-- required radios if mealChoices exist -->
-      <div class="notes"></div>  <!-- free-text notes only -->
-
-      <div class="assign"></div>
-      <button class="add" disabled>Add to Order</button>
-    `;
-
-    // Ticket options — normalize cents->dollars in both storage & label
-    const optSel = div.querySelector('.opt');
-    (b.options || []).forEach(o=>{
-      const price = normalizePrice(o.price);
-      const payload = {...o, price}; // store normalized price
-      const op = document.createElement('option');
-      op.value = JSON.stringify(payload);
-      op.textContent = `${o.label} — $${price.toFixed(2)}`;
-      optSel.appendChild(op);
-    });
-
-    // REQUIRED meal radios if mealChoices exist — NO default checked
-    if (Array.isArray(b.mealChoices) && b.mealChoices.length){
-      const meal = div.querySelector('.meal');
-      meal.innerHTML = `
-        <div style="margin:.5rem 0 .25rem;font-weight:600;">Meal Preference *</div>
-        ${b.mealChoices.map(m=>`
-          <label style="margin-right:10px">
-            <input type="radio" name="meal-${b.id}" value="${m}"> ${m}
-          </label>
-        `).join('')}
-      `;
-    }
-
-    // NOTES (optional only — no dietary checklist)
-    const notes = div.querySelector('.notes');
-    notes.innerHTML = `
-      <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
-      <input class="other" placeholder="Allergies or other notes">
-    `;
-
-    // Attendee selector + enable Add button only when chosen
-    const assign = div.querySelector('.assign');
-    const attendeeSel = attendeeSelect();
-    assign.appendChild(attendeeSel);
-
-    const addBtn = div.querySelector('.add');
-    const toggleAddBtn = () => {
-      addBtn.disabled = !(attendeeSel && attendeeSel.value);
-    };
-    attendeeSel.addEventListener('change', toggleAddBtn);
-    toggleAddBtn();
-
-    // Add to cart — enforce attendee, meal (if any), and uniqueness for attendee+banquet
-    addBtn.onclick = ()=>{
-      // 1) Attendee required (button should already be disabled otherwise)
-      if (!attendeeSel || !attendeeSel.value){
-        alert('Please select an attendee first.');
-        return;
+        a.forEach(at=>{
+          const opt = document.createElement('option');
+          opt.value = at.id;
+          opt.textContent = at.name || at.email;
+          sel.appendChild(opt);
+        });
       }
 
-      // 2) Meal required if choices exist
-      let mealChoice = '';
-      const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
-      if (mealRadios && mealRadios.length){
-        const checked = [...mealRadios].find(r => r.checked);
-        if (!checked){
-          alert('Please choose a meal preference.');
+      // Fire change so any button-enable logic reacts immediately
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    // Helper: update all attendee selects in banquet cards
+    function refreshAllAttendeeSelects(){
+      document.querySelectorAll('.assign select').forEach(populateSelectWithAttendees);
+    }
+
+    form.onsubmit = (e)=>{
+      e.preventDefault();
+      const fd = new FormData(form);
+      Cart.addAttendee({
+        name: fd.get('name'),
+        email: fd.get('email'),
+        title: fd.get('title')
+      });
+      form.reset();
+      renderAttendees();
+      refreshAllAttendeeSelects();  // make dropdowns update immediately
+    };
+
+    renderAttendees();
+
+    // ----- Banquets block -----
+    const wrap = document.getElementById('banquets');
+
+    function attendeeSelect(){
+      const s = document.createElement('select');
+      populateSelectWithAttendees(s);
+      return s;
+    }
+
+    function addBanquet(b){
+      if (b.active === false) return;
+
+      const div = document.createElement('div');
+      div.className = 'banquet-card';
+
+      // Base content (showing location) — meal/notes added below if applicable
+      div.innerHTML = `
+        <h3>${b.name}</h3>
+        <div><small>${b.datetime || ''}</small></div>
+        ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
+        <p>${b.description || ''}</p>
+
+        <label>Ticket:
+          <select class="opt"></select>
+        </label>
+
+        <div class="meal"></div>   <!-- required radios if mealChoices exist -->
+        <div class="notes"></div>  <!-- free-text notes only -->
+
+        <div class="assign"></div>
+        <button class="add" disabled>Add to Order</button>
+      `;
+
+      // Ticket options — normalize cents->dollars in both storage & label
+      const optSel = div.querySelector('.opt');
+      (b.options || []).forEach(o=>{
+        const price = normalizePrice(o.price);
+        const payload = {...o, price}; // store normalized price
+        const op = document.createElement('option');
+        op.value = JSON.stringify(payload);
+        op.textContent = `${o.label} — $${price.toFixed(2)}`;
+        optSel.appendChild(op);
+      });
+
+      // REQUIRED meal radios if mealChoices exist — NO default checked
+      if (Array.isArray(b.mealChoices) && b.mealChoices.length){
+        const meal = div.querySelector('.meal');
+        meal.innerHTML = `
+          <div style="margin:.5rem 0 .25rem;font-weight:600;">Meal Preference *</div>
+          ${b.mealChoices.map(m=>`
+            <label style="margin-right:10px">
+              <input type="radio" name="meal-${b.id}" value="${m}"> ${m}
+            </label>
+          `).join('')}
+        `;
+      }
+
+      // NOTES (optional only — no dietary checklist)
+      const notes = div.querySelector('.notes');
+      notes.innerHTML = `
+        <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
+        <input class="other" placeholder="Allergies or other notes">
+      `;
+
+      // Attendee selector + enable Add button only when chosen
+      const assign = div.querySelector('.assign');
+      const attendeeSel = attendeeSelect();
+      assign.appendChild(attendeeSel);
+
+      const addBtn = div.querySelector('.add');
+      const toggleAddBtn = () => {
+        addBtn.disabled = !(attendeeSel && attendeeSel.value);
+      };
+      attendeeSel.addEventListener('change', toggleAddBtn);
+      toggleAddBtn();
+
+      // Add to cart — enforce attendee, meal (if any), and uniqueness for attendee+banquet
+      addBtn.onclick = ()=>{
+        // 1) Attendee required
+        if (!attendeeSel || !attendeeSel.value){
+          alert('Please select an attendee first.');
           return;
         }
-        mealChoice = checked.value;
-      }
 
-      // 3) Prevent double-adding same banquet for the same attendee
-      const st = Cart.get();
-      const attendeeId = attendeeSel.value;
-      const alreadyHasThisBanquet = (st.lines || []).some(l =>
-        l.attendeeId === attendeeId &&
-        l.itemType === 'banquet' &&
-        String(l.itemId).startsWith(b.id + ':')
-      );
-      if (alreadyHasThisBanquet){
-        alert('This attendee is already assigned to this banquet.');
-        return;
-      }
-
-      // Proceed to add (normalize again just in case)
-      const chosen = JSON.parse(optSel.value);
-      const unitPrice = normalizePrice(chosen.price);
-      const other  = div.querySelector('.notes .other')?.value || '';
-
-      Cart.addLine({
-        attendeeId,
-        itemType: 'banquet',
-        itemId: b.id + ":" + chosen.id,
-        // No "Ticket" wording in the name — just event + (meal)
-        itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
-        qty: 1,
-        unitPrice, // dollars
-        meta: {
-          mealChoice,
-          notes: other,
-          event: b.datetime || "",
-          location: b.location || ""
+        // 2) Meal required if choices exist
+        let mealChoice = '';
+        const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
+        if (mealRadios && mealRadios.length){
+          const checked = [...mealRadios].find(r => r.checked);
+          if (!checked){
+            alert('Please choose a meal preference.');
+            return;
+          }
+          mealChoice = checked.value;
         }
-      });
 
-      alert('Banquet added');
-    };
+        // 3) Prevent double-adding same banquet for the same attendee
+        const st = Cart.get();
+        const attendeeId = attendeeSel.value;
+        const alreadyHasThisBanquet = (st.lines || []).some(l =>
+          l.attendeeId === attendeeId &&
+          l.itemType === 'banquet' &&
+          String(l.itemId).startsWith(b.id + ':')
+        );
+        if (alreadyHasThisBanquet){
+          alert('This attendee is already assigned to this banquet.');
+          return;
+        }
 
-    wrap.appendChild(div);
-  }
+        // Proceed to add with normalized price
+        const chosen = JSON.parse(optSel.value);
+        const unitPrice = normalizePrice(chosen.price);
+        const other  = div.querySelector('.notes .other')?.value || '';
 
-  // --- Scheduling + cap to 12 ---
-  function isWithinWindow(b, now){
-    const start = b.publishStart ? new Date(b.publishStart) : null;
-    const end   = b.publishEnd   ? new Date(b.publishEnd)   : null;
-    return (!start || now >= start) && (!end || now <= end);
-  }
+        Cart.addLine({
+          attendeeId,
+          itemType: 'banquet',
+          itemId: b.id + ":" + chosen.id,
+          // No "Ticket" wording in the name — just event + (meal)
+          itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
+          qty: 1,
+          unitPrice, // dollars
+          meta: {
+            mealChoice,
+            notes: other,
+            event: b.datetime || "",
+            location: b.location || ""
+          }
+        });
 
-  const now = new Date();
-  const MAX_BANQUETS = 12;
+        alert('Banquet added');
+      };
 
-  const toRender = (window.BANQUETS || [])
-    .filter(b => b.active !== false)     // manual override
-    .filter(b => isWithinWindow(b, now)) // date window
-    .slice(0, MAX_BANQUETS);             // show up to 12
+      wrap.appendChild(div);
+    }
 
-  toRender.forEach(addBanquet);
-});
-</script>
+    // --- Scheduling + cap to 12 ---
+    function isWithinWindow(b, now){
+      const start = b.publishStart ? new Date(b.publishStart) : null;
+      const end   = b.publishEnd   ? new Date(b.publishEnd)   : null;
+      return (!start || now >= start) && (!end || now <= end);
+    }
+
+    const now = new Date();
+    const MAX_BANQUETS = 12;
+
+    const toRender = (window.BANQUETS || [])
+      .filter(b => b.active !== false)     // manual override
+      .filter(b => isWithinWindow(b, now)) // date window
+      .slice(0, MAX_BANQUETS);             // show up to 12
+
+    toRender.forEach(addBanquet);
+  });
+  </script>
 
   <style>
     .att-form input{margin:4px;padding:6px}
