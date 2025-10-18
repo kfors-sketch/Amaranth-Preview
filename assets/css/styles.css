@@ -487,3 +487,13 @@ body.shop .item-price{
 
 /* If Home still has a .wallpaper element, hide it so the global body layers show */
 [data-page="home"] .wallpaper { display: none !important; }
+
+/* Center QR section on Home page */
+#qr {
+  text-align: center;
+  margin: 2rem auto;
+}
+#qr img {
+  display: block;
+  margin: 0 auto;
+}
