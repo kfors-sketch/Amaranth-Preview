@@ -63,6 +63,13 @@
 document.addEventListener('DOMContentLoaded', function(){
   Cart.load();
 
+  // --- Price normalizer: treat 0<n<1 as cents and convert to dollars ---
+  function normalizePrice(p){
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+
   // ----- Attendees block -----
   const list = document.getElementById('attendees');
   const form = document.getElementById('attForm');
@@ -169,12 +176,14 @@ document.addEventListener('DOMContentLoaded', function(){
       <button class="add" disabled>Add to Order</button>
     `;
 
-    // Ticket options (label "Ticket")
+    // Ticket options — normalize cents->dollars in both storage & label
     const optSel = div.querySelector('.opt');
     (b.options || []).forEach(o=>{
+      const price = normalizePrice(o.price);
+      const payload = {...o, price}; // store normalized price
       const op = document.createElement('option');
-      op.value = JSON.stringify(o);
-      op.textContent = `${o.label} — $${Number(o.price||0).toFixed(2)}`;
+      op.value = JSON.stringify(payload);
+      op.textContent = `${o.label} — $${price.toFixed(2)}`;
       optSel.appendChild(op);
     });
 
@@ -243,8 +252,9 @@ document.addEventListener('DOMContentLoaded', function(){
         return;
       }
 
-      // Proceed to add
+      // Proceed to add (normalize again just in case)
       const chosen = JSON.parse(optSel.value);
+      const unitPrice = normalizePrice(chosen.price);
       const other  = div.querySelector('.notes .other')?.value || '';
 
       Cart.addLine({
@@ -254,7 +264,7 @@ document.addEventListener('DOMContentLoaded', function(){
         // No "Ticket" wording in the name — just event + (meal)
         itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
         qty: 1,
-        unitPrice: Number(chosen.price || 0), // dollars
+        unitPrice, // dollars
         meta: {
           mealChoice,
           notes: other,
@@ -287,7 +297,6 @@ document.addEventListener('DOMContentLoaded', function(){
   toRender.forEach(addBanquet);
 });
 </script>
-
 
   <style>
     .att-form input{margin:4px;padding:6px}
