@@ -132,7 +132,7 @@
         </label>
 
         <div class="meal"></div>   <!-- required radios if mealChoices exist -->
-        <div class="diet"></div>   <!-- optional checkboxes if dietary exists -->
+        <div class="diet"></div>   <!-- optional checkboxes/notes if provided -->
 
         <div class="assign"></div>
         <button class="add">Add to Order</button>
@@ -160,19 +160,23 @@
         `;
       }
 
-      // OPTIONAL dietary checkboxes if provided (not required)
+      // OPTIONAL dietary (checkbox list if provided, always a free-text notes box)
+      const diet = div.querySelector('.diet');
+      let dietHtml = `
+        <div style="margin:.5rem 0 .25rem;font-weight:600;">Dietary notes (optional)</div>
+        <input class="other" placeholder="Allergies / restrictions / preferences">
+      `;
       if (Array.isArray(b.dietary) && b.dietary.length){
-        const diet = div.querySelector('.diet');
-        diet.innerHTML = `
-          <div style="margin:.5rem 0 .25rem;font-weight:600;">Dietary Restrictions (optional)</div>
-          ${b.dietary.map(d=>`
+        dietHtml =
+          `<div style="margin:.5rem 0 .25rem;font-weight:600;">Dietary Restrictions (optional)</div>` +
+          b.dietary.map(d=>`
             <label style="margin-right:10px">
               <input type="checkbox" value="${d}"> ${d}
             </label>
-          `).join('')}
-          <div><input class="other" placeholder="Other dietary notes"></div>
-        `;
+          `).join('') +
+          `<div><input class="other" placeholder="Other dietary notes"></div>`;
       }
+      diet.innerHTML = dietHtml;
 
       // Attendee selector
       div.querySelector('.assign').appendChild(attendeeSelect());
