@@ -429,3 +429,21 @@ body.shop .item-price{
   border-bottom: 1px solid rgba(0,0,0,0.15);
   padding-bottom: 6px;
 }
+
+/* ===========================
+   Current Page Nav Highlight
+   =========================== */
+.site-nav a.nav-current {
+  pointer-events: none;          /* disable clicking */
+  cursor: default;
+  font-weight: 700;              /* selected look */
+  color: #555 !important;        /* slightly dim */
+  opacity: 0.65;
+  border-bottom: 2px solid #555; /* underline to show "current" */
+  text-decoration: none !important;
+}
+
+/* Hide Admin from header menu (safety) */
+.site-nav a[href*="admin.html"] {
+  display: none !important;
+}
