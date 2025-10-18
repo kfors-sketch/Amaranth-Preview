@@ -315,7 +315,7 @@ body.shop main h1{
   padding:20px;
   z-index:1000;
 }
-.lightbox-img{
+lightbox-img{
   max-width:min(92vw, 1000px);
   max-height:82vh;
   border-radius:12px;
@@ -448,6 +448,7 @@ body.shop .item-price{
 .site-nav a[href*="admin.html"] {
   display: none !important;
 }
+
 /* ===== Make Banquets + Order match Product Catalog header ===== */
 [data-page="banquets"] .header-inner,
 [data-page="order"] .header-inner {
@@ -468,6 +469,15 @@ body.shop .item-price{
 [data-page="order"] .logo img {
   width: clamp(36px, 3.2vw, 48px);
   height: clamp(36px, 3.2vw, 48px);
+}
+
+/* Match Banquets + Order logo text to Product Catalog */
+[data-page="banquets"] .logo span,
+[data-page="order"] .logo span {
+  font-size: clamp(1.05rem, 2.2vw, 1.4rem);
+  font-weight: 700;
+  text-align: center;
+  color: #1f2937;
 }
 
 /* Nav is already centered by .nav rules; no extra needed */
