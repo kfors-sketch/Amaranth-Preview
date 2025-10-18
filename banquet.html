@@ -97,16 +97,27 @@
     // ----- Banquets block -----
     const wrap = document.getElementById('banquets');
 
+    // Attendee selector with placeholder; Add button will be disabled until a real selection
     function attendeeSelect(){
       const s = document.createElement('select');
       const a = Cart.get().attendees;
-      if (a.length === 0){
+
+      if (!a || a.length === 0){
         s.disabled = true;
         const opt = document.createElement('option');
         opt.textContent = 'Add attendee first';
+        opt.value = '';
         s.appendChild(opt);
         return s;
       }
+
+      const ph = document.createElement('option');
+      ph.value = '';
+      ph.textContent = 'Select attendee…';
+      ph.disabled = true;
+      ph.selected = true;
+      s.appendChild(ph);
+
       a.forEach(at=>{
         const opt = document.createElement('option');
         opt.value = at.id;
@@ -122,24 +133,25 @@
       const div = document.createElement('div');
       div.className = 'banquet-card';
 
-      // Base content (now showing location) — meal/diet sections added conditionally below
+      // Base content (showing location) — meal/notes added below if applicable
       div.innerHTML = `
         <h3>${b.name}</h3>
         <div><small>${b.datetime || ''}</small></div>
         ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
         <p>${b.description || ''}</p>
+
         <label>Ticket:
           <select class="opt"></select>
         </label>
 
         <div class="meal"></div>   <!-- required radios if mealChoices exist -->
-        <div class="diet"></div>   <!-- optional checkboxes if dietary exists -->
+        <div class="notes"></div>  <!-- free-text notes only -->
 
         <div class="assign"></div>
-        <button class="add">Add to Order</button>
+        <button class="add" disabled>Add to Order</button>
       `;
 
-      // Ticket options
+      // Ticket options (you now use label "Ticket" everywhere)
       const optSel = div.querySelector('.opt');
       (b.options || []).forEach(o=>{
         const op = document.createElement('option');
@@ -153,7 +165,7 @@
         const meal = div.querySelector('.meal');
         meal.innerHTML = `
           <div style="margin:.5rem 0 .25rem;font-weight:600;">Meal Preference *</div>
-          ${b.mealChoices.map((m)=>`
+          ${b.mealChoices.map(m=>`
             <label style="margin-right:10px">
               <input type="radio" name="meal-${b.id}" value="${m}"> ${m}
             </label>
@@ -161,34 +173,34 @@
         `;
       }
 
-      // OPTIONAL dietary checkboxes if provided (not required)
-      if (Array.isArray(b.dietary) && b.dietary.length){
-        const diet = div.querySelector('.diet');
-        diet.innerHTML = `
-          <div style="margin:.5rem 0 .25rem;font-weight:600;">Dietary Restrictions (optional)</div>
-          ${b.dietary.map(d=>`
-            <label style="margin-right:10px">
-              <input type="checkbox" value="${d}"> ${d}
-            </label>
-          `).join('')}
-          <div><input class="other" placeholder="Other dietary notes"></div>
-        `;
-      }
+      // NOTES (optional only — no dietary checklist)
+      const notes = div.querySelector('.notes');
+      notes.innerHTML = `
+        <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
+        <input class="other" placeholder="Allergies or other notes">
+      `;
 
-      // Attendee selector
-      div.querySelector('.assign').appendChild(attendeeSelect());
+      // Attendee selector + enable Add button only when chosen
+      const assign = div.querySelector('.assign');
+      const attendeeSel = attendeeSelect();
+      assign.appendChild(attendeeSel);
 
-      // Add to cart — enforce meal selection when mealChoices exist
-      div.querySelector('.add').onclick = ()=>{
-        const sel = div.querySelector('.assign select');
-        if(!sel || !sel.value){
-          alert('Add/select an attendee first.');
+      const addBtn = div.querySelector('.add');
+      const toggleAddBtn = () => {
+        addBtn.disabled = !(attendeeSel && attendeeSel.value);
+      };
+      attendeeSel.addEventListener('change', toggleAddBtn);
+      toggleAddBtn();
+
+      // Add to cart — enforce attendee, meal (if any), and uniqueness for attendee+banquet
+      addBtn.onclick = ()=>{
+        // 1) Attendee required (button should already be disabled otherwise)
+        if (!attendeeSel || !attendeeSel.value){
+          alert('Please select an attendee first.');
           return;
         }
 
-        const chosen = JSON.parse(optSel.value);
-
-        // Require meal if present
+        // 2) Meal required if choices exist
         let mealChoice = '';
         const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
         if (mealRadios && mealRadios.length){
@@ -200,22 +212,36 @@
           mealChoice = checked.value;
         }
 
-        // Optional dietary
-        const dietFlags = Array.from(div.querySelectorAll('.diet input[type="checkbox"]:checked') || []).map(x=>x.value);
-        const other = div.querySelector('.diet .other')?.value || '';
+        // 3) Prevent double-adding same banquet for the same attendee
+        const st = Cart.get();
+        const attendeeId = attendeeSel.value;
+        const alreadyHasThisBanquet = (st.lines || []).some(l =>
+          l.attendeeId === attendeeId &&
+          l.itemType === 'banquet' &&
+          String(l.itemId).startsWith(b.id + ':')
+        );
+        if (alreadyHasThisBanquet){
+          alert('This attendee is already assigned to this banquet.');
+          return;
+        }
+
+        // Proceed to add
+        const chosen = JSON.parse(optSel.value);
+        const other  = div.querySelector('.notes .other')?.value || '';
 
         Cart.addLine({
-          attendeeId: sel.value,
+          attendeeId,
           itemType: 'banquet',
           itemId: b.id + ":" + chosen.id,
+          // No "Ticket" wording in the name — just event + (meal)
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
-          unitPrice: Number(chosen.price||0), // dollars
+          unitPrice: Number(chosen.price || 0), // dollars
           meta: {
             mealChoice,
-            dietFlags,
-            dietOther: other,
-            event: b.datetime || ""
+            notes: other,
+            event: b.datetime || "",
+            location: b.location || ""
           }
         });
 
