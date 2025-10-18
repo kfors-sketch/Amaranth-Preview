@@ -4,7 +4,7 @@ window.BANQUETS = [
     id: "trails-feast",
     name: "Trails & Treasures Feast",
     datetime: "Saturday, April 18th at 5 PM",
-    location: "Grand Ballroom",
+    location: "Court Room",
     description: "YADA YADA",
     options: [
       { id: "adult",  label: "Adult Ticket",  price: 60 },
@@ -16,14 +16,14 @@ window.BANQUETS = [
     publishEnd: ""      // e.g. "2026-04-15T23:59:59-04:00"
   },
 
-  // 02 — Has meal choices
+  // 02 — No meal choices
   {
     id: "gf-officers-breakfast",
     name: "Grand Floor Officers Breakfast",
     datetime: "Sunday, April 19th at 9 AM",
     location: "Palm Court",
-    description: "Plated Breakfast in Palm Court",
-    options: [{ id: "adult", label: "Adult Ticket", price: 35 }],
+    description: "Plated Breakfast",
+    options: [{ id: "adult", label: "Adult Ticket", price: 25 }],
     dietary: [],
     active: true,
     publishStart: "",
@@ -33,82 +33,85 @@ window.BANQUETS = [
   // 03 — Has meal choices
   {
     id: "gala-2026",
-    name: "Gala Banquet",
-    datetime: "Friday, Feb 20th at 6 PM",
-    location: "Grand Ballroom A",
-    description: "Evening with keynote and awards.",
+    name: "Past Grands Luncheon",
+    datetime: "Sunday April 19th at 12 PM",
+    location: "Tea Room ",
+    description: "BLAH BLAH ",
     options: [
       { id: "adult", label: "Adult Ticket", price: 60 },
       { id: "child", label: "Child Ticket", price: 30 }
     ],
-    dietary: ["Vegetarian", "Vegan", "Gluten-free", "Dairy-free", "Nut allergy", "Shellfish allergy"],
+    dietary: ["Chicken Entree", "Beef Entree", "Vegetarian Entree"],
     active: true,
     publishStart: "",
     publishEnd: ""
   },
 
-  // 04 — No meal choice
+  // 04 — Has meal choice
   {
     id: "members-luncheon-2026",
-    name: "Members Luncheon",
-    datetime: "Saturday, Feb 21st at 12 PM",
-    location: "Garden Terrace",
-    description: "",
+    name: "Supreme Luncheon",
+    datetime: "Monday, April 20th at 12 PM",
+    location: "Palm Court",
+    description: "Yada Blah",
     options: [{ id: "adult", label: "Adult Ticket", price: 35 }],
+	dietary: ["Chicken Entree", "Beef Entree", "Vegetarian Entree"],
     active: true,
     publishStart: "",
     publishEnd: ""
   },
 
-  // 05 — Placeholder (no meal choice)
+  // 05 — Has meal choice
   {
     id: "banquet-05",
-    name: "Banquet 05",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Standard Ticket", price: 40 }],
+    name: "What an Adventure Banquet",
+    datetime: "Monday, April 20th at 5 PM",
+    location: "Palm Court",
+    description: "Blah Yada",
+    options: [{ id: "ticket", label: "Standard Ticket", price: 60 }],
+	dietary: ["Chicken Entree", "Beef Entree", "Vegetarian Entree"],
     active: true,
     publishStart: "",
     publishEnd: ""
   },
 
-  // 06 — Placeholder with meal choices
+  // 06 — No meal choice
   {
-    id: "banquet-06",
-    name: "Banquet 06",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Standard Ticket", price: 45 }],
-    dietary: ["Beef", "Chicken", "Vegetarian"],
+    id: "Breakfast #2",
+    name: "Breakfast ",
+    datetime: "Tuesday, April 21st at 9 AM",
+    location: "Palm Court",
+    description: "This breakfast is for the DDGRM's, Grand Representatives,Pages,Grand Choir,Secretaries and Treasurers",
+    options: [{ id: "ticket", label: "Standard Ticket", price: 25 }],
+    dietary: [],
     active: true,
     publishStart: "",
     publishEnd: ""
   },
 
-  // 07 — Placeholder (no meal choice)
+  // 07 — Has meal choice
   {
-    id: "banquet-07",
-    name: "Banquet 07",
-    datetime: "TBD",
-    location: "TBD",
+    id: "Incoming Banquet",
+    name: "Fly Eagles FLY Banquet",
+    datetime: "Tuesday, April 21st at 12 PM",
+    location: "Palm Court",
     description: "",
-    options: [{ id: "ticket", label: "Standard Ticket", price: 30 }],
+    options: [{ id: "ticket", label: "Standard Ticket", price: 55 }],
+	dietary: ["Chicken Entree", "Beef Entree", "Vegetarian Entree"],
     active: true,
     publishStart: "",
     publishEnd: ""
   },
 
-  // 08 — Placeholder with meal choices
+  // 08 — No meal choice
   {
-    id: "banquet-08",
-    name: "Banquet 08",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Standard Ticket", price: 50 }],
-    dietary: ["Fish", "Chicken", "Vegetarian"],
+    id: "Breakfast #3",
+    name: "Breakfast",
+    datetime: "Wednesday, April 22nd at 9 AM",
+    location: "Palm Court",
+    description: "THis is for the Grand Floor Officers,DDGRM's and Grand Representatives",
+    options: [{ id: "ticket", label: "Standard Ticket", price: 25 }],
+    dietary: [],
     active: true,
     publishStart: "",
     publishEnd: ""
