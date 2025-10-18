@@ -208,7 +208,7 @@
           attendeeId: sel.value,
           itemType: 'banquet',
           itemId: b.id + ":" + chosen.id,
-          itemName: `${b.name} – ${chosen.label}${mealChoice ? ` (${mealChoice})` : ''}`,
+          itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice: Number(chosen.price||0), // dollars
           meta: {
