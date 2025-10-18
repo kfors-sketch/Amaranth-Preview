@@ -54,29 +54,24 @@
       </div>
     </section>
 
-    <!-- Summary -->
+    <!-- Summary: everything in one frosted card -->
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
         <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
       </div>
 
+      <!-- Items grouped by attendee -->
       <div id="order-lines" class="mt"></div>
-      <div id="fees-line" class="tiny" style="margin-top:.5rem;"></div>
 
-      <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
-      <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
-    </section>
+      <!-- Fee/subtotal/total lines -->
+      <div id="totals-block" class="mt"></div>
 
-    <!-- Review -->
-    <section class="panel">
-      <h2>Review & Checkout</h2>
-      <div id="order-list"></div>
-      <hr>
-      <div id="order-summary"></div>
-      <div style="margin-top:12px">
-        <button id="clearCart">Clear Order</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem;">
+        <button id="checkout" class="btn btn-primary">Go to Checkout</button>
+        <button id="clearCart" class="btn" type="button">Clear Order</button>
       </div>
+      <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
   </main>
 
@@ -89,7 +84,6 @@
   <script>
   // Dollars-safe UI formatter
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
-
   // Treat 0<n<1 as cents (legacy safeguard)
   function normalizePrice(p){
     const n = Number(p);
@@ -111,15 +105,17 @@
       if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
     })();
 
-    const list = document.getElementById('order-list');
-    const sum  = document.getElementById('order-summary');
+    const linesEl = document.getElementById('order-lines');
+    const totalsEl = document.getElementById('totals-block');
+    const totalTopEl = document.getElementById('order-total');
 
     function render(){
       const st = Cart.get();
       const byA = {};
       (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
+      // Build grouped tables in the same card
+      linesEl.innerHTML = Object.entries(byA).map(([aid, lines]) => {
         const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
@@ -154,29 +150,24 @@
           </div>`;
       }).join('') || '<p>No items yet.</p>';
 
-      list.querySelectorAll('button[data-remove]').forEach(b=>{
+      linesEl.querySelectorAll('button[data-remove]').forEach(b=>{
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
       // Totals based on normalized prices (defensive)
       const st2 = Cart.get();
       const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals();
+      const t = Cart.totals(); // uses SITE_SETTINGS.feePercent/feeFlat
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
-      // Top “Summary” numbers
-      document.getElementById('order-lines').innerHTML = ''; // (optional spot for future)
-      document.getElementById('fees-line').textContent = `Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}`;
-      document.getElementById('order-total').textContent = money(total);
-
-      // Bottom review block
-      sum.innerHTML = `
+      totalTopEl.textContent = money(total);
+      totalsEl.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
         <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
         <hr>
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p><small>The fee helps cover online processing costs.</small></p>
+        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
       `;
     }
 
@@ -185,6 +176,10 @@
 
     const clearBtn = document.getElementById('clearCart');
     if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
+
+    // (Wire your real checkout here as needed)
+    const checkoutBtn = document.getElementById('checkout');
+    if (checkoutBtn) checkoutBtn.onclick = ()=>{ /* redirect to Stripe, etc. */ };
   });
   </script>
 
