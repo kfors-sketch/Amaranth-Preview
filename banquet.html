@@ -122,7 +122,7 @@
       const div = document.createElement('div');
       div.className = 'banquet-card';
 
-      // Base content (note: we add dietary later only if provided)
+      // Base content; meal/diet sections added conditionally below
       div.innerHTML = `
         <h3>${b.name}</h3>
         <div><small>${b.datetime||''}</small></div>
@@ -130,6 +130,10 @@
         <label>Ticket:
           <select class="opt"></select>
         </label>
+
+        <div class="meal"></div>   <!-- required radios if mealChoices exist -->
+        <div class="diet"></div>   <!-- optional checkboxes if dietary exists -->
+
         <div class="assign"></div>
         <button class="add">Add to Order</button>
       `;
@@ -143,36 +147,71 @@
         optSel.appendChild(op);
       });
 
-      // Only render meal/dietary section if there are choices
+      // REQUIRED meal radios if mealChoices exist
+      if (Array.isArray(b.mealChoices) && b.mealChoices.length){
+        const meal = div.querySelector('.meal');
+        meal.innerHTML = `
+          <div style="margin:.5rem 0 .25rem;font-weight:600;">Meal Preference *</div>
+          ${b.mealChoices.map((m,i)=>`
+            <label style="margin-right:10px">
+              <input type="radio" name="meal-${b.id}" value="${m}" ${i===0?'checked':''}> ${m}
+            </label>
+          `).join('')}
+        `;
+      }
+
+      // OPTIONAL dietary checkboxes if provided (not required)
       if (Array.isArray(b.dietary) && b.dietary.length){
-        const diet = document.createElement('div');
-        diet.className = 'diet';
+        const diet = div.querySelector('.diet');
         diet.innerHTML = `
-          Meal / Dietary: ${b.dietary.map(d=>`<label><input type="checkbox" value="${d}"> ${d}</label>`).join(' ')}
+          <div style="margin:.5rem 0 .25rem;font-weight:600;">Dietary Restrictions (optional)</div>
+          ${b.dietary.map(d=>`
+            <label style="margin-right:10px">
+              <input type="checkbox" value="${d}"> ${d}
+            </label>
+          `).join('')}
           <div><input class="other" placeholder="Other dietary notes"></div>
         `;
-        div.insertBefore(diet, div.querySelector('.assign'));
       }
 
       // Attendee selector
       div.querySelector('.assign').appendChild(attendeeSelect());
 
-      // Add to cart
+      // Add to cart — enforce meal selection when mealChoices exist
       div.querySelector('.add').onclick = ()=>{
         const sel = div.querySelector('.assign select');
         if(!sel || !sel.value){ alert('Add/select an attendee first.'); return; }
+
         const chosen = JSON.parse(optSel.value);
+
+        // Require meal if present
+        let mealChoice = '';
+        const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
+        if (mealRadios && mealRadios.length){
+          const checked = [...mealRadios].find(r => r.checked);
+          if (!checked){ alert('Please choose a meal preference.'); return; }
+          mealChoice = checked.value;
+        }
+
+        // Optional dietary
         const dietFlags = Array.from(div.querySelectorAll('.diet input[type="checkbox"]:checked') || []).map(x=>x.value);
         const other = div.querySelector('.diet .other')?.value || '';
+
         Cart.addLine({
           attendeeId: sel.value,
           itemType: 'banquet',
           itemId: b.id + ":" + chosen.id,
-          itemName: `${b.name} – ${chosen.label}`,
+          itemName: `${b.name} – ${chosen.label}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
-          unitPrice: Number(chosen.price||0),
-          meta: {dietFlags, dietOther: other, event: b.datetime||""}
+          unitPrice: Number(chosen.price||0), // dollars; keep consistent with your cart.js
+          meta: {
+            mealChoice,
+            dietFlags,
+            dietOther: other,
+            event: b.datetime || ""
+          }
         });
+
         alert('Banquet added');
       };
 
