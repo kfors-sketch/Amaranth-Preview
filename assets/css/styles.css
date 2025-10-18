@@ -481,3 +481,9 @@ body.shop .item-price{
 }
 
 /* Nav is already centered by .nav rules; no extra needed */
+
+/* Make Home use the same full-page wallpaper treatment */
+[data-page="home"] .hero { background: transparent !important; }
+
+/* If Home still has a .wallpaper element, hide it so the global body layers show */
+[data-page="home"] .wallpaper { display: none !important; }
