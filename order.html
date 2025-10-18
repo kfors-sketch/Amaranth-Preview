@@ -10,18 +10,19 @@
 </head>
 
 <body data-page="order">
+  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="/home.html">
         <img src="/assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
+
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
         <a href="/product-catalog.html">Product Catalog</a>
         <span class="nav-current">Order</span>
-        <a href="/grand-addons.html">Grand Court Add-Ons</a>
       </nav>
     </div>
   </header>
@@ -97,16 +98,25 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <script defer src="/assets/js/render-multi.js"></script>
-  <script defer src="/assets/js/main.js"></script>
+  <!-- Keep your existing scripts -->
+  <script src="/assets/js/render-multi.js" defer></script>
+  <script src="/assets/js/main.js" defer></script>
 
   <script>
+  // Dollars-safe UI formatter
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
+
+  // Treat 0<n<1 as cents
+  function normalizePrice(p){
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // --- One-time migration: convert 0<n<1 (cents) to dollars ---
+    // HOTFIX: migrate any legacy cents (once per load)
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -134,6 +144,7 @@
         const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
+          const displayPrice = normalizePrice(l.unitPrice);
           const notes = l?.meta?.notes
             ? `<div style="margin-top:2px;"><span style="
                   display:inline-block;padding:2px 8px;border-radius:9999px;
@@ -148,8 +159,8 @@
                 ${notes}
               </td>
               <td>${l.qty}</td>
-              <td>${money(l.unitPrice)}</td>
-              <td>${money(Number(l.unitPrice) * Number(l.qty))}</td>
+              <td>${money(displayPrice)}</td>
+              <td>${money(displayPrice * Number(l.qty))}</td>
               <td><button data-remove="${l.id}">Remove</button></td>
             </tr>`;
         }).join('');
@@ -168,12 +179,18 @@
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
+      // Recompute totals using normalized prices just in case
+      const st2 = Cart.get();
+      const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
       const t = Cart.totals();
+      const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
+      const total = subtotal + fee;
+
       sum.innerHTML = `
-        <div><strong>Subtotal</strong>: ${money(t.subtotal)}</div>
-        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(t.fee)}</div>
+        <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
+        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
         <hr>
-        <div style="font-size:1.1em"><strong>Total</strong>: ${money(t.total)}</div>
+        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
         <p><small>The fee helps cover online processing costs.</small></p>
       `;
     }
@@ -192,6 +209,7 @@
   .att-block{margin-bottom:16px}
   </style>
 
+  <!-- Core site scripts (order matters) -->
   <script src="/assets/js/site-settings.js"></script>
   <script src="/assets/js/items.js"></script>
   <script src="/assets/js/banquets.js"></script>

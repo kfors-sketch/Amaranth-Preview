@@ -17,12 +17,12 @@
         <img src="assets/img/logo.svg" alt="Logo">
         <span>Order of the Amaranth</span>
       </a>
+      <!-- Order: Home | Banquets | Product Catalog | Order -->
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <span class="nav-current">Banquets</span>
         <a href="product-catalog.html">Product Catalog</a>
         <a href="order.html">Order</a>
-        <a href="grand-addons.html">Grand Court Add-Ons</a>
       </nav>
     </div>
   </header>
@@ -53,15 +53,15 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Optional legacy scripts -->
-  <script defer src="assets/js/main.js"></script>
-  <script defer src="assets/js/render-multi.js"></script>
+  <!-- Optional legacy scripts (keep if used elsewhere) -->
+  <script src="assets/js/main.js" defer></script>
+  <script src="assets/js/render-multi.js" defer></script>
 
   <script>
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // --- One-time migration: convert 0<n<1 (cents) to dollars ---
+    // --- HOTFIX: migrate any legacy cents (0<n<1) to dollars (×100) ---
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -77,14 +77,14 @@
       }
     })();
 
-    // Normalize prices coming from data (treat 0<n<1 as cents)
+    // Treat 0<n<1 as cents and convert to dollars for all future adds
     function normalizePrice(p){
       const n = Number(p);
       if (!isFinite(n)) return 0;
       return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
 
-    // ----- Attendees block -----
+    // ===== Attendees UI =====
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
@@ -147,12 +147,10 @@
       renderAttendees();
       refreshAllAttendeeSelects();
     };
-
     renderAttendees();
 
-    // ----- Banquets block -----
+    // ===== Banquets UI =====
     const wrap = document.getElementById('banquets');
-
     function attendeeSelect(){
       const s = document.createElement('select');
       populateSelectWithAttendees(s);
@@ -169,19 +167,15 @@
         <div><small>${b.datetime || ''}</small></div>
         ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
         <p>${b.description || ''}</p>
-
         <label>Ticket:
           <select class="opt"></select>
         </label>
-
         <div class="meal"></div>
         <div class="notes"></div>
-
         <div class="assign"></div>
         <button class="add" disabled>Add to Order</button>
       `;
 
-      // Ticket options — store normalized price in the payload
       const optSel = div.querySelector('.opt');
       (b.options || []).forEach(o=>{
         const price = normalizePrice(o.price);
@@ -192,7 +186,6 @@
         optSel.appendChild(op);
       });
 
-      // Meal (required when present) — no default checked
       if (Array.isArray(b.mealChoices) && b.mealChoices.length){
         const meal = div.querySelector('.meal');
         meal.innerHTML = `
@@ -205,14 +198,12 @@
         `;
       }
 
-      // Free-form notes
       const notes = div.querySelector('.notes');
       notes.innerHTML = `
         <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
         <input class="other" placeholder="Allergies or other notes">
       `;
 
-      // Attendee selector + enable logic
       const assign = div.querySelector('.assign');
       const attendeeSel = attendeeSelect();
       assign.appendChild(attendeeSel);
@@ -222,12 +213,8 @@
       attendeeSel.addEventListener('change', toggleAddBtn);
       toggleAddBtn();
 
-      // Add to cart
       addBtn.onclick = ()=>{
-        if (!attendeeSel || !attendeeSel.value){
-          alert('Please select an attendee first.');
-          return;
-        }
+        if (!attendeeSel || !attendeeSel.value){ alert('Please select an attendee first.'); return; }
 
         let mealChoice = '';
         const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
@@ -237,18 +224,14 @@
           mealChoice = checked.value;
         }
 
-        // Prevent double-adding same banquet for same attendee
         const st = Cart.get();
         const attendeeId = attendeeSel.value;
-        const alreadyHasThisBanquet = (st.lines || []).some(l =>
+        const dup = (st.lines || []).some(l =>
           l.attendeeId === attendeeId &&
           l.itemType === 'banquet' &&
           String(l.itemId).startsWith(b.id + ':')
         );
-        if (alreadyHasThisBanquet){
-          alert('This attendee is already assigned to this banquet.');
-          return;
-        }
+        if (dup){ alert('This attendee is already assigned to this banquet.'); return; }
 
         const chosen = JSON.parse(optSel.value);
         const unitPrice = normalizePrice(chosen.price);
@@ -261,12 +244,7 @@
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice,
-          meta: {
-            mealChoice,
-            notes: other,
-            event: b.datetime || "",
-            location: b.location || ""
-          }
+          meta: { mealChoice, notes: other, event: b.datetime || "", location: b.location || "" }
         });
 
         alert('Banquet added');
@@ -275,20 +253,16 @@
       wrap.appendChild(div);
     }
 
-    // Scheduling + cap to 12
     function isWithinWindow(b, now){
-      const start = b.publishStart ? new Date(b.publishStart) : null;
-      const end   = b.publishEnd   ? new Date(b.publishEnd)   : null;
-      return (!start || now >= start) && (!end || now <= end);
+      const s = b.publishStart ? new Date(b.publishStart) : null;
+      const e = b.publishEnd   ? new Date(b.publishEnd)   : null;
+      return (!s || now >= s) && (!e || now <= e);
     }
-
     const now = new Date();
-    const MAX_BANQUETS = 12;
-
     (window.BANQUETS || [])
       .filter(b => b.active !== false)
       .filter(b => isWithinWindow(b, now))
-      .slice(0, MAX_BANQUETS)
+      .slice(0, 12)
       .forEach(addBanquet);
   });
   </script>
