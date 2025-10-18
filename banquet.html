@@ -40,7 +40,7 @@
         <input name="name" placeholder="Name" required>
         <input name="email" type="email" placeholder="Email">
         <input name="title" placeholder="Title">
-        <button>Add attendee</button>
+        <button type="submit">Add attendee</button>
       </form>
       <div id="attendees"></div>
     </section>
@@ -92,6 +92,8 @@
       renderAttendees();
     };
 
+    // Auto-refresh attendee list whenever the cart changes
+    window.addEventListener('cart:updated', renderAttendees);
     renderAttendees();
 
     // ----- Banquets block -----
