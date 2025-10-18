@@ -219,6 +219,17 @@ body[data-org="supreme-2027"]::after {
   max-width: 360px;
 }
 
+/* Make .banquet-card match frosted style too */
+[data-page="banquets"] .banquet-card{
+  background: rgba(255,255,255,0.40);
+  border:1px solid rgba(229,231,235,0.45);
+  border-radius:10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+  padding:12px;
+}
+
 /* Move LEFT by your chosen amount (negative = left) */
 :root { --banquets-shift-lg: -205px; }
 
@@ -301,8 +312,6 @@ body.shop main h1{
   object-fit:cover;
   border-radius:10px;
 }
-.item-name{ margin:10px 0 4px; font-size:1rem; font-weight:700; }
-.item-price{ margin:0; font-weight:600; opacity:.9; }
 
 /* Lightbox */
 .lightbox[hidden]{ display:none; }
@@ -315,7 +324,7 @@ body.shop main h1{
   padding:20px;
   z-index:1000;
 }
-lightbox-img{
+.lightbox-img{
   max-width:min(92vw, 1000px);
   max-height:82vh;
   border-radius:12px;
@@ -428,6 +437,24 @@ body.shop .item-price{
   font-size: 1.1rem;
   border-bottom: 1px solid rgba(0,0,0,0.15);
   padding-bottom: 6px;
+}
+
+/* Small detail line under items (e.g., notes) */
+.line-details{
+  font-size:.85em;
+  opacity:.8;
+}
+
+/* Badge for notes (used on Order) */
+.note-badge{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:9999px;
+  background:#fff3cd;
+  border:1px solid #facc15;
+  color:#92400e;
+  font-size:.78em;
+  font-weight:600;
 }
 
 /* ===========================
