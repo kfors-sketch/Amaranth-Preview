@@ -4,24 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
-  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/css/styles.css?v=bg2-layers">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/styles.css?v=bg2-layers">
   <title>Banquets</title>
 </head>
+
 <body data-page="banquets">
   <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
-      <a class="logo" href="/home.html">
-        <img src="/assets/img/logo.svg" alt="Logo">
+      <a class="logo" href="home.html">
+        <img src="assets/img/logo.svg" alt="Logo">
         <span>Order of the Amaranth</span>
       </a>
       <!-- Order: Home | Banquets | Product Catalog | Order -->
       <nav class="site-nav nav">
-        <a href="/home.html">Home</a>
+        <a href="home.html">Home</a>
         <span class="nav-current">Banquets</span>
-        <a href="/product-catalog.html">Product Catalog</a>
-        <a href="/order.html">Order</a>
+        <a href="product-catalog.html">Product Catalog</a>
+        <a href="order.html">Order</a>
         <!-- (Admin intentionally omitted from header) -->
       </nav>
     </div>
@@ -30,7 +31,7 @@
   <main class="container mt-lg">
     <h1 class="page-title">Banquets</h1>
 
-    <!-- (Optional) if you later render a grid of banquet cards here -->
+    <!-- (Optional) if you later render a grid of banquet cards here) -->
     <div id="banquet-list" class="grid-2"></div>
 
     <section class="panel">
@@ -54,13 +55,15 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Your existing JS (keep if you use it) -->
-  <script src="/assets/js/main.js" defer></script>
-  <script src="/assets/js/render-multi.js" defer></script>
+  <!-- Optional legacy scripts (keep if used elsewhere) -->
+  <script src="assets/js/main.js" defer></script>
+  <script src="assets/js/render-multi.js" defer></script>
 
   <script>
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
+
+    // ----- Attendees block -----
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
@@ -73,7 +76,7 @@
         </div>
       `).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick=()=>{ Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
+        btn.onclick = () => { Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
       });
     }
 
@@ -91,13 +94,13 @@
 
     renderAttendees();
 
-    // Banquets
+    // ----- Banquets block -----
     const wrap = document.getElementById('banquets');
 
     function attendeeSelect(){
       const s = document.createElement('select');
       const a = Cart.get().attendees;
-      if (a.length===0){
+      if (a.length === 0){
         s.disabled = true;
         const opt = document.createElement('option');
         opt.textContent = 'Add attendee first';
@@ -115,8 +118,11 @@
 
     function addBanquet(b){
       if (b.active === false) return;
+
       const div = document.createElement('div');
       div.className = 'banquet-card';
+
+      // Base content (note: we add dietary later only if provided)
       div.innerHTML = `
         <h3>${b.name}</h3>
         <div><small>${b.datetime||''}</small></div>
@@ -124,37 +130,48 @@
         <label>Ticket:
           <select class="opt"></select>
         </label>
-        <div class="diet">Dietary: ${(b.dietary||[]).map(d=>`<label><input type="checkbox" value="${d}"> ${d}</label>`).join(' ')}
-          <div><input class="other" placeholder="Other dietary notes"></div>
-        </div>
         <div class="assign"></div>
         <button class="add">Add to Order</button>
       `;
 
+      // Ticket options
       const optSel = div.querySelector('.opt');
-      (b.options||[]).forEach(o=>{
+      (b.options || []).forEach(o=>{
         const op = document.createElement('option');
         op.value = JSON.stringify(o);
-        op.textContent = `${o.label} — $${o.price.toFixed(2)}`;
+        op.textContent = `${o.label} — $${Number(o.price||0).toFixed(2)}`;
         optSel.appendChild(op);
       });
 
+      // Only render meal/dietary section if there are choices
+      if (Array.isArray(b.dietary) && b.dietary.length){
+        const diet = document.createElement('div');
+        diet.className = 'diet';
+        diet.innerHTML = `
+          Meal / Dietary: ${b.dietary.map(d=>`<label><input type="checkbox" value="${d}"> ${d}</label>`).join(' ')}
+          <div><input class="other" placeholder="Other dietary notes"></div>
+        `;
+        div.insertBefore(diet, div.querySelector('.assign'));
+      }
+
+      // Attendee selector
       div.querySelector('.assign').appendChild(attendeeSelect());
 
+      // Add to cart
       div.querySelector('.add').onclick = ()=>{
         const sel = div.querySelector('.assign select');
         if(!sel || !sel.value){ alert('Add/select an attendee first.'); return; }
         const chosen = JSON.parse(optSel.value);
-        const diet = [...div.querySelectorAll('.diet input[type="checkbox"]:checked')].map(x=>x.value);
-        const other = div.querySelector('.diet .other').value;
+        const dietFlags = Array.from(div.querySelectorAll('.diet input[type="checkbox"]:checked') || []).map(x=>x.value);
+        const other = div.querySelector('.diet .other')?.value || '';
         Cart.addLine({
           attendeeId: sel.value,
           itemType: 'banquet',
           itemId: b.id + ":" + chosen.id,
           itemName: `${b.name} – ${chosen.label}`,
           qty: 1,
-          unitPrice: chosen.price,
-          meta: {dietFlags: diet, dietOther: other, event: b.datetime||""}
+          unitPrice: Number(chosen.price||0),
+          meta: {dietFlags, dietOther: other, event: b.datetime||""}
         });
         alert('Banquet added');
       };
@@ -162,22 +179,37 @@
       wrap.appendChild(div);
     }
 
-    (window.BANQUETS||[]).forEach(addBanquet);
+    // --- Scheduling + cap to 12 ---
+    function isWithinWindow(b, now){
+      const start = b.publishStart ? new Date(b.publishStart) : null;
+      const end   = b.publishEnd   ? new Date(b.publishEnd)   : null;
+      return (!start || now >= start) && (!end || now <= end);
+    }
+
+    const now = new Date();
+    const MAX_BANQUETS = 12;
+
+    const toRender = (window.BANQUETS || [])
+      .filter(b => b.active !== false)     // manual override
+      .filter(b => isWithinWindow(b, now)) // date window
+      .slice(0, MAX_BANQUETS);             // show up to 12
+
+    toRender.forEach(addBanquet);
   });
   </script>
 
   <style>
-  .att-form input{margin:4px;padding:6px}
-  .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
-  .banquet-card{background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:12px;margin:10px 0}
+    .att-form input{margin:4px;padding:6px}
+    .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
+    .banquet-card{background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:12px;margin:10px 0}
   </style>
 
   <!-- Core site scripts (order matters) -->
-  <script src="/assets/js/site-settings.js"></script>
-  <script src="/assets/js/items.js"></script>
-  <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/cart.js"></script>
-  <script src="/assets/js/data-store.js"></script>
-  <script src="/assets/js/site-boot.js"></script>
+  <script src="assets/js/site-settings.js"></script>
+  <script src="assets/js/items.js"></script>
+  <script src="assets/js/banquets.js"></script>
+  <script src="assets/js/cart.js"></script>
+  <script src="assets/js/data-store.js"></script>
+  <script src="assets/js/site-boot.js"></script>
 </body>
 </html>
