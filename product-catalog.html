@@ -3,34 +3,36 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content=" <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Product Catalog for items for sale.">
+  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
-  <title>Home</title>
+  <title>Product Catalog</title>
 </head>
 
-<body class="shop" data-org="- <header class="site-header">
+<body class="shop" data-page="shop">
+  <!-- Header / Logo + Nav -->
+  <header class="site-header">
     <div class="container header-inner">
-      <!-- Centered logo with title text beneath -->
-      <a class="logo" href="/- <img src="/assets/img/logo.svg" alt="logo" />
-        <sn> </sn>
+      <a class="logo" href="/home.html">
+        <img src="/assets/img/logo.svg" alt="Logo" />
+        <span>Order of the Amaranth</span>
       </a>
 
-      <!-- Nav with Registration/Directory removed -->
-      <nav id="nav" class="nav">
-        <a href="/- </a>
-        <a href="/- </a>
-        <a href="/- </a>
-        <a href="/- </a>
+      <!-- Order: Home | Banquets | Product Catalog | Order -->
+      <nav class="site-nav nav">
+        <a href="/home.html">Home</a>
+        <a href="/banquet.html">Banquets</a>
+        <span class="nav-current">Product Catalog</span>
+        <a href="/order.html">Order</a>
+        <!-- (Admin intentionally omitted from header) -->
       </nav>
-
-      <button id="navToggle" class="nav-toggle" aria-label="Toggle navigation" aria-exnded="false">☰</button>
     </div>
   </header>
 
   <main class="container mt-lg">
     <h1>Product Catalog</h1>
 
-    <!-- Product Grid: 15 placeholder items. Replace images/names/prices as needed. -->
+    <!-- Product Grid -->
     <section class="shop-grid" aria-label="Shop items">
       <!-- 01 -->
       <article class="item">
@@ -160,13 +162,13 @@
       <img class="lightbox-img" alt="" src="">
       <p class="lightbox-caption"></p>
     </div>
-  
-<section class="panel">
-  <h2>Product Catalog</h2>
-  <div id="catalog" class="catalog-grid"></div>
-</section>
-</main>
 
+    <!-- Dynamic Catalog (if using JS-driven items) -->
+    <section class="panel">
+      <h2>Product Catalog</h2>
+      <div id="catalog" class="catalog-grid"></div>
+    </section>
+  </main>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
@@ -175,16 +177,12 @@
   <!-- Scripts: removed render-multi.js; use shop.js for lightbox -->
   <script src="/assets/js/shop.js" defer></script>
 
-<script src="/assets/js/site-settings.js"></script>
-<script src="/assets/js/items.js"></script>
-<script src="/assets/js/banquets.js"></script>
-<script src="/assets/js/cart.js"></script>
-<script src="/assets/js/site-settings.js"></script>
-<script src="/assets/js/items.js"></script>
-<script src="/assets/js/banquets.js"></script>
-<script src="/assets/js/cart.js"></script>
-<script src="/assets/js/data-store.js"></script>
-<script src="/assets/js/site-boot.js"></script>
-
+  <!-- Core site scripts (order matters) -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script src="/assets/js/items.js"></script>
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/cart.js"></script>
+  <script src="/assets/js/data-store.js"></script>
+  <script src="/assets/js/site-boot.js"></script>
 </body>
 </html>
