@@ -10,22 +10,18 @@
 </head>
 
 <body data-page="order">
-  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="/home.html">
         <img src="/assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
-
-      <!-- Order: Home | Banquets | Product Catalog | Order -->
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
-		<a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="/product-catalog.html">Product Catalog</a>
         <span class="nav-current">Order</span>
-        <!-- (Admin intentionally omitted from header) -->
+        <a href="/grand-addons.html">Grand Court Add-Ons</a>
       </nav>
     </div>
   </header>
@@ -86,7 +82,6 @@
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
 
-    <!-- Optional review block -->
     <section class="panel">
       <h2>Review & Checkout</h2>
       <div id="order-list"></div>
@@ -102,21 +97,16 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Keep your existing scripts -->
-  <script src="/assets/js/render-multi.js" defer></script>
-  <script src="/assets/js/main.js" defer></script>
+  <script defer src="/assets/js/render-multi.js"></script>
+  <script defer src="/assets/js/main.js"></script>
 
   <script>
-  // Dollars-safe formatting
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    /* ---------------------------------------------------------
-       One-time migration: convert legacy "cents" prices to dollars
-       If any saved line has 0<n<1, treat as cents (e.g., 0.60 -> 60)
-    --------------------------------------------------------- */
+    // --- One-time migration: convert 0<n<1 (cents) to dollars ---
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -144,22 +134,18 @@
         const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
-          // Only show Notes (if present). Meal already appears in itemName.
-          const notesPill = l?.meta?.notes
-            ? `<div style="margin-top:2px;">
-                 <span style="display:inline-block;padding:2px 8px;border-radius:9999px;
-                              background:#fff3cd;border:1px solid #facc15;color:#92400e;
-                              font-size:.78em;font-weight:600;">
-                   Notes: ${l.meta.notes}
-                 </span>
-               </div>`
+          const notes = l?.meta?.notes
+            ? `<div style="margin-top:2px;"><span style="
+                  display:inline-block;padding:2px 8px;border-radius:9999px;
+                  background:#fff3cd;border:1px solid #facc15;color:#92400e;
+                  font-size:.78em;font-weight:600;">Notes: ${l.meta.notes}</span></div>`
             : '';
 
           return `
             <tr>
               <td>
                 <div>${l.itemName || ''}</div>
-                ${notesPill}
+                ${notes}
               </td>
               <td>${l.qty}</td>
               <td>${money(l.unitPrice)}</td>
@@ -206,7 +192,6 @@
   .att-block{margin-bottom:16px}
   </style>
 
-  <!-- Core site scripts (order matters) -->
   <script src="/assets/js/site-settings.js"></script>
   <script src="/assets/js/items.js"></script>
   <script src="/assets/js/banquets.js"></script>
