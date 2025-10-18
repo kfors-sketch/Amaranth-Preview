@@ -109,12 +109,43 @@
     const totalsEl = document.getElementById('totals-block');
     const totalTopEl = document.getElementById('order-total');
 
+    // Inline attendee editor
+    function startEditAtt(attId){
+      const st = Cart.get();
+      const a = (st.attendees||[]).find(x=>x.id===attId);
+      const header = linesEl.querySelector(`h3[data-att-id="${attId}"]`);
+      if (!header) return;
+
+      const currentName = a?.name || '';
+      header.innerHTML = `
+        <form class="att-edit" data-att="${attId}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" value="${currentName.replace(/"/g,'&quot;')}" class="att-name-input" style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;min-width:220px">
+          <button class="btn btn-primary save">Save</button>
+          <button class="btn cancel" type="button">Cancel</button>
+        </form>
+      `;
+
+      const form = header.querySelector('form.att-edit');
+      const input = header.querySelector('.att-name-input');
+      input.focus();
+      input.select();
+
+      form.onsubmit = (e)=>{
+        e.preventDefault();
+        const newName = input.value.trim();
+        if (!newName){ alert('Name cannot be empty.'); input.focus(); return; }
+        Cart.updateAttendee(attId, { name: newName });
+        render(); // re-render to show normal header again
+      };
+      form.querySelector('.cancel').onclick = ()=> render();
+    }
+
     function render(){
       const st = Cart.get();
       const byA = {};
       (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      // Build grouped tables in the same card
+      // Build grouped tables (no email/title shown)
       linesEl.innerHTML = Object.entries(byA).map(([aid, lines]) => {
         const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
 
@@ -142,7 +173,10 @@
 
         return `
           <div class="att-block">
-            <h3>${a.name||''} <small>${a.email||''}</small> <em>${a.title||''}</em></h3>
+            <h3 data-att-id="${aid}" style="display:flex;align-items:center;gap:8px;">
+              <span class="att-name">${a.name||'(Unassigned)'}</span>
+              <button class="btn btn-edit-att" data-att="${aid}" type="button" style="padding:.35rem .6rem;">Edit</button>
+            </h3>
             <table class="order-table">
               <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
               <tbody>${rows}</tbody>
@@ -150,8 +184,14 @@
           </div>`;
       }).join('') || '<p>No items yet.</p>';
 
+      // wire remove buttons
       linesEl.querySelectorAll('button[data-remove]').forEach(b=>{
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+      });
+
+      // wire edit attendee buttons
+      linesEl.querySelectorAll('.btn-edit-att').forEach(btn=>{
+        btn.onclick = ()=> startEditAtt(btn.dataset.att);
       });
 
       // Totals based on normalized prices (defensive)
