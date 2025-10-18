@@ -31,6 +31,7 @@
   <main class="container mt-lg">
     <h1>Order</h1>
 
+    <!-- Purchaser -->
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
@@ -53,24 +54,7 @@
       </div>
     </section>
 
-    <section class="card mt-lg">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2>Attendees</h2>
-        <button class="btn" id="add-attendee">+ Add attendee</button>
-      </div>
-      <div id="attendee-list"></div>
-    </section>
-
-    <section class="card mt-lg">
-      <h2>Add Items (Registration, Directory, Shop)</h2>
-      <div id="store-list" class="grid-3"></div>
-    </section>
-
-    <section class="card mt-lg">
-      <h2>Extra Donation (optional)</h2>
-      <div id="extra-donation"></div>
-    </section>
-
+    <!-- Summary -->
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
@@ -84,6 +68,7 @@
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
 
+    <!-- Review -->
     <section class="panel">
       <h2>Review & Checkout</h2>
       <div id="order-list"></div>
@@ -100,11 +85,12 @@
   </footer>
 
   <!-- Page JS -->
+  <script src="/assets/js/main.js" defer></script>
   <script>
   // Dollars-safe UI formatter
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
 
-  // Treat 0<n<1 as cents everywhere we display/calc
+  // Treat 0<n<1 as cents (legacy safeguard)
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
@@ -114,20 +100,15 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration for any legacy lines saved as cents
+    // One-time migration for legacy cents
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
       (st.lines || []).forEach(l => {
         const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) {
-          l.unitPrice = Math.round(n * 100);
-          changed = true;
-        }
+        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
       });
-      if (changed) {
-        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-      }
+      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
     })();
 
     const list = document.getElementById('order-list');
@@ -136,10 +117,10 @@
     function render(){
       const st = Cart.get();
       const byA = {};
-      (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
+      (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
       list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-        const a = (st.attendees || []).find(x=>x.id===aid) || {name:'(Unassigned)'};
+        const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
           const displayPrice = normalizePrice(l.unitPrice);
@@ -158,7 +139,7 @@
               </td>
               <td>${l.qty}</td>
               <td>${money(displayPrice)}</td>
-              <td>${money(displayPrice * Number(l.qty || 0))}</td>
+              <td>${money(displayPrice * Number(l.qty))}</td>
               <td><button data-remove="${l.id}">Remove</button></td>
             </tr>`;
         }).join('');
@@ -177,13 +158,19 @@
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
-      // Totals with normalization
+      // Totals based on normalized prices (defensive)
       const st2 = Cart.get();
       const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals(); // uses settings (feePercent/feeFlat)
+      const t = Cart.totals();
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
+      // Top “Summary” numbers
+      document.getElementById('order-lines').innerHTML = ''; // (optional spot for future)
+      document.getElementById('fees-line').textContent = `Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}`;
+      document.getElementById('order-total').textContent = money(total);
+
+      // Bottom review block
       sum.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
         <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
