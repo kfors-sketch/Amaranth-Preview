@@ -1,19 +1,17 @@
-// /assets/js/cart.js
 (function(){
   const LS_KEY = "cart_v1";
-
   const state = {
-    attendees: [], // {id, name, email, title}
-    lines: [],     // {id, attendeeId, itemType, itemId, itemName, qty, unitPrice, meta:{}}
+    attendees: [],
+    lines: [],
     updatedAt: Date.now()
   };
 
   function uid(prefix="id"){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
 
-  // Treat 0<n<1 as "cents accidentally stored as dollars"
+  // NEW: normalize 0<n<1 as cents -> dollars
   function normalizePrice(p){
     const n = Number(p);
-    if (!isFinite(n) || isNaN(n)) return 0;
+    if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
@@ -24,16 +22,6 @@
         const parsed = JSON.parse(raw);
         Object.assign(state, parsed);
       }
-      // --- One-time migration: convert legacy cents to dollars
-      let changed = false;
-      (state.lines || []).forEach(l => {
-        const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1){
-          l.unitPrice = Math.round(n * 100);
-          changed = true;
-        }
-      });
-      if (changed) save(); // persist the fixed amounts
     }catch(e){}
   }
 
@@ -52,10 +40,7 @@
 
   function updateAttendee(id, patch){
     const i = state.attendees.findIndex(x=>x.id===id);
-    if(i>=0){
-      state.attendees[i] = {...state.attendees[i], ...patch};
-      save();
-    }
+    if(i>=0){ state.attendees[i] = {...state.attendees[i], ...patch}; save(); }
   }
 
   function removeAttendee(id){
@@ -64,28 +49,16 @@
     save();
   }
 
+  // CHANGE: normalize unitPrice before storing or merging
   function addLine({attendeeId, itemType, itemId, itemName, qty, unitPrice, meta={}}){
-    const cleanPrice = normalizePrice(unitPrice);
-    const cleanQty = Number(qty) || 1;
-
-    // Merge if same attendee + item id + unitPrice
+    const price = normalizePrice(unitPrice);
     const existing = state.lines.find(l =>
-      l.attendeeId===attendeeId && l.itemId===itemId && normalizePrice(l.unitPrice)===cleanPrice
+      l.attendeeId===attendeeId && l.itemId===itemId && normalizePrice(l.unitPrice)===price
     );
-
     if(existing){
-      existing.qty += cleanQty;
+      existing.qty += qty;
     } else {
-      state.lines.push({
-        id: uid("ln"),
-        attendeeId,
-        itemType,
-        itemId,
-        itemName,
-        qty: cleanQty,
-        unitPrice: cleanPrice,
-        meta
-      });
+      state.lines.push({id: uid("ln"), attendeeId, itemType, itemId, itemName, qty, unitPrice: price, meta});
     }
     save();
   }
@@ -93,35 +66,22 @@
   function updateLine(id, patch){
     const i = state.lines.findIndex(l=>l.id===id);
     if(i>=0){
-      const np = (patch && Object.prototype.hasOwnProperty.call(patch, "unitPrice"))
-        ? normalizePrice(patch.unitPrice)
-        : undefined;
-
-      state.lines[i] = {
-        ...state.lines[i],
-        ...patch,
-        ...(np !== undefined ? { unitPrice: np } : {})
-      };
+      const next = {...state.lines[i], ...patch};
+      if ('unitPrice' in patch) next.unitPrice = normalizePrice(next.unitPrice);
+      state.lines[i] = next;
       save();
     }
   }
 
   function removeLine(id){
-    state.lines = state.lines.filter(l=>l.id!==id);
-    save();
+    state.lines = state.lines.filter(l=>l.id!==id); save();
   }
 
-  function clear(){
-    state.attendees=[];
-    state.lines=[];
-    save();
-  }
+  function clear(){ state.attendees=[]; state.lines=[]; save(); }
 
-  function get(){
-    // return a deep-ish copy
-    return JSON.parse(JSON.stringify(state));
-  }
+  function get(){ return JSON.parse(JSON.stringify(state)); }
 
+  // CHANGE: totals uses normalized prices defensively
   function totals(){
     const subtotal = state.lines.reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
     const pct = (window.SITE_SETTINGS && window.SITE_SETTINGS.feePercent) || 0;
@@ -136,11 +96,5 @@
     return { ...get(), ...t };
   }
 
-  // Expose globally
-  window.Cart = {
-    load, save, get,
-    addAttendee, updateAttendee, removeAttendee,
-    addLine, updateLine, removeLine, clear,
-    totals, summary, LS_KEY
-  };
+  window.Cart = { load, save, get, addAttendee, updateAttendee, removeAttendee, addLine, updateLine, removeLine, clear, totals, summary, LS_KEY };
 })();
