@@ -17,11 +17,10 @@
         <img src="assets/img/logo.svg" alt="Logo">
         <span>Order of the Amaranth</span>
       </a>
-      <!-- Order: Home | Banquets | Product Catalog | Order -->
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <span class="nav-current">Banquets</span>
-		<a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="product-catalog.html">Product Catalog</a>
         <a href="order.html">Order</a>
       </nav>
@@ -54,29 +53,10 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Optional legacy scripts (keep if used elsewhere) -->
-  <script src="assets/js/main.js" defer></script>
-
-
+  <!-- Page JS -->
   <script>
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
-
-    // --- HOTFIX: migrate any legacy cents (0<n<1) to dollars (×100) ---
-    (function migrateLegacyCents(){
-      const st = Cart.get();
-      let changed = false;
-      (st.lines || []).forEach(l => {
-        const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) {
-          l.unitPrice = Math.round(n * 100);
-          changed = true;
-        }
-      });
-      if (changed) {
-        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-      }
-    })();
 
     // Treat 0<n<1 as cents and convert to dollars for all future adds
     function normalizePrice(p){
@@ -85,13 +65,13 @@
       return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
 
-    // ===== Attendees UI =====
+    /* ===== Attendees UI ===== */
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
     function renderAttendees(){
       const st = Cart.get();
-      list.innerHTML = st.attendees.map(a=>`
+      list.innerHTML = (st.attendees || []).map(a=>`
         <div class="att-card">
           <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
           <button data-del="${a.id}">Remove</button>
@@ -132,6 +112,7 @@
       }
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     }
+
     function refreshAllAttendeeSelects(){
       document.querySelectorAll('.assign select').forEach(populateSelectWithAttendees);
     }
@@ -148,10 +129,12 @@
       renderAttendees();
       refreshAllAttendeeSelects();
     };
+
     renderAttendees();
 
-    // ===== Banquets UI =====
+    /* ===== Banquets UI ===== */
     const wrap = document.getElementById('banquets');
+
     function attendeeSelect(){
       const s = document.createElement('select');
       populateSelectWithAttendees(s);
@@ -168,15 +151,19 @@
         <div><small>${b.datetime || ''}</small></div>
         ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
         <p>${b.description || ''}</p>
+
         <label>Ticket:
           <select class="opt"></select>
         </label>
-        <div class="meal"></div>
-        <div class="notes"></div>
+
+        <div class="meal"></div>   <!-- radios if mealChoices exist (required) -->
+        <div class="notes"></div>  <!-- free-text notes -->
+
         <div class="assign"></div>
         <button class="add" disabled>Add to Order</button>
       `;
 
+      // Ticket options (label "Ticket"), normalized price in both data & label
       const optSel = div.querySelector('.opt');
       (b.options || []).forEach(o=>{
         const price = normalizePrice(o.price);
@@ -187,6 +174,7 @@
         optSel.appendChild(op);
       });
 
+      // REQUIRED meal radios if mealChoices exist — NO default checked
       if (Array.isArray(b.mealChoices) && b.mealChoices.length){
         const meal = div.querySelector('.meal');
         meal.innerHTML = `
@@ -199,12 +187,14 @@
         `;
       }
 
+      // NOTES (optional only)
       const notes = div.querySelector('.notes');
       notes.innerHTML = `
         <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
         <input class="other" placeholder="Allergies or other notes">
       `;
 
+      // Attendee selector + enable Add button only when chosen
       const assign = div.querySelector('.assign');
       const attendeeSel = attendeeSelect();
       assign.appendChild(attendeeSel);
@@ -214,17 +204,25 @@
       attendeeSel.addEventListener('change', toggleAddBtn);
       toggleAddBtn();
 
+      // Add to cart — enforce attendee, meal (if any), and uniqueness for attendee+banquet
       addBtn.onclick = ()=>{
-        if (!attendeeSel || !attendeeSel.value){ alert('Please select an attendee first.'); return; }
+        if (!attendeeSel || !attendeeSel.value){
+          alert('Please select an attendee first.');
+          return;
+        }
 
         let mealChoice = '';
         const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
         if (mealRadios && mealRadios.length){
           const checked = [...mealRadios].find(r => r.checked);
-          if (!checked){ alert('Please choose a meal preference.'); return; }
+          if (!checked){
+            alert('Please choose a meal preference.');
+            return;
+          }
           mealChoice = checked.value;
         }
 
+        // Prevent double-adding same banquet for same attendee
         const st = Cart.get();
         const attendeeId = attendeeSel.value;
         const dup = (st.lines || []).some(l =>
@@ -232,7 +230,10 @@
           l.itemType === 'banquet' &&
           String(l.itemId).startsWith(b.id + ':')
         );
-        if (dup){ alert('This attendee is already assigned to this banquet.'); return; }
+        if (dup){
+          alert('This attendee is already assigned to this banquet.');
+          return;
+        }
 
         const chosen = JSON.parse(optSel.value);
         const unitPrice = normalizePrice(chosen.price);
@@ -242,10 +243,15 @@
           attendeeId,
           itemType: 'banquet',
           itemId: b.id + ":" + chosen.id,
-          itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
+          itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`, // no "Ticket" wording
           qty: 1,
           unitPrice,
-          meta: { mealChoice, notes: other, event: b.datetime || "", location: b.location || "" }
+          meta: {
+            mealChoice,
+            notes: other,
+            event: b.datetime || "",
+            location: b.location || ""
+          }
         });
 
         alert('Banquet added');
@@ -254,11 +260,13 @@
       wrap.appendChild(div);
     }
 
+    // show up to 12 active banquets within publish window
     function isWithinWindow(b, now){
       const s = b.publishStart ? new Date(b.publishStart) : null;
       const e = b.publishEnd   ? new Date(b.publishEnd)   : null;
       return (!s || now >= s) && (!e || now <= e);
     }
+
     const now = new Date();
     (window.BANQUETS || [])
       .filter(b => b.active !== false)

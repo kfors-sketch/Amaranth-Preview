@@ -20,7 +20,7 @@
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-		<span class="nav-current">Grand Court Add-Ons</span>
+        <span class="nav-current">Grand Court Add-Ons</span>
         <a href="product-catalog.html">Product Catalog</a>
         <a href="order.html">Order</a>
       </nav>
@@ -30,7 +30,7 @@
   <main class="container mt-lg">
     <h1 class="page-title" style="text-align:center;font-weight:800;">Grand Court Add-Ons</h1>
 
-    <!-- Attendees (same pattern as Banquets so they carry over in the cart) -->
+    <!-- Attendees -->
     <section class="card">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
@@ -82,7 +82,7 @@
             <select class="att-select"></select>
           </label>
           <label>Amount (USD)
-            <input type="number" min="1" step="1" value="20" class="amt">
+            <input type="number" min="0.01" step="0.01" value="20.00" class="amt">
           </label>
           <label>Notes (optional)
             <input type="text" class="notes" placeholder="Message or instruction">
@@ -139,18 +139,36 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Optional legacy scripts -->
-  <script src="assets/js/main.js" defer></script>
-  
-
+  <!-- Page JS -->
   <script>
-  // Money helper (dollars safe)
+  // Display helper
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
+
+  // Treat 0<n<1 as cents (defensive; Order page also migrates)
+  function normalizePrice(p){
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // --- attendees block (same behavior as Banquets) ---
+    // One-time legacy cents migration
+    (function migrateLegacyCents(){
+      const st = Cart.get();
+      let changed = false;
+      (st.lines || []).forEach(l => {
+        const n = Number(l.unitPrice);
+        if (isFinite(n) && n > 0 && n < 1) {
+          l.unitPrice = Math.round(n * 100);
+          changed = true;
+        }
+      });
+      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+    })();
+
+    // ----- Attendees (same pattern as Banquets) -----
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
@@ -182,7 +200,7 @@
 
     renderAttendees();
 
-    // --- attendee selects inside add-on rows ---
+    // ----- Attendee selects inside add-on rows -----
     function fillSelect(sel){
       const a = (Cart.get().attendees)||[];
       sel.innerHTML = '';
@@ -200,14 +218,13 @@
     }
     refreshAttSelects();
 
-    // --- add handlers ---
-    const wrap = document.querySelector('section.card.mt-lg'); // the Add-Ons section
-
-    // Common guard for attendee
+    // Convenience: attendee guard
     function needAttendee(sel){
       if(!sel || !sel.value){ alert('Please select an attendee first.'); return null; }
       return sel.value;
     }
+
+    const wrap = document.querySelector('section.card.mt-lg'); // Add-Ons section
 
     // Pre-Registration — $30, limit 1 per attendee
     wrap.querySelector('.add-pre').onclick = (e)=>{
@@ -232,7 +249,7 @@
       alert('Pre-Registration added');
     };
 
-    // Directory — $15, qty
+    // Printed Directory — $15, qty
     wrap.querySelector('.add-dir').onclick = (e)=>{
       e.preventDefault();
       const row = e.target.closest('.addon');
@@ -252,12 +269,13 @@
       alert('Directory added');
     };
 
-    // Love Gift — custom $
+    // Love Gift — custom amount (normalize to dollars)
     wrap.querySelector('.add-love').onclick = (e)=>{
       e.preventDefault();
       const row = e.target.closest('.addon');
       const attSel = row.querySelector('.att-select');
-      const amt    = Number(row.querySelector('.amt').value||0);
+      const amtRaw = row.querySelector('.amt').value || '0';
+      const amt    = normalizePrice(amtRaw); // defensive
       const notes  = row.querySelector('.notes').value || '';
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
       if (!isFinite(amt) || amt <= 0){ alert('Enter a valid amount.'); return; }
@@ -304,7 +322,7 @@
       const qty     = Math.max(1, parseInt(row.querySelector('.qty').value||'1',10));
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
 
-      const name = custom && variant==='Custom' ? `Corsage (Custom)` : `Corsage (${variant})`;
+      const name  = custom && variant==='Custom' ? `Corsage (Custom)` : `Corsage (${variant})`;
       const notes = custom || '';
 
       Cart.addLine({
@@ -317,7 +335,7 @@
         meta: { variant, notes }
       });
       alert('Corsage added');
-    };
+    });
 
     // Keep selects fresh if cart changes elsewhere
     window.addEventListener('cart:updated', ()=> {
