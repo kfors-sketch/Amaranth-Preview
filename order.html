@@ -85,7 +85,7 @@
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
 
-    <!-- (Optional) Review block you had; keeping it intact -->
+    <!-- Optional review block -->
     <section class="panel">
       <h2>Review & Checkout</h2>
       <div id="order-list"></div>
@@ -106,13 +106,12 @@
   <script src="/assets/js/main.js" defer></script>
 
   <script>
-  // Coerce to Number everywhere to avoid cents/dollars confusion
+  // Dollars-safe formatting
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // Review & Checkout (group lines by attendee)
     const list = document.getElementById('order-list');
     const sum  = document.getElementById('order-summary');
 
@@ -125,22 +124,19 @@
         const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
-          // Compose meta details line (Meal / Diet / Notes)
-          const metaBits = [];
-          if (l.meta && l.meta.mealChoice) metaBits.push(`Meal: ${l.meta.mealChoice}`);
-          if (l.meta && Array.isArray(l.meta.dietFlags) && l.meta.dietFlags.length) {
-            metaBits.push(`Diet: ${l.meta.dietFlags.join(', ')}`);
-          }
-          if (l.meta && l.meta.dietOther) metaBits.push(`Notes: ${l.meta.dietOther}`);
-          const details = metaBits.length
-            ? `<div style="font-size:.85em;opacity:.8;">${metaBits.join(' • ')}</div>`
+          // Only show Notes (dietOther) if present. No "Diet:" line. Meal is already in itemName.
+          const notes = l?.meta?.dietOther
+            ? `<div style="margin-top:2px;"><span style="
+                  display:inline-block;padding:2px 8px;border-radius:9999px;
+                  background:#fff3cd;border:1px solid #facc15;color:#92400e;
+                  font-size:.78em;font-weight:600;">Notes: ${l.meta.dietOther}</span></div>`
             : '';
 
           return `
             <tr>
               <td>
                 <div>${l.itemName || ''}</div>
-                ${details}
+                ${notes}
               </td>
               <td>${l.qty}</td>
               <td>${money(l.unitPrice)}</td>
