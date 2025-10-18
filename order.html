@@ -17,7 +17,6 @@
         <img src="/assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
-
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
@@ -109,33 +108,52 @@
     const totalsEl = document.getElementById('totals-block');
     const totalTopEl = document.getElementById('order-total');
 
-    // Inline attendee editor
+    // Inline attendee editor (Name + Email + Title)
     function startEditAtt(attId){
       const st = Cart.get();
-      const a = (st.attendees||[]).find(x=>x.id===attId);
+      const a = (st.attendees||[]).find(x=>x.id===attId) || {name:'', email:'', title:''};
       const header = linesEl.querySelector(`h3[data-att-id="${attId}"]`);
       if (!header) return;
 
-      const currentName = a?.name || '';
+      const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
       header.innerHTML = `
-        <form class="att-edit" data-att="${attId}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="text" value="${currentName.replace(/"/g,'&quot;')}" class="att-name-input" style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;min-width:220px">
-          <button class="btn btn-primary save">Save</button>
-          <button class="btn cancel" type="button">Cancel</button>
+        <form class="att-edit" data-att="${attId}" style="display:grid;gap:.5rem;grid-template-columns:1fr 1fr 1fr auto auto;align-items:end;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
+            Name
+            <input type="text" value="${esc(a.name)}" class="att-name-input" required
+              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
+            Email
+            <input type="email" value="${esc(a.email)}" class="att-email-input"
+              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
+            Title
+            <input type="text" value="${esc(a.title)}" class="att-title-input"
+              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
+          </label>
+          <button class="btn btn-primary save" style="height:40px;">Save</button>
+          <button class="btn cancel" type="button" style="height:40px;">Cancel</button>
         </form>
       `;
 
-      const form = header.querySelector('form.att-edit');
-      const input = header.querySelector('.att-name-input');
-      input.focus();
-      input.select();
+      const form  = header.querySelector('form.att-edit');
+      const nameI = header.querySelector('.att-name-input');
+      const emailI= header.querySelector('.att-email-input');
+      const titleI= header.querySelector('.att-title-input');
+
+      nameI.focus(); nameI.select();
 
       form.onsubmit = (e)=>{
         e.preventDefault();
-        const newName = input.value.trim();
-        if (!newName){ alert('Name cannot be empty.'); input.focus(); return; }
-        Cart.updateAttendee(attId, { name: newName });
-        render(); // re-render to show normal header again
+        const newName  = nameI.value.trim();
+        const newEmail = emailI.value.trim();
+        const newTitle = titleI.value.trim();
+        if (!newName){ alert('Name cannot be empty.'); nameI.focus(); return; }
+        Cart.updateAttendee(attId, { name: newName, email: newEmail, title: newTitle });
+        render();
       };
       form.querySelector('.cancel').onclick = ()=> render();
     }
@@ -145,7 +163,7 @@
       const byA = {};
       (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      // Build grouped tables (no email/title shown)
+      // Build grouped tables (read view shows only name + Edit button)
       linesEl.innerHTML = Object.entries(byA).map(([aid, lines]) => {
         const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
 
@@ -194,10 +212,10 @@
         btn.onclick = ()=> startEditAtt(btn.dataset.att);
       });
 
-      // Totals based on normalized prices (defensive)
+      // Totals based on normalized prices
       const st2 = Cart.get();
       const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals(); // uses SITE_SETTINGS.feePercent/feeFlat
+      const t = Cart.totals();
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
@@ -217,9 +235,9 @@
     const clearBtn = document.getElementById('clearCart');
     if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
 
-    // (Wire your real checkout here as needed)
+    // (Wire your real checkout here)
     const checkoutBtn = document.getElementById('checkout');
-    if (checkoutBtn) checkoutBtn.onclick = ()=>{ /* redirect to Stripe, etc. */ };
+    if (checkoutBtn) checkoutBtn.onclick = ()=>{ /* redirect to Stripe */ };
   });
   </script>
 
