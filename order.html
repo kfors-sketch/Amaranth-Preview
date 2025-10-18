@@ -3,62 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content=" <link rel="icon" href="/assets/img/favicon.ico" type="image/ico+xml" />
+  <meta name="description" content="Order page for checkout and attendee assignments.">
+  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
-  <title>Home</title>
-
-  <!-- Header fixes scoped to Order ge: stack & center the logo like Shop -->
-  <style>
-    [data-ge="order"] .site-header { text-align: center; }
-    [data-ge="order"] .header-inner { display: block; } /* avoid odd flex interactions */
-    [data-ge="order"] .logo {
-      display: flex;
-      flex-direction: column;     /* stack image above the title line */
-      align-items: center;
-      gap: 8px;
-      text-decoration: none;
-    }
-    [data-ge="order"] .logo sn {
-      display: block;
-      text-align: center;
-      font-weight: 700;
-      font-size: clamp(1.05rem, 2.2vw, 1.4rem);
-      color: #1f2937;
-    }
-    /* Hide Registration & Directory here too */
-    [data-ge="order"] .nav a[href*="registration"],
-    [data-ge="order"] .nav a[href*="directory"] { display: none !important; }
-    /* Center the Order ge title */
-    [data-ge="order"] h1 {
-      text-align: center;
-      margin: 20px 0 14px;
-      font-size: clamp(1.5rem, 2.6vw, 2rem);
-      font-weight: 800;
-    }
-    /* Optional: Banquets-style frosted cards on Order ge */
-    [data-ge="order"] .card{
-      background: rgba(255,255,255,0.40);
-      border-color: rgba(229,231,235,0.45);
-      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-      backdrop-filter: saturate(120%) blur(2px);
-      -webkit-backdrop-filter: saturate(120%) blur(2px);
-    }
-  </style>
+  <title>Order</title>
 </head>
 
-<body data-org="- <header class="site-header">
+<body data-page="order">
+  <!-- Header / Logo + Nav -->
+  <header class="site-header">
     <div class="container header-inner">
-      <!-- Centered, stacked logo + title -->
-      <a class="logo" href="/- <img src="/assets/img/logo.svg" alt="logo" />
-        <sn> </sn>
+      <a class="logo" href="/home.html">
+        <img src="/assets/img/logo.svg" alt="Logo" />
+        <span>Order of the Amaranth</span>
       </a>
 
-      <!-- Clean nav; Registration/Directory removed -->
-      <nav id="nav" class="nav">
-        <a href="/- </a>
-        <a href="/- </a>
-        <a href="/- </a>
-        <a href="/- </a>
+      <!-- Order: Home | Banquets | Product Catalog | Order -->
+      <nav class="site-nav nav">
+        <a href="/home.html">Home</a>
+        <a href="/banquet.html">Banquets</a>
+        <a href="/product-catalog.html">Product Catalog</a>
+        <span class="nav-current">Order</span>
+        <!-- (Admin intentionally omitted from header) -->
       </nav>
     </div>
   </header>
@@ -89,7 +55,7 @@
     </section>
 
     <section class="card mt-lg">
-      <div style="display:flex;justify-content:sce-between;align-items:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Attendees</h2>
         <button class="btn" id="add-attendee">+ Add attendee</button>
       </div>
@@ -107,7 +73,7 @@
     </section>
 
     <section class="card mt-lg">
-      <div style="display:flex;justify-content:sce-between;align-items:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
         <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
       </div>
@@ -118,137 +84,93 @@
       <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
-  
-<section class="panel">
-  
-<h2>Review & Checkout</h2>
 
-<section class="panel">
-  <h3>Orderer Information</h3>
-  <form id="ordererForm" class="orderer-form">
-    <div class="row">
-      <input name="name" placeholder="Your full name" required>
-      <input name="email" type="email" placeholder="Your email" required>
-    </div>
-    <div class="row">
-      <input name="phone" placeholder="Phone (optional)">
-      <input name="address" placeholder="Mailing address (optional)">
-    </div>
-    <button id="saveOrderer" type="submit">Save Contact Info</button>
-  </form>
-  <p id="ordererSaved" style="display:none"><em>Saved.</em></p>
-</section>
+    <!-- (Optional) Review block you had; keeping it intact -->
+    <section class="panel">
+      <h2>Review & Checkout</h2>
+      <div id="order-list"></div>
+      <hr>
+      <div id="order-summary"></div>
+      <div style="margin-top:12px">
+        <button id="clearCart">Clear Order</button>
+      </div>
+    </section>
+  </main>
 
-  <div id="order-list"></div>
-  <hr>
-  <div id="order-summary"></div>
-  <div style="margin-top:12px">
-    <button id="clearCart">Clear Order</button>
-  </div>
-</section>
-</main>
-
+  <footer class="site-footer">
+    <div class="container tiny">© 2025</div>
+  </footer>
 
   <!-- Keep your existing scripts -->
   <script src="/assets/js/render-multi.js" defer></script>
   <script src="/assets/js/main.js" defer></script>
 
-<script>
-function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
-document.addEventListener('DOMContentLoaded', function(){
-  Cart.load();
-  const list = document.getElementById('order-list');
-  const sum = document.getElementById('order-summary');
-  function render(){
-    const st = Cart.get();
-    // Group lines by attendee
-    const byA = {};
-    st.lines.forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
-    list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-      const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
-      const rows = lines.map(l => `
-        <tr>
-          <td>${l.itemName}</td>
-          <td>${l.qty}</td>
-          <td>${money(l.unitPrice)}</td>
-          <td>${money(l.unitPrice * l.qty)}</td>
-          <td><button data-remove="${l.id}">Remove</button></td>
-        </tr>`).join('');
-      return `
-        <div class="att-block">
-          <h3>${a.name||''} <small>${a.email||''}</small> <em>${a.title||''}</em></h3>
-          <table class="order-table">
-            <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
-    }).join('') || '<p>No items yet.</p>';
-    list.querySelectorAll('button[data-remove]').forEach(b=> b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); });
+  <script>
+  function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
+  document.addEventListener('DOMContentLoaded', function(){
+    Cart.load();
 
-    const t = Cart.totals();
-    sum.innerHTML = `
-      <div><strong>Subtotal</strong>: ${money(t.subtotal)}</div>
-      <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(t.fee)}</div>
-      <hr>
-      <div style="font-size:1.1em"><strong>Total</strong>: ${money(t.total)}</div>
-      <p><small>The fee helps cover online processing costs.</small></p>
-    `;
-  }
-  render();
-  window.addEventListener('cart:updated', render);
-  document.getElementById('clearCart').onclick = ()=>{ Cart.clear(); };
-});
-</script>
-<style>
-.order-table{width:100%;border-collapse:collapse}
-.order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-.att-block{margin-bottom:16px}
-</style>
+    // Review & Checkout (group lines by attendee)
+    const list = document.getElementById('order-list');
+    const sum = document.getElementById('order-summary');
 
+    function render(){
+      const st = Cart.get();
+      const byA = {};
+      st.lines.forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-<script src="/assets/js/site-settings.js"></script>
-<script src="/assets/js/items.js"></script>
-<script src="/assets/js/banquets.js"></script>
-<script src="/assets/js/cart.js"></script>
+      list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
+        const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
+        const rows = lines.map(l => `
+          <tr>
+            <td>${l.itemName}</td>
+            <td>${l.qty}</td>
+            <td>${money(l.unitPrice)}</td>
+            <td>${money(l.unitPrice * l.qty)}</td>
+            <td><button data-remove="${l.id}">Remove</button></td>
+          </tr>`).join('');
+        return `
+          <div class="att-block">
+            <h3>${a.name||''} <small>${a.email||''}</small> <em>${a.title||''}</em></h3>
+            <table class="order-table">
+              <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+      }).join('') || '<p>No items yet.</p>';
 
+      list.querySelectorAll('button[data-remove]').forEach(b=> b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); });
 
-<script>
-// Orderer info load/save
-document.addEventListener('DOMContentLoaded', function(){
-  Cart.load();
-  const f = document.getElementById('ordererForm');
-  const saved = Cart.getOrderer();
-  if (saved){
-    if (saved.name) f.elements['name'].value = saved.name;
-    if (saved.email) f.elements['email'].value = saved.email;
-    if (saved.phone) f.elements['phone'].value = saved.phone;
-    if (saved.address) f.elements['address'].value = saved.address;
-  }
-  f.addEventListener('submit', function(e){
-    e.preventDefault();
-    const fd = new FormData(f);
-    Cart.setOrderer({
-      name: fd.get('name') || '',
-      email: fd.get('email') || '',
-      phone: fd.get('phone') || '',
-      address: fd.get('address') || ''
-    });
-    document.getElementById('ordererSaved').style.display = 'block';
-    setTimeout(()=> document.getElementById('ordererSaved').style.display='none', 1500);
-  }, false);
-});
-</script>
-<style>
-.orderer-form .row{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
-.orderer-form input{flex:1;min-width:220px;padding:8px;border:1px solid #ccc;border-radius:8px}
-.orderer-form button{margin-top:6px}
-</style>
-<script src="/assets/js/site-settings.js"></script>
-<script src="/assets/js/items.js"></script>
-<script src="/assets/js/banquets.js"></script>
-<script src="/assets/js/cart.js"></script>
-<script src="/assets/js/data-store.js"></script>
-<script src="/assets/js/site-boot.js"></script>
+      const t = Cart.totals();
+      sum.innerHTML = `
+        <div><strong>Subtotal</strong>: ${money(t.subtotal)}</div>
+        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(t.fee)}</div>
+        <hr>
+        <div style="font-size:1.1em"><strong>Total</strong>: ${money(t.total)}</div>
+        <p><small>The fee helps cover online processing costs.</small></p>
+      `;
+    }
 
+    render();
+    window.addEventListener('cart:updated', render);
+
+    const clearBtn = document.getElementById('clearCart');
+    if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
+  });
+  </script>
+
+  <style>
+  .order-table{width:100%;border-collapse:collapse}
+  .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
+  .att-block{margin-bottom:16px}
+  </style>
+
+  <!-- Core site scripts (order matters) -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script src="/assets/js/items.js"></script>
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/cart.js"></script>
+  <script src="/assets/js/data-store.js"></script>
+  <script src="/assets/js/site-boot.js"></script>
 </body>
 </html>
