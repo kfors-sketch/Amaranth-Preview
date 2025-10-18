@@ -448,3 +448,26 @@ body.shop .item-price{
 .site-nav a[href*="admin.html"] {
   display: none !important;
 }
+/* ===== Make Banquets + Order match Product Catalog header ===== */
+[data-page="banquets"] .header-inner,
+[data-page="order"] .header-inner {
+  display: block; /* same as shop */
+}
+
+[data-page="banquets"] .logo,
+[data-page="order"] .logo {
+  display: flex;
+  flex-direction: column;   /* image on top, text underneath */
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+/* Keep logo image size consistent with Product Catalog */
+[data-page="banquets"] .logo img,
+[data-page="order"] .logo img {
+  width: clamp(36px, 3.2vw, 48px);
+  height: clamp(36px, 3.2vw, 48px);
+}
+
+/* Nav is already centered by .nav rules; no extra needed */
