@@ -24,7 +24,7 @@ window.BANQUETS = [
     location: "Palm Court",
     description: "Plated Breakfast in Palm Court",
     options: [{ id: "adult", label: "Adult Ticket", price: 35 }],
-    dietary: ["Vegetarian", "Gluten-free"],
+    dietary: [],
     active: true,
     publishStart: "",
     publishEnd: ""
