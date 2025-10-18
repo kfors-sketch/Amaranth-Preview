@@ -341,7 +341,7 @@ body.shop main h1{
   border:none;
   cursor:pointer;
   background:#fff;
-  box-shadow:0 2px 10px rgba(0,0,0,.2);
+  box-shadow:0 2px 10px rgba(0,0,0,0.2);
 }
 
 /* <<< New overrides: make Shop cards match Banquet frosted style >>> */
@@ -433,8 +433,9 @@ body.shop .item-price{
 /* ===========================
    Current Page Nav Highlight
    =========================== */
-.site-nav a.nav-current {
-  pointer-events: none;          /* disable clicking */
+.site-nav a.nav-current,
+.site-nav .nav-current {
+  pointer-events: none;          /* disable clicking when it's an <a> */
   cursor: default;
   font-weight: 700;              /* selected look */
   color: #555 !important;        /* slightly dim */
