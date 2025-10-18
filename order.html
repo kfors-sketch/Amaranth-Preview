@@ -106,13 +106,15 @@
   <script src="/assets/js/main.js" defer></script>
 
   <script>
-  function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
+  // Coerce to Number everywhere to avoid cents/dollars confusion
+  function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
+
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
     // Review & Checkout (group lines by attendee)
     const list = document.getElementById('order-list');
-    const sum = document.getElementById('order-summary');
+    const sum  = document.getElementById('order-summary');
 
     function render(){
       const st = Cart.get();
@@ -121,14 +123,32 @@
 
       list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
         const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
-        const rows = lines.map(l => `
-          <tr>
-            <td>${l.itemName}</td>
-            <td>${l.qty}</td>
-            <td>${money(l.unitPrice)}</td>
-            <td>${money(l.unitPrice * l.qty)}</td>
-            <td><button data-remove="${l.id}">Remove</button></td>
-          </tr>`).join('');
+
+        const rows = lines.map(l => {
+          // Compose meta details line (Meal / Diet / Notes)
+          const metaBits = [];
+          if (l.meta && l.meta.mealChoice) metaBits.push(`Meal: ${l.meta.mealChoice}`);
+          if (l.meta && Array.isArray(l.meta.dietFlags) && l.meta.dietFlags.length) {
+            metaBits.push(`Diet: ${l.meta.dietFlags.join(', ')}`);
+          }
+          if (l.meta && l.meta.dietOther) metaBits.push(`Notes: ${l.meta.dietOther}`);
+          const details = metaBits.length
+            ? `<div style="font-size:.85em;opacity:.8;">${metaBits.join(' • ')}</div>`
+            : '';
+
+          return `
+            <tr>
+              <td>
+                <div>${l.itemName || ''}</div>
+                ${details}
+              </td>
+              <td>${l.qty}</td>
+              <td>${money(l.unitPrice)}</td>
+              <td>${money(Number(l.unitPrice) * Number(l.qty))}</td>
+              <td><button data-remove="${l.id}">Remove</button></td>
+            </tr>`;
+        }).join('');
+
         return `
           <div class="att-block">
             <h3>${a.name||''} <small>${a.email||''}</small> <em>${a.title||''}</em></h3>
@@ -139,7 +159,9 @@
           </div>`;
       }).join('') || '<p>No items yet.</p>';
 
-      list.querySelectorAll('button[data-remove]').forEach(b=> b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); });
+      list.querySelectorAll('button[data-remove]').forEach(b=>{
+        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+      });
 
       const t = Cart.totals();
       sum.innerHTML = `
