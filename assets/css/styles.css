@@ -1,4 +1,6 @@
-/* base styles */
+/* =========================
+   Base & Layout
+========================= */
 *{box-sizing:border-box}
 html,body{
   margin:0;
@@ -9,15 +11,15 @@ html,body{
   min-height:100vh;
 }
 
-/* ===== Links ===== */
+/* Links */
 a{color:black;text-decoration:none}
 a:hover{text-decoration:underline}
 a:visited{color:black}
 
-/* ===== Navigation (centered) ===== */
+/* Navigation (centered) */
 .nav{
   display:flex;
-  justify-content:center;   /* center the links */
+  justify-content:center;
   flex-wrap:wrap;
   align-items:center;
   gap:18px;
@@ -28,17 +30,17 @@ nav a{ font-weight:500; }
 /* Remove hamburger */
 .nav-toggle{ display:none !important; }
 
-/* ===== Header (transparent over wallpaper) ===== */
+/* Header (transparent over wallpaper) */
 .site-header{
   position:sticky;
   top:0;
-  background:transparent !important; /* let wallpaper show */
-  border-bottom:0;                    /* no line under header */
+  background:transparent !important;
+  border-bottom:0;
   z-index:10;
 }
 .header-inner{
   display:flex;
-  flex-direction:column;    /* logo on top, nav below */
+  flex-direction:column;
   justify-content:center;
   align-items:center;
   gap:.5rem;
@@ -58,7 +60,7 @@ nav a{ font-weight:500; }
   height: clamp(36px, 3.2vw, 48px);
 }
 
-/* ===== Layout helpers ===== */
+/* Helpers */
 .container{width:min(1100px,92%);margin:0 auto}
 .mt{margin-top:1rem}
 .mt-lg{margin-top:2rem}
@@ -69,11 +71,9 @@ nav a{ font-weight:500; }
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
 
-/* ===== Hero (transparent over wallpaper) ===== */
+/* Hero */
 .hero{background:transparent !important;color:inherit}
 .hero-inner{padding:2.5rem 0}
-
-/* Session title already scales via clamp */
 .session-title{
   margin:0 0 .5rem 0;
   text-align:center;
@@ -83,13 +83,13 @@ nav a{ font-weight:500; }
   line-height:1.25;
 }
 
-/* ===== Misc text ===== */
+/* Misc text */
 .price{font-weight:700}
 .tiny{font-size:.875rem;color:#6b7280;padding:1rem 0}
 .form label{display:block;margin-bottom:.75rem}
 .form input,.form select,.form textarea{width:100%;padding:.7rem;border-radius:.5rem;border:1px solid #d1d5db}
 
-/* ===== Per-attendee registration callout ===== */
+/* Per-attendee registration callout */
 .reg-box{
   border:2px solid #2563eb;
   background:#eff6ff;
@@ -111,115 +111,96 @@ nav a{ font-weight:500; }
 }
 .reg-box .hint{ font-size:.85rem; color:#475569; }
 .reg-box .title{ font-weight:800; }
-.reg-box.active{
-  border-color:#16a34a;
-  background:#ecfdf5;
-}
+.reg-box.active{ border-color:#16a34a; background:#ecfdf5; }
 
-/* ===== Wallpaper: full image + edge-to-edge fill (two layers) ===== */
+/* =========================
+   Wallpaper (two layers)
+========================= */
 :root{
   --wallpaper-url: url('/assets/img/wallpaper.jpg');
-  --wallpaper-opacity: 0.38;            /* brighter sharp layer */
-  --wallpaper-position: center center;  /* tweak if needed */
+  --wallpaper-opacity: 0.38;
+  --wallpaper-position: center center;
 }
-
 body{ position: relative; }
 
-/* Layer 1: blurred "cover" to fill edges so no bars show */
+/* Blurred cover layer (fills edges) */
 body::before{
   content:"";
   position:fixed;
   inset:0;
-  z-index:0;                            /* behind content */
+  z-index:0;
   pointer-events:none;
   background-image: var(--wallpaper-url);
-  background-size: cover;               /* fills entire viewport */
+  background-size: cover;
   background-repeat: no-repeat;
   background-position: var(--wallpaper-position);
   filter: blur(18px);
-  transform: scale(1.08);               /* hide blur edges */
-  opacity: 0.10;                        /* lighter blur layer */
+  transform: scale(1.08);
+  opacity: 0.10;
 }
 
-/* Layer 2: sharp full image (no cropping) */
+/* Sharp full image layer (no cropping) */
 body::after{
   content:"";
   position:fixed;
   inset:0;
-  z-index:0;                            /* behind content */
+  z-index:0;
   pointer-events:none;
   background-image: var(--wallpaper-url);
-  background-size: contain;             /* show 100% of image */
+  background-size: contain;
   background-repeat: no-repeat;
   background-position: var(--wallpaper-position);
   opacity: var(--wallpaper-opacity);
 }
 
-/* Ensure real content stays above both layers */
+/* Ensure content above wallpaper layers */
 .site-header, main, .site-footer, .container, .card, .nav, header, footer {
   position: relative;
   z-index: 1;
 }
 
-/* Per-org overrides (auto swap images) */
+/* Per-org wallpaper swap */
 body[data-org="pa-2026"]::before,
-body[data-org="pa-2026"]::after {
-  background-image: url('/assets/img/pa-2026-watermark.jpg');
-}
+body[data-org="pa-2026"]::after { background-image: url('/assets/img/pa-2026-watermark.jpg'); }
 body[data-org="supreme-2027"]::before,
-body[data-org="supreme-2027"]::after {
-  background-image: url('/assets/img/supreme-2027-watermark.jpg');
-}
+body[data-org="supreme-2027"]::after { background-image: url('/assets/img/supreme-2027-watermark.jpg'); }
 
-/* Optional: mobile smoothness */
+/* Mobile: tie to content for smoother scroll perf */
 @media (max-width: 768px) {
   body::before, body::after { position: absolute; }
 }
 
-/* ===== New hero text styles ===== */
-.welcome-text{
-  text-align:center;
-  font-size:2rem;
-  margin-top:1rem;
-  margin-bottom:1rem;
-  font-weight:700;
-  color:black;
-}
-.org-intro{
-  text-align:center;
-  font-size:1rem;
-  max-width:700px;
-  margin:0 auto;
-  color:#222;
-}
+/* Home hero + QR centering */
+.welcome-text{ text-align:center; font-size:2rem; margin:1rem 0; font-weight:700; color:black; }
+.org-intro{ text-align:center; font-size:1rem; max-width:700px; margin:0 auto; color:#222; }
+[data-page="home"] .hero { background: transparent !important; }
+[data-page="home"] .wallpaper { display: none !important; }
+#qr { text-align:center; margin:2rem auto; }
+#qr img { display:block; margin:0 auto; }
 
-/* ===== Banquets page ===== */
+/* =========================
+   Banquets page
+========================= */
 [data-page="banquets"] .page-title{
-  text-align:center;         /* center the "Banquets" heading */
+  text-align:center;
   margin:0 0 1rem 0;
   font-weight:800;
 }
-
-/* Center ONLY the banquet cards grid */
 [data-page="banquets"] .grid-2{
-  display: grid;
-  justify-content: center;   /* center grid tracks */
-  justify-items: center;     /* center each card */
-  gap: 1.25rem;
+  display:grid;
+  justify-content:center;
+  justify-items:center;
+  gap:1.25rem;
 }
-
-/* Transparent banquet cards over wallpaper */
 [data-page="banquets"] .card{
   background: rgba(255,255,255,0.40);
   border-color: rgba(229,231,235,0.45);
   box-shadow: 0 2px 10px rgba(0,0,0,0.06);
   backdrop-filter: saturate(120%) blur(2px);
   -webkit-backdrop-filter: saturate(120%) blur(2px);
-  width: 100%;
-  max-width: 360px;
+  width:100%;
+  max-width:360px;
 }
-
-/* Make .banquet-card match frosted style too */
 [data-page="banquets"] .banquet-card{
   background: rgba(255,255,255,0.40);
   border:1px solid rgba(229,231,235,0.45);
@@ -230,51 +211,30 @@ body[data-org="supreme-2027"]::after {
   padding:12px;
 }
 
-/* Move LEFT by your chosen amount (negative = left) */
+/* Horizontal shift (optional) */
 :root { --banquets-shift-lg: -205px; }
+@media (min-width: 1024px) { [data-page="banquets"] .grid-2{ transform: translateX(var(--banquets-shift-lg)) !important; } }
+@media (min-width: 1280px) { [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 32px)) !important; } }
+@media (min-width: 1536px) { [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 64px)) !important; } }
 
-@media (min-width: 1024px) {
-  [data-page="banquets"] .grid-2{ transform: translateX(var(--banquets-shift-lg)) !important; }
-}
-@media (min-width: 1280px) {
-  [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 32px)) !important; }
-}
-@media (min-width: 1536px) {
-  [data-page="banquets"] .grid-2{ transform: translateX(calc(var(--banquets-shift-lg) - 64px)) !important; }
-}
-
-/* Safety: ensure no nav separators appear */
+/* No nav separators */
 .nav a + a::before { content: none !important; }
 
-/* =============================================================================
-   ===== Shop page =====
-   Body must have class="shop" on shop.html
-============================================================================= */
+/* =========================
+   Shop (Product Catalog)
+========================= */
 
 /* Hide Registration & Directory links on Shop page only */
 body.shop .nav a[href*="registration"],
 body.shop .nav a[href*="directory"] { display: none !important; }
 
-/* Stack & center the logo above the long title line */
-body.shop .header-inner { display:block; } /* avoid flex row issues */
-body.shop .logo{
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-/* <<< Updated: make logo same small size as home/banquets >>> */
-body.shop .logo img{
-  width: clamp(36px, 3.2vw, 48px);
-  height: clamp(36px, 3.2vw, 48px);
-}
-body.shop .logo span{
-  text-align:center;
-  font-weight:700;
-  font-size: clamp(1.05rem, 2.2vw, 1.4rem);
-  color:#1f2937;
-}
+/* Stack & center logo */
+body.shop .header-inner { display:block; }
+body.shop .logo{ flex-direction:column; align-items:center; gap:8px; }
+body.shop .logo img{ width: clamp(36px, 3.2vw, 48px); height: clamp(36px, 3.2vw, 48px); }
+body.shop .logo span{ text-align:center; font-weight:700; font-size: clamp(1.05rem, 2.2vw, 1.4rem); color:#1f2937; }
 
-/* Center the "Shop" title */
+/* Title */
 body.shop main h1{
   text-align:center;
   margin: 20px 0 14px;
@@ -282,18 +242,20 @@ body.shop main h1{
   font-weight: 800;
 }
 
-/* Responsive product grid (up to 15 items) */
+/* Product grid */
 .shop-grid{
   --card-gap: 16px;
   --card-radius: 14px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); /* wider cards so controls fit */
   gap: var(--card-gap);
   padding: 10px 14px 32px;
   max-width: 1200px;
   margin: 0 auto;
 }
 .item{
+  position: relative;
+  overflow: hidden;
   border: 1px solid #e5e7eb;
   border-radius: var(--card-radius);
   padding: 12px;
@@ -301,59 +263,36 @@ body.shop main h1{
   background: #fff;
   transition: transform .12s ease, box-shadow .12s ease;
 }
-.item:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0,0,0,.06);
-}
+.item:hover{ transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+.item.is-soldout { opacity: .6; }
+
 .thumb{ display:block; border:0; padding:0; background:none; cursor:zoom-in; width:100%; }
 .thumb img{
-  width:100%;
-  height:160px;
-  object-fit:cover;
-  border-radius:10px;
+  width:100%; height:160px; object-fit:cover; border-radius:10px;
 }
 
 /* Lightbox */
 .lightbox[hidden]{ display:none; }
 .lightbox{
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,.7);
-  display:grid;
-  place-items:center;
-  padding:20px;
-  z-index:1000;
+  position:fixed; inset:0; background:rgba(0,0,0,.7);
+  display:grid; place-items:center; padding:20px; z-index:1000;
 }
 .lightbox-img{
   max-width:min(92vw, 1000px);
   max-height:82vh;
-  border-radius:12px;
-  display:block;
+  border-radius:12px; display:block;
   box-shadow:0 10px 30px rgba(0,0,0,.4);
   background:#fff;
 }
-.lightbox-caption{
-  margin-top:10px;
-  color:#fff;
-  text-align:center;
-  font-weight:600;
-}
+.lightbox-caption{ margin-top:10px; color:#fff; text-align:center; font-weight:600; }
 .lightbox-close{
-  position:fixed;
-  top:14px;
-  right:16px;
-  font-size:32px;
-  line-height:1;
-  width:44px;
-  height:44px;
-  border-radius:50%;
-  border:none;
-  cursor:pointer;
-  background:#fff;
+  position:fixed; top:14px; right:16px;
+  font-size:32px; line-height:1; width:44px; height:44px;
+  border-radius:50%; border:none; cursor:pointer; background:#fff;
   box-shadow:0 2px 10px rgba(0,0,0,0.2);
 }
 
-/* <<< New overrides: make Shop cards match Banquet frosted style >>> */
+/* Frosted shop cards (match Banquets) */
 body.shop .item{
   background: rgba(255,255,255,0.40);
   border-color: rgba(229,231,235,0.45);
@@ -361,25 +300,42 @@ body.shop .item{
   backdrop-filter: saturate(120%) blur(2px);
   -webkit-backdrop-filter: saturate(120%) blur(2px);
 }
-body.shop .item:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+body.shop .item:hover{ transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.10); }
+body.shop .item-name, body.shop .item-price{ color:#1f2937; }
+
+/* Buy row (single-price & tiered) */
+.buy-row{
+  margin-top:10px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:center;
+  flex-wrap: wrap;           /* allow wrapping */
 }
-body.shop .item-name,
-body.shop .item-price{
-  color:#1f2937;
+.buy-row label{
+  display:flex;
+  flex-direction: column;    /* label above input */
+  gap:6px;
+  font-weight:600;
+  flex: 1 1 180px;           /* responsive width */
+}
+.buy-row.tiered .btn{ flex: 1 1 160px; }
+.buy-row input.qty{
+  width:100%;
+  max-width:120px;
+  text-align:center;
+  padding:.45rem .6rem;
+  border:1px solid #d1d5db;
+  border-radius:.5rem;
+  background: rgba(255,255,255,0.9);
 }
 
-/* =============================================================================
-   ===== Order page (match Banquets frosted style)
-   Requires: <body data-page="order">
-============================================================================= */
-
-/* Hide Registration & Directory links on Order page only */
+/* =========================
+   Order page (frosted)
+========================= */
 [data-page="order"] .nav a[href*="registration"],
 [data-page="order"] .nav a[href*="directory"] { display: none !important; }
 
-/* Center the "Order" title like others */
 [data-page="order"] h1{
   text-align:center;
   margin: 20px 0 14px;
@@ -387,7 +343,6 @@ body.shop .item-price{
   font-weight: 800;
 }
 
-/* Frosted cards identical to Banquets */
 [data-page="order"] .card{
   background: rgba(255,255,255,0.40);
   border-color: rgba(229,231,235,0.45);
@@ -396,131 +351,92 @@ body.shop .item-price{
   -webkit-backdrop-filter: saturate(120%) blur(2px);
 }
 
-/* ===== Order page layout improvements (Spacing: B, Inputs: 2) ===== */
-[data-page="order"] main {
-  margin-top: 3rem; /* Medium spacing from header */
-}
-
-/* Neat, consistent label + inputs */
-[data-page="order"] label {
-  display: flex;
-  flex-direction: column;
-  font-weight: 600;
-  font-size: 0.95rem;
-  gap: 4px;
-}
-
-/* Professional input style overrides just for Order page */
+/* Order layout & inputs */
+[data-page="order"] main { margin-top: 3rem; }
+[data-page="order"] label{ display:flex; flex-direction:column; font-weight:600; font-size:.95rem; gap:4px; }
 [data-page="order"] input[type="text"],
 [data-page="order"] input[type="email"],
 [data-page="order"] input[type="tel"],
-[data-page="order"] input[type="number"] {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 1rem;
-  border-radius: 6px;
-  border: 1px solid rgba(0,0,0,0.25);
-  background: rgba(255,255,255,0.85);
-  box-shadow: 0 1px 2px rgba(0,0,0,.05) inset;
+[data-page="order"] input[type="number"]{
+  width:100%; padding:10px 12px; font-size:1rem; border-radius:6px;
+  border:1px solid rgba(0,0,0,0.25); background:rgba(255,255,255,0.85);
+  box-shadow:0 1px 2px rgba(0,0,0,.05) inset;
+}
+[data-page="order"] .grid-2, [data-page="order"] .grid-3{ gap:1rem; }
+[data-page="order"] h2{
+  margin-top:0; font-weight:800; font-size:1.1rem;
+  border-bottom:1px solid rgba(0,0,0,0.15); padding-bottom:6px;
 }
 
-/* Improve spacing of grid rows within Order forms */
-[data-page="order"] .grid-2,
-[data-page="order"] .grid-3 {
-  gap: 1rem;
-}
-
-/* Make section headers stand out a touch */
-[data-page="order"] h2 {
-  margin-top: 0;
-  font-weight: 800;
-  font-size: 1.1rem;
-  border-bottom: 1px solid rgba(0,0,0,0.15);
-  padding-bottom: 6px;
-}
-
-/* Small detail line under items (e.g., notes) */
-.line-details{
-  font-size:.85em;
-  opacity:.8;
-}
-
-/* Badge for notes (used on Order) */
+/* Detail line under items */
+.line-details{ font-size:.85em; opacity:.8; }
 .note-badge{
-  display:inline-block;
-  padding:2px 8px;
-  border-radius:9999px;
-  background:#fff3cd;
-  border:1px solid #facc15;
-  color:#92400e;
-  font-size:.78em;
-  font-weight:600;
+  display:inline-block; padding:2px 8px; border-radius:9999px;
+  background:#fff3cd; border:1px solid #facc15; color:#92400e;
+  font-size:.78em; font-weight:600;
 }
 
-/* ===========================
-   Current Page Nav Highlight
-   =========================== */
+/* =========================
+   Grand Court Add-Ons
+========================= */
+[data-page="addons"] .card{
+  background: rgba(255,255,255,0.40);
+  border-color: rgba(229,231,235,0.45);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+}
+
+/* Each add-on block behaves like a tidy card section */
+[data-page="addons"] .addon{ margin:12px 0; }
+[data-page="addons"] .addon .row{
+  display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;
+}
+[data-page="addons"] .addon label{
+  display:flex; flex-direction:column; gap:6px; font-weight:600;
+}
+[data-page="addons"] .addon input,
+[data-page="addons"] .addon select{
+  padding:.55rem .7rem;
+  border:1px solid #d1d5db;
+  border-radius:.5rem;
+  background: rgba(255,255,255,0.9);
+}
+
+/* Hide spinners for number inputs on Add-Ons (type in amounts) */
+[data-page="addons"] input[type="number"]{
+  -moz-appearance: textfield;
+}
+[data-page="addons"] input[type="number"]::-webkit-outer-spin-button,
+[data-page="addons"] input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance: none; margin: 0;
+}
+
+/* =========================
+   Current Page nav highlight
+========================= */
 .site-nav a.nav-current,
 .site-nav .nav-current {
-  pointer-events: none;          /* disable clicking when it's an <a> */
+  pointer-events: none;
   cursor: default;
-  font-weight: 700;              /* selected look */
-  color: #555 !important;        /* slightly dim */
+  font-weight: 700;
+  color: #555 !important;
   opacity: 0.65;
-  border-bottom: 2px solid #555; /* underline to show "current" */
+  border-bottom: 2px solid #555;
   text-decoration: none !important;
 }
 
 /* Hide Admin from header menu (safety) */
-.site-nav a[href*="admin.html"] {
-  display: none !important;
-}
+.site-nav a[href*="admin.html"] { display: none !important; }
 
-/* ===== Make Banquets + Order match Product Catalog header ===== */
+/* Match Banquets + Order header with Shop */
 [data-page="banquets"] .header-inner,
-[data-page="order"] .header-inner {
-  display: block; /* same as shop */
-}
-
+[data-page="order"] .header-inner { display: block; }
 [data-page="banquets"] .logo,
 [data-page="order"] .logo {
-  display: flex;
-  flex-direction: column;   /* image on top, text underneath */
-  align-items: center;
-  gap: 8px;
-  text-align: center;
+  display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center;
 }
-
-/* Keep logo image size consistent with Product Catalog */
 [data-page="banquets"] .logo img,
-[data-page="order"] .logo img {
-  width: clamp(36px, 3.2vw, 48px);
-  height: clamp(36px, 3.2vw, 48px);
-}
-
-/* Match Banquets + Order logo text to Product Catalog */
+[data-page="order"] .logo img { width: clamp(36px, 3.2vw, 48px); height: clamp(36px, 3.2vw, 48px); }
 [data-page="banquets"] .logo span,
-[data-page="order"] .logo span {
-  font-size: clamp(1.05rem, 2.2vw, 1.4rem);
-  font-weight: 700;
-  text-align: center;
-  color: #1f2937;
-}
-
-/* Nav is already centered by .nav rules; no extra needed */
-
-/* Make Home use the same full-page wallpaper treatment */
-[data-page="home"] .hero { background: transparent !important; }
-
-/* If Home still has a .wallpaper element, hide it so the global body layers show */
-[data-page="home"] .wallpaper { display: none !important; }
-
-/* Center QR section on Home page */
-#qr {
-  text-align: center;
-  margin: 2rem auto;
-}
-#qr img {
-  display: block;
-  margin: 0 auto;
-}
+[data-page="order"] .logo span { font-size: clamp(1.05rem, 2.2vw, 1.4rem); font-weight:700; text-align:center; color:#1f2937; }
