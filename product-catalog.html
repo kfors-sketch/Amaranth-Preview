@@ -64,17 +64,11 @@
     const cap = document.getElementById('lbCap');
     const close = document.getElementById('lbClose');
 
-    function open(src, caption){
-      img.src = src; cap.textContent = caption || '';
-      lb.hidden = false;
-    }
-    function closeLb(){
-      lb.hidden = true; img.src = ''; cap.textContent = '';
-    }
+    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
+    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
 
     close.addEventListener('click', closeLb);
     lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
-
     return { open, close: closeLb };
   }
 
@@ -92,35 +86,71 @@
           changed = true;
         }
       });
-      if (changed){
-        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-      }
+      if (changed){ st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice })); }
     })();
 
     const grid = document.getElementById('shopGrid');
     const lb = setupLightbox();
 
     // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
-    const items = (window.DataStore && DataStore.getItems())
-      || (window.CATALOG_ITEMS || []);
+    const items = (window.DataStore && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
 
-    // Low stock threshold
     const LOW_STOCK = 5;
 
-    // Render
     function render(){
       grid.innerHTML = (items||[]).map(item => {
-        const price = normalizePrice(item.price || 0);
         const total = Number(item.qtyTotal || 0);
         const sold  = Number(item.qtySold  || 0);
         const remaining = Math.max(0, total - sold);
-
         const soldOut = total > 0 && remaining <= 0;
         const low = total > 0 && remaining > 0 && remaining <= LOW_STOCK;
 
         const badge = soldOut
           ? `<div class="item-badge badge-soldout">Sold out</div>`
           : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
+
+        // ----- PRICE / CONTROLS VIEW -----
+        let controlsHtml = '';
+        let priceLine = '';
+
+        if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
+          // Sort tiers by qty ascending, normalize prices
+          const tiers = item.pricing
+            .map(t => ({ qty: Number(t.qty||1), price: normalizePrice(t.price||0) }))
+            .filter(t => t.qty > 0 && t.price >= 0)
+            .sort((a,b)=>a.qty-b.qty);
+
+          const fromEach = tiers.length ? (tiers[0].price / tiers[0].qty) : 0;
+          priceLine = `<p class="item-price">From ${money(fromEach)} each</p>`;
+
+          const opts = tiers.map(t =>
+            `<option value="${t.qty}" data-price="${t.price}">${t.qty} for ${money(t.price)} (${money(t.price/t.qty)} each)</option>`
+          ).join('');
+
+          controlsHtml = `
+            <div class="buy-row">
+              <label>Bundle
+                <select class="bundle" ${soldOut ? 'disabled' : ''}>
+                  ${opts}
+                </select>
+              </label>
+              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
+            </div>
+            <div class="bundle-total tiny" aria-live="polite"></div>
+          `;
+        } else {
+          // Single-price
+          const price = normalizePrice(item.price || 0);
+          priceLine = `<p class="item-price">${money(price)}</p>`;
+          controlsHtml = `
+            <div class="buy-row">
+              <label>Qty
+                <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
+              </label>
+              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
+            </div>
+          `;
+        }
 
         return `
           <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
@@ -129,14 +159,8 @@
               <img src="${item.image || 'assets/img/placeholder.png'}" alt="${item.name || 'Item'}">
             </button>
             <div class="item-name">${item.name || ''}</div>
-            <p class="item-price">${money(price)}</p>
-
-            <div class="buy-row">
-              <label>Qty
-                <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
-              </label>
-              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
-            </div>
+            ${priceLine}
+            ${controlsHtml}
           </article>
         `;
       }).join('') || '<p>No items found.</p>';
@@ -145,11 +169,7 @@
       grid.querySelectorAll('.item').forEach(card=>{
         const id = card.dataset.id;
         const item = items.find(x=>String(x.id)===String(id));
-        const qtyInput = card.querySelector('.qty');
-        const addBtn   = card.querySelector('.add');
         const thumbBtn = card.querySelector('.thumb');
-
-        // Lightbox
         if (thumbBtn){
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
@@ -157,22 +177,70 @@
           });
         }
 
-        // Add to cart with inventory control
-        if (addBtn){
-          addBtn.addEventListener('click', ()=>{
-            const price = normalizePrice(item.price||0);
-            const total = Number(item.qtyTotal || 0);
-            const sold  = Number(item.qtySold  || 0);
-            const remaining = Math.max(0, total - sold);
+        const addBtn = card.querySelector('.add');
+        if (!addBtn) return;
 
-            let qty = Math.max(1, parseInt(qtyInput.value||'1',10));
+        // Live "Total for selection" preview for bundles
+        const bundleSel = card.querySelector('.bundle');
+        const bundleTotalEl = card.querySelector('.bundle-total');
+        if (bundleSel && bundleTotalEl){
+          const updateBundleTotal = ()=>{
+            const price = normalizePrice(bundleSel.options[bundleSel.selectedIndex].dataset.price);
+            bundleTotalEl.textContent = `Total for selection: ${money(price)}`;
+          };
+          bundleSel.addEventListener('change', updateBundleTotal);
+          updateBundleTotal();
+        }
 
-            // If inventory is tracked (qtyTotal>0), cap and block oversell
+        addBtn.addEventListener('click', ()=>{
+          const total = Number(item.qtyTotal || 0);
+          const sold  = Number(item.qtySold  || 0);
+          const remaining = Math.max(0, total - sold);
+
+          if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
+            // Tiered: read selected bundle
+            const bundleQty = Math.max(1, parseInt(bundleSel.value||'1',10));
+            const bundlePrice = normalizePrice(bundleSel.options[bundleSel.selectedIndex].dataset.price);
+
+            // Inventory enforcement if applicable (remaining counts items, not bundles)
             if (total > 0){
-              if (remaining <= 0){
-                alert('Sorry, this item is sold out.');
+              if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
+              if (bundleQty > remaining){
+                alert(`Only ${remaining} left – cannot add a ${bundleQty}-pack.`);
                 return;
               }
+            }
+
+            // Add as qty=bundleQty, unitPrice=(bundlePrice / bundleQty)
+            const perUnit = Math.round((bundlePrice / bundleQty) * 100) / 100;
+            Cart.addLine({
+              attendeeId: '(unassigned)',
+              itemType: 'catalog',
+              itemId: String(item.id),
+              itemName: `${item.name} (${bundleQty}-pack)`,
+              qty: bundleQty,
+              unitPrice: perUnit,
+              meta: { sku: item.sku || '', note: '', bundleQty, bundlePrice }
+            });
+
+            // Update inventory
+            if (total > 0){
+              item.qtySold = (Number(item.qtySold||0) + bundleQty);
+              if (window.DataStore && DataStore.saveItems){
+                const updated = items.map(x => x.id===item.id ? item : x);
+                DataStore.saveItems(updated);
+              }
+              render();
+            }
+            alert('Added to order.');
+          } else {
+            // Single-price item
+            const price = normalizePrice(item.price||0);
+            const qtyInput = card.querySelector('.qty');
+            let qty = Math.max(1, parseInt(qtyInput.value||'1',10));
+
+            if (total > 0){
+              if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
               if (qty > remaining){
                 qty = remaining;
                 qtyInput.value = String(qty);
@@ -180,7 +248,6 @@
               }
             }
 
-            // Add to cart (unassigned line; purchaser can edit later)
             Cart.addLine({
               attendeeId: '(unassigned)',
               itemType: 'catalog',
@@ -191,41 +258,29 @@
               meta: { sku: item.sku || '', note: '' }
             });
 
-            // Update inventory counters
             if (total > 0){
               item.qtySold = (Number(item.qtySold||0) + qty);
               if (window.DataStore && DataStore.saveItems){
                 const updated = items.map(x => x.id===item.id ? item : x);
                 DataStore.saveItems(updated);
               }
-              // Re-render to refresh badges/disabled state
               render();
             }
-
             alert('Added to order.');
-          });
-        }
+          }
+        });
       });
     }
 
     render();
-
-    // If admin changes items elsewhere, refresh
-    if (window.addEventListener){
-      window.addEventListener('items:updated', render);
-    }
+    window.addEventListener && window.addEventListener('items:updated', render);
   });
   </script>
 
   <style>
     /* Small enhancements specific to this page */
-    .item {
-      position: relative;
-      overflow: hidden;
-    }
-    .item.is-soldout {
-      opacity: .6;
-    }
+    .item { position: relative; overflow: hidden; }
+    .item.is-soldout { opacity: .6; }
     .item-badge{
       position:absolute; top:10px; left:10px;
       padding: 4px 10px; border-radius: 9999px; font-weight:700; font-size:.8rem;
@@ -248,6 +303,7 @@
       padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
       background: rgba(255,255,255,0.9);
     }
+    .bundle-total{ text-align:center; margin-top:6px; font-weight:700; }
   </style>
 
   <!-- Core site scripts (order matters) -->
