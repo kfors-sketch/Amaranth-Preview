@@ -11,6 +11,8 @@
     input,select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
     .tiny{font-size:.85rem;color:#555}
     .status{margin-top:8px}
+    .stack{display:flex;flex-direction:column;gap:8px}
+    .btnbar{display:flex;flex-wrap:wrap;gap:8px}
   </style>
 </head>
 <body>
@@ -29,7 +31,7 @@
         <p class="tiny">This is a preview Admin placeholder. In production we will wire secure login and a database.</p>
       </section>
 
-      <!-- NEW: Reporting -->
+      <!-- Items & Ad-hoc Reports -->
       <section class="panel">
         <h2>Reports</h2>
         <div class="row">
@@ -41,15 +43,31 @@
           <label>Send To (optional override)
             <input id="reportTo" type="email" placeholder="chair@example.com">
           </label>
-          <button id="sendNow" class="btn btn-primary">Send Full Report Now</button>
+        </div>
+        <div class="btnbar" style="margin-top:8px">
+          <button id="sendFull" class="btn btn-primary">Send Full Report Now</button>
+          <button id="sendMTD" class="btn">Send Month-to-Date (1st → now)</button>
         </div>
         <p class="tiny">If “Send To” is blank, the system emails the item’s chairperson(s) and CCs you automatically.</p>
         <div id="reportStatus" class="status tiny"></div>
       </section>
+
+      <!-- Manual Job Triggers -->
+      <section class="panel">
+        <h2>Monthly / Final Jobs</h2>
+        <div class="stack">
+          <div class="tiny">Current month: <strong id="currentMonthLabel">—</strong></div>
+          <div class="btnbar">
+            <button id="runMonthly" class="btn">Run Monthly Job Now</button>
+            <button id="runFinal" class="btn">Run Final Job Now</button>
+          </div>
+          <div id="cronStatus" class="status tiny"></div>
+        </div>
+      </section>
     </main>
   </div>
 
-  <!-- (optional) keep your site settings script -->
+  <!-- Optional site settings script -->
   <script src="/assets/js/site-settings.js"></script>
   <script>
     // demo save button (unchanged)
@@ -57,65 +75,107 @@
       alert('Saved locally. (Production Admin will store settings in the database.)');
     };
 
-    // -------- Reports wiring --------
+    // -------- Helpers --------
     const sel = document.getElementById('reportItem');
     const statusEl = document.getElementById('reportStatus');
+    const cronEl = document.getElementById('cronStatus');
 
-    function setStatus(msg, ok=true){
-      statusEl.textContent = msg || '';
-      statusEl.style.color = ok ? '#14532d' : '#7f1d1d';
+    function setStatus(el, msg, ok=true){
+      el.textContent = msg || '';
+      el.style.color = ok ? '#14532d' : '#7f1d1d';
     }
 
+    function fmtCurrentMonth(){
+      const now = new Date();
+      return now.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+    }
+    document.getElementById('currentMonthLabel').textContent = fmtCurrentMonth();
+
+    // -------- Load registered items --------
     async function loadRegisteredItems(){
       try{
-        setStatus('Loading items…');
+        setStatus(statusEl, 'Loading items…');
         const res = await fetch('/api/admin/list-registered-items');
         const data = await res.json();
         const items = Array.isArray(data.items) ? data.items : [];
 
         if (!items.length){
           sel.innerHTML = '<option value="" disabled selected>No items registered yet</option>';
-          setStatus('No items found. Visit Banquets/Add-Ons/Catalog pages once so they auto-register.', false);
+          setStatus(statusEl, 'No items found. Visit Banquets/Add-Ons/Catalog pages once so they auto-register.', false);
           return;
         }
 
-        // sort by name for convenience
         items.sort((a,b)=>a.name.localeCompare(b.name));
-
         sel.innerHTML = '<option value="" disabled selected>Select an item…</option>' +
           items.map(i=>`<option value="${i.id}">${i.name}</option>`).join('');
-
-        setStatus(`Loaded ${items.length} item(s).`);
+        setStatus(statusEl, `Loaded ${items.length} item(s).`);
       }catch(e){
         console.error(e);
         sel.innerHTML = '<option value="" disabled selected>Error loading items</option>';
-        setStatus('Failed to load items.', false);
+        setStatus(statusEl, 'Failed to load items.', false);
       }
     }
 
+    // -------- Send Full Report --------
     async function sendFullReport(){
       const id = sel.value;
       const to = (document.getElementById('reportTo').value || '').trim();
-      if (!id){ setStatus('Please choose an item first.', false); return; }
+      if (!id){ setStatus(statusEl, 'Please choose an item first.', false); return; }
 
-      setStatus('Sending report…');
+      setStatus(statusEl, 'Sending full report…');
       try{
         const url = to
           ? `/api/admin/send-full?itemId=${encodeURIComponent(id)}&to=${encodeURIComponent(to)}`
           : `/api/admin/send-full?itemId=${encodeURIComponent(id)}`;
-
         const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || 'send failed');
-
-        setStatus(`Report sent. ${data.sentTo ? 'Recipients: ' + data.sentTo.join(', ') : ''}`);
+        setStatus(statusEl, `Full report sent. ${data.sentTo ? 'Recipients: ' + data.sentTo.join(', ') : ''}`);
       }catch(e){
         console.error(e);
-        setStatus('Failed to send report: ' + e.message, false);
+        setStatus(statusEl, 'Failed to send full report: ' + e.message, false);
       }
     }
 
-    document.getElementById('sendNow').addEventListener('click', sendFullReport);
+    // -------- Send Month-to-Date (1st → now) --------
+    async function sendMTD(){
+      const id = sel.value;
+      const to = (document.getElementById('reportTo').value || '').trim();
+      if (!id){ setStatus(statusEl, 'Please choose an item first.', false); return; }
+
+      setStatus(statusEl, 'Sending month-to-date report…');
+      try{
+        const url = to
+          ? `/api/admin/send-month-to-date?itemId=${encodeURIComponent(id)}&to=${encodeURIComponent(to)}`
+          : `/api/admin/send-month-to-date?itemId=${encodeURIComponent(id)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'send failed');
+        setStatus(statusEl, `Month-to-date report sent. ${data.sentTo ? 'Recipients: ' + data.sentTo.join(', ') : ''}`);
+      }catch(e){
+        console.error(e);
+        setStatus(statusEl, 'Failed to send month-to-date: ' + e.message, false);
+      }
+    }
+
+    // -------- Manual cron triggers --------
+    async function hit(path, label){
+      setStatus(cronEl, `Running ${label}…`);
+      try{
+        const res = await fetch(path);
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok) throw new Error(data?.error || 'request failed');
+        setStatus(cronEl, `${label} completed.`);
+      }catch(e){
+        console.error(e);
+        setStatus(cronEl, `${label} failed: ` + e.message, false);
+      }
+    }
+
+    document.getElementById('sendFull').addEventListener('click', sendFullReport);
+    document.getElementById('sendMTD').addEventListener('click', sendMTD);
+    document.getElementById('runMonthly').addEventListener('click', ()=>hit('/api/cron/monthly', 'Monthly job'));
+    document.getElementById('runFinal').addEventListener('click',   ()=>hit('/api/cron/closing', 'Final job'));
     loadRegisteredItems();
   </script>
 </body>
