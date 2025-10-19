@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v2" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v3" />
   <title>Product Catalog</title>
 </head>
 
@@ -45,16 +45,24 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Optional legacy scripts -->
+  <!-- Optional legacy scripts you keep elsewhere -->
   <script src="assets/js/main.js" defer></script>
 
   <script>
-  // ------- Helpers -------
-  function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
+  /* =======================
+     Helpers / Formatting
+     ======================= */
+  // $X,XXX.00 — always commas + 2 decimals; clamp to >= 0.01 for display
+  function money(n){
+    const v = Math.max(0.01, Math.round(Number(n) * 100) / 100);
+    return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+  }
+
+  // Treat 0 < n < 1 as cents accidentally stored; convert to dollars
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
-    return (n > 0 && n < 1) ? Math.round(n*100) : n; // treat 0<n<1 as cents
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
   // Simple lightbox
@@ -75,7 +83,7 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration of any legacy cents in cart (0<n<1 -> dollars)
+    // One-time migration of any legacy cents in cart
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -86,7 +94,9 @@
           changed = true;
         }
       });
-      if (changed){ st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice })); }
+      if (changed){
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+      }
     })();
 
     const grid = document.getElementById('shopGrid');
@@ -128,8 +138,9 @@
           ).join('');
 
           controlsHtml = `
-            <div class="buy-row tiered">
-              <label>Bundle
+            <div class="buy-row">
+              <label class="stack">
+                <span class="lbl">Bundle</span>
                 <select class="bundle" ${soldOut ? 'disabled' : ''}>
                   ${opts}
                 </select>
@@ -144,7 +155,8 @@
           priceLine = `<p class="item-price">${money(price)}</p>`;
           controlsHtml = `
             <div class="buy-row">
-              <label>Qty
+              <label class="stack">
+                <span class="lbl">Qty</span>
                 <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
               </label>
               <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
@@ -185,7 +197,8 @@
         const bundleTotalEl = card.querySelector('.bundle-total');
         if (bundleSel && bundleTotalEl){
           const updateBundleTotal = ()=>{
-            const price = normalizePrice(bundleSel.options[bundleSel.selectedIndex].dataset.price);
+            const selected = bundleSel.options[bundleSel.selectedIndex];
+            const price = normalizePrice(selected.dataset.price);
             bundleTotalEl.textContent = `Total for selection: ${money(price)}`;
           };
           bundleSel.addEventListener('change', updateBundleTotal);
@@ -199,8 +212,10 @@
 
           if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
             // Tiered: read selected bundle
+            const bundleSel = card.querySelector('.bundle');
             const bundleQty = Math.max(1, parseInt(bundleSel.value||'1',10));
-            const bundlePrice = normalizePrice(bundleSel.options[bundleSel.selectedIndex].dataset.price);
+            const selected = bundleSel.options[bundleSel.selectedIndex];
+            const bundlePrice = normalizePrice(selected.dataset.price);
 
             // Inventory enforcement if applicable (remaining counts items, not bundles)
             if (total > 0){
@@ -278,9 +293,39 @@
   </script>
 
   <style>
-    /* Page-specific tweaks to complement your global styles.css */
-    .item { position: relative; overflow: hidden; }
-    .item.is-soldout { opacity: .6; }
+    /* Page-specific enhancements:
+       - Frosted cards (matching Banquets)
+       - Better layout for tiered bundles (wrap/stack gracefully)
+       - Roomier card width for long bundle labels
+    */
+    .shop-grid{
+      --card-gap: 16px;
+      --card-radius: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--card-gap);
+      padding: 10px 14px 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .item{
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(229,231,235,0.45);
+      border-radius: var(--card-radius);
+      padding: 14px;
+      text-align: center;
+      background: rgba(255,255,255,0.40);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .item:hover{
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+    }
+    .item.is-soldout { opacity: .65; }
     .item-badge{
       position:absolute; top:10px; left:10px;
       padding: 4px 10px; border-radius: 9999px; font-weight:700; font-size:.8rem;
@@ -291,29 +336,59 @@
     .badge-low { background: #fff7ed; color:#9a3412; }
     .badge-soldout { background: #fee2e2; color:#991b1b; }
 
+    .thumb{ display:block; border:0; padding:0; background:none; cursor:zoom-in; width:100%; }
+    .thumb img{
+      width:100%;
+      height:180px;
+      object-fit:cover;
+      border-radius:10px;
+    }
+
+    .item-name{
+      font-weight:700;
+      margin-top:10px;
+      min-height: 1.3em;
+    }
+
+    .item-price{
+      margin:8px 0 4px;
+      font-weight:700;
+    }
+
     .buy-row{
       margin-top:10px;
-      display:flex; gap:10px; align-items:center; justify-content:center;
+      display:flex;
+      gap:12px;
+      align-items:flex-end;
+      justify-content:center;
+      flex-wrap: wrap;                  /* allow wrapping on small cards */
     }
-    .buy-row label{
-      display:flex; align-items:center; gap:6px; font-weight:600;
+    .buy-row .stack{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:6px;
+      min-width: 180px;                 /* give select/qty room */
     }
+    .buy-row .lbl{
+      font-size:.9rem;
+      font-weight:600;
+      opacity:.85;
+    }
+    .buy-row select.bundle,
     .buy-row input.qty{
-      width:80px; text-align:center;
-      padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
+      width:100%;
+      padding:.55rem .7rem;
+      border:1px solid #d1d5db;
+      border-radius:.5rem;
       background: rgba(255,255,255,0.9);
     }
 
-    /* Make tiered controls breathe (raffle card) */
-    .buy-row.tiered { flex-wrap: wrap; }
-    .buy-row.tiered label { width: 100%; justify-content:center; }
-    .buy-row.tiered select.bundle {
-      min-width: 220px;
-      padding: .5rem .6rem;
-      border:1px solid #d1d5db; border-radius:.5rem;
-      background: rgba(255,255,255,0.9);
+    .bundle-total{
+      text-align:center;
+      margin-top:6px;
+      font-weight:700;
     }
-    .bundle-total{ text-align:center; margin-top:6px; font-weight:700; }
   </style>
 
   <!-- Core site scripts (order matters) -->

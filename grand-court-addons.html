@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-2">
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v3">
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -31,7 +31,7 @@
     <h1 class="page-title" style="text-align:center;font-weight:800;">Grand Court Add-Ons</h1>
 
     <!-- Attendees (shared with Banquets/Order via Cart) -->
-    <section class="card">
+    <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
         <input name="name" placeholder="Name" required>
@@ -42,75 +42,74 @@
       <div id="attendees"></div>
     </section>
 
-    <!-- Add-Ons (each item its own frosted card) -->
-    <section class="mt-lg" id="addons-cards">
+    <!-- Each add-on is its own frosted card -->
+    <section class="grid-2 mt-lg" id="addonsGrid">
       <!-- Pre-Registration -->
-      <div class="card addon" id="card-pre">
-        <h3>Pre-Registration — $30.00</h3>
+      <div class="card addon">
+        <h3>Pre-Registration — <span class="price">$30.00</span></h3>
         <p class="tiny">Optional. Limit one per attendee.</p>
         <div class="row">
           <label>Assign to
-            <select class="att-select" id="pre-att"></select>
+            <select class="att-select"></select>
           </label>
-          <button class="btn" id="btn-pre">Add</button>
+          <button class="btn add-pre">Add</button>
         </div>
       </div>
 
       <!-- Printed Directory -->
-      <div class="card addon" id="card-dir">
-        <h3>Printed Directory — $15.00</h3>
+      <div class="card addon">
+        <h3>Printed Directory — <span class="price">$15.00</span></h3>
         <div class="row">
           <label>Assign to
-            <select class="att-select" id="dir-att"></select>
+            <select class="att-select"></select>
           </label>
           <label>Quantity
-            <input type="number" min="1" step="1" value="1" class="qty" id="dir-qty">
+            <input type="number" min="1" step="1" value="1" class="qty">
           </label>
-          <button class="btn" id="btn-dir">Add</button>
+          <button class="btn add-dir">Add</button>
         </div>
       </div>
 
       <!-- Love Gift -->
-      <div class="card addon" id="card-love">
-        <h3>Love Gift — Custom Amount</h3>
+      <div class="card addon">
+        <h3>Love Gift — <span class="price">Custom Amount</span></h3>
         <div class="row">
           <label>Assign to
-            <select class="att-select" id="love-att"></select>
+            <select class="att-select"></select>
           </label>
           <label>Amount (USD)
-            <!-- text input so there are NO arrows; accepts 0.00 style -->
-            <input type="text" inputmode="decimal" placeholder="0.00" class="amt" id="love-amt">
+            <input type="number" min="0" step="0.01" value="0" inputmode="decimal" class="amt">
           </label>
           <label>Notes (optional)
-            <input type="text" class="notes" id="love-notes" placeholder="Message or instruction">
+            <input type="text" class="notes" placeholder="Message or instruction">
           </label>
-          <button class="btn" id="btn-love">Add</button>
+          <button class="btn add-love">Add</button>
         </div>
       </div>
 
       <!-- Addenda -->
-      <div class="card addon" id="card-addenda">
-        <h3>Addenda — $5.00</h3>
+      <div class="card addon">
+        <h3>Addenda — <span class="price">$5.00</span></h3>
         <div class="row">
           <label>Assign to
-            <select class="att-select" id="addenda-att"></select>
+            <select class="att-select"></select>
           </label>
           <label>Quantity
-            <input type="number" min="1" step="1" value="1" class="qty" id="addenda-qty">
+            <input type="number" min="1" step="1" value="1" class="qty">
           </label>
-          <button class="btn" id="btn-addenda">Add</button>
+          <button class="btn add-addenda">Add</button>
         </div>
       </div>
 
       <!-- Corsage -->
-      <div class="card addon" id="card-corsage">
-        <h3>Corsage — $15.00</h3>
+      <div class="card addon">
+        <h3>Corsage — <span class="price">$15.00</span></h3>
         <div class="row">
           <label>Assign to
-            <select class="att-select" id="corsage-att"></select>
+            <select class="att-select"></select>
           </label>
           <label>Type
-            <select class="variant" id="corsage-variant">
+            <select class="variant">
               <option value="Red Roses">Red Roses</option>
               <option value="Pink Roses">Pink Roses</option>
               <option value="Yellow Roses">Yellow Roses</option>
@@ -119,12 +118,12 @@
             </select>
           </label>
           <label>Custom text (optional)
-            <input type="text" class="custom-text" id="corsage-custom" placeholder="Describe request">
+            <input type="text" class="custom-text" placeholder="Describe request">
           </label>
           <label>Quantity
-            <input type="number" min="1" step="1" value="1" class="qty" id="corsage-qty">
+            <input type="number" min="1" step="1" value="1" class="qty">
           </label>
-          <button class="btn" id="btn-corsage">Add</button>
+          <button class="btn add-corsage">Add</button>
         </div>
       </div>
     </section>
@@ -134,36 +133,18 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Page JS -->
-  <script>
-  // dollars-safe formatter
-  function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
-  // parse currency typed like "12", "12.5", ".50", "$15.00"
-  function parseCurrency(str){
-    if (typeof str !== 'string') str = String(str||'');
-    const cleaned = str.replace(/[^0-9.]/g, '').trim();
-    if (cleaned === '' || cleaned === '.') return NaN;
-    const n = Number(cleaned);
-    if (!isFinite(n)) return NaN;
-    // defensive: interpret 0<n<1 as cents that were stored incorrectly
-    return (n > 0 && n < 1) ? Math.round(n*100) : n;
-  }
+  <!-- Optional legacy scripts -->
+  <script src="assets/js/main.js" defer></script>
 
+  <script>
+  function money(n){
+    const v = Math.max(0.01, Math.round(Number(n)*100)/100);
+    return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
+  }
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration for any legacy cents
-    (function migrateLegacyCents(){
-      const st = Cart.get();
-      let changed = false;
-      (st.lines || []).forEach(l => {
-        const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n*100); changed = true; }
-      });
-      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-    })();
-
-    // ----- Attendees area -----
+    // --- attendees block ---
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
@@ -176,9 +157,18 @@
         </div>
       `).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = ()=>{ Cart.removeAttendee(btn.dataset.del); renderAttendees(); refreshAllAttSelects(); };
+        btn.onclick = ()=>{ Cart.removeAttendee(btn.dataset.del); renderAttendees(); refreshAttSelects(); };
       });
     }
+    form.onsubmit = (e)=>{
+      e.preventDefault();
+      const fd = new FormData(form);
+      Cart.addAttendee({ name: fd.get('name'), email: fd.get('email'), title: fd.get('title') });
+      form.reset();
+      renderAttendees();
+      refreshAttSelects();
+    };
+    renderAttendees();
 
     function fillSelect(sel){
       const a = (Cart.get().attendees)||[];
@@ -191,125 +181,144 @@
         sel.innerHTML = '<option value="" disabled selected>Select attendee…</option>' +
           a.map(x=>`<option value="${x.id}">${x.name||x.email}</option>`).join('');
       }
-      sel.dispatchEvent(new Event('change', { bubbles:true }));
     }
-    function refreshAllAttSelects(){
-      document.querySelectorAll('.att-select').forEach(fillSelect);
+    function refreshAttSelects(){
+      document.querySelectorAll('.addon .att-select').forEach(fillSelect);
     }
+    refreshAttSelects();
 
-    form.onsubmit = (e)=>{
-      e.preventDefault();
-      const fd = new FormData(form);
-      Cart.addAttendee({ name: fd.get('name'), email: fd.get('email'), title: fd.get('title') });
-      form.reset();
-      renderAttendees();
-      refreshAllAttSelects();
-    };
+    // --- add handlers ---
+    const grid = document.getElementById('addonsGrid');
 
-    renderAttendees();
-    refreshAllAttSelects();
-
-    // Re-populate selects if cart changes elsewhere
-    window.addEventListener('cart:updated', ()=>{ renderAttendees(); refreshAllAttSelects(); });
-
-    // Convenience
     function needAttendee(sel){
       if(!sel || !sel.value){ alert('Please select an attendee first.'); return null; }
       return sel.value;
     }
 
-    // ----- Button handlers (scoped by IDs so they don’t miss) -----
-    // Pre-Registration
-    document.getElementById('btn-pre').onclick = (e)=>{
+    // Pre-Registration — $30, limit 1 per attendee
+    grid.querySelector('.add-pre').onclick = (e)=>{
       e.preventDefault();
-      const attSel = document.getElementById('pre-att');
+      const card = e.target.closest('.addon');
+      const attSel = card.querySelector('.att-select');
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
 
       const st = Cart.get();
       const already = (st.lines||[]).some(l => l.attendeeId===attendeeId && l.itemType==='addon' && l.itemId==='pre-reg');
       if (already){ alert('Pre-Registration already added for this attendee.'); return; }
 
-      Cart.addLine({ attendeeId, itemType:'addon', itemId:'pre-reg', itemName:'Pre-Registration', qty:1, unitPrice:30, meta:{variant:'',notes:''} });
+      Cart.addLine({
+        attendeeId,
+        itemType: 'addon',
+        itemId: 'pre-reg',
+        itemName: 'Pre-Registration',
+        qty: 1,
+        unitPrice: 30,
+        meta: { variant: '', notes: '' }
+      });
       alert('Pre-Registration added');
     };
 
-    // Directory
-    document.getElementById('btn-dir').onclick = (e)=>{
+    // Directory — $15, qty
+    grid.querySelector('.add-dir').onclick = (e)=>{
       e.preventDefault();
-      const attSel = document.getElementById('dir-att');
-      const qty    = Math.max(1, parseInt(document.getElementById('dir-qty').value||'1',10));
+      const card = e.target.closest('.addon');
+      const attSel = card.querySelector('.att-select');
+      const qty    = Math.max(1, parseInt(card.querySelector('.qty').value||'1',10));
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
 
-      Cart.addLine({ attendeeId, itemType:'addon', itemId:'directory', itemName:'Printed Directory', qty, unitPrice:15, meta:{variant:'',notes:''} });
+      Cart.addLine({
+        attendeeId,
+        itemType: 'addon',
+        itemId: 'directory',
+        itemName: 'Printed Directory',
+        qty,
+        unitPrice: 15,
+        meta: { variant: '', notes: '' }
+      });
       alert('Directory added');
     };
 
-    // Love Gift
-    document.getElementById('btn-love').onclick = (e)=>{
+    // Love Gift — custom $ (must be > 0)
+    grid.querySelector('.add-love').onclick = (e)=>{
       e.preventDefault();
-      const attSel = document.getElementById('love-att');
-      const amtStr = document.getElementById('love-amt').value;
-      const notes  = document.getElementById('love-notes').value || '';
+      const card = e.target.closest('.addon');
+      const attSel = card.querySelector('.att-select');
+      const amt    = Number(card.querySelector('.amt').value||0);
+      const notes  = card.querySelector('.notes').value || '';
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
+      if (!isFinite(amt) || amt <= 0){ alert('Enter a valid amount greater than 0.'); return; }
 
-      const amt = parseCurrency(amtStr);
-      if (!isFinite(amt) || amt <= 0){ alert('Enter a valid dollar amount like 25 or 25.00'); return; }
-
-      const price = Math.round(amt*100)/100;
-      Cart.addLine({ attendeeId, itemType:'addon', itemId:'love-gift', itemName:'Love Gift', qty:1, unitPrice:price, meta:{variant:'',notes} });
+      Cart.addLine({
+        attendeeId,
+        itemType: 'addon',
+        itemId: 'love-gift',
+        itemName: 'Love Gift',
+        qty: 1,
+        unitPrice: Math.round(amt*100)/100,
+        meta: { variant: '', notes }
+      });
       alert('Love Gift added');
     };
 
-    // Addenda
-    document.getElementById('btn-addenda').onclick = (e)=>{
+    // Addenda — $5, qty
+    grid.querySelector('.add-addenda').onclick = (e)=>{
       e.preventDefault();
-      const attSel = document.getElementById('addenda-att');
-      const qty    = Math.max(1, parseInt(document.getElementById('addenda-qty').value||'1',10));
+      const card = e.target.closest('.addon');
+      const attSel = card.querySelector('.att-select');
+      const qty    = Math.max(1, parseInt(card.querySelector('.qty').value||'1',10));
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
 
-      Cart.addLine({ attendeeId, itemType:'addon', itemId:'addenda', itemName:'Addenda', qty, unitPrice:5, meta:{variant:'',notes:''} });
+      Cart.addLine({
+        attendeeId,
+        itemType: 'addon',
+        itemId: 'addenda',
+        itemName: 'Addenda',
+        qty,
+        unitPrice: 5,
+        meta: { variant: '', notes: '' }
+      });
       alert('Addenda added');
     };
 
-    // Corsage
-    document.getElementById('btn-corsage').onclick = (e)=>{
+    // Corsage — $15, variant + optional custom text, qty
+    grid.querySelector('.add-corsage').onclick = (e)=>{
       e.preventDefault();
-      const attSel  = document.getElementById('corsage-att');
-      const variant = document.getElementById('corsage-variant').value;
-      const custom  = document.getElementById('corsage-custom').value || '';
-      const qty     = Math.max(1, parseInt(document.getElementById('corsage-qty').value||'1',10));
+      const card = e.target.closest('.addon');
+      const attSel = card.querySelector('.att-select');
+      const variant = card.querySelector('.variant').value;
+      const custom  = card.querySelector('.custom-text').value || '';
+      const qty     = Math.max(1, parseInt(card.querySelector('.qty').value||'1',10));
       const attendeeId = needAttendee(attSel); if(!attendeeId) return;
 
-      const name = custom && variant==='Custom' ? 'Corsage (Custom)' : `Corsage (${variant})`;
-      const itemId = 'corsage:' + (variant==='Custom' ? 'custom' : variant.toLowerCase().replace(/\s+/g,'-'));
+      const name = custom && variant==='Custom' ? `Corsage (Custom)` : `Corsage (${variant})`;
+      const notes = custom || '';
 
-      Cart.addLine({ attendeeId, itemType:'addon', itemId, itemName:name, qty, unitPrice:15, meta:{variant,notes:custom} });
+      Cart.addLine({
+        attendeeId,
+        itemType: 'addon',
+        itemId: 'corsage:' + (variant==='Custom' ? 'custom' : variant.toLowerCase().replace(/\s+/g,'-')),
+        itemName: name,
+        qty,
+        unitPrice: 15,
+        meta: { variant, notes }
+      });
       alert('Corsage added');
     };
+
+    // Keep selects fresh if cart changes elsewhere
+    window.addEventListener('cart:updated', ()=> {
+      renderAttendees();
+      refreshAttSelects();
+    });
   });
   </script>
 
   <style>
-    /* Match Banquets/Order frosted cards */
-    [data-page="addons"] .card{
-      background: rgba(255,255,255,0.40);
-      border: 1px solid rgba(229,231,235,0.45);
-      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-      backdrop-filter: saturate(120%) blur(2px);
-      -webkit-backdrop-filter: saturate(120%) blur(2px);
-      border-radius: .75rem;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
     .att-form input{margin:4px;padding:6px}
     .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
     .addon .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
     .addon label{display:flex;flex-direction:column;gap:6px}
     .addon input,.addon select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
-    /* Hide spin buttons from number inputs on some browsers (quantities) */
-    input[type=number]::-webkit-outer-spin-button,
-    input[type=number]::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
-    input[type=number]{ -moz-appearance: textfield; }
   </style>
 
   <!-- Core site scripts (order matters) -->

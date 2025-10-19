@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v3" />
   <title>Order</title>
 </head>
 
@@ -17,6 +17,7 @@
         <img src="/assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
+
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
@@ -30,7 +31,7 @@
   <main class="container mt-lg">
     <h1>Order</h1>
 
-    <!-- Purchaser -->
+    <!-- Frosted summary panel containing everything -->
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
@@ -51,24 +52,19 @@
         <label>Postal code<input id="p_zip" type="text" required></label>
         <label>Country<input id="p_country" type="text" value="US" required></label>
       </div>
-    </section>
 
-    <!-- Summary: everything in one frosted card -->
-    <section class="card mt-lg">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2>Summary</h2>
-        <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
-      </div>
+      <hr class="mt">
 
-      <!-- Items grouped by attendee -->
-      <div id="order-lines" class="mt"></div>
+      <h2 class="mt">Attendees & Items</h2>
+      <div id="order-list" class="mt"></div>
 
-      <!-- Fee/subtotal/total lines -->
-      <div id="totals-block" class="mt"></div>
+      <hr class="mt">
 
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem;">
+      <div id="order-summary" class="mt"></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+        <button id="clearCart" class="btn">Clear Order</button>
         <button id="checkout" class="btn btn-primary">Go to Checkout</button>
-        <button id="clearCart" class="btn" type="button">Clear Order</button>
       </div>
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
@@ -78,12 +74,15 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Page JS -->
   <script src="/assets/js/main.js" defer></script>
+
   <script>
-  // Dollars-safe UI formatter
-  function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
-  // Treat 0<n<1 as cents (legacy safeguard)
+  // Money with commas + .00; clamp display to >= $0.01
+  function money(n){
+    const v = Math.max(0.01, Math.round(Number(n)*100)/100);
+    return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
+  }
+  // Treat 0<n<1 as cents accidentally stored
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
@@ -93,7 +92,7 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration for legacy cents
+    // HOTFIX: migrate any legacy cents already in cart
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -104,78 +103,22 @@
       if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
     })();
 
-    const linesEl = document.getElementById('order-lines');
-    const totalsEl = document.getElementById('totals-block');
-    const totalTopEl = document.getElementById('order-total');
-
-    // Inline attendee editor (Name + Email + Title)
-    function startEditAtt(attId){
-      const st = Cart.get();
-      const a = (st.attendees||[]).find(x=>x.id===attId) || {name:'', email:'', title:''};
-      const header = linesEl.querySelector(`h3[data-att-id="${attId}"]`);
-      if (!header) return;
-
-      const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-      header.innerHTML = `
-        <form class="att-edit" data-att="${attId}" style="display:grid;gap:.5rem;grid-template-columns:1fr 1fr 1fr auto auto;align-items:end;">
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Name
-            <input type="text" value="${esc(a.name)}" class="att-name-input" required
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Email
-            <input type="email" value="${esc(a.email)}" class="att-email-input"
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Title
-            <input type="text" value="${esc(a.title)}" class="att-title-input"
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <button class="btn btn-primary save" style="height:40px;">Save</button>
-          <button class="btn cancel" type="button" style="height:40px;">Cancel</button>
-        </form>
-      `;
-
-      const form  = header.querySelector('form.att-edit');
-      const nameI = header.querySelector('.att-name-input');
-      const emailI= header.querySelector('.att-email-input');
-      const titleI= header.querySelector('.att-title-input');
-
-      nameI.focus(); nameI.select();
-
-      form.onsubmit = (e)=>{
-        e.preventDefault();
-        const newName  = nameI.value.trim();
-        const newEmail = emailI.value.trim();
-        const newTitle = titleI.value.trim();
-        if (!newName){ alert('Name cannot be empty.'); nameI.focus(); return; }
-        Cart.updateAttendee(attId, { name: newName, email: newEmail, title: newTitle });
-        render();
-      };
-      form.querySelector('.cancel').onclick = ()=> render();
-    }
+    const list = document.getElementById('order-list');
+    const sum  = document.getElementById('order-summary');
 
     function render(){
       const st = Cart.get();
       const byA = {};
       (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      // Build grouped tables (read view shows only name + Edit button)
-      linesEl.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-        const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
+      list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
+        const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
 
         const rows = lines.map(l => {
           const displayPrice = normalizePrice(l.unitPrice);
           const notes = l?.meta?.notes
-            ? `<div style="margin-top:2px;"><span style="
-                  display:inline-block;padding:2px 8px;border-radius:9999px;
-                  background:#fff3cd;border:1px solid #facc15;color:#92400e;
-                  font-size:.78em;font-weight:600;">Notes: ${l.meta.notes}</span></div>`
+            ? `<div class="line-details"><span class="note-badge">Notes: ${l.meta.notes}</span></div>`
             : '';
-
           return `
             <tr>
               <td>
@@ -191,10 +134,7 @@
 
         return `
           <div class="att-block">
-            <h3 data-att-id="${aid}" style="display:flex;align-items:center;gap:8px;">
-              <span class="att-name">${a.name||'(Unassigned)'}</span>
-              <button class="btn btn-edit-att" data-att="${aid}" type="button" style="padding:.35rem .6rem;">Edit</button>
-            </h3>
+            <h3>${a.name||'(Unassigned)'}</h3>
             <table class="order-table">
               <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
               <tbody>${rows}</tbody>
@@ -202,30 +142,23 @@
           </div>`;
       }).join('') || '<p>No items yet.</p>';
 
-      // wire remove buttons
-      linesEl.querySelectorAll('button[data-remove]').forEach(b=>{
+      list.querySelectorAll('button[data-remove]').forEach(b=>{
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
-      // wire edit attendee buttons
-      linesEl.querySelectorAll('.btn-edit-att').forEach(btn=>{
-        btn.onclick = ()=> startEditAtt(btn.dataset.att);
-      });
-
-      // Totals based on normalized prices
-      const st2 = Cart.get();
-      const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals();
+      // Totals (use normalized unitPrice)
+      const lines = Cart.get().lines || [];
+      const subtotal = lines.reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
+      const t = Cart.totals(); // still returns feePercent/flat from SITE_SETTINGS
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
-      totalTopEl.textContent = money(total);
-      totalsEl.innerHTML = `
+      sum.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
         <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
         <hr>
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
+        <p class="tiny">The fee helps cover online processing costs.</p>
       `;
     }
 
@@ -234,17 +167,13 @@
 
     const clearBtn = document.getElementById('clearCart');
     if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
-
-    // (Wire your real checkout here)
-    const checkoutBtn = document.getElementById('checkout');
-    if (checkoutBtn) checkoutBtn.onclick = ()=>{ /* redirect to Stripe */ };
   });
   </script>
 
   <style>
-  .order-table{width:100%;border-collapse:collapse}
-  .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-  .att-block{margin-bottom:16px}
+    .order-table{width:100%;border-collapse:collapse}
+    .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
+    .att-block{margin-bottom:16px}
   </style>
 
   <!-- Core site scripts (order matters) -->
