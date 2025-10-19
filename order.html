@@ -53,13 +53,7 @@
       </div>
     </section>
 
-    <!-- Attendees (frosted) -->
-    <section class="card mt-lg">
-      <h2>Attendees</h2>
-      <div id="attendee-list"></div>
-    </section>
-
-    <!-- Summary + Lines (single frosted panel) -->
+    <!-- Order (lines + summary) -->
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Order Summary</h2>
@@ -91,7 +85,6 @@
   <script>
   /* ---------- Helpers ---------- */
 
-  // Nice money with thousands separators and 2 decimals
   function money(n){
     const v = Number(n);
     const fixed = Math.round(v * 100) / 100;
@@ -105,9 +98,7 @@
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
-  // Dynamic purchaser heading:
-  // - empty name => "Purchaser"
-  // - has name   => the name only (no "Purchaser", no "(unassigned)")
+  // Purchaser heading shows only the name when present
   function updatePurchaserHeading(){
     const name = document.getElementById('p_name')?.value?.trim() || '';
     const h = document.getElementById('purchaser-heading');
@@ -135,85 +126,41 @@
     const sumWrap  = document.getElementById('order-summary');
     const totalEl  = document.getElementById('order-total');
 
-    /* ---------- Attendees UI (names with inline Edit) ---------- */
-    const attWrap = document.getElementById('attendee-list');
-
-    function renderAttendees(){
-      const st = Cart.get();
-      const attendees = st.attendees || [];
-      if (!attendees.length){
-        attWrap.innerHTML = '<p class="tiny">No attendees added yet. Use the Banquets or Add-Ons pages to add attendees.</p>';
-        return;
-      }
-
-      attWrap.innerHTML = attendees.map(a => `
-        <div class="att-card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <div style="font-weight:700;">${a.name || '(No name)'}</div>
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-sm edit-att" data-id="${a.id}" title="Edit attendee">Edit</button>
-            <button class="btn btn-sm" data-remove="${a.id}" title="Remove attendee">Remove</button>
-          </div>
-        </div>
-      `).join('');
-
-      // Remove
-      attWrap.querySelectorAll('button[data-remove]').forEach(b=>{
-        b.onclick = ()=>{
-          Cart.removeAttendee(b.dataset.remove);
-        };
-      });
-
-      // Edit (inline prompt for now: name/email/title)
-      attWrap.querySelectorAll('.edit-att').forEach(b=>{
-        b.onclick = ()=>{
-          const st2 = Cart.get();
-          const a = st2.attendees.find(x=>x.id===b.dataset.id);
-          if(!a) return;
-          const name  = prompt('Edit name',  a.name  || '') ?? a.name;
-          const email = prompt('Edit email', a.email || '') ?? a.email;
-          const title = prompt('Edit title', a.title || '') ?? a.title;
-          Cart.updateAttendee(a.id, { name, email, title });
-        };
-      });
-    }
-
-    renderAttendees();
-
-    // Keep purchaser heading reactive to name typing
+    // Reactive purchaser heading
     ['input','change'].forEach(evt => {
       document.getElementById('p_name')?.addEventListener(evt, updatePurchaserHeading);
     });
     updatePurchaserHeading();
 
-    /* ---------- Lines + Summary ---------- */
+    /* ---------- Render ---------- */
     function render(){
       const st = Cart.get();
 
-      // Group lines by attendeeId, but map '(unassigned)' to a special key 'PURCHASER'
+      // Group lines by attendeeId, mapping '(unassigned)' to 'PURCHASER'
       const byA = {};
       (st.lines || []).forEach(l => {
         const key = (l.attendeeId === '(unassigned)') ? 'PURCHASER' : l.attendeeId;
         (byA[key] ||= []).push(l);
       });
 
-      // Build blocks: first Purchaser (if any), then attendees in order added
-      const orderBlocks = [];
+      // Build blocks in this order: Purchaser (if any), then attendees as added
+      const blocks = [];
 
-      // Purchaser block
+      // Purchaser block (label is purchaser's name or "Purchaser")
       if (byA.PURCHASER && byA.PURCHASER.length){
         const purchaserName = document.getElementById('p_name')?.value?.trim() || 'Purchaser';
-        orderBlocks.push([purchaserName, byA.PURCHASER]);
+        blocks.push({ label: purchaserName, attendeeId: 'PURCHASER', lines: byA.PURCHASER, editable: false });
       }
 
-      // Attendee blocks
+      // Attendee blocks with inline Edit
       (st.attendees || []).forEach(a=>{
         if (byA[a.id] && byA[a.id].length){
-          orderBlocks.push([a.name || '(No name)', byA[a.id]]);
+          blocks.push({ label: a.name || '(No name)', attendeeId: a.id, lines: byA[a.id], editable: true });
         }
       });
 
-      listWrap.innerHTML = orderBlocks.map(([label, lines])=>{
-        const rows = lines.map(l=>{
+      listWrap.innerHTML = blocks.map(block=>{
+        const rows = block.lines.map(l=>{
           const displayPrice = normalizePrice(l.unitPrice);
           const lineTotal = displayPrice * Number(l.qty || 0);
           const notes = l?.meta?.notes
@@ -233,9 +180,17 @@
           `;
         }).join('');
 
+        // Header with optional Edit button (attendees only)
+        const headerRight = block.editable
+          ? `<button class="btn btn-sm edit-att" data-att-id="${block.attendeeId}" title="Edit attendee">Edit</button>`
+          : '';
+
         return `
           <div class="att-block" style="margin-bottom:16px">
-            <h3 style="margin:4px 0 8px 0;">${label}</h3>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px 0;">
+              <h3 style="margin:0;">${block.label}</h3>
+              ${headerRight}
+            </div>
             <table class="order-table" style="width:100%;border-collapse:collapse">
               <thead>
                 <tr>
@@ -257,9 +212,23 @@
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
-      // Normalized totals (so legacy cents never sneak back)
+      // Inline attendee edit (name/email/title via prompts for now)
+      listWrap.querySelectorAll('.edit-att').forEach(btn=>{
+        btn.onclick = ()=>{
+          const id = btn.getAttribute('data-att-id');
+          const st2 = Cart.get();
+          const a = (st2.attendees || []).find(x => x.id === id);
+          if (!a) return;
+          const name  = prompt('Edit name',  a.name  || '') ?? a.name;
+          const email = prompt('Edit email', a.email || '') ?? a.email;
+          const title = prompt('Edit title', a.title || '') ?? a.title;
+          Cart.updateAttendee(a.id, { name, email, title });
+        };
+      });
+
+      // Totals (normalized)
       const subtotal = (st.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals(); // keeps feePercent/flat if set via SITE_SETTINGS
+      const t = Cart.totals();
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
@@ -277,7 +246,6 @@
 
     // Live updates
     window.addEventListener('cart:updated', ()=>{
-      renderAttendees();
       render();
       updatePurchaserHeading();
     });
