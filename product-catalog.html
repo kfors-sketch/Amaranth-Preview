@@ -45,7 +45,7 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Optional legacy scripts you keep elsewhere -->
+  <!-- Optional legacy scripts -->
   <script src="assets/js/main.js" defer></script>
 
   <script>
@@ -75,7 +75,7 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration of any legacy cents in cart
+    // One-time migration of any legacy cents in cart (0<n<1 -> dollars)
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
@@ -128,7 +128,7 @@
           ).join('');
 
           controlsHtml = `
-            <div class="buy-row">
+            <div class="buy-row tiered">
               <label>Bundle
                 <select class="bundle" ${soldOut ? 'disabled' : ''}>
                   ${opts}
@@ -156,7 +156,7 @@
           <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
             ${badge}
             <button class="thumb" ${soldOut ? 'disabled' : ''} aria-label="Preview image">
-              <img src="${item.image || 'assets/img/placeholder.png'}" alt="${item.name || 'Item'}">
+              <img src="${item.image || 'assets/shop/placeholder.png'}" alt="${item.name || 'Item'}">
             </button>
             <div class="item-name">${item.name || ''}</div>
             ${priceLine}
@@ -173,7 +173,7 @@
         if (thumbBtn){
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
-            lb.open(item.image || 'assets/img/placeholder.png', item.name || '');
+            lb.open(item.image || 'assets/shop/placeholder.png', item.name || '');
           });
         }
 
@@ -278,7 +278,7 @@
   </script>
 
   <style>
-    /* Small enhancements specific to this page */
+    /* Page-specific tweaks to complement your global styles.css */
     .item { position: relative; overflow: hidden; }
     .item.is-soldout { opacity: .6; }
     .item-badge{
@@ -301,6 +301,16 @@
     .buy-row input.qty{
       width:80px; text-align:center;
       padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
+      background: rgba(255,255,255,0.9);
+    }
+
+    /* Make tiered controls breathe (raffle card) */
+    .buy-row.tiered { flex-wrap: wrap; }
+    .buy-row.tiered label { width: 100%; justify-content:center; }
+    .buy-row.tiered select.bundle {
+      min-width: 220px;
+      padding: .5rem .6rem;
+      border:1px solid #d1d5db; border-radius:.5rem;
       background: rgba(255,255,255,0.9);
     }
     .bundle-total{ text-align:center; margin-top:6px; font-weight:700; }
