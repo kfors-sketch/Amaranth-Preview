@@ -1,3 +1,8 @@
+// assets/js/banquets.js
+// NOTE:
+// - `chair` and `chairEmails` added to each banquet.
+// - The emailing system will treat `publishEnd` as the "ordering closes" date for final reports.
+
 window.BANQUETS = [
   // 01 — Has meal choices
   {
@@ -8,13 +13,15 @@ window.BANQUETS = [
     description: "YADA YADA",
     options: [
       { id: "adult",  label: "Ticket",  price: 60 },
-      
     ],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],               // keep empty if you don't want checkbox tags
     active: true,
     publishStart: "",          // e.g. "2026-01-01T00:00:00-05:00"
-    publishEnd: ""
+    publishEnd: "",
+    // NEW: chair fields
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 02 — No meal choices
@@ -29,7 +36,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 03 — Has meal choices
@@ -41,13 +51,15 @@ window.BANQUETS = [
     description: "BLAH BLAH",
     options: [
       { id: "adult", label: "Ticket", price: 60 },
-      
     ],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 04 — Has meal choices
@@ -62,7 +74,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 05 — Has meal choices
@@ -77,7 +92,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 06 — No meal choice
@@ -92,7 +110,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 07 — Has meal choices
@@ -107,7 +128,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 08 — No meal choice
@@ -122,7 +146,10 @@ window.BANQUETS = [
     dietary: [],
     active: true,
     publishStart: "",
-    publishEnd: ""
+    publishEnd: "",
+    // NEW
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
   },
 
   // 09 — Placeholder (no meal choice)
@@ -135,53 +162,3 @@ window.BANQUETS = [
     options: [{ id: "ticket", label: "Ticket", price: 25 }],
     mealChoices: [],
     dietary: [],
-    active: true,
-    publishStart: "",
-    publishEnd: ""
-  },
-
-  // 10 — Placeholder with meal choices
-  {
-    id: "banquet-10",
-    name: "Banquet 10",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Ticket", price: 55 }],
-    mealChoices: ["Pasta", "Chicken", "Vegetarian"],
-    dietary: [],
-    active: true,
-    publishStart: "",
-    publishEnd: ""
-  },
-
-  // 11 — Placeholder (no meal choice)
-  {
-    id: "banquet-11",
-    name: "Banquet 11",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Ticket", price: 35 }],
-    mealChoices: [],
-    dietary: [],
-    active: true,
-    publishStart: "",
-    publishEnd: ""
-  },
-
-  // 12 — Placeholder with meal choices
-  {
-    id: "banquet-12",
-    name: "Banquet 12",
-    datetime: "TBD",
-    location: "TBD",
-    description: "",
-    options: [{ id: "ticket", label: "Ticket", price: 65 }],
-    mealChoices: ["Beef", "Chicken", "Vegan"],
-    dietary: [],
-    active: true,
-    publishStart: "",
-    publishEnd: ""
-  }
-];
