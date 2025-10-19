@@ -41,8 +41,21 @@
       padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
       background: rgba(255,255,255,0.9);
     }
-    .order-table{width:100%;border-collapse:collapse}
-    .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
+
+    /* Tables aligned across all people */
+    .order-table{width:100%;border-collapse:collapse; table-layout:fixed}
+    .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left; vertical-align:top}
+    .order-table tfoot td{border-top:2px solid #d1d5db; font-weight:700}
+    .order-table .ta-right{ text-align:right }
+    .order-table .ta-center{ text-align:center }
+
+    /* Consistent column widths via colgroup */
+    .col-item   { width: 50% }  /* Item name */
+    .col-qty    { width: 10% }
+    .col-price  { width: 15% }
+    .col-total  { width: 15% }
+    .col-action { width: 10% }
+
     .fees-box{
       margin-top:10px;
       padding:12px;
@@ -173,7 +186,7 @@
       const byA = {};
       (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      // ---- helper to build one block ----
+      // ---- helper to build one block with aligned columns + per-person subtotal ----
       function buildBlock(aid, lines) {
         // Resolve display name
         let displayName = '';
@@ -188,14 +201,18 @@
         const showEdit = (aid !== '(unassigned)');
         const editPanelId = `edit-${aid}`;
 
+        let personSubtotal = 0;
         const rows = lines.map(l => {
           const price = normalizePrice(l.unitPrice);
+          const qty   = Number(l.qty || 0);
+          const lineTotal = price * qty;
+          personSubtotal += lineTotal;
           return `
             <tr>
               <td>${l.itemName || ''}</td>
-              <td>${l.qty}</td>
-              <td>${money(price)}</td>
-              <td>${money(price * Number(l.qty))}</td>
+              <td class="ta-center">${qty}</td>
+              <td class="ta-right">${money(price)}</td>
+              <td class="ta-right">${money(lineTotal)}</td>
               <td><button data-remove="${l.id}">Remove</button></td>
             </tr>`;
         }).join('');
@@ -221,8 +238,30 @@
             </div>` : ''}
 
             <table class="order-table">
-              <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
+              <colgroup>
+                <col class="col-item">
+                <col class="col-qty">
+                <col class="col-price">
+                <col class="col-total">
+                <col class="col-action">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="ta-center">Qty</th>
+                  <th class="ta-right">Price</th>
+                  <th class="ta-right">Line Total</th>
+                  <th></th>
+                </tr>
+              </thead>
               <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3" class="ta-right">Subtotal</td>
+                  <td class="ta-right">${money(personSubtotal)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>`;
       }
