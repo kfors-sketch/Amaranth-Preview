@@ -173,8 +173,8 @@
       const byA = {};
       (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
-      // build blocks
-      list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
+      // ---- helper to build one block ----
+      function buildBlock(aid, lines) {
         // Resolve display name
         let displayName = '';
         if (aid === '(unassigned)') {
@@ -225,7 +225,29 @@
               <tbody>${rows}</tbody>
             </table>
           </div>`;
-      }).join('') || '<p>No items yet.</p>';
+      }
+
+      // ---- Build in desired order: Purchaser first, then Attendees ----
+      const blocks = [];
+
+      // 1) Purchaser (aid === '(unassigned)') at the TOP if any lines exist
+      if (byA['(unassigned)'] && byA['(unassigned)'].length) {
+        blocks.push(buildBlock('(unassigned)', byA['(unassigned)']));
+      }
+
+      // 2) Then attendees (alphabetized by name for stability)
+      const attendeeEntries = Object.entries(byA)
+        .filter(([aid]) => aid !== '(unassigned)')
+        .map(([aid, lines]) => {
+          const a = st.attendees.find(x => x.id === aid);
+          const sortName = (a?.name || 'Attendee').toLowerCase();
+          return { aid, lines, sortName };
+        })
+        .sort((a, b) => a.sortName.localeCompare(b.sortName));
+
+      attendeeEntries.forEach(({aid, lines}) => blocks.push(buildBlock(aid, lines)));
+
+      list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
 
       // wire remove
       list.querySelectorAll('button[data-remove]').forEach(b=>{
@@ -238,8 +260,8 @@
           const aid = btn.dataset.edit;
           const panel = document.getElementById(`edit-${aid}`);
           if (!panel) return;
-          const st = Cart.get();
-          const a = st.attendees.find(x=>x.id===aid);
+          const st2 = Cart.get();
+          const a = st2.attendees.find(x=>x.id===aid);
           panel.style.display = 'block';
           panel.querySelector('.ed-name').value  = a?.name || '';
           panel.querySelector('.ed-email').value = a?.email || '';
