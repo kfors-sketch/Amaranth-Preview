@@ -277,3 +277,26 @@
     });
   });
 })();
+
+// ====== Auto-register metadata for email reports (banquets/addons) ======
+(function(){
+  try{
+    (window.GRAND_COURT_ADDONS || []).forEach(item => {
+      const payload = {
+        id: item.id,
+        name: item.name,
+        chairEmails: Array.isArray(item.chairEmails) ? item.chairEmails : [item?.chair?.email].filter(Boolean),
+        publishStart: item.publishStart || "",
+        publishEnd: item.publishEnd || ""   // used as "ordering closes" for FINAL report
+      };
+      fetch("/api/admin/register-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(()=>{});
+    });
+  }catch(e){
+    console.warn("[addons] auto-register failed:", e);
+  }
+})();
