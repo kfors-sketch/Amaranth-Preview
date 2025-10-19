@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v3" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v5" />
   <title>Order</title>
 </head>
 
@@ -31,11 +31,11 @@
   <main class="container mt-lg">
     <h1>Order</h1>
 
-    <!-- Frosted summary panel containing everything -->
+    <!-- One frosted panel with everything -->
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
-        <label>Full name<input id="p_name" type="text" required></label>
+        <label>Full name<input id="p_name" type="text" placeholder="Enter your name" required></label>
         <label>Title (optional)<input id="p_title" type="text"></label>
       </div>
       <div class="grid-2">
@@ -74,10 +74,11 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
+  <!-- Optional legacy scripts -->
   <script src="/assets/js/main.js" defer></script>
 
   <script>
-  // Money with commas + .00; clamp display to >= $0.01
+  // Money with commas + .00; clamp display to >= $0.01 (no free items visually)
   function money(n){
     const v = Math.max(0.01, Math.round(Number(n)*100)/100);
     return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
@@ -87,6 +88,11 @@
     const n = Number(p);
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+  // Purchaser name helper for "(unassigned)" block title
+  function purchaserDisplayName(){
+    const name = document.getElementById('p_name')?.value?.trim() || '';
+    return name ? `Purchaser — ${name}` : 'Purchaser (unassigned)';
   }
 
   document.addEventListener('DOMContentLoaded', function(){
@@ -111,8 +117,12 @@
       const byA = {};
       (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
+      // Build HTML per attendee group, with special handling for '(unassigned)'
       list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-        const a = st.attendees.find(x=>x.id===aid) || {name:'(Unassigned)'};
+        const isPurchaser = (aid === '(unassigned)');
+        const a = isPurchaser
+          ? { id: aid, name: purchaserDisplayName(), email:'', title:'' }
+          : (st.attendees.find(x=>x.id===aid) || { id: aid, name:'(Unassigned)', email:'', title:'' });
 
         const rows = lines.map(l => {
           const displayPrice = normalizePrice(l.unitPrice);
@@ -128,13 +138,38 @@
               <td>${l.qty}</td>
               <td>${money(displayPrice)}</td>
               <td>${money(displayPrice * Number(l.qty))}</td>
-              <td><button data-remove="${l.id}">Remove</button></td>
+              <td><button class="btn-link" data-remove="${l.id}">Remove</button></td>
             </tr>`;
         }).join('');
 
+        // For Purchaser block: no Edit button/form; for real attendees: include Edit
+        const head = isPurchaser
+          ? `
+            <div class="att-head">
+              <h3 class="att-name">${a.name}</h3>
+            </div>
+          `
+          : `
+            <div class="att-head">
+              <h3 class="att-name">${a.name||'(Unassigned)'}</h3>
+              <button class="btn btn-small btn-edit" data-edit="${a.id}">Edit</button>
+            </div>
+            <form class="edit-form" data-form="${a.id}" hidden>
+              <div class="grid-3">
+                <label>Name<input type="text" name="name" value="${a.name||''}" required></label>
+                <label>Email<input type="email" name="email" value="${a.email||''}"></label>
+                <label>Title<input type="text" name="title" value="${a.title||''}"></label>
+              </div>
+              <div class="edit-actions">
+                <button type="submit" class="btn btn-primary btn-save" data-save="${a.id}">Save</button>
+                <button type="button" class="btn btn-cancel" data-cancel="${a.id}">Cancel</button>
+              </div>
+            </form>
+          `;
+
         return `
-          <div class="att-block">
-            <h3>${a.name||'(Unassigned)'}</h3>
+          <div class="att-block" data-att-id="${a.id}">
+            ${head}
             <table class="order-table">
               <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
               <tbody>${rows}</tbody>
@@ -142,14 +177,49 @@
           </div>`;
       }).join('') || '<p>No items yet.</p>';
 
-      list.querySelectorAll('button[data-remove]').forEach(b=>{
+      // Remove line
+      list.querySelectorAll('[data-remove]').forEach(b=>{
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+      });
+
+      // Edit attendee (show form)
+      list.querySelectorAll('[data-edit]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const id = btn.dataset.edit;
+          const form = list.querySelector(`[data-form="${id}"]`);
+          if (form) form.hidden = false;
+        };
+      });
+
+      // Cancel edit (hide form without saving)
+      list.querySelectorAll('[data-cancel]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const id = btn.dataset.cancel;
+          const form = list.querySelector(`[data-form="${id}"]`);
+          if (form) form.hidden = true;
+        };
+      });
+
+      // Save edit (update attendee then re-render)
+      list.querySelectorAll('.edit-form').forEach(form=>{
+        form.onsubmit = (e)=>{
+          e.preventDefault();
+          const id = form.dataset.form;
+          const fd = new FormData(form);
+          Cart.updateAttendee(id, {
+            name: fd.get('name') || '',
+            email: fd.get('email') || '',
+            title: fd.get('title') || ''
+          });
+          form.hidden = true;
+          render();
+        };
       });
 
       // Totals (use normalized unitPrice)
       const lines = Cart.get().lines || [];
       const subtotal = lines.reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals(); // still returns feePercent/flat from SITE_SETTINGS
+      const t = Cart.totals();
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
@@ -162,8 +232,13 @@
       `;
     }
 
+    // Re-render when cart updates or purchaser types their name (to rename Purchaser block)
     render();
     window.addEventListener('cart:updated', render);
+    ['p_name','p_title','p_email','p_phone','p_addr1','p_addr2','p_city','p_state','p_zip','p_country'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', render);
+    });
 
     const clearBtn = document.getElementById('clearCart');
     if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
@@ -174,6 +249,11 @@
     .order-table{width:100%;border-collapse:collapse}
     .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
     .att-block{margin-bottom:16px}
+    .att-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .btn-link{background:none;border:0;color:#1d4ed8;cursor:pointer;padding:0}
+    .btn-small{padding:.4rem .7rem;font-size:.9rem}
+    .edit-form{margin:.5rem 0 .75rem 0;padding:.75rem;border:1px solid rgba(0,0,0,0.1);border-radius:.5rem;background:rgba(255,255,255,0.75);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px)}
+    .edit-actions{margin-top:.6rem;display:flex;gap:.5rem;justify-content:flex-end}
   </style>
 
   <!-- Core site scripts (order matters) -->
