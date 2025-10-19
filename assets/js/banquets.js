@@ -15,11 +15,10 @@ window.BANQUETS = [
       { id: "adult",  label: "Ticket",  price: 60 },
     ],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
-    dietary: [],               // keep empty if you don't want checkbox tags
+    dietary: [],
     active: true,
-    publishStart: "",          // e.g. "2026-01-01T00:00:00-05:00"
+    publishStart: "",
     publishEnd: "",
-    // NEW: chair fields
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -32,12 +31,11 @@ window.BANQUETS = [
     location: "Palm Court",
     description: "Plated Breakfast",
     options: [{ id: "adult", label: "Ticket", price: 25 }],
-    mealChoices: [],           // none => meal not required
+    mealChoices: [],
     dietary: [],
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -57,7 +55,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -75,7 +72,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -93,7 +89,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -111,7 +106,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -129,7 +123,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -147,7 +140,6 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    // NEW
     chair: { name: "TBD", email: "tbd@example.com" },
     chairEmails: ["tbd@example.com"]
   },
@@ -162,3 +154,84 @@ window.BANQUETS = [
     options: [{ id: "ticket", label: "Ticket", price: 25 }],
     mealChoices: [],
     dietary: [],
+    active: true,
+    publishStart: "",
+    publishEnd: "",
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
+  },
+
+  // 10 — Placeholder with meal choices
+  {
+    id: "banquet-10",
+    name: "Banquet 10",
+    datetime: "TBD",
+    location: "TBD",
+    description: "",
+    options: [{ id: "ticket", label: "Ticket", price: 55 }],
+    mealChoices: ["Pasta", "Chicken", "Vegetarian"],
+    dietary: [],
+    active: true,
+    publishStart: "",
+    publishEnd: "",
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
+  },
+
+  // 11 — Placeholder (no meal choice)
+  {
+    id: "banquet-11",
+    name: "Banquet 11",
+    datetime: "TBD",
+    location: "TBD",
+    description: "",
+    options: [{ id: "ticket", label: "Ticket", price: 35 }],
+    mealChoices: [],
+    dietary: [],
+    active: true,
+    publishStart: "",
+    publishEnd: "",
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
+  },
+
+  // 12 — Placeholder with meal choices
+  {
+    id: "banquet-12",
+    name: "Banquet 12",
+    datetime: "TBD",
+    location: "TBD",
+    description: "",
+    options: [{ id: "ticket", label: "Ticket", price: 65 }],
+    mealChoices: ["Beef", "Chicken", "Vegan"],
+    dietary: [],
+    active: true,
+    publishStart: "",
+    publishEnd: "",
+    chair: { name: "TBD", email: "tbd@example.com" },
+    chairEmails: ["tbd@example.com"]
+  }
+];
+
+/* ===== Auto-register metadata for email reports (banquets) ===== */
+(function(){
+  try{
+    (window.BANQUETS || []).forEach(b => {
+      const payload = {
+        id: b.id,
+        name: b.name,
+        chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : [b?.chair?.email].filter(Boolean),
+        publishStart: b.publishStart || "",
+        publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
+      };
+      fetch("/api/admin/register-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(()=>{});
+    });
+  } catch(e){
+    console.warn("[banquets] auto-register failed:", e);
+  }
+})();
