@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v5" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
   <title>Order</title>
 </head>
 
@@ -17,7 +17,6 @@
         <img src="/assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
-
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
@@ -31,16 +30,16 @@
   <main class="container mt-lg">
     <h1>Order</h1>
 
-    <!-- One frosted panel with everything -->
+    <!-- Purchaser (frosted) -->
     <section class="card">
-      <h2>Purchaser</h2>
+      <h2 id="purchaser-heading">Purchaser</h2>
       <div class="grid-2">
-        <label>Full name<input id="p_name" type="text" placeholder="Enter your name" required></label>
-        <label>Title (optional)<input id="p_title" type="text"></label>
+        <label>Full name<input id="p_name" type="text" placeholder="Your full name" required></label>
+        <label>Title (optional)<input id="p_title" type="text" placeholder=""></label>
       </div>
       <div class="grid-2">
-        <label>Email<input id="p_email" type="email" required></label>
-        <label>Phone<input id="p_phone" type="tel" required></label>
+        <label>Email<input id="p_email" type="email" placeholder="you@example.com" required></label>
+        <label>Phone<input id="p_phone" type="tel" placeholder="(555) 555-5555" required></label>
       </div>
       <div class="grid-3">
         <label>Address line 1<input id="p_addr1" type="text" required></label>
@@ -52,21 +51,33 @@
         <label>Postal code<input id="p_zip" type="text" required></label>
         <label>Country<input id="p_country" type="text" value="US" required></label>
       </div>
+    </section>
 
-      <hr class="mt">
+    <!-- Attendees (frosted) -->
+    <section class="card mt-lg">
+      <h2>Attendees</h2>
+      <div id="attendee-list"></div>
+    </section>
 
-      <h2 class="mt">Attendees & Items</h2>
-      <div id="order-list" class="mt"></div>
-
-      <hr class="mt">
-
-      <div id="order-summary" class="mt"></div>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
-        <button id="clearCart" class="btn">Clear Order</button>
-        <button id="checkout" class="btn btn-primary">Go to Checkout</button>
+    <!-- Summary + Lines (single frosted panel) -->
+    <section class="card mt-lg">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2>Order Summary</h2>
+        <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
       </div>
+
+      <div id="order-lines" class="mt">
+        <div id="order-list"></div>
+      </div>
+
+      <div id="order-summary" class="tiny" style="margin-top:.75rem;"></div>
+
+      <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
+
+      <div style="margin-top:12px">
+        <button id="clearCart" class="btn">Clear Order</button>
+      </div>
     </section>
   </main>
 
@@ -78,54 +89,133 @@
   <script src="/assets/js/main.js" defer></script>
 
   <script>
-  // Money with commas + .00; clamp display to >= $0.01 (no free items visually)
+  /* ---------- Helpers ---------- */
+
+  // Nice money with thousands separators and 2 decimals
   function money(n){
-    const v = Math.max(0.01, Math.round(Number(n)*100)/100);
-    return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
+    const v = Number(n);
+    const fixed = Math.round(v * 100) / 100;
+    return fixed.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
   }
-  // Treat 0<n<1 as cents accidentally stored
+
+  // Treat 0<n<1 as cents (legacy safety)
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
-  // Purchaser name helper for "(unassigned)" block title
-  function purchaserDisplayName(){
+
+  // Dynamic purchaser heading:
+  // - empty name => "Purchaser"
+  // - has name   => the name only (no "Purchaser", no "(unassigned)")
+  function updatePurchaserHeading(){
     const name = document.getElementById('p_name')?.value?.trim() || '';
-    return name ? `Purchaser — ${name}` : 'Purchaser (unassigned)';
+    const h = document.getElementById('purchaser-heading');
+    h.textContent = name ? name : 'Purchaser';
   }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // HOTFIX: migrate any legacy cents already in cart
+    // HOTFIX: migrate any legacy cents (once per load)
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
       (st.lines || []).forEach(l => {
         const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
+        if (isFinite(n) && n > 0 && n < 1) {
+          l.unitPrice = Math.round(n * 100);
+          changed = true;
+        }
       });
       if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
     })();
 
-    const list = document.getElementById('order-list');
-    const sum  = document.getElementById('order-summary');
+    const listWrap = document.getElementById('order-list');
+    const sumWrap  = document.getElementById('order-summary');
+    const totalEl  = document.getElementById('order-total');
 
+    /* ---------- Attendees UI (names with inline Edit) ---------- */
+    const attWrap = document.getElementById('attendee-list');
+
+    function renderAttendees(){
+      const st = Cart.get();
+      const attendees = st.attendees || [];
+      if (!attendees.length){
+        attWrap.innerHTML = '<p class="tiny">No attendees added yet. Use the Banquets or Add-Ons pages to add attendees.</p>';
+        return;
+      }
+
+      attWrap.innerHTML = attendees.map(a => `
+        <div class="att-card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="font-weight:700;">${a.name || '(No name)'}</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm edit-att" data-id="${a.id}" title="Edit attendee">Edit</button>
+            <button class="btn btn-sm" data-remove="${a.id}" title="Remove attendee">Remove</button>
+          </div>
+        </div>
+      `).join('');
+
+      // Remove
+      attWrap.querySelectorAll('button[data-remove]').forEach(b=>{
+        b.onclick = ()=>{
+          Cart.removeAttendee(b.dataset.remove);
+        };
+      });
+
+      // Edit (inline prompt for now: name/email/title)
+      attWrap.querySelectorAll('.edit-att').forEach(b=>{
+        b.onclick = ()=>{
+          const st2 = Cart.get();
+          const a = st2.attendees.find(x=>x.id===b.dataset.id);
+          if(!a) return;
+          const name  = prompt('Edit name',  a.name  || '') ?? a.name;
+          const email = prompt('Edit email', a.email || '') ?? a.email;
+          const title = prompt('Edit title', a.title || '') ?? a.title;
+          Cart.updateAttendee(a.id, { name, email, title });
+        };
+      });
+    }
+
+    renderAttendees();
+
+    // Keep purchaser heading reactive to name typing
+    ['input','change'].forEach(evt => {
+      document.getElementById('p_name')?.addEventListener(evt, updatePurchaserHeading);
+    });
+    updatePurchaserHeading();
+
+    /* ---------- Lines + Summary ---------- */
     function render(){
       const st = Cart.get();
+
+      // Group lines by attendeeId, but map '(unassigned)' to a special key 'PURCHASER'
       const byA = {};
-      (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
+      (st.lines || []).forEach(l => {
+        const key = (l.attendeeId === '(unassigned)') ? 'PURCHASER' : l.attendeeId;
+        (byA[key] ||= []).push(l);
+      });
 
-      // Build HTML per attendee group, with special handling for '(unassigned)'
-      list.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-        const isPurchaser = (aid === '(unassigned)');
-        const a = isPurchaser
-          ? { id: aid, name: purchaserDisplayName(), email:'', title:'' }
-          : (st.attendees.find(x=>x.id===aid) || { id: aid, name:'(Unassigned)', email:'', title:'' });
+      // Build blocks: first Purchaser (if any), then attendees in order added
+      const orderBlocks = [];
 
-        const rows = lines.map(l => {
+      // Purchaser block
+      if (byA.PURCHASER && byA.PURCHASER.length){
+        const purchaserName = document.getElementById('p_name')?.value?.trim() || 'Purchaser';
+        orderBlocks.push([purchaserName, byA.PURCHASER]);
+      }
+
+      // Attendee blocks
+      (st.attendees || []).forEach(a=>{
+        if (byA[a.id] && byA[a.id].length){
+          orderBlocks.push([a.name || '(No name)', byA[a.id]]);
+        }
+      });
+
+      listWrap.innerHTML = orderBlocks.map(([label, lines])=>{
+        const rows = lines.map(l=>{
           const displayPrice = normalizePrice(l.unitPrice);
+          const lineTotal = displayPrice * Number(l.qty || 0);
           const notes = l?.meta?.notes
             ? `<div class="line-details"><span class="note-badge">Notes: ${l.meta.notes}</span></div>`
             : '';
@@ -137,124 +227,65 @@
               </td>
               <td>${l.qty}</td>
               <td>${money(displayPrice)}</td>
-              <td>${money(displayPrice * Number(l.qty))}</td>
-              <td><button class="btn-link" data-remove="${l.id}">Remove</button></td>
-            </tr>`;
+              <td>${money(lineTotal)}</td>
+              <td><button data-remove="${l.id}" class="btn btn-sm">Remove</button></td>
+            </tr>
+          `;
         }).join('');
 
-        // For Purchaser block: no Edit button/form; for real attendees: include Edit
-        const head = isPurchaser
-          ? `
-            <div class="att-head">
-              <h3 class="att-name">${a.name}</h3>
-            </div>
-          `
-          : `
-            <div class="att-head">
-              <h3 class="att-name">${a.name||'(Unassigned)'}</h3>
-              <button class="btn btn-small btn-edit" data-edit="${a.id}">Edit</button>
-            </div>
-            <form class="edit-form" data-form="${a.id}" hidden>
-              <div class="grid-3">
-                <label>Name<input type="text" name="name" value="${a.name||''}" required></label>
-                <label>Email<input type="email" name="email" value="${a.email||''}"></label>
-                <label>Title<input type="text" name="title" value="${a.title||''}"></label>
-              </div>
-              <div class="edit-actions">
-                <button type="submit" class="btn btn-primary btn-save" data-save="${a.id}">Save</button>
-                <button type="button" class="btn btn-cancel" data-cancel="${a.id}">Cancel</button>
-              </div>
-            </form>
-          `;
-
         return `
-          <div class="att-block" data-att-id="${a.id}">
-            ${head}
-            <table class="order-table">
-              <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
+          <div class="att-block" style="margin-bottom:16px">
+            <h3 style="margin:4px 0 8px 0;">${label}</h3>
+            <table class="order-table" style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px;">Item</th>
+                  <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px;">Qty</th>
+                  <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px;">Price</th>
+                  <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px;">Line Total</th>
+                  <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px;"></th>
+                </tr>
+              </thead>
               <tbody>${rows}</tbody>
             </table>
-          </div>`;
+          </div>
+        `;
       }).join('') || '<p>No items yet.</p>';
 
-      // Remove line
-      list.querySelectorAll('[data-remove]').forEach(b=>{
+      // Remove handlers
+      listWrap.querySelectorAll('button[data-remove]').forEach(b=>{
         b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
       });
 
-      // Edit attendee (show form)
-      list.querySelectorAll('[data-edit]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const id = btn.dataset.edit;
-          const form = list.querySelector(`[data-form="${id}"]`);
-          if (form) form.hidden = false;
-        };
-      });
-
-      // Cancel edit (hide form without saving)
-      list.querySelectorAll('[data-cancel]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const id = btn.dataset.cancel;
-          const form = list.querySelector(`[data-form="${id}"]`);
-          if (form) form.hidden = true;
-        };
-      });
-
-      // Save edit (update attendee then re-render)
-      list.querySelectorAll('.edit-form').forEach(form=>{
-        form.onsubmit = (e)=>{
-          e.preventDefault();
-          const id = form.dataset.form;
-          const fd = new FormData(form);
-          Cart.updateAttendee(id, {
-            name: fd.get('name') || '',
-            email: fd.get('email') || '',
-            title: fd.get('title') || ''
-          });
-          form.hidden = true;
-          render();
-        };
-      });
-
-      // Totals (use normalized unitPrice)
-      const lines = Cart.get().lines || [];
-      const subtotal = lines.reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals();
+      // Normalized totals (so legacy cents never sneak back)
+      const subtotal = (st.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
+      const t = Cart.totals(); // keeps feePercent/flat if set via SITE_SETTINGS
       const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
       const total = subtotal + fee;
 
-      sum.innerHTML = `
+      totalEl.textContent = money(total);
+      sumWrap.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
-        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        <div>Fee (${t.pct || 0}% + ${money(t.flat || 0)}): ${money(fee)}</div>
         <hr>
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p class="tiny">The fee helps cover online processing costs.</p>
+        <p><small>The fee helps cover online processing costs.</small></p>
       `;
     }
 
-    // Re-render when cart updates or purchaser types their name (to rename Purchaser block)
     render();
-    window.addEventListener('cart:updated', render);
-    ['p_name','p_title','p_email','p_phone','p_addr1','p_addr2','p_city','p_state','p_zip','p_country'].forEach(id=>{
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', render);
+
+    // Live updates
+    window.addEventListener('cart:updated', ()=>{
+      renderAttendees();
+      render();
+      updatePurchaserHeading();
     });
 
-    const clearBtn = document.getElementById('clearCart');
-    if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
+    // Clear order
+    document.getElementById('clearCart')?.addEventListener('click', ()=> Cart.clear());
   });
   </script>
-
-  <style>
-    .order-table{width:100%;border-collapse:collapse}
-    .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-    .att-block{margin-bottom:16px}
-    .att-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .btn-link{background:none;border:0;color:#1d4ed8;cursor:pointer;padding:0}
-    .btn-small{padding:.4rem .7rem;font-size:.9rem}
-    .edit-form{margin:.5rem 0 .75rem 0;padding:.75rem;border:1px solid rgba(0,0,0,0.1);border-radius:.5rem;background:rgba(255,255,255,0.75);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px)}
-    .edit-actions{margin-top:.6rem;display:flex;gap:.5rem;justify-content:flex-end}
-  </style>
 
   <!-- Core site scripts (order matters) -->
   <script src="/assets/js/site-settings.js"></script>
