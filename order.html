@@ -266,7 +266,7 @@
           </div>`;
       }
 
-      // ---- Build in desired order: Purchaser first, then Attendees ----
+      // ---- Build in desired order: Purchaser first, then Attendees in ADDED ORDER ----
       const blocks = [];
 
       // 1) Purchaser (aid === '(unassigned)') at the TOP if any lines exist
@@ -274,17 +274,18 @@
         blocks.push(buildBlock('(unassigned)', byA['(unassigned)']));
       }
 
-      // 2) Then attendees (alphabetized by name for stability)
-      const attendeeEntries = Object.entries(byA)
-        .filter(([aid]) => aid !== '(unassigned)')
-        .map(([aid, lines]) => {
-          const a = st.attendees.find(x => x.id === aid);
-          const sortName = (a?.name || 'Attendee').toLowerCase();
-          return { aid, lines, sortName };
-        })
-        .sort((a, b) => a.sortName.localeCompare(b.sortName));
+      // 2) Attendees in the order they were added (st.attendees is insertion-ordered)
+      // Only include attendees that actually have lines
+      const attendeesWithLines = (st.attendees || []).filter(a => byA[a.id] && byA[a.id].length);
+      attendeesWithLines.forEach(a => blocks.push(buildBlock(a.id, byA[a.id])));
 
-      attendeeEntries.forEach(({aid, lines}) => blocks.push(buildBlock(aid, lines)));
+      // 3) Edge case: if any attendee IDs exist in byA but aren't in st.attendees, include them last
+      Object.entries(byA).forEach(([aid, lines]) => {
+        if (aid === '(unassigned)') return;
+        if (!(st.attendees || []).some(a => a.id === aid)) {
+          blocks.push(buildBlock(aid, lines));
+        }
+      });
 
       list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
 
