@@ -3,256 +3,259 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Order page for checkout and attendee assignments.">
-  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
-  <title>Order</title>
+  <meta name="description" content="Product Catalog – merchandise and extras." />
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v2" />
+  <title>Product Catalog</title>
 </head>
 
-<body data-page="order">
+<body class="shop" data-page="shop">
   <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
-      <a class="logo" href="/home.html">
-        <img src="/assets/img/logo.svg" alt="Logo" />
+      <a class="logo" href="home.html">
+        <img src="assets/img/logo.svg" alt="Logo" />
         <span>Order of the Amaranth</span>
       </a>
       <nav class="site-nav nav">
-        <a href="/home.html">Home</a>
-        <a href="/banquet.html">Banquets</a>
-        <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="/product-catalog.html">Product Catalog</a>
-        <span class="nav-current">Order</span>
+        <a href="home.html">Home</a>
+        <a href="banquet.html">Banquets</a>
+        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <span class="nav-current">Product Catalog</span>
+        <a href="order.html">Order</a>
       </nav>
     </div>
   </header>
 
   <main class="container mt-lg">
-    <h1>Order</h1>
+    <h1>Shop</h1>
 
-    <!-- Purchaser -->
-    <section class="card">
-      <h2>Purchaser</h2>
-      <div class="grid-2">
-        <label>Full name<input id="p_name" type="text" required></label>
-        <label>Title (optional)<input id="p_title" type="text"></label>
-      </div>
-      <div class="grid-2">
-        <label>Email<input id="p_email" type="email" required></label>
-        <label>Phone<input id="p_phone" type="tel" required></label>
-      </div>
-      <div class="grid-3">
-        <label>Address line 1<input id="p_addr1" type="text" required></label>
-        <label>Address line 2<input id="p_addr2" type="text"></label>
-        <label>City<input id="p_city" type="text" required></label>
-      </div>
-      <div class="grid-3">
-        <label>State/Province<input id="p_state" type="text" required></label>
-        <label>Postal code<input id="p_zip" type="text" required></label>
-        <label>Country<input id="p_country" type="text" value="US" required></label>
-      </div>
-    </section>
+    <!-- Product grid -->
+    <section class="shop-grid" id="shopGrid"></section>
 
-    <!-- Summary: everything in one frosted card -->
-    <section class="card mt-lg">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2>Summary</h2>
-        <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
-      </div>
-
-      <!-- Items grouped by attendee -->
-      <div id="order-lines" class="mt"></div>
-
-      <!-- Fee/subtotal/total lines -->
-      <div id="totals-block" class="mt"></div>
-
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem;">
-        <button id="checkout" class="btn btn-primary">Go to Checkout</button>
-        <button id="clearCart" class="btn" type="button">Clear Order</button>
-      </div>
-      <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
-    </section>
+    <!-- Lightbox -->
+    <div class="lightbox" id="lightbox" hidden>
+      <button class="lightbox-close" id="lbClose" aria-label="Close">×</button>
+      <img id="lbImg" class="lightbox-img" alt="">
+      <div id="lbCap" class="lightbox-caption"></div>
+    </div>
   </main>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Page JS -->
-  <script src="/assets/js/main.js" defer></script>
+  <!-- Optional legacy scripts you keep elsewhere -->
+  <script src="assets/js/main.js" defer></script>
+
   <script>
-  // Dollars-safe UI formatter
+  // ------- Helpers -------
   function money(n){ return '$' + (Math.round(Number(n)*100)/100).toFixed(2); }
-  // Treat 0<n<1 as cents (legacy safeguard)
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
-    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+    return (n > 0 && n < 1) ? Math.round(n*100) : n; // treat 0<n<1 as cents
+  }
+
+  // Simple lightbox
+  function setupLightbox(){
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lbImg');
+    const cap = document.getElementById('lbCap');
+    const close = document.getElementById('lbClose');
+
+    function open(src, caption){
+      img.src = src; cap.textContent = caption || '';
+      lb.hidden = false;
+    }
+    function closeLb(){
+      lb.hidden = true; img.src = ''; cap.textContent = '';
+    }
+
+    close.addEventListener('click', closeLb);
+    lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
+
+    return { open, close: closeLb };
   }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // One-time migration for legacy cents
+    // One-time migration of any legacy cents in cart
     (function migrateLegacyCents(){
       const st = Cart.get();
       let changed = false;
-      (st.lines || []).forEach(l => {
+      (st.lines||[]).forEach(l=>{
         const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
+        if (isFinite(n) && n > 0 && n < 1){
+          l.unitPrice = Math.round(n*100);
+          changed = true;
+        }
       });
-      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+      if (changed){
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+      }
     })();
 
-    const linesEl = document.getElementById('order-lines');
-    const totalsEl = document.getElementById('totals-block');
-    const totalTopEl = document.getElementById('order-total');
+    const grid = document.getElementById('shopGrid');
+    const lb = setupLightbox();
 
-    // Inline attendee editor (Name + Email + Title)
-    function startEditAtt(attId){
-      const st = Cart.get();
-      const a = (st.attendees||[]).find(x=>x.id===attId) || {name:'', email:'', title:''};
-      const header = linesEl.querySelector(`h3[data-att-id="${attId}"]`);
-      if (!header) return;
+    // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
+    const items = (window.DataStore && DataStore.getItems())
+      || (window.CATALOG_ITEMS || []);
 
-      const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    // Low stock threshold
+    const LOW_STOCK = 5;
 
-      header.innerHTML = `
-        <form class="att-edit" data-att="${attId}" style="display:grid;gap:.5rem;grid-template-columns:1fr 1fr 1fr auto auto;align-items:end;">
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Name
-            <input type="text" value="${esc(a.name)}" class="att-name-input" required
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Email
-            <input type="email" value="${esc(a.email)}" class="att-email-input"
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.95rem;">
-            Title
-            <input type="text" value="${esc(a.title)}" class="att-title-input"
-              style="padding:.45rem .6rem;border:1px solid #d1d5db;border-radius:.5rem;">
-          </label>
-          <button class="btn btn-primary save" style="height:40px;">Save</button>
-          <button class="btn cancel" type="button" style="height:40px;">Cancel</button>
-        </form>
-      `;
-
-      const form  = header.querySelector('form.att-edit');
-      const nameI = header.querySelector('.att-name-input');
-      const emailI= header.querySelector('.att-email-input');
-      const titleI= header.querySelector('.att-title-input');
-
-      nameI.focus(); nameI.select();
-
-      form.onsubmit = (e)=>{
-        e.preventDefault();
-        const newName  = nameI.value.trim();
-        const newEmail = emailI.value.trim();
-        const newTitle = titleI.value.trim();
-        if (!newName){ alert('Name cannot be empty.'); nameI.focus(); return; }
-        Cart.updateAttendee(attId, { name: newName, email: newEmail, title: newTitle });
-        render();
-      };
-      form.querySelector('.cancel').onclick = ()=> render();
-    }
-
+    // Render
     function render(){
-      const st = Cart.get();
-      const byA = {};
-      (st.lines||[]).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
+      grid.innerHTML = (items||[]).map(item => {
+        const price = normalizePrice(item.price || 0);
+        const total = Number(item.qtyTotal || 0);
+        const sold  = Number(item.qtySold  || 0);
+        const remaining = Math.max(0, total - sold);
 
-      // Build grouped tables (read view shows only name + Edit button)
-      linesEl.innerHTML = Object.entries(byA).map(([aid, lines]) => {
-        const a = (st.attendees||[]).find(x=>x.id===aid) || {name:'(Unassigned)'};
+        const soldOut = total > 0 && remaining <= 0;
+        const low = total > 0 && remaining > 0 && remaining <= LOW_STOCK;
 
-        const rows = lines.map(l => {
-          const displayPrice = normalizePrice(l.unitPrice);
-          const notes = l?.meta?.notes
-            ? `<div style="margin-top:2px;"><span style="
-                  display:inline-block;padding:2px 8px;border-radius:9999px;
-                  background:#fff3cd;border:1px solid #facc15;color:#92400e;
-                  font-size:.78em;font-weight:600;">Notes: ${l.meta.notes}</span></div>`
-            : '';
-
-          return `
-            <tr>
-              <td>
-                <div>${l.itemName || ''}</div>
-                ${notes}
-              </td>
-              <td>${l.qty}</td>
-              <td>${money(displayPrice)}</td>
-              <td>${money(displayPrice * Number(l.qty))}</td>
-              <td><button data-remove="${l.id}">Remove</button></td>
-            </tr>`;
-        }).join('');
+        const badge = soldOut
+          ? `<div class="item-badge badge-soldout">Sold out</div>`
+          : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
 
         return `
-          <div class="att-block">
-            <h3 data-att-id="${aid}" style="display:flex;align-items:center;gap:8px;">
-              <span class="att-name">${a.name||'(Unassigned)'}</span>
-              <button class="btn btn-edit-att" data-att="${aid}" type="button" style="padding:.35rem .6rem;">Edit</button>
-            </h3>
-            <table class="order-table">
-              <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line Total</th><th></th></tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>`;
-      }).join('') || '<p>No items yet.</p>';
+          <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
+            ${badge}
+            <button class="thumb" ${soldOut ? 'disabled' : ''} aria-label="Preview image">
+              <img src="${item.image || 'assets/img/placeholder.png'}" alt="${item.name || 'Item'}">
+            </button>
+            <div class="item-name">${item.name || ''}</div>
+            <p class="item-price">${money(price)}</p>
 
-      // wire remove buttons
-      linesEl.querySelectorAll('button[data-remove]').forEach(b=>{
-        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+            <div class="buy-row">
+              <label>Qty
+                <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
+              </label>
+              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
+            </div>
+          </article>
+        `;
+      }).join('') || '<p>No items found.</p>';
+
+      // Hook up behaviors
+      grid.querySelectorAll('.item').forEach(card=>{
+        const id = card.dataset.id;
+        const item = items.find(x=>String(x.id)===String(id));
+        const qtyInput = card.querySelector('.qty');
+        const addBtn   = card.querySelector('.add');
+        const thumbBtn = card.querySelector('.thumb');
+
+        // Lightbox
+        if (thumbBtn){
+          thumbBtn.addEventListener('click', ()=>{
+            if (thumbBtn.disabled) return;
+            lb.open(item.image || 'assets/img/placeholder.png', item.name || '');
+          });
+        }
+
+        // Add to cart with inventory control
+        if (addBtn){
+          addBtn.addEventListener('click', ()=>{
+            const price = normalizePrice(item.price||0);
+            const total = Number(item.qtyTotal || 0);
+            const sold  = Number(item.qtySold  || 0);
+            const remaining = Math.max(0, total - sold);
+
+            let qty = Math.max(1, parseInt(qtyInput.value||'1',10));
+
+            // If inventory is tracked (qtyTotal>0), cap and block oversell
+            if (total > 0){
+              if (remaining <= 0){
+                alert('Sorry, this item is sold out.');
+                return;
+              }
+              if (qty > remaining){
+                qty = remaining;
+                qtyInput.value = String(qty);
+                alert(`Only ${remaining} left – quantity adjusted.`);
+              }
+            }
+
+            // Add to cart (unassigned line; purchaser can edit later)
+            Cart.addLine({
+              attendeeId: '(unassigned)',
+              itemType: 'catalog',
+              itemId: String(item.id),
+              itemName: item.name || 'Item',
+              qty,
+              unitPrice: price,
+              meta: { sku: item.sku || '', note: '' }
+            });
+
+            // Update inventory counters
+            if (total > 0){
+              item.qtySold = (Number(item.qtySold||0) + qty);
+              if (window.DataStore && DataStore.saveItems){
+                const updated = items.map(x => x.id===item.id ? item : x);
+                DataStore.saveItems(updated);
+              }
+              // Re-render to refresh badges/disabled state
+              render();
+            }
+
+            alert('Added to order.');
+          });
+        }
       });
-
-      // wire edit attendee buttons
-      linesEl.querySelectorAll('.btn-edit-att').forEach(btn=>{
-        btn.onclick = ()=> startEditAtt(btn.dataset.att);
-      });
-
-      // Totals based on normalized prices
-      const st2 = Cart.get();
-      const subtotal = (st2.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals();
-      const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
-      const total = subtotal + fee;
-
-      totalTopEl.textContent = money(total);
-      totalsEl.innerHTML = `
-        <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
-        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
-        <hr>
-        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
-      `;
     }
 
     render();
-    window.addEventListener('cart:updated', render);
 
-    const clearBtn = document.getElementById('clearCart');
-    if (clearBtn) clearBtn.onclick = ()=>{ Cart.clear(); };
-
-    // (Wire your real checkout here)
-    const checkoutBtn = document.getElementById('checkout');
-    if (checkoutBtn) checkoutBtn.onclick = ()=>{ /* redirect to Stripe */ };
+    // If admin changes items elsewhere, refresh
+    if (window.addEventListener){
+      window.addEventListener('items:updated', render);
+    }
   });
   </script>
 
   <style>
-  .order-table{width:100%;border-collapse:collapse}
-  .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-  .att-block{margin-bottom:16px}
+    /* Small enhancements specific to this page */
+    .item {
+      position: relative;
+      overflow: hidden;
+    }
+    .item.is-soldout {
+      opacity: .6;
+    }
+    .item-badge{
+      position:absolute; top:10px; left:10px;
+      padding: 4px 10px; border-radius: 9999px; font-weight:700; font-size:.8rem;
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+      border:1px solid rgba(0,0,0,0.12);
+    }
+    .badge-low { background: #fff7ed; color:#9a3412; }
+    .badge-soldout { background: #fee2e2; color:#991b1b; }
+
+    .buy-row{
+      margin-top:10px;
+      display:flex; gap:10px; align-items:center; justify-content:center;
+    }
+    .buy-row label{
+      display:flex; align-items:center; gap:6px; font-weight:600;
+    }
+    .buy-row input.qty{
+      width:80px; text-align:center;
+      padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
+      background: rgba(255,255,255,0.9);
+    }
   </style>
 
   <!-- Core site scripts (order matters) -->
-  <script src="/assets/js/site-settings.js"></script>
-  <script src="/assets/js/items.js"></script>
-  <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/cart.js"></script>
-  <script src="/assets/js/data-store.js"></script>
-  <script src="/assets/js/site-boot.js"></script>
+  <script src="assets/js/site-settings.js"></script>
+  <script src="assets/js/items.js"></script>
+  <script src="assets/js/banquets.js"></script>
+  <script src="assets/js/cart.js"></script>
+  <script src="assets/js/data-store.js"></script>
+  <script src="assets/js/site-boot.js"></script>
 </body>
 </html>
