@@ -96,22 +96,22 @@ nav a{ font-weight:500; }
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
 
-/* Hybrid fit: fill portrait, show whole image in landscape */
-@media (max-aspect-ratio: 3/4) {  /* tall / portrait */
+/* Default wallpaper (used on desktop + landscape) */
+.wallpaper::before {
+  background-image: url('/assets/img/wallpaper.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Portrait override (mobile vertical) */
+@media (max-aspect-ratio: 3/4) {
   .wallpaper::before {
-    background-size: auto 100%;    /* fill height, narrower width */
-    background-position: 35% 15%;  /* adjust focus if needed */
-    background-color: transparent;
+    background-image: url('/assets/img/wallpaper-portrait.jpg'); /* different image for phones */
+    background-size: cover;
+    background-position: center center;
     background-repeat: no-repeat;
   }
 }
 
-@media (min-aspect-ratio: 4/3) {  /* wide / landscape */
-  .wallpaper::before {
-    background-size: contain;      /* show entire image */
-    background-position: center;
-    background-color: #000;        /* bars color behind image */
-    background-repeat: no-repeat;
-  }
-}
 
