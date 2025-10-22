@@ -114,3 +114,10 @@ nav a{ font-weight:500; }
     background-repeat: no-repeat;
   }
 }
+/* Adjust wallpaper to show more sides in vertical view */
+@media (max-aspect-ratio: 3/4) {
+  .wallpaper::before {
+    background-size: 120% auto;   /* wider = more of the sides visible */
+    background-position: center center;
+  }
+}
