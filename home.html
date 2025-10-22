@@ -44,11 +44,13 @@
       max-width: 700px;
     }
 
-    /* QR Panel (frosted look) */
-    .panel {
-      max-width: 720px;
-      margin: 0.5rem auto 1.25rem;
+    /* Prevent margin-collapsing and control spacing cleanly */
+    .hero { padding-bottom: .25rem; }
+    .panel { 
+      margin: .25rem auto 1.25rem; 
+      border-top: 1px solid transparent; 
       text-align: center;
+      max-width: 720px;
       background: rgba(255,255,255,0.40);
       border: 1px solid rgba(229,231,235,0.45);
       border-radius: 12px;
@@ -100,8 +102,8 @@
 
     <p class="org-intro">Yada Yada — details, greeting, or introductory paragraph about the session. You can replace this with any welcome message, schedule highlights, or chairperson greeting text.</p>
 
-    <!-- QR Section (PROVE IT fix applied) -->
-    <section class="panel" id="qr" style="margin-top:0 !important;">
+    <!-- QR Section (clean spacing fix, no !important) -->
+    <section class="panel" id="qr">
       <h3>Quick Access</h3>
       <p>Scan this QR to open this homepage:</p>
       <img src="/assets/img/qr-placeholder.svg" alt="QR code to this homepage" style="width:180px;height:auto;">
