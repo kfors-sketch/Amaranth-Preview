@@ -100,7 +100,7 @@ nav a{ font-weight:500; }
 @media (max-aspect-ratio: 3/4) {  /* tall/portrait */
   .wallpaper::before {
     background-size: cover;        /* fill screen */
-    background-position: 50% 30%;  /* nudge focus up a bit; tweak as needed */
+    background-position: 50% 15%;  /* nudge focus up a bit; tweak as needed */
     background-color: transparent;
     background-repeat: no-repeat;
   }
