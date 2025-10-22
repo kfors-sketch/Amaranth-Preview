@@ -51,9 +51,19 @@
       gap:.5rem;
     }
 
+    /* Tighten default margins so the panel sits closer */
+    .hero { 
+      margin: 0;                 /* no bottom margin */
+      padding-bottom: .5rem;     /* stops margin-collapsing with next section */
+    }
+    .hero h2,
+    .hero h3,
+    .hero p { 
+      margin: .25rem 0;          /* tighter headings/paragraphs */
+    }
+
     /* Main session title */
     .session-title{
-      margin:.25rem 0;
       font-size:2.4rem;
       font-weight:900;
       text-align:center;
@@ -63,7 +73,6 @@
 
     /* Subtitle (Trails & Treasures) */
     .welcome-text{
-      margin: 0 0 .25rem;
       font-size:1.5rem;
       font-weight:700;
       line-height:1.3;
@@ -72,22 +81,16 @@
     }
 
     @media (max-width:600px){
-      .session-title{
-        font-size:1.9rem;
-      }
-      .welcome-text{
-        font-size:1.25rem;
-      }
+      .session-title{ font-size:1.9rem; }
+      .welcome-text{ font-size:1.25rem; }
     }
 
-    .org-intro{ 
-      max-width: 60ch; 
-    }
+    .org-intro{ max-width: 60ch; }
 
     /* QR panel styling (closer to text) */
     .panel{
       max-width:720px;
-      margin: 0.75rem auto 1.25rem;  /* closer to top */
+      margin: .5rem auto 1.25rem;  /* bring it up */
       text-align:center;
       background: rgba(255,255,255,0.40);
       border:1px solid rgba(229,231,235,0.45);
