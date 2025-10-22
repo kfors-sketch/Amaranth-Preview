@@ -95,3 +95,8 @@ nav a{ font-weight:500; }
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
+
+/* ===== TEMP TEST: wallpaper layer check ===== */
+.wallpaper::before {
+  background: #7c3aed !important; /* bright purple to confirm wallpaper is visible */
+}
