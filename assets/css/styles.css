@@ -97,16 +97,16 @@ nav a{ font-weight:500; }
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
 
 /* Hybrid fit: fill portrait, show whole image in landscape */
-@media (max-aspect-ratio: 3/4) {  /* tall/portrait */
+@media (max-aspect-ratio: 3/4) {  /* tall / portrait */
   .wallpaper::before {
-    background-size: cover;        /* fill screen */
-    background-position: 35% 15%;  /* nudge focus up a bit; tweak as needed */
+    background-size: auto 100%;    /* fill height, narrower width */
+    background-position: 35% 15%;  /* adjust focus if needed */
     background-color: transparent;
     background-repeat: no-repeat;
   }
 }
 
-@media (min-aspect-ratio: 4/3) {  /* wide/landscape */
+@media (min-aspect-ratio: 4/3) {  /* wide / landscape */
   .wallpaper::before {
     background-size: contain;      /* show entire image */
     background-position: center;
@@ -114,10 +114,4 @@ nav a{ font-weight:500; }
     background-repeat: no-repeat;
   }
 }
-/* Adjust wallpaper to show more sides in vertical view */
-@media (max-aspect-ratio: 3/4) {
-  .wallpaper::before {
-    background-size: 120% auto;   /* wider = more of the sides visible */
-    background-position: center center;
-  }
-}
+
