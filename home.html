@@ -50,7 +50,19 @@
       text-align:center;
       gap:.5rem;
     }
-    .session-title{ margin: .25rem 0; }
+    .session-title{
+      margin:.25rem 0;
+      font-size:2.4rem;       /* enlarged title */
+      font-weight:900;
+      text-align:center;
+      line-height:1.2;
+      text-shadow:0 1px 3px rgba(0,0,0,0.25); /* subtle glow for visibility */
+    }
+    @media (max-width:600px){
+      .session-title{
+        font-size:1.9rem; /* slightly smaller on mobile */
+      }
+    }
     .welcome-text{ margin: 0 0 .25rem; }
     .org-intro{ max-width: 60ch; }
 
