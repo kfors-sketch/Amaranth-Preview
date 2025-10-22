@@ -96,3 +96,12 @@ nav a{ font-weight:500; }
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
 
+/* Show the whole wallpaper on narrow/mobile screens */
+@media (max-width: 640px) {
+  .wallpaper::before {
+    background-size: contain;       /* show the entire image */
+    background-color: #000;         /* bars color behind image */
+    background-position: center;    /* center the image */
+    background-repeat: no-repeat;
+  }
+}
