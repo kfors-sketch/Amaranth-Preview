@@ -96,12 +96,21 @@ nav a{ font-weight:500; }
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
 
-/* Show the whole wallpaper on narrow/mobile screens */
-@media (max-width: 640px) {
+/* Hybrid fit: fill portrait, show whole image in landscape */
+@media (max-aspect-ratio: 3/4) {  /* tall/portrait */
   .wallpaper::before {
-    background-size: contain;       /* show the entire image */
-    background-color: #000;         /* bars color behind image */
-    background-position: center;    /* center the image */
+    background-size: cover;        /* fill screen */
+    background-position: 50% 30%;  /* nudge focus up a bit; tweak as needed */
+    background-color: transparent;
+    background-repeat: no-repeat;
+  }
+}
+
+@media (min-aspect-ratio: 4/3) {  /* wide/landscape */
+  .wallpaper::before {
+    background-size: contain;      /* show entire image */
+    background-position: center;
+    background-color: #000;        /* bars color behind image */
     background-repeat: no-repeat;
   }
 }
