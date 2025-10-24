@@ -236,6 +236,7 @@
           meta: { mealChoice, attendeeNotes, event: b.datetime || "", location: b.location || "" }
         });
 
+        try { localStorage.setItem('amaranth_cart_ping', String(Date.now())); } catch(e) {}
         alert('Banquet added');
       };
 
