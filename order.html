@@ -210,13 +210,21 @@
 
         let personSubtotal = 0;
         const rows = lines.map(l => {
-          const price = normalizePrice(l.unitPrice);
+          
+          // --- Notes display (line meta or attendee fallback) ---
+          const attObj = (st.attendees || []).find(x => x.id === (l.attendeeId || ''));
+          const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
+          const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
+          const ln = lnMeta || lnAtt;
+          const meal = l.meta && l.meta.mealChoice ? ` • Meal: ${l.meta.mealChoice}` : '';
+          const extra = (ln || meal) ? `<div class="tiny" style="opacity:.85;">${ln ? `Notes: ${ln.replace(/</g,'&lt;')}` : ''}${meal}</div>` : '';
+    const price = normalizePrice(l.unitPrice);
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
           return `
             <tr>
-              <td>${l.itemName || ''}</td>
+              <td>${l.itemName || ''}${extra}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>
