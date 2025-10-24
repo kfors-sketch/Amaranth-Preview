@@ -38,6 +38,8 @@
         <input name="name" placeholder="Name" required>
         <input name="email" type="email" placeholder="Email">
         <input name="title" placeholder="Title">
+        <input name="notes" placeholder="Dietary notes">
+        
         <button type="submit" class="btn">Add attendee</button>
       </form>
       <div id="attendees"></div>
@@ -69,5 +71,28 @@
 
   <!-- Page JS (new) -->
   <script src="assets/js/grand-court-addons.js"></script>
+
+  <script>
+  // Strip attendeeNotes for any lines added from this Add-Ons page.
+  document.addEventListener('DOMContentLoaded', function(){
+    if (document.body && document.body.dataset && document.body.dataset.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
+      const _add = Cart.addLine.bind(Cart);
+      Cart.addLine = function(line){
+        try{
+          // Deep-clone to avoid mutating caller's object
+          const copy = JSON.parse(JSON.stringify(line || {}));
+          if (copy && copy.meta && Object.prototype.hasOwnProperty.call(copy.meta, 'attendeeNotes')){
+            delete copy.meta.attendeeNotes;
+          }
+          return _add(copy);
+        }catch(e){
+          // On any error, fall back to original add
+          return _add(line);
+        }
+      };
+    }
+  });
+  </script>
+
 </body>
 </html>
