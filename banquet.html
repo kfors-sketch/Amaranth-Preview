@@ -78,9 +78,7 @@
     // Migrate any legacy cents (0<n<1) to dollars in existing cart
     (function migrateLegacyCents(){
       const st = Cart.get();
-      const att = (st.attendees||[]).find(x=>x.id===attendeeSel.value);
-        const attendeeNotes = att && att.notes ? String(att.notes) : '';
-        let changed = false;
+      let changed = false;
       (st.lines || []).forEach(l => {
         const n = Number(l.unitPrice);
         if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
