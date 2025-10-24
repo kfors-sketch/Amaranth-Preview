@@ -94,5 +94,27 @@
   });
   </script>
 
+
+  <script>
+  // Ensure notes entered here are saved on the attendee profile,
+  // but Add-Ons lines themselves remain note-free (see addLine wrapper below).
+  document.addEventListener('DOMContentLoaded', function(){
+    var attForm = document.getElementById('attForm');
+    if (attForm && window.Cart && typeof Cart.addAttendee === 'function'){
+      var _addAtt = Cart.addAttendee.bind(Cart);
+      Cart.addAttendee = function(a){
+        try{
+          var notesInput = attForm.querySelector('[name="notes"]');
+          var n = notesInput ? String(notesInput.value || '').trim() : '';
+          if (n && (!a || !a.notes)){
+            a = Object.assign({}, a || {}, { notes: n });
+          }
+        }catch(e){}
+        return _addAtt(a);
+      };
+    }
+  });
+  </script>
+
 </body>
 </html>

@@ -221,8 +221,8 @@
           const attObj = (st.attendees || []).find(x => x.id === (l.attendeeId || ''));
           const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
           const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
-          const ln = lnMeta || lnAtt;
-          const extra = ln ? `<div class="tiny" style="opacity:.85;">Notes: ${ln.replace(/</g,'&lt;')}</div>` : '';
+          const ln     = (l.itemType === 'banquet') ? (lnMeta || lnAtt) : '';
+          const extra  = ln ? `<div class="tiny" style="opacity:.85;">Notes: ${ln.replace(/</g,'&lt;')}</div>` : '';
     const price = normalizePrice(l.unitPrice);
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
