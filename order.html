@@ -189,6 +189,25 @@
     function render(){
       const st = Cart.get();
 
+      // Backfill: for any banquet line missing meta.attendeeNotes, copy from attendee.notes
+      try {
+        (st.lines || []).forEach(l => {
+          if (l.itemType === 'banquet') {
+            l.meta = l.meta || {};
+            if (!l.meta.attendeeNotes) {
+              const att = (st.attendees || []).find(a => a.id === l.attendeeId);
+              const fallback = att && att.notes ? String(att.notes) : '';
+              if (fallback) {
+                l.meta.attendeeNotes = fallback;
+                Cart.updateLine(l.id, { meta: l.meta });
+              }
+            }
+          }
+        });
+      } catch(e) {}
+    
+      const st = Cart.get();
+
       // group lines by attendeeId (with purchaser bucket)
       const byA = {};
       (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
