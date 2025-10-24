@@ -66,6 +66,12 @@
       -webkit-backdrop-filter: saturate(120%) blur(2px);
       border-radius:10px;
     }
+  
+    .att-notes {
+      font-size:.9rem;
+      opacity:.85;
+      margin: .1rem 0 .4rem;
+    }
   </style>
 </head>
 
@@ -185,6 +191,189 @@
 
       // group lines by attendeeId (with purchaser bucket)
       const byA = {};
+      (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
+
+      // ---- helper to build one block with aligned columns + per-person subtotal ----
+      function buildBlock(aid, lines) {
+        // Resolve display name + notes
+        let displayName = '';
+        let notesHtml = '';
+        if (aid === '(unassigned)') {
+          displayName = getPurchaserName(); // no "(unassigned)" text
+        } else {
+          const a = st.attendees.find(x=>x.id===aid);
+          displayName = a?.name || 'Attendee';
+          if (a?.notes) {
+            const safe = String(a.notes).replace(/</g,'&lt;');
+            notesHtml = `<div class="att-notes">Notes: ${safe}</div>`;
+          }
+        }
+
+        // Inline edit form (for real attendees only) — now includes Notes
+        const showEdit = (aid !== '(unassigned)');
+        const editPanelId = `edit-${aid}`;
+
+        let personSubtotal = 0;
+        const rows = lines.map(l => {
+          const price = normalizePrice(l.unitPrice);
+          const qty   = Number(l.qty || 0);
+          const lineTotal = price * qty;
+          personSubtotal += lineTotal;
+
+          // Show attendee notes inline on banquet lines if present
+          const ln = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes).replace(/</g,'&lt;') : '';
+          const meal = l.meta && l.meta.mealChoice ? ` • Meal: ${l.meta.mealChoice}` : '';
+          const extra = (ln || meal) ? `<div class="tiny" style="opacity:.85;">${ln ? `Notes: ${ln}` : ''}${meal}</div>` : '';
+
+          return `
+            <tr>
+              <td>${l.itemName || ''}${extra}</td>
+              <td class="ta-center">${qty}</td>
+              <td class="ta-right">${money(price)}</td>
+              <td class="ta-right">${money(lineTotal)}</td>
+              <td><button data-remove="${l.id}">Remove</button></td>
+            </tr>`;
+        }).join('');
+
+        return `
+          <div class="att-block" data-aid="${aid}">
+            <div class="att-head">
+              <span>${displayName}</span>
+              ${showEdit ? `<button class="btn edit" data-edit="${aid}">Edit</button>` : ''}
+            </div>
+            ${notesHtml}
+            ${showEdit ? `
+            <div class="edit-panel" id="${editPanelId}">
+              <div class="row">
+                <label>Name<input type="text" class="ed-name" placeholder="Name"></label>
+                <label>Email<input type="email" class="ed-email" placeholder="Email"></label>
+                <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
+                <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
+              </div>
+              <div style="margin-top:.5rem; display:flex; gap:.5rem;">
+                <button class="btn btn-primary save-ed" data-save="${aid}">Save</button>
+                <button class="btn cancel-ed" data-cancel="${aid}">Cancel</button>
+              </div>
+            </div>` : ''}
+
+            <table class="order-table">
+              <colgroup>
+                <col class="col-item">
+                <col class="col-qty">
+                <col class="col-price">
+                <col class="col-total">
+                <col class="col-action">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="ta-center">Qty</th>
+                  <th class="ta-right">Price</th>
+                  <th class="ta-right">Line Total</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3" class="ta-right">Subtotal</td>
+                  <td class="ta-right">${money(personSubtotal)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>`;
+      }
+
+      // ---- Build in desired order: Purchaser first, then Attendees in ADDED ORDER ----
+      const blocks = [];
+
+      // 1) Purchaser (aid === '(unassigned)') at the TOP if any lines exist
+      if (byA['(unassigned)'] && byA['(unassigned)'].length) {
+        blocks.push(buildBlock('(unassigned)', byA['(unassigned)']));
+      }
+
+      // 2) Attendees in the order they were added (st.attendees is insertion-ordered)
+      // Only include attendees that actually have lines
+      const attendeesWithLines = (st.attendees || []).filter(a => byA[a.id] && byA[a.id].length);
+      attendeesWithLines.forEach(a => blocks.push(buildBlock(a.id, byA[a.id])));
+
+      // 3) Edge case: if any attendee IDs exist in byA but aren't in st.attendees, include them last
+      Object.entries(byA).forEach(([aid, lines]) => {
+        if (aid === '(unassigned)') return;
+        if (!(st.attendees || []).some(a => a.id === aid)) {
+          blocks.push(buildBlock(aid, lines));
+        }
+      });
+
+      list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
+
+      // wire remove
+      list.querySelectorAll('button[data-remove]').forEach(b=>{
+        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+      });
+
+      // wire edit show/hide + populate
+      list.querySelectorAll('button[data-edit]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.edit;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (!panel) return;
+          const st2 = Cart.get();
+          const a = st2.attendees.find(x=>x.id===aid);
+          panel.style.display = 'block';
+          panel.querySelector('.ed-name').value  = a?.name || '';
+          panel.querySelector('.ed-email').value = a?.email || '';
+          panel.querySelector('.ed-title').value = a?.title || '';
+          panel.querySelector('.ed-notes').value = a?.notes || '';
+        };
+      });
+      list.querySelectorAll('.cancel-ed').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.cancel;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (panel) panel.style.display = 'none';
+        };
+      });
+      list.querySelectorAll('.save-ed').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.save;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (!panel) return;
+          const name  = panel.querySelector('.ed-name').value.trim();
+          const email = panel.querySelector('.ed-email').value.trim();
+          const title = panel.querySelector('.ed-title').value.trim();
+          const notes = panel.querySelector('.ed-notes').value.trim();
+          Cart.updateAttendee(aid, { name, email, title, notes });
+          // Propagate notes to existing banquet lines for this attendee
+          const st3 = Cart.get();
+          (st3.lines || []).forEach(l=>{
+            if (l.attendeeId === aid && l.itemType === 'banquet'){
+              l.meta = l.meta || {};
+              l.meta.attendeeNotes = notes;
+              Cart.updateLine(l.id, { meta: l.meta });
+            }
+          });
+          panel.style.display = 'none';
+          render();
+        };
+      });
+
+      // totals (normalized)
+      const subtotal = (st.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
+      const t = Cart.totals();
+      const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
+      const total = subtotal + fee;
+
+      orderTotal.textContent = money(total);
+      summaryBox.innerHTML = `
+        <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
+        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
+        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
+        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
+      `;
+    };
       (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
 
       // ---- helper to build one block with aligned columns + per-person subtotal ----

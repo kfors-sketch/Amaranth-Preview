@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v3">
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v4">
   <title>Banquets</title>
 </head>
 
@@ -33,13 +33,14 @@
 
     <div id="banquet-list" class="grid-2"></div>
 
-    <!-- Attendees section updated to match Add-Ons frosted card style -->
+    <!-- Attendees section uses frosted card and now includes a Notes field -->
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(229,231,235,0.45);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
         <input name="name" placeholder="Name" required>
         <input name="email" type="email" placeholder="Email">
         <input name="title" placeholder="Title">
+        <textarea name="notes" placeholder="Notes (dietary needs, seating, allergies, etc.)" rows="2"></textarea>
         <button type="submit">Add attendee</button>
       </form>
       <div id="attendees"></div>
@@ -93,7 +94,10 @@
       const st = Cart.get();
       list.innerHTML = (st.attendees||[]).map(a=>`
         <div class="att-card">
-          <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
+          <div>
+            <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
+            ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${a.notes.replace(/</g,'&lt;')}</div>` : ''}
+          </div>
           <button data-del="${a.id}">Remove</button>
         </div>
       `).join('');
@@ -129,7 +133,8 @@
       Cart.addAttendee({
         name: fd.get('name'),
         email: fd.get('email'),
-        title: fd.get('title')
+        title: fd.get('title'),
+        notes: (fd.get('notes')||'').trim()
       });
       form.reset();
       renderAttendees();
@@ -160,7 +165,6 @@
           <select class="opt"></select>
         </label>
         <div class="meal"></div>
-        <div class="notes"></div>
         <div class="assign"></div>
         <button class="add" disabled>Add to Order</button>
       `;
@@ -187,12 +191,6 @@
         `;
       }
 
-      const notes = div.querySelector('.notes');
-      notes.innerHTML = `
-        <div style="margin:.5rem 0 .25rem;font-weight:600;">Notes (optional)</div>
-        <input class="other" placeholder="Allergies or other notes">
-      `;
-
       const assign = div.querySelector('.assign');
       const attendeeSel = attendeeSelect();
       assign.appendChild(attendeeSel);
@@ -215,6 +213,9 @@
 
         const st = Cart.get();
         const attendeeId = attendeeSel.value;
+        const att = (st.attendees||[]).find(x=>x.id===attendeeId);
+        const attendeeNotes = (att && att.notes) ? String(att.notes) : '';
+
         const dup = (st.lines || []).some(l =>
           l.attendeeId === attendeeId &&
           l.itemType === 'banquet' &&
@@ -224,7 +225,6 @@
 
         const chosen = JSON.parse(optSel.value);
         const unitPrice = normalizePrice(chosen.price);
-        const other  = div.querySelector('.notes .other')?.value || '';
 
         Cart.addLine({
           attendeeId,
@@ -233,7 +233,7 @@
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice,
-          meta: { mealChoice, notes: other, event: b.datetime || "", location: b.location || "" }
+          meta: { mealChoice, attendeeNotes, event: b.datetime || "", location: b.location || "" }
         });
 
         alert('Banquet added');
@@ -257,7 +257,7 @@
   </script>
 
   <style>
-    .att-form input{margin:4px;padding:6px}
+    .att-form input, .att-form textarea{margin:4px;padding:6px}
     .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
     .banquet-card{background:rgba(255,255,255,0.40);border:1px solid rgba(229,231,235,0.45);border-radius:10px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,0.06);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px)}
   </style>
