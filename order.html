@@ -72,6 +72,12 @@
       opacity:.85;
       margin: .1rem 0 .4rem;
     }
+  
+    /* Darker order text for better readability */
+    .order-table, .order-table td, .order-table th { color: #111; }
+    .order-table .tiny { color: #111; opacity: .95; }
+    .att-notes { color: #111; opacity: .95; }
+
   </style>
 </head>
 
@@ -216,8 +222,7 @@
           const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
           const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
           const ln = lnMeta || lnAtt;
-          const meal = l.meta && l.meta.mealChoice ? ` • Meal: ${l.meta.mealChoice}` : '';
-          const extra = (ln || meal) ? `<div class="tiny" style="opacity:.85;">${ln ? `Notes: ${ln.replace(/</g,'&lt;')}` : ''}${meal}</div>` : '';
+          const extra = ln ? `<div class="tiny" style="opacity:.85;">Notes: ${ln.replace(/</g,'&lt;')}</div>` : '';
     const price = normalizePrice(l.unitPrice);
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
