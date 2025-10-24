@@ -227,9 +227,18 @@
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
+          // --- Add-Ons item-specific note (not attendee notes) ---
+          let extra2 = '';
+          if (l.itemType === 'addons') {
+            const itemNote = (l.meta && (l.meta.note || l.meta.notes || l.meta.message)) ? String(l.meta.note || l.meta.notes || l.meta.message) : '';
+            if (itemNote) {
+              extra2 = `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>`;
+            }
+          }
+    
           return `
             <tr>
-              <td>${l.itemName || ''}${extra}</td>
+              <td>${l.itemName || ''}${extra}${extra2}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>
