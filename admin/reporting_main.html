@@ -75,6 +75,7 @@
         <div class="muted">Banquets · Add-Ons · Orders · Donations</div>
       </div>
       <span id="adminPill" class="pill">Admin Mode</span>
+      <button id="logoutBtn" class="btn ghost" style="height:28px;padding:0 10px;font-size:13px;">Log Out</button>
     </div>
 
     <!-- Controls -->
@@ -178,6 +179,8 @@
           </select>
 
           <button id="btnSendNow" class="btn">Send</button>
+          <!-- NEW: Send Test Email -->
+          <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
         </div>
         <div class="muted" style="margin-top:6px" id="sendHint"></div>
       </div>
@@ -211,6 +214,12 @@ const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return 
   const isAdmin = !!localStorage.getItem(ADMIN_KEY);
   $('#adminPill').style.display = isAdmin? 'inline-flex' : 'none';
 })();
+
+// LOG OUT wiring
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  localStorage.removeItem('amaranth_admin_pw_ok');
+  location.href = 'reporting_login.html';
+});
 
 /** Data layer **/
 let rows = []; // normalized, row-per-item
@@ -576,7 +585,21 @@ function sampleRows(){
     }
   }
 
+  // NEW: Send Test Email
+  async function doSendTest(){
+    msg.textContent = 'Sending test…'; msg.style.color='#6b7280';
+    try{
+      const resp = await fetch('/api/admin/send-test?to=kfors@verizon.net');
+      const json = await resp.json();
+      if(!resp.ok) throw new Error(json?.error || 'Send failed');
+      msg.textContent = 'Test email sent to kfors@verizon.net.'; msg.style.color='#065f46';
+    }catch(e){
+      msg.textContent = 'Failed: ' + e.message; msg.style.color='crimson';
+    }
+  }
+
   document.getElementById('btnSendNow').addEventListener('click', doSend);
+  document.getElementById('btnSendTest').addEventListener('click', doSendTest);
 })();
 </script>
 
