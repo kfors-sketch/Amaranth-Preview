@@ -263,6 +263,8 @@
                 <label>Name<input type="text" class="ed-name" placeholder="Name"></label>
                 <label>Email<input type="email" class="ed-email" placeholder="Email"></label>
                 <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
+              
+                <label style=\"flex:1 1 100%\">Notes<textarea class=\"ed-notes\" rows=\"2\" placeholder=\"Dietary needs, allergies, seating, etc.\"></textarea></label>
               </div>
               <div style="margin-top:.5rem; display:flex; gap:.5rem;">
                 <button class="btn btn-primary save-ed" data-save="${aid}">Save</button>
@@ -339,13 +341,27 @@
           panel.querySelector('.ed-name').value  = a?.name || '';
           panel.querySelector('.ed-email').value = a?.email || '';
           panel.querySelector('.ed-title').value = a?.title || '';
-        };
+        
+          if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
+};
       });
       list.querySelectorAll('.cancel-ed').forEach(btn=>{
         btn.onclick = ()=>{
           const aid = btn.dataset.cancel;
           const panel = document.getElementById(`edit-${aid}`);
           if (panel) panel.style.display = 'none';
+          // propagate notes to existing banquet lines for this attendee
+          try {
+            const st3 = Cart.get();
+            (st3.lines || []).forEach(l => {
+              if (l.attendeeId === aid && l.itemType === 'banquet'){
+                l.meta = l.meta || {};
+                l.meta.attendeeNotes = notes;
+                Cart.updateLine(l.id, { meta: l.meta });
+              }
+            });
+          } catch(e) {}
+          render();
         };
       });
       list.querySelectorAll('.save-ed').forEach(btn=>{
@@ -356,7 +372,9 @@
           const name  = panel.querySelector('.ed-name').value.trim();
           const email = panel.querySelector('.ed-email').value.trim();
           const title = panel.querySelector('.ed-title').value.trim();
-          Cart.updateAttendee(aid, { name, email, title });
+          
+          const notes = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
+Cart.updateAttendee(aid, { name, email, title, notes });
           panel.style.display = 'none';
           render();
         };
