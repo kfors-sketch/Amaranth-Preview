@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+  <style>
+    .panel{background:rgba(255,255,255,.85);padding:12px;border-radius:10px;border:1px solid #ddd;margin:10px 0}
+    .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+    label{display:flex;flex-direction:column;gap:6px;min-width:220px}
+    input,select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
+    .tiny{font-size:.85rem;color:#555}
+    .status{margin-top:8px}
+    .stack{display:flex;flex-direction:column;gap:8px}
+    .btnbar{display:flex;flex-wrap:wrap;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="wallpaper"></div>
+  <div class="page">
+    <header class="site-header"><h1>Admin</h1></header>
+
+    <main class="container">
+      <!-- Site Settings (unchanged) -->
+      <section class="panel">
+        <h2>Site Settings</h2>
+        <label>Product Catalog label <input id="label" value="Product Catalog"></label>
+        <label>Fee % <input id="feePct" type="number" step="0.1" value="2.9"></label>
+        <label>Fee flat <input id="feeFlat" type="number" step="0.01" value="0.30"></label>
+        <button id="save">Save (local)</button>
+        <p class="tiny">This is a preview Admin placeholder. In production we will wire secure login and a database.</p>
+      </section>
+
+      <!-- Items & Ad-hoc Reports -->
+      <section class="panel">
+        <h2>Reports</h2>
+        <div class="row">
+          <label>Choose item/banquet/add-on
+            <select id="reportItem">
+              <option value="" disabled selected>Loading items…</option>
+            </select>
+          </label>
+          <label>Send To (optional override)
+            <input id="reportTo" type="email" placeholder="chair@example.com">
+          </label>
+        </div>
+        <div class="btnbar" style="margin-top:8px">
+          <button id="sendFull" class="btn btn-primary">Send Full Report Now</button>
+          <button id="sendMTD" class="btn">Send Month-to-Date (1st → now)</button>
+          <!-- New: Open Reporting Dashboard (password-protected) -->
+          <a href="/admin/reporting.html" id="openReporting" class="btn btn-primary" style="background:#065f46;border-color:#064e3b;">
+            Open Reporting Dashboard
+          </a>
+        </div>
+        <p class="tiny">If “Send To” is blank, the system emails the item’s chairperson(s) and CCs you automatically.</p>
+        <div id="reportStatus" class="status tiny"></div>
+      </section>
+
+      <!-- Manual Job Triggers -->
+      <section class="panel">
+        <h2>Monthly / Final Jobs</h2>
+        <div class="stack">
+          <div class="tiny">Current month: <strong id="currentMonthLabel">—</strong></div>
+          <div class="btnbar">
+            <button id="runMonthly" class="btn">Run Monthly Job Now</button>
+            <button id="runFinal" class="btn">Run Final Job Now</button>
+          </div>
+          <div id="cronStatus" class="status tiny"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Optional site settings script -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script>
+    // demo save button (unchanged)
+    document.getElementById('save').onclick = ()=>{
+      alert('Saved locally. (Production Admin will store settings in the database.)');
+    };
+
+    // -------- Helpers --------
+    const sel = document.getElementById('reportItem');
+    const statusEl = document.getElementById('reportStatus');
+    const cronEl = document.getElementById('cronStatus');
+
+    function setStatus(el, msg, ok=true){
+      el.textContent = msg || '';
+      el.style.color = ok ? '#14532d' : '#7f1d1d';
+    }
+
+    function fmtCurrentMonth(){
+      const now = new Date();
+      return now.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+    }
+    document.getElementById('currentMonthLabel').textContent = fmtCurrentMonth();
+
+    // -------- Load registered items --------
+    async function loadRegisteredItems(){
+      try{
+        setStatus(statusEl, 'Loading items…');
+        const res = await fetch('/api/admin/list-registered-items');
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+
+        if (!items.length){
+          sel.innerHTML = '<option value="" disabled selected>No items registered yet</option>';
+          setStatus(statusEl, 'No items found. Visit Banquets/Add-Ons/Catalog pages once so they auto-register.', false);
+          return;
+        }
+
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        sel.innerHTML = '<option value="" disabled selected>Select an item…</option>' +
+          items.map(i=>`<option value="${i.id}">${i.name}</option>`).join('');
+        setStatus(statusEl, `Loaded ${items.length} item(s).`);
+      }catch(e){
+        console.error(e);
+        sel.innerHTML = '<option value="" disabled selected>Error loading items</option>';
+        setStatus(statusEl, 'Failed to load items.', false);
+      }
+    }
+
+    // -------- Send Full Report --------
+    async function sendFullReport(){
+      const id = sel.value;
+      const to = (document.getElementById('reportTo').value || '').trim();
+      if (!id){ setStatus(statusEl, 'Please choose an item first.', false); return; }
+
+      setStatus(statusEl, 'Sending full report…');
+      try{
+        const url = to
+          ? `/api/admin/send-full?itemId=${encodeURIComponent(id)}&to=${encodeURIComponent(to)}`
+          : `/api/admin/send-full?itemId=${encodeURIComponent(id)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'send failed');
+        setStatus(statusEl, `Full report sent. ${data.sentTo ? 'Recipients: ' + data.sentTo.join(', ') : ''}`);
+      }catch(e){
+        console.error(e);
+        setStatus(statusEl, 'Failed to send full report: ' + e.message, false);
+      }
+    }
+
+    // -------- Send Month-to-Date (1st → now) --------
+    async function sendMTD(){
+      const id = sel.value;
+      const to = (document.getElementById('reportTo').value || '').trim();
+      if (!id){ setStatus(statusEl, 'Please choose an item first.', false); return; }
+
+      setStatus(statusEl, 'Sending month-to-date report…');
+      try{
+        const url = to
+          ? `/api/admin/send-month-to-date?itemId=${encodeURIComponent(id)}&to=${encodeURIComponent(to)}`
+          : `/api/admin/send-month-to-date?itemId=${encodeURIComponent(id)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'send failed');
+        setStatus(statusEl, `Month-to-date report sent. ${data.sentTo ? 'Recipients: ' + data.sentTo.join(', ') : ''}`);
+      }catch(e){
+        console.error(e);
+        setStatus(statusEl, 'Failed to send month-to-date: ' + e.message, false);
+      }
+    }
+
+    // -------- Manual cron triggers --------
+    async function hit(path, label){
+      setStatus(cronEl, `Running ${label}…`);
+      try{
+        const res = await fetch(path);
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok) throw new Error(data?.error || 'request failed');
+        setStatus(cronEl, `${label} completed.`);
+      }catch(e){
+        console.error(e);
+        setStatus(cronEl, `${label} failed: ` + e.message, false);
+      }
+    }
+
+    document.getElementById('sendFull').addEventListener('click', sendFullReport);
+    document.getElementById('sendMTD').addEventListener('click', sendMTD);
+    document.getElementById('runMonthly').addEventListener('click', ()=>hit('/api/cron/monthly', 'Monthly job'));
+    document.getElementById('runFinal').addEventListener('click',   ()=>hit('/api/cron/closing', 'Final job'));
+    loadRegisteredItems();
+
+    // ---- Dashboard link guard ----
+    const dashLink = document.getElementById('openReporting');
+    if (dashLink) {
+      const ok = localStorage.getItem('amaranth_admin_pw_ok') === '1';
+      if (!ok) dashLink.href = '/admin/reporting_login.html';
+    }
+  </script>
+</body>
+</html>

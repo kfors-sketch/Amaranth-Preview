@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amaranth Admin — Reporting Dashboard</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
+    a{color:inherit;text-decoration:none}
+    button{cursor:pointer}
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;gap:12px}
+    .grid.cols-2{grid-template-columns:1fr 1fr}
+    .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+    .grid.cols-4{grid-template-columns:repeat(4,1fr)}
+    @media (max-width: 980px){
+      .grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}
+    }
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+    .card h3{margin:0 0 8px;font-size:15px;color:#374151}
+    .muted{color:#6b7280}
+    .page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .page-title h1{font-size:22px;margin:0}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
+    .controls{display:flex;flex-wrap:wrap;gap:8px}
+    .controls .group{display:flex;gap:6px;align-items:center}
+    .input, select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
+    .input[type="date"]{padding:0 8px}
+    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:600}
+    .btn.ghost{background:#fff;color:#111}
+    .btn.warn{background:#b91c1c;border-color:#991b1b}
+    .btn.success{background:#065f46;border-color:#064e3b}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;padding:10px}
+    tbody td{padding:10px;border-bottom:1px solid #f0f0f4;vertical-align:top}
+    tbody tr:hover{background:#fcfcff}
+    .num{text-align:right;white-space:nowrap}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
+    .tag.banquet{background:#ecfeff;color:#155e75}
+    .tag.addon{background:#fef9c3;color:#854d0e}
+    .tag.donation{background:#ecfccb;color:#3f6212}
+    .tag.other{background:#eee;color:#444}
+    .totals{display:flex;flex-wrap:wrap;gap:10px}
+    .total-chip{background:#111;color:#fff;border-radius:12px;padding:8px 12px;font-weight:700}
+    .total-chip.alt{background:#1f2937}
+    .total-chip.net{background:#065f46}
+    .empty{padding:32px;text-align:center;color:#6b7280}
+    .hide{display:none!important}
+    .top-actions{display:flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-title">
+      <div>
+        <h1>Amaranth Reporting</h1>
+        <div class="muted">Banquets · Add‑Ons · Orders · Donations</div>
+      </div>
+      <div class="top-actions">
+        <span id="adminPill" class="pill">Admin Mode</span>
+        <button id="btnLogout" class="btn ghost" title="Logout">Logout</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="controls" id="controls">
+        <div class="group">
+          <label class="muted" for="dateFrom">From</label>
+          <input id="dateFrom" class="input" type="date" />
+          <label class="muted" for="dateTo">To</label>
+          <input id="dateTo" class="input" type="date" />
+        </div>
+        <div class="group">
+          <select id="category" title="Category filter">
+            <option value="">All Categories</option>
+            <option value="banquet">Banquet</option>
+            <option value="addon">Add‑On</option>
+            <option value="donation">Donation</option>
+            <option value="other">Other</option>
+          </select>
+          <select id="status" title="Payment status">
+            <option value="">Any Status</option>
+            <option value="paid">Paid</option>
+            <option value="refunded">Refunded</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div class="group" style="flex:1 1 320px">
+          <input id="search" class="input" type="search" placeholder="Search purchaser, attendee, item, notes…" style="width:100%" />
+        </div>
+        <div class="group">
+          <button class="btn" id="btnExportCsv" title="Export visible rows to CSV">Export CSV</button>
+          <button class="btn ghost" id="btnPrint">Print / PDF</button>
+        </div>
+        <div class="group">
+          <label class="btn ghost" for="fileImport">Import JSON/CSV</label>
+          <input id="fileImport" type="file" accept=".json,.csv,application/json,text/csv" style="display:none" />
+          <button class="btn ghost" id="btnSample">Load Sample</button>
+          <button class="btn warn" id="btnClear" title="Clear locally stored report data">Clear Local</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Totals (visible)</h3>
+      <div class="totals" id="totals">
+        <span class="total-chip">Gross: <span id="tGross">$0.00</span></span>
+        <span class="total-chip alt">Fees: <span id="tFees">$0.00</span></span>
+        <span class="total-chip net">Net: <span id="tNet">$0.00</span></span>
+        <span class="total-chip alt">Banquets: <span id="tBanquet">$0.00</span></span>
+        <span class="total-chip alt">Add‑Ons: <span id="tAddon">$0.00</span></span>
+        <span class="total-chip alt">Donations: <span id="tDonation">$0.00</span></span>
+        <span class="total-chip alt">Count: <span id="tCount">0</span></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="overflow:auto;max-height:65vh">
+        <table id="reportTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Order #</th>
+              <th>Purchaser</th>
+              <th>Attendee</th>
+              <th>Category</th>
+              <th>Item</th>
+              <th class="num">Qty</th>
+              <th class="num">Price</th>
+              <th class="num">Gross</th>
+              <th class="num">Fees</th>
+              <th class="num">Net</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div id="empty" class="empty hide">No records. Import JSON/CSV or load sample data.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function authGuard(){
+  if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
+    location.replace('reporting_login.html');
+  }
+})();
+
+const LS_KEY = 'amaranth_reports_v1';
+const ADMIN_KEY = 'amaranth_admin_ok';
+
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const fmt = n => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(n||0);
+const parseDate = s => s? new Date(s) : null;
+const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return false; if(to && d > to) return false; return true; }
+
+(function initAdmin(){
+  const url = new URL(location.href);
+  if(url.searchParams.get('admin')==='1') localStorage.setItem(ADMIN_KEY,'1');
+  const isAdmin = !!localStorage.getItem(ADMIN_KEY);
+  $('#adminPill').style.display = isAdmin? 'inline-flex' : 'none';
+})();
+
+let rows = [];
+function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
+function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+
+function normalizeOrder(raw){
+  const id = raw.id || raw.orderId || raw.number || raw.reference || '';
+  const date = raw.date || raw.createdAt || raw.timestamp || raw.paid_at || raw.orderDate || '';
+  const purchaser = raw.purchaser?.name || raw.customer?.name || raw.buyer?.name || raw.purchaser || raw.customer || raw.buyer || '';
+  const status = (raw.status || raw.paymentStatus || '').toString().toLowerCase();
+  const feesOrder = Number(raw.fees ?? raw.fee ?? raw.processorFees ?? 0) || 0;
+  const notesOrder = raw.notes || raw.note || '';
+
+  const items = Array.isArray(raw.items)? raw.items : [raw.item || raw];
+  const outRows = [];
+  for(const it of items){
+    if(!it) continue;
+    const attendee = it.attendee?.name || it.attendee || raw.attendee?.name || '';
+    const category = (it.category || it.type || '').toString().toLowerCase();
+    const item = it.name || it.title || it.item || '';
+    const qty = Number(it.qty ?? it.quantity ?? 1) || 1;
+    const price = Number(it.price ?? it.unitPrice ?? 0) || 0;
+    const gross = Number(it.gross ?? it.total ?? qty*price) || qty*price;
+    let fees = Number(it.fees ?? it.fee ?? 0) || 0;
+    let net = Number(it.net ?? 0);
+    outRows.push({ id, date, purchaser, attendee, category: mapCategory(category,item), item, qty, price, gross, _orderFees: feesOrder, _orderGross: 0, fees, net, status, notes: (it.notes || notesOrder || '') });
+  }
+  const totalGross = outRows.reduce((s,r)=>s+r.gross,0) || 1;
+  for(const r of outRows){
+    const share = r.gross/totalGross;
+    const addlFee = r._orderFees? r._orderFees*share : 0;
+    r.fees = (r.fees||0) + addlFee;
+    r.net = r.gross - r.fees;
+    delete r._orderFees; delete r._orderGross;
+  }
+  return outRows;
+}
+
+function mapCategory(cat,itemName){
+  const s = (cat||'').toLowerCase();
+  if(s.includes('banquet') || /meal|chicken|beef|vegetarian/i.test(itemName||'')) return 'banquet';
+  if(s.includes('addon') || s.includes('add-on') || s.includes('add on')) return 'addon';
+  if(s.includes('donation') || /donation|love\s*gift/i.test(itemName||'')) return 'donation';
+  if(['banquet','addon','donation'].includes(s)) return s;
+  return 'other';
+}
+
+function ingest(data){
+  let orders = [];
+  if(Array.isArray(data)) orders = data; else if(Array.isArray(data?.orders)) orders = data.orders; else orders = [data];
+  const out = [];
+  for(const o of orders){
+    if(!o) continue;
+    const maybeRow = (o.id||o.orderId) && (o.item||o.items);
+    if(maybeRow) out.push(...normalizeOrder(o));
+    else if(o.id && (o.category||o.type)) out.push(o);
+  }
+  return out.filter(Boolean);
+}
+
+function render(){
+  const tbody = $('#tbody');
+  tbody.innerHTML = '';
+  const filtered = applyFilters(rows);
+  if(!filtered.length){ $('#empty').classList.remove('hide'); return updateTotals([]); }
+  $('#empty').classList.add('hide');
+
+  const frag = document.createDocumentFragment();
+  for(const r of filtered){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.date? new Date(r.date).toLocaleDateString(): ''}</td>
+      <td>${esc(r.id)}</td>
+      <td>${esc(r.purchaser||'')}</td>
+      <td>${esc(r.attendee||'')}</td>
+      <td>${tag(r.category)}</td>
+      <td>${esc(r.item||'')}</td>
+      <td class="num">${r.qty||1}</td>
+      <td class="num">${fmt(r.price||0)}</td>
+      <td class="num">${fmt(r.gross||0)}</td>
+      <td class="num">${fmt(r.fees||0)}</td>
+      <td class="num">${fmt(r.net||0)}</td>
+      <td>${esc(r.status||'')}</td>
+      <td>${esc(r.notes||'')}</td>
+    `;
+    frag.appendChild(tr);
+  }
+  tbody.appendChild(frag);
+  updateTotals(filtered);
+}
+
+function applyFilters(data){
+  const f = $('#dateFrom').value? new Date($('#dateFrom').value) : null;
+  const t = $('#dateTo').value? new Date($('#dateTo').value+'T23:59:59') : null;
+  const cat = $('#category').value;
+  const st = $('#status').value;
+  const q = $('#search').value.trim().toLowerCase();
+
+  return data.filter(r=>{
+    const d = r.date? new Date(r.date) : null;
+    if(!inRange(d,f,t)) return false;
+    if(cat && r.category!==cat) return false;
+    if(st && (r.status||'')!==st) return false;
+    if(q){
+      const hay = `${r.id}|${r.purchaser}|${r.attendee}|${r.item}|${r.notes}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function updateTotals(data){
+  const sum = (key)=> data.reduce((s,r)=> s + Number(r[key]||0), 0);
+  const gross = sum('gross');
+  const fees = sum('fees');
+  const net = sum('net') || gross - fees;
+  $('#tGross').textContent = fmt(gross);
+  $('#tFees').textContent = fmt(fees);
+  $('#tNet').textContent = fmt(net);
+  $('#tBanquet').textContent = fmt(data.filter(r=>r.category==='banquet').reduce((s,r)=>s+r.net,0));
+  $('#tAddon').textContent = fmt(data.filter(r=>r.category==='addon').reduce((s,r)=>s+r.net,0));
+  $('#tDonation').textContent = fmt(data.filter(r=>r.category==='donation').reduce((s,r)=>s+r.net,0));
+  $('#tCount').textContent = String(data.length);
+}
+
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function tag(c){
+  const cls = ['banquet','addon','donation'].includes(c)? c:'other';
+  return `<span class="tag ${cls}">${c||'other'}</span>`
+}
+
+document.getElementById('fileImport').addEventListener('change', async (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const text = await file.text();
+  let data = [];
+  try{
+    if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')){
+      data = JSON.parse(text);
+    } else {
+      data = csvToObjects(text);
+    }
+  }catch(err){ alert('Failed to parse file: '+err.message); return; }
+
+  const normalized = ingest(data);
+  if(!normalized.length){ alert('No recognizable rows found.'); return; }
+  rows = normalized;
+  saveToLocal(rows);
+  render();
+  e.target.value = '';
+});
+
+document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+  const visible = applyFilters(rows);
+  const csv = toCSV(visible);
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
+document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
+document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('Clear locally stored report data?')){ localStorage.removeItem(LS_KEY); rows=[]; render(); }});
+
+['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
+
+function csvToObjects(csv){
+  const lines = csv.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(Boolean);
+  if(!lines.length) return [];
+  const headers = splitCSVLine(lines.shift());
+  const rs = lines.map(l=>{
+    const vals = splitCSVLine(l);
+    const obj = {};
+    headers.forEach((h,i)=> obj[h.trim()] = vals[i]??'');
+    return obj;
+  });
+  const byId = new Map();
+  for(const r of rs){
+    const id = r.orderId || r.id || r.reference || r.number || cryptoRandom();
+    const item = {
+      name: r.item || r.name || r.title,
+      qty: Number(r.qty||r.quantity||1),
+      price: Number(r.price||r.unitPrice||0),
+      gross: Number(r.gross||r.total||0),
+      category: r.category || r.type,
+      attendee: r.attendee || r.attendeeName,
+      notes: r.notes || ''
+    };
+    const order = byId.get(id) || {
+      id,
+      date: r.date || r.createdAt || r.timestamp,
+      purchaser: { name: r.purchaser || r.customer || r.buyer },
+      status: r.status || r.paymentStatus,
+      fees: Number(r.fees||r.processorFees||0),
+      items: []
+    };
+    order.items.push(item);
+    byId.set(id, order);
+  }
+  return Array.from(byId.values());
+}
+
+function splitCSVLine(line){
+  const out=[]; let cur=''; let q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c=='"'){
+      if(q && line[i+1]=='"'){ cur+='"'; i++; }
+      else q=!q;
+    } else if(c===',' && !q){ out.push(cur); cur=''; }
+    else cur+=c;
+  }
+  out.push(cur);
+  return out;
+}
+function toCSV(rows){
+  const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
+  const escCsv = v=> '"' + (String(v??'').replace(/"/g,'""')) + '"';
+  const lines = [headers.join(',')];
+  for(const r of rows){
+    lines.push([
+      r.date? new Date(r.date).toISOString() : '',
+      r.id, r.purchaser||'', r.attendee||'', r.category||'', r.item||'', r.qty||1,
+      (r.price||0).toFixed(2), (r.gross||0).toFixed(2), (r.fees||0).toFixed(2), (r.net||0).toFixed(2), r.status||'', r.notes||''
+    ].map(escCsv).join(','));
+  }
+  return lines.join('\n');
+}
+function cryptoRandom(){ return Math.random().toString(36).slice(2) }
+
+function sampleRows(){
+  const orders = [
+    { id:'A-1001', date:new Date().toISOString(), purchaser:{name:'Jane Smith'}, status:'paid', fees:2.18,
+      items:[ {name:'Banquet – Chicken', qty:2, price:35, gross:70, category:'banquet', attendee:'Theron', notes:''},
+              {name:'Love Gift', qty:1, price:20, gross:20, category:'donation', notes:'For ADF'} ] },
+    { id:'A-1002', date:new Date().toISOString(), purchaser:{name:'Karl Forsberg'}, status:'paid', fees:1.12,
+      items:[ {name:'Corsage', qty:1, price:15, gross:15, category:'addon', attendee:'—', notes:'white rose'},
+              {name:'Banquet – Veg', qty:1, price:35, gross:35, category:'banquet', attendee:'Elara'} ] },
+    { id:'A-1003', date:new Date().toISOString(), purchaser:{name:'Linda'}, status:'pending', fees:0,
+      items:[ {name:'Donation – General Fund', qty:1, price:50, gross:50, category:'donation'} ] }
+  ];
+  return orders.flatMap(normalizeOrder);
+}
+
+document.getElementById('btnLogout').addEventListener('click', ()=>{
+  localStorage.removeItem('amaranth_admin_pw_ok');
+  location.replace('reporting_login.html');
+});
+
+(function init(){
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  document.getElementById('dateFrom').value = start.toISOString().slice(0,10);
+  document.getElementById('dateTo').value = now.toISOString().slice(0,10);
+
+  const stored = loadFromLocal();
+  rows = stored.length? stored : [];
+  render();
+})();
+</script>
+</body>
+</html>

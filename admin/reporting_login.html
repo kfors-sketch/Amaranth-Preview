@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amaranth Admin — Reporting Login</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:0;background:#f4f4f8;color:#111}
+    #loginBox{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:16px}
+    #loginBox input{padding:10px;border:1px solid #ccc;border-radius:8px;margin-top:8px;width:260px}
+    #loginBox button{margin-top:10px;padding:10px 20px;border:none;border-radius:8px;background:#111;color:#fff;font-weight:600;cursor:pointer}
+    #loginBox p{color:#6b7280;margin-top:10px}
+    .hint{font-size:12px;color:#9ca3af;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div id="loginBox">
+    <h2>Amaranth Admin Access</h2>
+    <input id="pw" type="password" placeholder="Enter password" />
+    <button id="loginBtn">Login</button>
+    <p id="msg"></p>
+    <div class="hint">Tip: change the password in <code>reporting_login.html</code> (constant <code>CORRECT_PW</code>).</div>
+  </div>
+  <script>
+    const CORRECT_PW = 'Amaranth2026'; // ← change this
+    const msg = document.getElementById('msg');
+    const pwInput = document.getElementById('pw');
+    const btn = document.getElementById('loginBtn');
+
+    if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
+      window.location.href = 'reporting_main.html';
+    }
+
+    function doLogin(){
+      const val = pwInput.value.trim();
+      if(val === CORRECT_PW){
+        localStorage.setItem('amaranth_admin_pw_ok','1');
+        window.location.href = 'reporting_main.html';
+      } else {
+        msg.textContent = 'Incorrect password. Try again.';
+        msg.style.color = 'red';
+      }
+    }
+
+    btn.addEventListener('click', doLogin);
+    pwInput.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  </script>
+</body>
+</html>
