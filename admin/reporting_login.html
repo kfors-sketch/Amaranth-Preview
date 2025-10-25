@@ -20,7 +20,7 @@
     <input id="pw" type="password" placeholder="Enter password" autocomplete="current-password" />
     <button id="loginBtn">Login</button>
     <p id="msg"></p>
-    <div class="hint">Password is case‑sensitive.</div>
+    <div class="hint">Password is case-sensitive.</div>
   </div>
   <script>
     const CORRECT_PW = 'Amaranth2026'; // ← case-sensitive
@@ -28,15 +28,16 @@
     const pwInput = document.getElementById('pw');
     const btn = document.getElementById('loginBtn');
 
+    // if already logged in, go to admin hub
     if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
-      window.location.href = 'reporting_main.html';
+      window.location.href = 'index.html';
     }
 
     function doLogin(){
       const val = pwInput.value.trim();
       if(val === CORRECT_PW){
         localStorage.setItem('amaranth_admin_pw_ok','1');
-        window.location.href = 'reporting_main.html';
+        window.location.href = 'index.html';  // ← redirect to admin hub
       } else {
         msg.textContent = 'Incorrect password. Try again.';
         msg.style.color = 'red';
