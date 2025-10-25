@@ -6,7 +6,7 @@
   ],
   "redirects": [
     {
-      "source": "/:file((?:.+)\\.html)/:path*",
+      "source": "/:file((?:.+)\\.html)/:path+",
       "destination": "/:path*",
       "permanent": false
     }
