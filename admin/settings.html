@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Settings — Amaranth</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:900px;margin:24px auto;padding:0 16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:16px;margin-bottom:16px}
+    h1{margin:0 0 10px}
+    .muted{color:#6b7280}
+    label{display:block;margin:.75rem 0 .25rem;font-weight:600}
+    input[type="text"],input[type="email"],input[type="password"],textarea{
+      width:100%;height:40px;border:1px solid #d1d5db;border-radius:10px;padding:0 12px;background:#fff
+    }
+    textarea{height:72px;padding:10px 12px;line-height:1.35}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row > div{flex:1 1 280px}
+    .btn{height:40px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 14px;font-weight:700}
+    .btn.ghost{background:#fff;color:#111}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
+    .ok{color:#065f46}
+    .err{color:#b91c1c}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="row" style="align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h1 style="margin:0">Admin Settings</h1>
+      <div class="row" style="align-items:center;gap:8px">
+        <span id="adminPill" class="pill">Admin Mode</span>
+        <button id="logoutBtn" class="btn ghost" style="height:32px;padding:0 10px;font-size:13px">Log Out</button>
+      </div>
+    </header>
+
+    <!-- Auth card -->
+    <section class="card">
+      <h3 style="margin:0 0 8px">Authorization</h3>
+      <p class="muted" style="margin:0 0 8px">
+        Settings changes require a token. Enter it once and it will be remembered in this browser.
+      </p>
+      <div class="row">
+        <div>
+          <label for="token">REPORT_TOKEN</label>
+          <input id="token" type="password" placeholder="paste token here" />
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px">
+          <button id="saveToken" class="btn">Use This Token</button>
+          <button id="clearToken" class="btn ghost">Clear</button>
+        </div>
+      </div>
+      <div id="tokenMsg" class="muted" style="margin-top:6px"></div>
+    </section>
+
+    <!-- Email settings -->
+    <section class="card">
+      <h3 style="margin:0 0 8px">Email Settings</h3>
+      <div class="row">
+        <div>
+          <label for="fromEmail">RESEND_FROM (verified sender)</label>
+          <input id="fromEmail" type="email" placeholder="reports@yourdomain.com" />
+        </div>
+        <div>
+          <label for="ccList">REPORTS_CC (comma-separated)</label>
+          <input id="ccList" type="text" placeholder="kfors@verizon.net, another@example.com" />
+        </div>
+      </div>
+      <div id="emailMsg" class="muted" style="margin-top:6px"></div>
+    </section>
+
+    <!-- Maintenance -->
+    <section class="card">
+      <h3 style="margin:0 0 8px">Maintenance Mode</h3>
+      <div class="row">
+        <div style="flex:1 1 160px">
+          <label for="maintOn">Enabled?</label>
+          <select id="maintOn">
+            <option value="false">Off</option>
+            <option value="true">On</option>
+          </select>
+        </div>
+        <div style="flex:2 1 420px">
+          <label for="maintMsg">Banner Message</label>
+          <textarea id="maintMsg" placeholder="We’re doing scheduled maintenance. Please check back soon."></textarea>
+        </div>
+      </div>
+      <div id="maintInfo" class="muted" style="margin-top:6px"></div>
+    </section>
+
+    <!-- Actions -->
+    <section class="card">
+      <div class="row" style="align-items:center;gap:8px">
+        <button id="saveAll" class="btn">Save Settings</button>
+        <button id="reload" class="btn ghost">Reload</button>
+        <span id="saveMsg" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin:0 0 8px">Current Values (read-only)</h3>
+      <pre id="currentJson" style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:0;max-height:320px;overflow:auto">Loading…</pre>
+    </section>
+  </main>
+
+<script>
+/* ---------- Auth guard ---------- */
+(function(){
+  if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
+    location.replace('/admin/reporting_login.html');
+  }
+})();
+
+/* ---------- UI helpers ---------- */
+const $ = s => document.querySelector(s);
+const tokenKey = 'amaranth_report_token';
+
+function tokenHeader(){
+  const t = localStorage.getItem(tokenKey) || $('#token').value.trim();
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+function setMsg(el, text, ok){
+  el.textContent = text || '';
+  el.className = ok ? 'ok' : (text ? 'err' : 'muted');
+}
+
+/* ---------- Token UI ---------- */
+$('#saveToken').addEventListener('click', () => {
+  const t = $('#token').value.trim();
+  if(!t){ setMsg($('#tokenMsg'), 'Enter a token first'); return; }
+  localStorage.setItem(tokenKey, t);
+  setMsg($('#tokenMsg'), 'Token saved for this browser', true);
+});
+$('#clearToken').addEventListener('click', () => {
+  localStorage.removeItem(tokenKey);
+  $('#token').value = '';
+  setMsg($('#tokenMsg'), 'Token cleared', true);
+});
+
+/* ---------- Logout ---------- */
+$('#logoutBtn').addEventListener('click', ()=>{
+  localStorage.removeItem('amaranth_admin_pw_ok');
+  location.href = '/admin/reporting_login.html';
+});
+
+/* ---------- Load current settings ---------- */
+async function loadSettings(){
+  $('#currentJson').textContent = 'Loading…';
+  try{
+    const res = await fetch('/api/admin/settings', { headers: tokenHeader() });
+    const json = await res.json();
+    if(!res.ok) throw new Error(json?.error || res.statusText);
+
+    // fill form from server values
+    $('#fromEmail').value = json.overrides?.RESEND_FROM ?? json.env?.RESEND_FROM ?? '';
+    $('#ccList').value   = (json.overrides?.REPORTS_CC ?? json.env?.REPORTS_CC ?? '');
+    $('#maintOn').value  = String(json.overrides?.MAINTENANCE_ON ?? json.env?.MAINTENANCE_ON ?? 'false');
+    $('#maintMsg').value = json.overrides?.MAINTENANCE_MESSAGE ?? json.env?.MAINTENANCE_MESSAGE ?? '';
+
+    $('#currentJson').textContent = JSON.stringify(json, null, 2);
+    setMsg($('#emailMsg'), '');
+    setMsg($('#maintInfo'), '');
+  }catch(e){
+    $('#currentJson').textContent = 'Failed to load: ' + e.message + '\n\nTip: Ensure /api/admin/settings exists and your token is correct.';
+  }
+}
+
+/* ---------- Save settings ---------- */
+$('#saveAll').addEventListener('click', async ()=>{
+  const payload = {
+    RESEND_FROM: $('#fromEmail').value.trim(),
+    REPORTS_CC: $('#ccList').value.trim(),
+    MAINTENANCE_ON: $('#maintOn').value === 'true',
+    MAINTENANCE_MESSAGE: $('#maintMsg').value
+  };
+  try{
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', ...tokenHeader() },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if(!res.ok) throw new Error(json?.error || res.statusText);
+    setMsg($('#saveMsg'), 'Saved!', true);
+    $('#currentJson').textContent = JSON.stringify(json, null, 2);
+  }catch(e){
+    setMsg($('#saveMsg'), 'Save failed: ' + e.message, false);
+  }
+});
+
+$('#reload').addEventListener('click', loadSettings);
+
+/* init */
+loadSettings();
+</script>
+</body>
+</html>
