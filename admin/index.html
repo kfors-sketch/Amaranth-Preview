@@ -18,6 +18,20 @@
     .btn.btn-secondary{background:#fff;color:#111}
     .btn.btn-success{background:#065f46;border-color:#064e3b}
   </style>
+  <script>
+    // Require reporting login for ALL admin pages
+    (function guard(){
+      try {
+        if (localStorage.getItem('amaranth_admin_pw_ok') !== '1') {
+          // Go to the reporting login; after success it will forward to reporting_main.html
+          window.location.replace('/admin/reporting_login.html');
+        }
+      } catch (e) {
+        // If localStorage is blocked for some reason, still try to go to login.
+        window.location.replace('/admin/reporting_login.html');
+      }
+    })();
+  </script>
 </head>
 <body>
   <div class="wallpaper"></div>
@@ -77,7 +91,7 @@
 
   <!-- Optional site settings script -->
   <script src="/assets/js/site-settings.js"></script>
-  <!-- Shared CSV helper for any page that needs CSV (kept here for consistency) -->
+  <!-- Shared CSV helper for consistency -->
   <script src="/assets/js/lib/csv.js"></script>
   <script>
     // demo save button (unchanged)
@@ -188,7 +202,7 @@
     document.getElementById('runFinal').addEventListener('click',   ()=>hit('/api/cron/closing', 'Final job'));
     loadRegisteredItems();
 
-    // ---- Dashboard link guard ----
+    // ---- Dashboard link guard (kept for convenience) ----
     const dashLink = document.getElementById('openReporting');
     if (dashLink) {
       const ok = localStorage.getItem('amaranth_admin_pw_ok') === '1';
