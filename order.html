@@ -66,18 +66,6 @@
       -webkit-backdrop-filter: saturate(120%) blur(2px);
       border-radius:10px;
     }
-  
-    .att-notes {
-      font-size:.9rem;
-      opacity:.85;
-      margin: .1rem 0 .4rem;
-    }
-  
-    /* Darker order text for better readability */
-    .order-table, .order-table td, .order-table th { color: #111; }
-    .order-table .tiny { color: #111; opacity: .95; }
-    .att-notes { color: #111; opacity: .95; }
-
   </style>
 </head>
 
@@ -216,36 +204,13 @@
 
         let personSubtotal = 0;
         const rows = lines.map(l => {
-          
-          // --- Notes display (line meta or attendee fallback) ---
-          const attObj = (st.attendees || []).find(x => x.id === (l.attendeeId || ''));
-          const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
-          const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
-          const ln     = (l.itemType === 'banquet') ? (lnMeta || lnAtt) : '';
-          const extra  = ln ? `<div class="tiny" style="opacity:.85;">Notes: ${ln.replace(/</g,'&lt;')}</div>` : '';
-    const price = normalizePrice(l.unitPrice);
+          const price = normalizePrice(l.unitPrice);
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
-          if (l.itemType === 'addons') {
-            const itemNote = (l.meta && (l.meta.note || l.meta.notes || l.meta.message)) ? String(l.meta.note || l.meta.notes || l.meta.message) : '';
-            if (itemNote) {
-              extra2 = `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>`;
-            }
-          }
-          // --- Item-specific note subline (for non-banquet lines), using common meta keys ---
-          let extra2 = '';
-          if (l.itemType !== 'banquet') {
-            const itemNote = (l.meta && (l.meta.note || l.meta.notes || l.meta.message)) ? String(l.meta.note || l.meta.notes || l.meta.message) : '';
-            if (itemNote) {
-              extra2 = `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>`;
-            }
-          }
-    
-    
           return `
             <tr>
-              <td>${l.itemName || ''}${extra}${extra2}${extra2}</td>
+              <td>${l.itemName || ''}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>
@@ -391,17 +356,7 @@
       if (el) el.addEventListener('input', render);
     });
   });
-  
-    // --- Auto-resync when returning to this tab or when storage changes (added from Banquets page) ---
-    function resyncFromStorage(){
-      try { Cart.load(); } catch(e) {}
-      try { render(); } catch(e) {}
-    }
-    document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
-    window.addEventListener('focus', resyncFromStorage);
-    window.addEventListener('storage', function(){ resyncFromStorage(); });
-
-</script>
+  </script>
 
   <!-- Core site scripts (order matters) -->
   <script src="/assets/js/site-settings.js"></script>
@@ -410,5 +365,37 @@
   <script src="/assets/js/cart.js"></script>
   <script src="/assets/js/data-store.js"></script>
   <script src="/assets/js/site-boot.js"></script>
+
+<script>
+(function(){
+  function dedupeNotes(){
+    try {
+      document.querySelectorAll('.order-table tbody tr').forEach(function(tr){
+        const firstTd = tr.querySelector('td');
+        if (!firstTd) return;
+        const noteDivs = Array.from(firstTd.querySelectorAll('div.tiny'));
+        if (noteDivs.length < 2) return;
+
+        const seen = new Set();
+        noteDivs.forEach(function(div){
+          const text = (div.textContent || '').trim().replace(/\s+/g, ' ');
+          const normalized = text.toLowerCase();
+          if (seen.has(normalized)) {
+            div.remove();
+          } else {
+            seen.add(normalized);
+          }
+        });
+      });
+    } catch (e) {}
+  }
+  document.addEventListener('DOMContentLoaded', dedupeNotes);
+  window.addEventListener('cart:updated', dedupeNotes);
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) dedupeNotes();
+  });
+})();
+</script>
+
 </body>
 </html>
