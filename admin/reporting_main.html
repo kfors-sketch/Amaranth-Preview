@@ -6,10 +6,13 @@
   <title>Amaranth Admin — Reporting Dashboard</title>
   <meta name="robots" content="noindex, nofollow" />
   <style>
+    /* --- Reset / base --- */
     *,*::before,*::after{box-sizing:border-box}
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
     a{color:inherit;text-decoration:none}
     button{cursor:pointer}
+
+    /* --- Layout --- */
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
     .grid{display:grid;gap:12px}
     .grid.cols-2{grid-template-columns:1fr 1fr}
@@ -18,12 +21,18 @@
     @media (max-width: 980px){
       .grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}
     }
+
+    /* --- Cards --- */
     .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     .card h3{margin:0 0 8px;font-size:15px;color:#374151}
     .muted{color:#6b7280}
+
+    /* --- Header --- */
     .page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
     .page-title h1{font-size:22px;margin:0}
     .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
+
+    /* --- Controls --- */
     .controls{display:flex;flex-wrap:wrap;gap:8px}
     .controls .group{display:flex;gap:6px;align-items:center}
     .input, select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
@@ -32,6 +41,8 @@
     .btn.ghost{background:#fff;color:#111}
     .btn.warn{background:#b91c1c;border-color:#991b1b}
     .btn.success{background:#065f46;border-color:#064e3b}
+
+    /* --- Table --- */
     table{width:100%;border-collapse:separate;border-spacing:0}
     thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;padding:10px}
     tbody td{padding:10px;border-bottom:1px solid #f0f0f4;vertical-align:top}
@@ -42,13 +53,18 @@
     .tag.addon{background:#fef9c3;color:#854d0e}
     .tag.donation{background:#ecfccb;color:#3f6212}
     .tag.other{background:#eee;color:#444}
+
+    /* --- Footer totals --- */
     .totals{display:flex;flex-wrap:wrap;gap:10px}
     .total-chip{background:#111;color:#fff;border-radius:12px;padding:8px 12px;font-weight:700}
     .total-chip.alt{background:#1f2937}
     .total-chip.net{background:#065f46}
+
+    /* --- Empty state --- */
     .empty{padding:32px;text-align:center;color:#6b7280}
+
+    /* --- Hideable --- */
     .hide{display:none!important}
-    .top-actions{display:flex;gap:8px;align-items:center}
   </style>
 </head>
 <body>
@@ -56,14 +72,12 @@
     <div class="page-title">
       <div>
         <h1>Amaranth Reporting</h1>
-        <div class="muted">Banquets · Add‑Ons · Orders · Donations</div>
+        <div class="muted">Banquets · Add-Ons · Orders · Donations</div>
       </div>
-      <div class="top-actions">
-        <span id="adminPill" class="pill">Admin Mode</span>
-        <button id="btnLogout" class="btn ghost" title="Logout">Logout</button>
-      </div>
+      <span id="adminPill" class="pill">Admin Mode</span>
     </div>
 
+    <!-- Controls -->
     <div class="card">
       <div class="controls" id="controls">
         <div class="group">
@@ -76,7 +90,7 @@
           <select id="category" title="Category filter">
             <option value="">All Categories</option>
             <option value="banquet">Banquet</option>
-            <option value="addon">Add‑On</option>
+            <option value="addon">Add-On</option>
             <option value="donation">Donation</option>
             <option value="other">Other</option>
           </select>
@@ -103,6 +117,7 @@
       </div>
     </div>
 
+    <!-- Totals -->
     <div class="card">
       <h3>Totals (visible)</h3>
       <div class="totals" id="totals">
@@ -110,12 +125,13 @@
         <span class="total-chip alt">Fees: <span id="tFees">$0.00</span></span>
         <span class="total-chip net">Net: <span id="tNet">$0.00</span></span>
         <span class="total-chip alt">Banquets: <span id="tBanquet">$0.00</span></span>
-        <span class="total-chip alt">Add‑Ons: <span id="tAddon">$0.00</span></span>
+        <span class="total-chip alt">Add-Ons: <span id="tAddon">$0.00</span></span>
         <span class="total-chip alt">Donations: <span id="tDonation">$0.00</span></span>
         <span class="total-chip alt">Count: <span id="tCount">0</span></span>
       </div>
     </div>
 
+    <!-- Table -->
     <div class="card">
       <div style="overflow:auto;max-height:65vh">
         <table id="reportTable">
@@ -144,6 +160,12 @@
   </div>
 
 <script>
+/**** Amaranth Reporting — Client-only implementation
+  - This is the MAIN dashboard page. Access is granted via reporting_login.html
+  - Extra guard below sends users back to the login if not authenticated.
+****/
+
+// Hard guard: require successful login first
 (function authGuard(){
   if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
     location.replace('reporting_login.html');
@@ -153,12 +175,14 @@
 const LS_KEY = 'amaranth_reports_v1';
 const ADMIN_KEY = 'amaranth_admin_ok';
 
+/** Utilities **/
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 const fmt = n => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(n||0);
 const parseDate = s => s? new Date(s) : null;
 const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return false; if(to && d > to) return false; return true; }
 
+/** Admin indicator **/
 (function initAdmin(){
   const url = new URL(location.href);
   if(url.searchParams.get('admin')==='1') localStorage.setItem(ADMIN_KEY,'1');
@@ -166,11 +190,67 @@ const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return 
   $('#adminPill').style.display = isAdmin? 'inline-flex' : 'none';
 })();
 
-let rows = [];
+/** Data layer **/
+let rows = []; // normalized, row-per-item
 function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
 function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
 
-/* ------- Rendering / filters / totals (unchanged) ------- */
+function normalizeOrder(raw){
+  const id = raw.id || raw.orderId || raw.number || raw.reference || '';
+  const date = raw.date || raw.createdAt || raw.timestamp || raw.paid_at || raw.orderDate || '';
+  const purchaser = raw.purchaser?.name || raw.customer?.name || raw.buyer?.name || raw.purchaser || raw.customer || raw.buyer || '';
+  const status = (raw.status || raw.paymentStatus || '').toString().toLowerCase();
+  const feesOrder = Number(raw.fees ?? raw.fee ?? raw.processorFees ?? 0) || 0;
+  const notesOrder = raw.notes || raw.note || '';
+
+  const items = Array.isArray(raw.items)? raw.items : [raw.item || raw];
+  const outRows = [];
+  for(const it of items){
+    if(!it) continue;
+    const attendee = it.attendee?.name || it.attendee || raw.attendee?.name || '';
+    const category = (it.category || it.type || '').toString().toLowerCase();
+    const item = it.name || it.title || it.item || '';
+    const qty = Number(it.qty ?? it.quantity ?? 1) || 1;
+    const price = Number(it.price ?? it.unitPrice ?? 0) || 0;
+    const gross = Number(it.gross ?? it.total ?? qty*price) || qty*price;
+    let fees = Number(it.fees ?? it.fee ?? 0) || 0;
+    let net = Number(it.net ?? 0);
+    outRows.push({ id, date, purchaser, attendee, category: mapCategory(category,item), item, qty, price, gross, _orderFees: feesOrder, _orderGross: 0, fees, net, status, notes: (it.notes || notesOrder || '') });
+  }
+  const totalGross = outRows.reduce((s,r)=>s+r.gross,0) || 1;
+  for(const r of outRows){
+    const share = r.gross/totalGross;
+    const addlFee = r._orderFees? r._orderFees*share : 0;
+    r.fees = (r.fees||0) + addlFee;
+    r.net = r.gross - r.fees;
+    delete r._orderFees; delete r._orderGross;
+  }
+  return outRows;
+}
+
+function mapCategory(cat,itemName){
+  const s = (cat||'').toLowerCase();
+  if(s.includes('banquet') || /meal|chicken|beef|vegetarian/i.test(itemName||'')) return 'banquet';
+  if(s.includes('addon') || s.includes('add-on') || s.includes('add on')) return 'addon';
+  if(s.includes('donation') || /donation|love\s*gift/i.test(itemName||'')) return 'donation';
+  if(['banquet','addon','donation'].includes(s)) return s;
+  return 'other';
+}
+
+function ingest(data){
+  let orders = [];
+  if(Array.isArray(data)) orders = data; else if(Array.isArray(data?.orders)) orders = data.orders; else orders = [data];
+  const out = [];
+  for(const o of orders){
+    if(!o) continue;
+    const maybeRow = (o.id||o.orderId) && (o.item||o.items);
+    if(maybeRow) out.push(...normalizeOrder(o));
+    else if(o.id && (o.category||o.type)) out.push(o);
+  }
+  return out.filter(Boolean);
+}
+
+/** Rendering **/
 function render(){
   const tbody = $('#tbody');
   tbody.innerHTML = '';
@@ -242,27 +322,47 @@ function tag(c){
   return `<span class="tag ${cls}">${c||'other'}</span>`
 }
 
-/* ------- Import / Export: updated to use tailored ingest ------- */
-$('#fileImport').addEventListener('change', async (e)=>{
+/** Import / Export **/
+document.getElementById('fileImport').addEventListener('change', async (e)=>{
   const file = e.target.files[0]; if(!file) return;
   const text = await file.text();
-  let normalized = [];
-  try { // JSON first
-    const maybe = JSON.parse(text);
-    normalized = ingest(maybe);
-  } catch(err) {
-    normalized = ingest(text); // CSV fallback
-  }
-  if(!normalized.length){ alert('No recognizable rows found.'); e.target.value=''; return; }
+  let data = [];
+  try{
+    if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')){
+      data = JSON.parse(text);
+    } else {
+      data = csvToObjects(text);
+    }
+  }catch(err){ alert('Failed to parse file: '+err.message); return; }
+
+  const normalized = ingest(data);
+  if(!normalized.length){ alert('No recognizable rows found.'); return; }
   rows = normalized;
   saveToLocal(rows);
   render();
   e.target.value = '';
 });
 
+// Updated: use shared rowsToCSV from /assets/js/lib/csv.js
 document.getElementById('btnExportCsv').addEventListener('click', ()=>{
   const visible = applyFilters(rows);
-  const csv = toCSV(visible);
+  const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
+  const exportRows = visible.map(r => ({
+    date: r.date ? new Date(r.date).toISOString() : '',
+    orderId: r.id,
+    purchaser: r.purchaser || '',
+    attendee: r.attendee || '',
+    category: r.category || '',
+    item: r.item || '',
+    qty: r.qty ?? 1,
+    price: Number(r.price || 0).toFixed(2),
+    gross: Number(r.gross || 0).toFixed(2),
+    fees: Number(r.fees || 0).toFixed(2),
+    net: Number(r.net || ((r.gross||0)-(r.fees||0))).toFixed(2),
+    status: r.status || '',
+    notes: r.notes || ''
+  }));
+  const csv = rowsToCSV(headers, exportRows);
   const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -276,38 +376,58 @@ document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('
 
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
-/* ------- Tailored schema adapter (CSV/JSON) ------- */
-const CSV_HEADERS = {
-  orderId:['orderId','Order #','Order ID','reference','number'],
-  date:['date','Created','Timestamp','paid_at','orderDate'],
-  purchaser:['purchaser','Purchaser','Customer','Buyer','Customer Name'],
-  status:['status','Payment Status'],
-  orderFees:['fees','processorFees','Stripe Fees'],
-  itemName:['item','Item','Title','Banquet Name','Add-On'],
-  attendee:['attendee','Attendee','Attendee Name'],
-  qty:['qty','Qty','Quantity'],
-  unitPrice:['price','Price','Unit Price'],
-  gross:['gross','Total','Line Total'],
-  category:['category','Type'],
-  notes:['notes','Notes','Item Notes','Order Notes']
-};
-const JSON_FIELDS = {
-  order:{ id:['id','orderId','number','reference'], date:['date','createdAt','timestamp','paid_at','orderDate'], purchaser:['purchaser.name','customer.name','buyer.name','purchaser','customer','buyer'], status:['status','paymentStatus'], fees:['fees','fee','processorFees'] },
-  itemsPath:['items'],
-  item:{ name:['name','title','item','banquetName'], attendee:['attendee.name','attendee','attendeeName'], qty:['qty','quantity'], unitPrice:['price','unitPrice'], gross:['gross','total'], category:['category','type'], notes:['notes','note'] }
-};
-const pick=(obj,keys)=>{ for(const k of keys){ const v=get(obj,k); if(v!==undefined&&v!==null&&v!=='') return v; } return ''; };
-function get(obj,path){ if(!obj) return undefined; if(!path.includes('.')) return obj[path]; return path.split('.').reduce((o,k)=>(o?o[k]:undefined),obj); }
-const asNum=v=>{ const n=Number(String(v).replace(/[^0-9.\-]/g,'')); return Number.isFinite(n)?n:0 };
-function mapCategory(cat,itemName){ const s=(cat||'').toLowerCase(); const name=itemName||''; if(s.includes('banquet')||/meal|chicken|beef|fish|vegetarian|vegan/i.test(name)) return 'banquet'; if(s.includes('addon')||s.includes('add-on')||s.includes('add on')) return 'addon'; if(s.includes('donation')||/donation|love\s*gift/i.test(name)) return 'donation'; if(['banquet','addon','donation'].includes(s)) return s; return 'other'; }
-function cleanNotes({itemName,notes}){ if(!notes) return ''; const out=new Set(); String(notes).split(/\s*\n\s*|\s*;\s*/).forEach(part=>{ const p=part.trim(); if(!p) return; if(itemName && itemName.toLowerCase().includes(p.toLowerCase())) return; out.add(p); }); return Array.from(out).join('; '); }
-function normalizeOrderJSON(order){ const id=pick(order,JSON_FIELDS.order.id); const date=pick(order,JSON_FIELDS.order.date); const purchaser=pick(order,JSON_FIELDS.order.purchaser); const status=String(pick(order,JSON_FIELDS.order.status)||'').toLowerCase(); const feesOrder=asNum(pick(order,JSON_FIELDS.order.fees)); const items=get(order,JSON_FIELDS.itemsPath[0])||[]; const out=[]; for(const it of items){ if(!it) continue; const rawName=pick(it,JSON_FIELDS.item.name); const r={ id, date, purchaser, attendee:pick(it,JSON_FIELDS.item.attendee), category:mapCategory(pick(it,JSON_FIELDS.item.category), rawName), item:rawName, qty:asNum(pick(it,JSON_FIELDS.item.qty)||1), price:asNum(pick(it,JSON_FIELDS.item.unitPrice)), gross:asNum(pick(it,JSON_FIELDS.item.gross))||undefined, fees:asNum(get(it,'fees')||get(it,'fee')||0), net:undefined, status, notes:cleanNotes({ itemName:rawName, notes:pick(it,JSON_FIELDS.item.notes)||pick(order,['notes','note']) }) }; if(!r.gross) r.gross=r.qty*r.price; out.push(r); } const totalGross=out.reduce((s,r)=>s+(r.gross||0),0)||1; for(const r of out){ const share=(r.gross||0)/totalGross; r.fees=(r.fees||0)+feesOrder*share; r.net=(r.gross||0)-(r.fees||0); } return out; }
-function csvToOrders(csv){ const lines=csv.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(Boolean); if(!lines.length) return []; const header=splitCSVLine(lines.shift()).map(h=>h.trim()); const idx=list=>{ for(const n of list){ const i=header.findIndex(h=>h.toLowerCase()===n.toLowerCase()); if(i!==-1) return i; } return -1; }; const I={ id:idx(CSV_HEADERS.orderId), date:idx(CSV_HEADERS.date), purchaser:idx(CSV_HEADERS.purchaser), status:idx(CSV_HEADERS.status), orderFees:idx(CSV_HEADERS.orderFees), name:idx(CSV_HEADERS.itemName), attendee:idx(CSV_HEADERS.attendee), qty:idx(CSV_HEADERS.qty), price:idx(CSV_HEADERS.unitPrice), gross:idx(CSV_HEADERS.gross), category:idx(CSV_HEADERS.category), notes:idx(CSV_HEADERS.notes) }; const byId=new Map(); for(const line of lines){ const vals=splitCSVLine(line); if(!vals.length) continue; const id= I.id>=0? vals[I.id]: Math.random().toString(36).slice(2); const ord=byId.get(id)||{ id, date:I.date>=0? vals[I.date]:'', purchaser:I.purchaser>=0? vals[I.purchaser]:'', status:I.status>=0? String(vals[I.status]).toLowerCase(): '', fees:I.orderFees>=0? asNum(vals[I.orderFees]):0, items:[] }; const rawName= I.name>=0? vals[I.name]:''; const it={ name:rawName, attendee:I.attendee>=0? vals[I.attendee]:'', qty:asNum(I.qty>=0? vals[I.qty]:1), unitPrice:asNum(I.price>=0? vals[I.price]:0), gross:asNum(I.gross>=0? vals[I.gross]:0), category:I.category>=0? vals[I.category]:'', notes:cleanNotes({ itemName:rawName, notes:I.notes>=0? vals[I.notes]:'' }) }; if(!it.gross) it.gross=it.qty*it.unitPrice; ord.items.push(it); byId.set(id,ord); } return Array.from(byId.values()); }
-function splitCSVLine(line){ const out=[]; let cur=''; let q=false; for(let i=0;i<line.length;i++){ const c=line[i]; if(c==='"'){ if(q && line[i+1]==='"'){ cur+='"'; i++; } else q=!q; } else if(c===',' && !q){ out.push(cur); cur=''; } else cur+=c; } out.push(cur); return out; }
-function ingest(data){ if(typeof data==='string'){ return csvToOrders(data).flatMap(normalizeOrderJSON); } let orders=[]; if(Array.isArray(data)) orders=data; else if(Array.isArray(data?.orders)) orders=data.orders; else orders=[data]; const out=[]; for(const o of orders){ if(!o) continue; out.push(...normalizeOrderJSON(o)); } return out; }
-function normalizeOrder(raw){ return normalizeOrderJSON(raw); }
+/** CSV helpers (for imports only) **/
+function csvToObjects(csv){
+  const lines = csv.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(Boolean);
+  if(!lines.length) return [];
+  const headers = splitCSVLine(lines.shift());
+  const rows = lines.map(l=>{
+    const vals = splitCSVLine(l);
+    const obj = {};
+    headers.forEach((h,i)=> obj[h.trim()] = vals[i]??'');
+    return obj;
+  });
+  const byId = new Map();
+  for(const r of rows){
+    const id = r.orderId || r.id || r.reference || r.number || cryptoRandom();
+    const item = {
+      name: r.item || r.name || r.title,
+      qty: Number(r.qty||r.quantity||1),
+      price: Number(r.price||r.unitPrice||0),
+      gross: Number(r.gross||r.total||0),
+      category: r.category || r.type,
+      attendee: r.attendee || r.attendeeName,
+      notes: r.notes || ''
+    };
+    const order = byId.get(id) || {
+      id,
+      date: r.date || r.createdAt || r.timestamp,
+      purchaser: { name: r.purchaser || r.customer || r.buyer },
+      status: r.status || r.paymentStatus,
+      fees: Number(r.fees||r.processorFees||0),
+      items: []
+    };
+    order.items.push(item);
+    byId.set(id, order);
+  }
+  return Array.from(byId.values());
+}
+function splitCSVLine(line){
+  const out=[]; let cur=''; let q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c=='"'){
+      if(q && line[i+1]=='"'){ cur+='"'; i++; }
+      else q=!q;
+    } else if(c===',' && !q){ out.push(cur); cur=''; }
+    else cur+=c;
+  }
+  out.push(cur);
+  return out;
+}
+function cryptoRandom(){ return Math.random().toString(36).slice(2) }
 
-/* ------- Sample data ------- */
+/** Sample data **/
 function sampleRows(){
   const orders = [
     { id:'A-1001', date:new Date().toISOString(), purchaser:{name:'Jane Smith'}, status:'paid', fees:2.18,
@@ -319,28 +439,10 @@ function sampleRows(){
     { id:'A-1003', date:new Date().toISOString(), purchaser:{name:'Linda'}, status:'pending', fees:0,
       items:[ {name:'Donation – General Fund', qty:1, price:50, gross:50, category:'donation'} ] }
   ];
-  return orders.flatMap(normalizeOrderJSON);
+  return orders.flatMap(normalizeOrder);
 }
 
-function toCSV(rows){
-  const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
-  const escCsv = v=> '"'+(String(v??'').replace(/"/g,'""'))+'"';
-  const lines = [headers.join(',')];
-  for(const r of rows){
-    lines.push([
-      r.date? new Date(r.date).toISOString() : '',
-      r.id, r.purchaser||'', r.attendee||'', r.category||'', r.item||'', r.qty||1,
-      (r.price||0).toFixed(2), (r.gross||0).toFixed(2), (r.fees||0).toFixed(2), (r.net||0).toFixed(2), r.status||'', r.notes||''
-    ].map(escCsv).join(','));
-  }
-  return lines.join('\n');
-}
-
-document.getElementById('btnLogout').addEventListener('click', ()=>{
-  localStorage.removeItem('amaranth_admin_pw_ok');
-  location.replace('reporting_login.html');
-});
-
+/** Init **/
 (function init(){
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -352,5 +454,8 @@ document.getElementById('btnLogout').addEventListener('click', ()=>{
   render();
 })();
 </script>
+
+<!-- Import shared CSV helper -->
+<script src="/assets/js/lib/csv.js"></script>
 </body>
 </html>
