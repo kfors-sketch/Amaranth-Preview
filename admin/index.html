@@ -8,11 +8,15 @@
     .panel{background:rgba(255,255,255,.85);padding:12px;border-radius:10px;border:1px solid #ddd;margin:10px 0}
     .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
     label{display:flex;flex-direction:column;gap:6px;min-width:220px}
-    input,select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
+    input,select,button{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
+    button{cursor:pointer}
     .tiny{font-size:.85rem;color:#555}
     .status{margin-top:8px}
     .stack{display:flex;flex-direction:column;gap:8px}
     .btnbar{display:flex;flex-wrap:wrap;gap:8px}
+    .btn{background:#111;color:#fff;border-color:#111}
+    .btn.btn-secondary{background:#fff;color:#111}
+    .btn.btn-success{background:#065f46;border-color:#064e3b}
   </style>
 </head>
 <body>
@@ -21,7 +25,7 @@
     <header class="site-header"><h1>Admin</h1></header>
 
     <main class="container">
-      <!-- Site Settings (unchanged) -->
+      <!-- Site Settings -->
       <section class="panel">
         <h2>Site Settings</h2>
         <label>Product Catalog label <input id="label" value="Product Catalog"></label>
@@ -45,10 +49,10 @@
           </label>
         </div>
         <div class="btnbar" style="margin-top:8px">
-          <button id="sendFull" class="btn btn-primary">Send Full Report Now</button>
-          <button id="sendMTD" class="btn">Send Month-to-Date (1st → now)</button>
-          <!-- New: Open Reporting Dashboard (password-protected) -->
-          <a href="/admin/reporting.html" id="openReporting" class="btn btn-primary" style="background:#065f46;border-color:#064e3b;">
+          <button id="sendFull" class="btn">Send Full Report Now</button>
+          <button id="sendMTD" class="btn btn-secondary">Send Month-to-Date (1st → now)</button>
+          <!-- Open Reporting Dashboard (password-protected) -->
+          <a href="/admin/reporting.html" id="openReporting" class="btn btn-success">
             Open Reporting Dashboard
           </a>
         </div>
@@ -62,8 +66,8 @@
         <div class="stack">
           <div class="tiny">Current month: <strong id="currentMonthLabel">—</strong></div>
           <div class="btnbar">
-            <button id="runMonthly" class="btn">Run Monthly Job Now</button>
-            <button id="runFinal" class="btn">Run Final Job Now</button>
+            <button id="runMonthly" class="btn btn-secondary">Run Monthly Job Now</button>
+            <button id="runFinal" class="btn btn-secondary">Run Final Job Now</button>
           </div>
           <div id="cronStatus" class="status tiny"></div>
         </div>
@@ -73,6 +77,8 @@
 
   <!-- Optional site settings script -->
   <script src="/assets/js/site-settings.js"></script>
+  <!-- Shared CSV helper for any page that needs CSV (kept here for consistency) -->
+  <script src="/assets/js/lib/csv.js"></script>
   <script>
     // demo save button (unchanged)
     document.getElementById('save').onclick = ()=>{
