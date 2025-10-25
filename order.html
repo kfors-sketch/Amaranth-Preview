@@ -217,35 +217,32 @@
         let personSubtotal = 0;
         const rows = lines.map(l => {
           
-          // --- Notes display (line meta or attendee fallback) ---
+          
+          // --- unified subline: one per row ---
+          const isBanquet = (l.itemType === 'banquet');
           const attObj = (st.attendees || []).find(x => x.id === (l.attendeeId || ''));
           const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
           const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
-          const ln     = (l.itemType === 'banquet') ? (lnMeta || lnAtt) : '';
-          const extra  = ln ? `<div class="tiny" style="opacity:.85;">Notes: ${ln.replace(/</g,'&lt;')}</div>` : '';
-    const price = normalizePrice(l.unitPrice);
+          const banquetNotes = isBanquet ? (lnMeta || lnAtt) : '';
+
+          const itemNote = (!isBanquet && l.meta && (l.meta.note || l.meta.notes || l.meta.message))
+            ? String(l.meta.note || l.meta.notes || l.meta.message)
+            : '';
+
+          const detail = banquetNotes
+            ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(/</g,'&lt;')}</div>`
+            : (itemNote ? `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>` : '');
+
+          const price = normalizePrice(l.unitPrice);
           const qty   = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
-          if (l.itemType === 'addons') {
-            const itemNote = (l.meta && (l.meta.note || l.meta.notes || l.meta.message)) ? String(l.meta.note || l.meta.notes || l.meta.message) : '';
-            if (itemNote) {
-              extra2 = `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>`;
-            }
-          }
-          // --- Item-specific note subline (for non-banquet lines), using common meta keys ---
-          let extra2 = '';
-          if (l.itemType !== 'banquet') {
-            const itemNote = (l.meta && (l.meta.note || l.meta.notes || l.meta.message)) ? String(l.meta.note || l.meta.notes || l.meta.message) : '';
-            if (itemNote) {
-              extra2 = `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>`;
-            }
-          }
+    
     
     
           return `
             <tr>
-              <td>${l.itemName || ''}${extra}${extra2}${extra2}</td>
+              <td>${l.itemName || ''}${detail}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>
