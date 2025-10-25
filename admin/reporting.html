@@ -5,15 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Amaranth Admin — Reporting</title>
   <meta name="robots" content="noindex, nofollow" />
+
   <script>
-    if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
-      window.location.href = 'reporting_main.html';
-    } else {
-      window.location.href = 'reporting_login.html';
+  // --- Maintenance check before redirect ---
+  async function checkMaintenanceAndRedirect(){
+    try {
+      const resp = await fetch('/api/admin/settings.js');
+      const data = await resp.json();
+
+      // If maintenance mode is active, show message instead of redirect
+      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+            <a href="/admin/settings.html" style="margin-top:16px;color:#b91c1c;text-decoration:underline;font-weight:bold;">Admin Settings</a>
+          </div>
+        `;
+        return; // stop normal redirect
+      }
+
+      // otherwise, normal admin redirect
+      if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
+        window.location.href = 'reporting_main.html';
+      } else {
+        window.location.href = 'reporting_login.html';
+      }
+
+    } catch(err){
+      console.error('Maintenance check failed:', err);
+      // fallback: still redirect
+      if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
+        window.location.href = 'reporting_main.html';
+      } else {
+        window.location.href = 'reporting_login.html';
+      }
     }
+  }
+
+  // Run after DOM ready
+  document.addEventListener('DOMContentLoaded', checkMaintenanceAndRedirect);
   </script>
 </head>
 <body>
   <p>Redirecting to reporting system...</p>
+
+  <!-- Visible link to Admin Settings just in case -->
+  <p style="text-align:center;margin-top:20px;">
+    <a href="/admin/settings.html" style="font-size:14px;color:#333;text-decoration:underline;">⚙️ Admin Settings</a>
+  </p>
 </body>
 </html>
