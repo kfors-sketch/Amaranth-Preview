@@ -78,27 +78,6 @@
     .order-table .tiny { color: #111; opacity: .95; }
     .att-notes { color: #111; opacity: .95; }
 
-  
-    /* edit panel styles */
-    .edit-panel {
-      display:none;
-      margin: .35rem 0 .5rem;
-      padding: .5rem;
-      border:1px dashed rgba(0,0,0,.15);
-      border-radius:.5rem;
-      background: rgba(255,255,255,0.55);
-    }
-    .edit-panel .row { display:flex; flex-wrap:wrap; gap:.5rem }
-    .edit-panel label {
-      display:flex; flex-direction:column; gap:4px;
-      min-width: 220px;
-      font-weight:600; font-size:.95rem;
-    }
-    .edit-panel input, .edit-panel textarea {
-      padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
-      background: rgba(255,255,255,0.9);
-    }
-    
   </style>
 </head>
 
@@ -284,8 +263,6 @@
                 <label>Name<input type="text" class="ed-name" placeholder="Name"></label>
                 <label>Email<input type="email" class="ed-email" placeholder="Email"></label>
                 <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
-              
-                <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
               </div>
               <div style="margin-top:.5rem; display:flex; gap:.5rem;">
                 <button class="btn btn-primary save-ed" data-save="${aid}">Save</button>
@@ -362,25 +339,13 @@
           panel.querySelector('.ed-name').value  = a?.name || '';
           panel.querySelector('.ed-email').value = a?.email || '';
           panel.querySelector('.ed-title').value = a?.title || '';
-          if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
         };
       });
       list.querySelectorAll('.cancel-ed').forEach(btn=>{
         btn.onclick = ()=>{
           const aid = btn.dataset.cancel;
           const panel = document.getElementById(`edit-${aid}`);
-          if (panel) 
-          const st3 = Cart.get();
-          (st3.lines || []).forEach(l=>{
-            if (l.attendeeId === aid && l.itemType === 'banquet'){
-              l.meta = l.meta || {};
-              l.meta.attendeeNotes = notes;
-              Cart.updateLine(l.id, { meta: l.meta });
-            }
-          });
-        
-          panel.style.display = 'none';
-          render();
+          if (panel) panel.style.display = 'none';
         };
       });
       list.querySelectorAll('.save-ed').forEach(btn=>{
@@ -391,19 +356,8 @@
           const name  = panel.querySelector('.ed-name').value.trim();
           const email = panel.querySelector('.ed-email').value.trim();
           const title = panel.querySelector('.ed-title').value.trim();
-          const notes = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';Cart.updateAttendee(aid, { name, email, title, notes });
-          
-          const st3 = Cart.get();
-          (st3.lines || []).forEach(l=>{
-            if (l.attendeeId === aid && l.itemType === 'banquet'){
-              l.meta = l.meta || {};
-              l.meta.attendeeNotes = notes;
-              Cart.updateLine(l.id, { meta: l.meta });
-            }
-          });
-        
+          Cart.updateAttendee(aid, { name, email, title });
           panel.style.display = 'none';
-          render();
           render();
         };
       });
