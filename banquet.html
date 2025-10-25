@@ -270,5 +270,27 @@
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
+  <script>
+(async () => {
+  try {
+    const resp = await fetch('/api/admin/settings.js');
+    const data = await resp.json();
+
+    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+      document.body.innerHTML = `
+        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+          <p style="font-size:1.2em;max-width:500px;">
+            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+          </p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    console.error('Maintenance check failed:', err);
+  }
+})();
+</script>
+
 </body>
 </html>
