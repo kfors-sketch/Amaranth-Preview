@@ -15,12 +15,19 @@ async function loadAllOrders() {
 
 export default async function handler(req, res) {
   try {
+    // NEW: allow optional per-banquet run, e.g. /api/cron/closing?banquetId=pa2026-chicken
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const onlyId = url.searchParams.get("banquetId"); // null or string
+
     const all = await loadAllOrders();
     const now = new Date();
     const cfgs = await loadAllItemConfigs();
     let sent = 0;
 
     for (const cfg of cfgs) {
+      // NEW: if a banquetId filter was provided, skip other configs
+      if (onlyId && cfg.id !== onlyId) continue;
+
       const end = cfg.publishEnd ? new Date(cfg.publishEnd) : null;
       if (!end || now < end) continue;
 
@@ -39,7 +46,10 @@ export default async function handler(req, res) {
           const unit = Number(l.unitCents||0)/100;
           const lineTotal = (Number(l.qty||0)*Number(l.unitCents||0))/100;
           for (const an of attendees) {
-            rows.push([o.orderId, o.paidAtISO||"", purchaser, an, lid, l.itemName||"", String(l.qty||0), unit.toFixed(2), lineTotal.toFixed(2)]);
+            rows.push([
+              o.orderId, o.paidAtISO||"", purchaser, an,
+              lid, l.itemName||"", String(l.qty||0), unit.toFixed(2), lineTotal.toFixed(2)
+            ]);
           }
         }
       }
