@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Catalog Manager — Amaranth</title>
+<title>Product Catalog Manager — Amaranth</title>
 <meta name="robots" content="noindex, nofollow"/>
 <link rel="stylesheet" href="/assets/css/styles.css"/>
 <style>
@@ -11,21 +11,25 @@
   .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
   .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
   .col.left{flex:2 1 640px;min-width:520px}
-  .col.right{flex:1 1 520px;min-width:460px;position:sticky;top:16px}
+  .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
   .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
   .btn.ghost{background:#fff;color:#111}
   input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
+  textarea{min-height:80px}
   table{width:100%;border-collapse:separate;border-spacing:0}
   thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
-  tbody td{padding:10px;border-bottom:1px solid #f1f2f6}
-  .muted{color:#6b7280}.ok{color:#065f46}.danger{color:#b91c1c}
+  tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
+  .muted{color:#6b7280}
+  .ok{color:#065f46}.danger{color:#b91c1c}
 </style>
-<script>(function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();</script>
 </head>
 <body>
 <main class="container">
   <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div><h1 style="margin:0">Catalog Manager</h1><div class="muted">Manage products used across pages</div></div>
+    <div>
+      <h1 style="margin:0">Product Catalog Manager</h1>
+      <div class="muted">Create, edit, and retire catalog products</div>
+    </div>
     <div style="display:flex;gap:8px;align-items:center">
       <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
       <button id="refreshBtn" class="btn ghost">Refresh from server</button>
@@ -34,6 +38,7 @@
   </header>
 
   <div class="row">
+    <!-- List -->
     <section class="col left">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <button id="btnNew" class="btn">+ New Product</button>
@@ -43,29 +48,74 @@
         <span id="listMsg" class="muted"></span>
       </div>
       <div style="overflow:auto;max-height:65vh">
-        <table><thead><tr>
-          <th style="min-width:200px">Name</th><th>SKU</th><th>ID</th><th>Price</th><th>Stock</th><th>Active</th><th style="min-width:160px">Actions</th>
-        </tr></thead><tbody id="tbody"></tbody></table>
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:200px">Name</th>
+              <th style="min-width:140px">ID</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th>Price</th>
+              <th>Active</th>
+              <th>Publish Window</th>
+              <th style="min-width:160px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
       </div>
     </section>
 
+    <!-- Editor -->
     <aside class="col right">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
       </div>
 
-      <label>Name</label><input id="f_name" type="text" placeholder="Hershey T-Shirt"/>
-      <label>ID</label><input id="f_id" type="text" placeholder="tee-hershey"/>
-      <label>SKU</label><input id="f_sku" type="text" placeholder="TEE-001"/>
-      <div style="display:flex;gap:12px">
-        <div style="flex:1"><label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="20.00"/></div>
-        <div style="flex:1"><label>Stock</label><input id="f_stock" type="number" step="1" min="0" placeholder="100"/></div>
-        <div style="flex:1"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
+      <label>Name</label>
+      <input id="f_name" type="text" placeholder="Tote Bag"/>
+
+      <label>ID (slug: lowercase letters, numbers, dashes)</label>
+      <input id="f_id" type="text" placeholder="tote-bag"/>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 150px">
+          <label>SKU (optional)</label>
+          <input id="f_sku" type="text" placeholder="TB-001"/>
+        </div>
+        <div style="flex:1 1 150px">
+          <label>Category (optional)</label>
+          <input id="f_category" type="text" placeholder="merch"/>
+        </div>
       </div>
-      <label>Category</label><input id="f_category" type="text" placeholder="apparel"/>
-      <label>Image URL</label><input id="f_image" type="text" placeholder="/assets/img/tee.jpg"/>
-      <label>Options (comma-separated; e.g. sizes)</label><input id="f_options" type="text" placeholder="S,M,L,XL"/>
-      <label>Description</label><textarea id="f_desc" placeholder="Shown on product page"></textarea>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 140px">
+          <label>Price (USD)</label>
+          <input id="f_price" type="number" step="0.01" min="0" placeholder="20.00"/>
+        </div>
+        <div style="flex:1 1 120px">
+          <label>Active</label>
+          <select id="f_active"><option>true</option><option>false</option></select>
+        </div>
+      </div>
+
+      <label>Image URL (optional)</label>
+      <input id="f_image" type="url" placeholder="https://…/image.jpg"/>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 180px">
+          <label>Publish Start</label>
+          <input id="f_start" type="datetime-local"/>
+        </div>
+        <div style="flex:1 1 180px">
+          <label>Publish End</label>
+          <input id="f_end" type="datetime-local"/>
+        </div>
+      </div>
+
+      <label>Notes / Description</label>
+      <textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
         <button id="btnSave" class="btn">Save</button>
@@ -75,93 +125,131 @@
   </div>
 </main>
 
+<!-- Optional static fallback list -->
+<script src="/assets/js/products.js"></script>
+<!-- Shared admin helpers (auth, token, logout) -->
+<script src="/assets/js/admin.js"></script>
+
 <script>
-const $=s=>document.querySelector(s);
+/* Auth + common helpers */
+Admin.ensureAuth();
+Admin.attachLogout('#logoutBtn');
+
+const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
 
 async function loadServer(){
-  try{ const r=await fetch('/api/products',{cache:'no-store'}); if(!r.ok) throw 0; const j=await r.json(); if(Array.isArray(j.products)) model=j.products; }
-  catch{ model=[]; }
+  try{
+    const r = await fetch('/api/products',{cache:'no-store'});
+    if(!r.ok) throw 0;
+    const j = await r.json();
+    if(Array.isArray(j.products)) model = j.products;
+  }catch{ /* keep empty, fallback later */ }
 }
-function loadFallback(){ if(!model.length && Array.isArray(window.PRODUCTS)) model=JSON.parse(JSON.stringify(window.PRODUCTS)); }
-
-function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;"}[c])); }
+function loadFallbackFromWindow(){
+  if(!model.length && Array.isArray(window.PRODUCTS)) model = JSON.parse(JSON.stringify(window.PRODUCTS));
+}
+function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
+function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
+function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
+
 function renderList(){
   const tb=$('#tbody'); tb.innerHTML='';
-  if(!model.length){ tb.innerHTML='<tr><td colspan="7" class="muted">No products yet</td></tr>'; return; }
+  if(!model.length){ tb.innerHTML='<tr><td colspan="8" class="muted">No products yet</td></tr>'; return; }
   for(const p of model){
     const tr=document.createElement('tr');
+    const start=p.publishStart?new Date(p.publishStart).toLocaleString():'—';
+    const end=p.publishEnd?new Date(p.publishEnd).toLocaleString():'—';
     tr.innerHTML = `
       <td><strong>${esc(p.name||'')}</strong></td>
-      <td>${esc(p.sku||'')}</td>
       <td><code>${esc(p.id||'')}</code></td>
+      <td>${esc(p.sku||'')}</td>
+      <td>${esc(p.category||'')}</td>
       <td>$${Number(p.price||0).toFixed(2)}</td>
-      <td>${Number(p.stock||0)}</td>
       <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+      <td class="muted">${start} → ${end}</td>
       <td><button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button></td>
     `;
     tb.appendChild(tr);
   }
   tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click', onEdit));
 }
+
 function startNew(){
   isNew=true;
-  current={ id:'', sku:'', name:'', price:0, stock:0, active:true, category:'', image:'', options:[], description:'' };
-  fillForm(current); $('#modeChip').textContent='New'; $('#editMsg').textContent='Create a new product and Save.';
+  current={ id:'', name:'', sku:'', category:'', imageUrl:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'' };
+  fillForm(current);
+  $('#modeChip').textContent='New';
+  $('#editMsg').textContent='Create a new product and Save.';
 }
 function fillForm(p){
-  $('#f_name').value=p.name||''; $('#f_id').value=p.id||''; $('#f_sku').value=p.sku||'';
-  $('#f_price').value=p.price!=null?String(p.price):''; $('#f_stock').value=p.stock!=null?String(p.stock):'';
-  $('#f_active').value=String(p.active!==false); $('#f_category').value=p.category||'';
-  $('#f_image').value=p.image||''; $('#f_options').value=Array.isArray(p.options)?p.options.join(','):'';
-  $('#f_desc').value=p.description||'';
+  $('#f_name').value = p.name||'';
+  $('#f_id').value = p.id||'';
+  $('#f_sku').value = p.sku||'';
+  $('#f_category').value = p.category||'';
+  $('#f_image').value = p.imageUrl||'';
+  $('#f_price').value = p.price!=null?String(p.price):'';
+  $('#f_active').value = String(p.active!==false);
+  $('#f_start').value = toLocalDT(p.publishStart);
+  $('#f_end').value = toLocalDT(p.publishEnd);
+  $('#f_notes').value = p.notes||'';
 }
 function readForm(){
   return {
+    name: $('#f_name').value.trim(),
     id: $('#f_id').value.trim(),
     sku: $('#f_sku').value.trim(),
-    name: $('#f_name').value.trim(),
-    price: Number($('#f_price').value||0),
-    stock: Number($('#f_stock').value||0),
-    active: $('#f_active').value==='true',
     category: $('#f_category').value.trim(),
-    image: $('#f_image').value.trim(),
-    options: $('#f_options').value.trim()? $('#f_options').value.split(',').map(s=>s.trim()) : [],
-    description: $('#f_desc').value.trim()
+    imageUrl: $('#f_image').value.trim(),
+    price: Number($('#f_price').value||0),
+    active: $('#f_active').value==='true',
+    publishStart: fromLocalDT($('#f_start').value),
+    publishEnd: fromLocalDT($('#f_end').value),
+    notes: $('#f_notes').value.trim()
   };
 }
 function validate(p){
   if(!p.name) return 'Name required';
   if(!p.id || !/^[a-z0-9-]+$/.test(p.id)) return 'ID must be lowercase letters, numbers, dashes';
   if(p.price<0 || isNaN(p.price)) return 'Invalid price';
-  if(p.stock<0 || isNaN(p.stock)) return 'Invalid stock';
+  if(p.imageUrl && !/^https?:\/\//i.test(p.imageUrl)) return 'Image URL must start with http(s)://';
+  if(p.publishStart && isNaN(new Date(p.publishStart))) return 'Invalid publish start';
+  if(p.publishEnd && isNaN(new Date(p.publishEnd))) return 'Invalid publish end';
+  if(p.publishStart && p.publishEnd && new Date(p.publishStart) > new Date(p.publishEnd)) return 'Start must be before end';
   return null;
 }
 function onEdit(e){
   const id=e.currentTarget.getAttribute('data-id');
   const p=model.find(x=>x.id===id); if(!p) return;
   isNew=false; current=p; fillForm(current);
-  $('#modeChip').textContent='Edit'; $('#editMsg').textContent=`Editing ${p.name}`;
+  $('#modeChip').textContent='Edit';
+  $('#editMsg').textContent=`Editing ${p.name}`;
 }
 
 $('#btnNew').addEventListener('click', startNew);
 $('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
-$('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallback(); renderList(); startNew(); });
+$('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
 
 $('#btnExport').addEventListener('click', ()=>{
   const blob=new Blob([JSON.stringify({ PRODUCTS:model },null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='products-export.json'; a.click();
 });
-$('#fileImport').addEventListener('change', async e=>{
+$('#fileImport').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
-  try{ const j=JSON.parse(t); const list=Array.isArray(j)?j:(Array.isArray(j.PRODUCTS)?j.PRODUCTS:[]); if(!list.length) throw new Error('No PRODUCTS found'); model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.'; }
-  catch(err){ $('#listMsg').textContent='Import failed: '+err.message; }
+  try{
+    const j=JSON.parse(t);
+    const list=Array.isArray(j)?j:(Array.isArray(j.PRODUCTS)?j.PRODUCTS:[]);
+    if(!list.length) throw new Error('No PRODUCTS found');
+    model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.';
+  } catch(err){
+    $('#listMsg').textContent='Import failed: '+err.message;
+  }
 });
 
 $('#btnSave').addEventListener('click', async ()=>{
   const obj=readForm(); const err=validate(obj);
-  if(err){ setMsg($('#editMsg'),err,false); return; }
+  if(err){ setMsg($('#editMsg'), err, false); return; }
   if(isNew){
     if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'),'ID exists — choose another',false); return; }
     model.push(obj);
@@ -171,20 +259,25 @@ $('#btnSave').addEventListener('click', async ()=>{
   current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
   try{
-    const headers={ 'Content-Type':'application/json' };
-    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
-    const r=await fetch('/api/admin/products',{ method:'POST', headers, body:JSON.stringify({ products:model }) });
-    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
+    const r=await fetch('/api/admin/products',{
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', ...Admin.tokenHeader() },
+      body:JSON.stringify({ products:model })
+    });
+    if(!r.ok){
+      let msg='server rejected';
+      try{ const j=await r.json(); if(j?.error) msg=j.error; }catch{}
+      throw new Error(msg);
+    }
     setMsg($('#editMsg'),'Saved to server.',true);
   }catch(e){
     setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
   }
 });
 
-$('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
-
-(async function init(){ await loadServer(); loadFallback(); renderList(); startNew(); })();
+(async function init(){
+  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
+})();
 </script>
-<script>window.PRODUCTS = window.PRODUCTS || [];</script>
 </body>
 </html>
