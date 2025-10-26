@@ -9,26 +9,19 @@
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
-
-    /* allow wrapping so the right card doesn't get squished on small screens */
     .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-
     .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     .col.left{flex:2 1 640px;min-width:520px}
-    /* wider editor card so date/time inputs fit nicely */
     .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
-
     h1{margin:0 0 10px}
     .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
     .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
     .btn.ghost{background:#fff;color:#111}
     .btn.warn{background:#b91c1c;border-color:#991b1b}
     .btn.success{background:#065f46;border-color:#064e3b}
-
     input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
     textarea{min-height:80px}
     label{font-weight:600;margin-top:8px;display:block}
-
     table{width:100%;border-collapse:separate;border-spacing:0}
     thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
     tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
@@ -62,8 +55,8 @@
         <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>pa2026-banquet-chicken</code>).</li>
         <li><b>Chair Emails</b>: comma-separated list; leave blank if unknown.</li>
         <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
-        <li><b>Publish Start/End</b>: local date/time using the pickers below (<code>YYYY-MM-DDTHH:MM</code>).</li>
-        <li><b>Active</b>: controls visibility; toggle to retire/restore.</li>
+        <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
+        <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
       </ul>
     </section>
 
@@ -84,6 +77,7 @@
               <tr>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:160px">ID</th>
+                <th>Event Date</th>
                 <th>Active</th>
                 <th>Publish Window</th>
                 <th>Chair</th>
@@ -137,6 +131,13 @@
 
         <div class="row">
           <div>
+            <label for="f_eventAt">Event Date/Time</label>
+            <input id="f_eventAt" type="datetime-local" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
             <label for="f_start">Publish Start</label>
             <input id="f_start" type="datetime-local" />
           </div>
@@ -152,7 +153,6 @@
         <div class="toolbar" style="margin-top:10px">
           <button id="btnSave" class="btn">Save</button>
           <button id="btnReset" class="btn ghost">Reset</button>
-          <!-- Delete button removed -->
         </div>
       </aside>
     </div>
@@ -162,7 +162,6 @@
   <script src="/assets/js/banquets.js"></script>
 
   <script>
-  /* Auth gate */
   (function(){
     if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
       location.replace('/admin/reporting_login.html');
@@ -173,11 +172,10 @@
   const $$ = s => Array.from(document.querySelectorAll(s));
   const idOK = id => /^[a-z0-9-]+$/.test(id);
 
-  let model = [];         // working list of banquets
-  let current = null;     // currently edited object (by reference)
+  let model = [];
+  let current = null;
   let isNew = true;
 
-  // Prefill from server first, fallback to static file
   async function loadInitial(){
     try {
       const r = await fetch("/api/banquets", { cache: "no-store" });
@@ -190,10 +188,7 @@
           return;
         }
       }
-    } catch (err) {
-      console.warn("Server banquets fetch failed:", err);
-    }
-
+    } catch(e){ console.warn("Server banquets fetch failed:", e); }
     const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
     model = JSON.parse(JSON.stringify(src));
     renderList();
@@ -201,20 +196,21 @@
   }
 
   function renderList(){
-    const tb = $('#tbody');
-    tb.innerHTML = '';
+    const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="6" class="muted">No banquets yet — click “New” to create one.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="7" class="muted">No banquets yet — click “New” to create one.</td></tr>';
       return;
     }
     for(const b of model){
-      const tr = document.createElement('tr');
       const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
       const end   = b.publishEnd ? new Date(b.publishEnd).toLocaleString() : '—';
       const chair = b.chair?.name || '—';
+      const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
+      const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(b.name||'')}</strong></td>
         <td><code>${esc(b.id||'')}</code></td>
+        <td>${esc(eventPretty)}</td>
         <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(chair)}</td>
@@ -231,8 +227,11 @@
 
   function startNew(){
     isNew = true;
-    current = { id:'', name:'', chair:{name:''}, chairEmails:[], meals:[], active:true,
-                publishStart:'', publishEnd:'', price:0, location:'', notes:'' };
+    current = {
+      id:'', name:'', chair:{name:''}, chairEmails:[], meals:[], active:true,
+      price:0, location:'', notes:'',
+      eventAt:'', publishStart:'', publishEnd:''
+    };
     fillForm(current);
     $('#modeChip').textContent = 'New';
     $('#editMsg').textContent = 'Create a new entry and click Save.';
@@ -247,6 +246,7 @@
     $('#f_active').value = String(b.active !== false);
     $('#f_price').value = b.price != null ? String(b.price) : '';
     $('#f_location').value = b.location || '';
+    $('#f_eventAt').value = toLocalDT(b.eventAt);
     $('#f_start').value = toLocalDT(b.publishStart);
     $('#f_end').value = toLocalDT(b.publishEnd);
     $('#f_notes').value = b.notes || b.description || '';
@@ -254,6 +254,7 @@
 
   function readForm(){
     const emails = $('#f_chair_emails').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const eventAtISO = fromLocalDT($('#f_eventAt').value);
     const o = {
       id: $('#f_id').value.trim(),
       name: $('#f_name').value.trim(),
@@ -263,6 +264,9 @@
       active: $('#f_active').value === 'true',
       price: Number($('#f_price').value || 0),
       location: $('#f_location').value.trim(),
+      eventAt: eventAtISO,
+      // keep legacy pretty text up to date if we have an ISO time
+      datetime: eventAtISO ? prettyDate(new Date(eventAtISO)) : ($('#f_notes').dataset.keepDatetime || ''),
       publishStart: fromLocalDT($('#f_start').value),
       publishEnd: fromLocalDT($('#f_end').value),
       notes: $('#f_notes').value.trim()
@@ -278,6 +282,7 @@
     for(const e of (o.chairEmails||[])){
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return `Invalid email: ${e}`;
     }
+    if(o.eventAt && isNaN(new Date(o.eventAt))) return 'Event Date/Time is invalid.';
     if(o.publishStart && isNaN(new Date(o.publishStart))) return 'Publish start is invalid.';
     if(o.publishEnd && isNaN(new Date(o.publishEnd))) return 'Publish end is invalid.';
     if(o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) return 'Start must be before end.';
@@ -286,10 +291,11 @@
 
   function onEdit(e){
     const id = e.currentTarget.getAttribute('data-id');
-    const b = model.find(x=>x.id===id);
-    if(!b) return;
+    const b = model.find(x=>x.id===id); if(!b) return;
     isNew = false;
     current = b;
+    // stash old pretty datetime so if eventAt isn't changed we can preserve it
+    $('#f_notes').dataset.keepDatetime = b.datetime || '';
     fillForm(current);
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = `Editing ${b.name}`;
@@ -297,13 +303,14 @@
 
   function onCopy(e){
     const id = e.currentTarget.getAttribute('data-id');
-    const b = model.find(x=>x.id===id);
-    if(!b) return;
+    const b = model.find(x=>x.id===id); if(!b) return;
     const clone = JSON.parse(JSON.stringify(b));
     clone.id = (b.id + '-copy').toLowerCase();
     clone.name = b.name + ' (Copy)';
     isNew = true;
     current = clone;
+    // reset preserved pretty text for new
+    $('#f_notes').dataset.keepDatetime = '';
     fillForm(current);
     $('#modeChip').textContent = 'New (from copy)';
     $('#editMsg').textContent = `Duplicated from ${b.name} — change ID before saving.`;
@@ -327,7 +334,6 @@
     current = obj;
     renderList();
 
-    // Try saving to backend (token-aware)
     try{
       const headers = { 'Content-Type': 'application/json' };
       const t = localStorage.getItem('amaranth_report_token');
@@ -383,20 +389,10 @@
 
   // Helpers
   function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-  function toLocalDT(v){
-    if (!v) return '';
-    const d = new Date(v);
-    if (isNaN(d)) return '';
-    const offset = d.getTimezoneOffset() * 60000;
-    const local = new Date(d.getTime() - offset);
-    return local.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
-    }
-  function fromLocalDT(v){
-    if (!v) return '';
-    const d = new Date(v);
-    return isNaN(d) ? '' : d.toISOString();
-  }
+  function toLocalDT(v){ if(!v) return ''; const d = new Date(v); if(isNaN(d)) return ''; const z = new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
+  function fromLocalDT(v){ if(!v) return ''; const d = new Date(v); return isNaN(d)?'':d.toISOString(); }
   function setMsg(el, text, ok){ el.textContent = text||''; el.className = ok ? 'ok' : (text ? 'danger' : 'muted'); }
+  function prettyDate(d){ if(!(d instanceof Date) || isNaN(d)) return ''; return d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); }
 
   // Logout
   $('#logoutBtn').addEventListener('click', ()=>{
