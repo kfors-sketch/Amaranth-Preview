@@ -1,197 +1,211 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Admin · Grand Court Add-Ons</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
-  <style>
-    body{background:#f7f7fb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
-    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
-    h1{margin:0 0 16px}
-    .bar{display:flex;gap:8px;align-items:center;margin:12px 0 20px}
-    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer}
-    .btn.primary{background:#111;color:#fff;border-color:#111}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
-    label{display:block;font-size:12px;color:#555;margin:8px 0 4px}
-    input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font:inherit;background:#fff}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .list{display:flex;flex-direction:column;gap:10px}
-    .item{display:flex;gap:12px;align-items:center;justify-content:space-between;border:1px dashed #ddd;border-radius:10px;padding:12px}
-    .tag{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;background:#fafafa}
-    .danger{color:#b91c1c}
-    textarea.code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;min-height:220px}
-  </style>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Add-Ons Manager — Amaranth</title>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="stylesheet" href="/assets/css/styles.css"/>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+  .container{max-width:1200px;margin:24px auto;padding:0 16px}
+  .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+  .col.left{flex:2 1 640px;min-width:520px}
+  .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
+  .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:#fff;color:#111}
+  input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
+  tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
+  .muted{color:#6b7280}
+  .ok{color:#065f46}.danger{color:#b91c1c}
+</style>
+<script>
+  (function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();
+</script>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Grand Court Add-Ons</h1>
-    <div class="bar">
-      <button class="btn" onclick="location.href='/admin/index.html'">← Admin Hub</button>
-      <button class="btn primary" id="btn-new">+ New Add-On</button>
-      <button class="btn" id="btn-save">Save All</button>
-      <span id="status" class="tag">Loaded</span>
+<main class="container">
+  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div><h1 style="margin:0">Add-Ons Manager</h1><div class="muted">Create, edit, retire add-ons</div></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
+      <button id="refreshBtn" class="btn ghost">Refresh from server</button>
+      <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
     </div>
+  </header>
 
-    <div class="grid">
-      <div class="card">
-        <h3 style="margin-top:0">Items</h3>
-        <div id="list" class="list"></div>
+  <div class="row">
+    <section class="col left">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <button id="btnNew" class="btn">+ New Add-On</button>
+        <button id="btnExport" class="btn ghost">Export JSON</button>
+        <label class="btn ghost" for="fileImport" style="cursor:pointer">Import JSON</label>
+        <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
+        <span id="listMsg" class="muted"></span>
+      </div>
+      <div style="overflow:auto;max-height:65vh">
+        <table><thead><tr>
+          <th style="min-width:200px">Name</th><th style="min-width:140px">ID</th>
+          <th>Price</th><th>Active</th><th>Publish Window</th><th style="min-width:160px">Actions</th>
+        </tr></thead><tbody id="tbody"></tbody></table>
+      </div>
+    </section>
+
+    <aside class="col right">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
       </div>
 
-      <div class="card">
-        <h3 style="margin-top:0">Raw JSON (advanced)</h3>
-        <p style="margin-top:-6px;color:#666;font-size:12px">
-          Edit the full payload. Click <b>Save All</b> to persist.
-        </p>
-        <textarea id="json" class="code"></textarea>
+      <label>Name</label><input id="f_name" type="text" placeholder="Corsage"/>
+      <label>ID</label><input id="f_id" type="text" placeholder="corsage"/>
+      <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
+        <div style="flex:1"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
+        <div style="flex:1"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
       </div>
-    </div>
+      <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <button id="btnSave" class="btn">Save</button>
+        <button id="btnReset" class="btn ghost">Reset</button>
+      </div>
+    </aside>
   </div>
+</main>
 
-  <script type="module">
-    import { apiGet, apiPut, moneyToCents, centsToMoney, uid } from '/assets/js/admin.js';
+<script>
+const $ = s=>document.querySelector(s);
+let model=[], current=null, isNew=true;
 
-    let state = { items: [] };
+async function loadServer(){
+  try{
+    const r = await fetch('/api/addons',{cache:'no-store'});
+    if(!r.ok) throw 0;
+    const j = await r.json();
+    if(Array.isArray(j.addons)) model = j.addons;
+  }catch{ model = []; }
+}
+function loadFallbackFromWindow(){
+  if(!model.length && Array.isArray(window.ADDONS)) model = JSON.parse(JSON.stringify(window.ADDONS));
+}
+function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
+function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;"}[c])); }
+function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
 
-    const elList = document.getElementById('list');
-    const elJson = document.getElementById('json');
-    const elStatus = document.getElementById('status');
+function renderList(){
+  const tb=$('#tbody'); tb.innerHTML='';
+  if(!model.length){ tb.innerHTML='<tr><td colspan="6" class="muted">No add-ons yet</td></tr>'; return; }
+  for(const a of model){
+    const tr=document.createElement('tr');
+    const start=a.publishStart?new Date(a.publishStart).toLocaleString():'—';
+    const end=a.publishEnd?new Date(a.publishEnd).toLocaleString():'—';
+    tr.innerHTML = `
+      <td><strong>${esc(a.name||'')}</strong></td>
+      <td><code>${esc(a.id||'')}</code></td>
+      <td>$${Number(a.price||0).toFixed(2)}</td>
+      <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+      <td class="muted">${start} → ${end}</td>
+      <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>
+    `;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click', onEdit));
+}
 
-    function setStatus(t){ elStatus.textContent = t; }
+function startNew(){
+  isNew=true;
+  current={ id:'', name:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'' };
+  fillForm(current);
+  $('#modeChip').textContent='New';
+  $('#editMsg').textContent='Create a new add-on and Save.';
+}
+function fillForm(a){
+  $('#f_name').value = a.name||'';
+  $('#f_id').value = a.id||'';
+  $('#f_price').value = a.price!=null?String(a.price):'';
+  $('#f_active').value = String(a.active!==false);
+  $('#f_start').value = toLocalDT(a.publishStart);
+  $('#f_end').value = toLocalDT(a.publishEnd);
+  $('#f_notes').value = a.notes||'';
+}
+function readForm(){
+  return {
+    name: $('#f_name').value.trim(),
+    id: $('#f_id').value.trim(),
+    price: Number($('#f_price').value||0),
+    active: $('#f_active').value==='true',
+    publishStart: fromLocalDT($('#f_start').value),
+    publishEnd: fromLocalDT($('#f_end').value),
+    notes: $('#f_notes').value.trim()
+  };
+}
+function validate(a){
+  if(!a.name) return 'Name required';
+  if(!a.id || !/^[a-z0-9-]+$/.test(a.id)) return 'ID must be lowercase letters, numbers, dashes';
+  if(a.price<0 || isNaN(a.price)) return 'Invalid price';
+  if(a.publishStart && isNaN(new Date(a.publishStart))) return 'Invalid publish start';
+  if(a.publishEnd && isNaN(new Date(a.publishEnd))) return 'Invalid publish end';
+  if(a.publishStart && a.publishEnd && new Date(a.publishStart) > new Date(a.publishEnd)) return 'Start must be before end';
+  return null;
+}
+function onEdit(e){
+  const id=e.currentTarget.getAttribute('data-id');
+  const a=model.find(x=>x.id===id); if(!a) return;
+  isNew=false; current=a; fillForm(current);
+  $('#modeChip').textContent='Edit';
+  $('#editMsg').textContent=`Editing ${a.name}`;
+}
 
-    function blank(){
-      return {
-        id: uid(),
-        name: '',
-        priceCents: 0,
-        description: '',
-        note: '',
-        active: true,
-        maxQty: null,
-        perOrderLimit: null,
-        sort: (state.items?.length ?? 0) + 1
-      };
-    }
+$('#btnNew').addEventListener('click', startNew);
+$('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
+$('#refreshBtn').addEventListener('click', async ()=>{
+  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
+});
 
-    function draw(){
-      elList.innerHTML = '';
-      (state.items||[]).sort((a,b)=> (a.sort??0)-(b.sort??0)).forEach(it=>{
-        const row = document.createElement('div');
-        row.className = 'item';
-        row.innerHTML = `
-          <div style="flex:1;min-width:300px">
-            <div class="row">
-              <div>
-                <label>Name</label>
-                <input value="${it.name||''}" data-k="name" data-id="${it.id}">
-              </div>
-              <div>
-                <label>Price ($)</label>
-                <input value="${centsToMoney(it.priceCents||0)}" data-k="priceCents" data-id="${it.id}">
-              </div>
-            </div>
-            <label>Description</label>
-            <textarea data-k="description" data-id="${it.id}">${it.description||''}</textarea>
-            <label>Note (shown to buyers)</label>
-            <textarea data-k="note" data-id="${it.id}">${it.note||''}</textarea>
-            <div class="row">
-              <div>
-                <label>Active</label>
-                <select data-k="active" data-id="${it.id}">
-                  <option value="true" ${it.active?'selected':''}>true</option>
-                  <option value="false" ${!it.active?'selected':''}>false</option>
-                </select>
-              </div>
-              <div>
-                <label>Sort</label>
-                <input type="number" value="${it.sort??0}" data-k="sort" data-id="${it.id}">
-              </div>
-            </div>
-            <div class="row">
-              <div>
-                <label>Max Qty (null for no limit)</label>
-                <input placeholder="null" value="${it.maxQty??''}" data-k="maxQty" data-id="${it.id}">
-              </div>
-              <div>
-                <label>Per-Order Limit (null for no limit)</label>
-                <input placeholder="null" value="${it.perOrderLimit??''}" data-k="perOrderLimit" data-id="${it.id}">
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-            <span class="tag">${it.active?'Active':'Inactive'}</span>
-            <button class="btn danger" data-del="${it.id}">Remove</button>
-          </div>
-        `;
-        elList.appendChild(row);
-      });
+$('#btnExport').addEventListener('click', ()=>{
+  const blob=new Blob([JSON.stringify({ ADDONS:model },null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='addons-export.json'; a.click();
+});
+$('#fileImport').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
+  try{ const j=JSON.parse(t); const list=Array.isArray(j)?j:(Array.isArray(j.ADDONS)?j.ADDONS:[]); if(!list.length) throw new Error('No ADDONS found'); model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.'; }
+  catch(err){ $('#listMsg').textContent='Import failed: '+err.message; }
+});
 
-      // wire inputs
-      elList.querySelectorAll('input,textarea,select').forEach(i=>{
-        i.addEventListener('input', onChange);
-      });
-      elList.querySelectorAll('[data-del]').forEach(b=>{
-        b.addEventListener('click', (e)=>{
-          const id = e.currentTarget.getAttribute('data-del');
-          state.items = state.items.filter(x=>x.id!==id);
-          syncJson(); draw();
-        });
-      });
+$('#btnSave').addEventListener('click', async ()=>{
+  const obj=readForm(); const err=validate(obj);
+  if(err){ setMsg($('#editMsg'), err, false); return; }
+  if(isNew){
+    if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'),'ID exists — choose another',false); return; }
+    model.push(obj);
+  }else{
+    const i=model.findIndex(x=>x.id===current.id); model[i]=obj;
+  }
+  current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
-      elJson.value = JSON.stringify(state, null, 2);
-    }
+  try{
+    const headers={ 'Content-Type':'application/json' };
+    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
+    const r=await fetch('/api/admin/addons',{ method:'POST', headers, body:JSON.stringify({ addons:model }) });
+    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
+    setMsg($('#editMsg'),'Saved to server.',true);
+  }catch(e){
+    setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
+  }
+});
 
-    function onChange(e){
-      const id = e.target.getAttribute('data-id');
-      const key = e.target.getAttribute('data-k');
-      const item = state.items.find(x=>x.id===id);
-      let val = e.target.value;
-      if (key==='priceCents') val = moneyToCents(val);
-      if (key==='active') val = (val==='true');
-      if (key==='maxQty' || key==='perOrderLimit' || key==='sort'){
-        val = (val===''||val==='null') ? null : Number(val);
-      }
-      item[key] = val;
-      syncJson();
-    }
+// logout
+$('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
 
-    function syncJson(){ elJson.value = JSON.stringify(state, null, 2); }
-
-    // buttons
-    document.getElementById('btn-new').addEventListener('click', ()=>{
-      state.items.push(blank());
-      syncJson(); draw();
-    });
-
-    document.getElementById('btn-save').addEventListener('click', async ()=>{
-      try{
-        // trust JSON panel as source of truth (in case power-user edited it)
-        state = JSON.parse(elJson.value);
-        await apiPut('/api/admin/addons', state);
-        setStatus('Saved ✓');
-        setTimeout(()=>setStatus('Ready'), 1200);
-        draw();
-      }catch(err){
-        setStatus('Error saving');
-        alert(err.message||err);
-      }
-    });
-
-    // initial load
-    (async ()=>{
-      try{
-        setStatus('Loading…');
-        const data = await apiGet('/api/admin/addons');
-        state = data && data.items ? data : { items: [] };
-        setStatus('Ready');
-        draw();
-      }catch(err){
-        setStatus('Error');
-        alert(err.message||err);
-      }
-    })();
-  </script>
+(async function init(){
+  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
+})();
+</script>
+<!-- Optional static fallback list -->
+<script>window.ADDONS = window.ADDONS || [];</script>
 </body>
 </html>

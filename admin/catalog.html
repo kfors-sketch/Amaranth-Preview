@@ -1,261 +1,190 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Admin · Product Catalog</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
-  <style>
-    body{background:#f7f7fb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
-    .wrap{max-width:1200px;margin:32px auto;padding:0 16px}
-    .bar{display:flex;gap:8px;align-items:center;margin:12px 0 20px}
-    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer}
-    .btn.primary{background:#111;color:#fff;border-color:#111}
-    .grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px}
-    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    label{display:block;font-size:12px;color:#555;margin:8px 0 4px}
-    input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font:inherit;background:#fff}
-    .list{display:flex;flex-direction:column;gap:12px}
-    .item{border:1px dashed #ddd;border-radius:12px;padding:12px}
-    .kv{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
-    .tag{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;background:#fafafa}
-  </style>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Catalog Manager — Amaranth</title>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="stylesheet" href="/assets/css/styles.css"/>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+  .container{max-width:1200px;margin:24px auto;padding:0 16px}
+  .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+  .col.left{flex:2 1 640px;min-width:520px}
+  .col.right{flex:1 1 520px;min-width:460px;position:sticky;top:16px}
+  .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:#fff;color:#111}
+  input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
+  tbody td{padding:10px;border-bottom:1px solid #f1f2f6}
+  .muted{color:#6b7280}.ok{color:#065f46}.danger{color:#b91c1c}
+</style>
+<script>(function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();</script>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Product Catalog</h1>
-    <div class="bar">
-      <button class="btn" onclick="location.href='/admin/index.html'">← Admin Hub</button>
-      <button class="btn primary" id="btn-new">+ New Product</button>
-      <button class="btn" id="btn-save">Save All</button>
-      <span id="status" class="tag">Loaded</span>
+<main class="container">
+  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div><h1 style="margin:0">Catalog Manager</h1><div class="muted">Manage products used across pages</div></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
+      <button id="refreshBtn" class="btn ghost">Refresh from server</button>
+      <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
     </div>
+  </header>
 
-    <div class="grid">
-      <div class="card">
-        <h3 style="margin-top:0">Products</h3>
-        <div id="list" class="list"></div>
+  <div class="row">
+    <section class="col left">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <button id="btnNew" class="btn">+ New Product</button>
+        <button id="btnExport" class="btn ghost">Export JSON</button>
+        <label class="btn ghost" for="fileImport" style="cursor:pointer">Import JSON</label>
+        <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
+        <span id="listMsg" class="muted"></span>
+      </div>
+      <div style="overflow:auto;max-height:65vh">
+        <table><thead><tr>
+          <th style="min-width:200px">Name</th><th>SKU</th><th>ID</th><th>Price</th><th>Stock</th><th>Active</th><th style="min-width:160px">Actions</th>
+        </tr></thead><tbody id="tbody"></tbody></table>
+      </div>
+    </section>
+
+    <aside class="col right">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
       </div>
 
-      <div class="card">
-        <h3 style="margin-top:0">Raw JSON (advanced)</h3>
-        <textarea id="json" style="width:100%;min-height:440px;font-family:ui-monospace,Menlo,Consolas,monospace"></textarea>
+      <label>Name</label><input id="f_name" type="text" placeholder="Hershey T-Shirt"/>
+      <label>ID</label><input id="f_id" type="text" placeholder="tee-hershey"/>
+      <label>SKU</label><input id="f_sku" type="text" placeholder="TEE-001"/>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="20.00"/></div>
+        <div style="flex:1"><label>Stock</label><input id="f_stock" type="number" step="1" min="0" placeholder="100"/></div>
+        <div style="flex:1"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
       </div>
-    </div>
+      <label>Category</label><input id="f_category" type="text" placeholder="apparel"/>
+      <label>Image URL</label><input id="f_image" type="text" placeholder="/assets/img/tee.jpg"/>
+      <label>Options (comma-separated; e.g. sizes)</label><input id="f_options" type="text" placeholder="S,M,L,XL"/>
+      <label>Description</label><textarea id="f_desc" placeholder="Shown on product page"></textarea>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <button id="btnSave" class="btn">Save</button>
+        <button id="btnReset" class="btn ghost">Reset</button>
+      </div>
+    </aside>
   </div>
+</main>
 
-  <script type="module">
-    import { apiGet, apiPut, moneyToCents, centsToMoney, uid } from '/assets/js/admin.js';
+<script>
+const $=s=>document.querySelector(s);
+let model=[], current=null, isNew=true;
 
-    let state = { items: [] };
-    const elList = document.getElementById('list');
-    const elJson = document.getElementById('json');
-    const elStatus = document.getElementById('status');
+async function loadServer(){
+  try{ const r=await fetch('/api/products',{cache:'no-store'}); if(!r.ok) throw 0; const j=await r.json(); if(Array.isArray(j.products)) model=j.products; }
+  catch{ model=[]; }
+}
+function loadFallback(){ if(!model.length && Array.isArray(window.PRODUCTS)) model=JSON.parse(JSON.stringify(window.PRODUCTS)); }
 
-    function setStatus(t){ elStatus.textContent = t; }
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;"}[c])); }
+function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
+function renderList(){
+  const tb=$('#tbody'); tb.innerHTML='';
+  if(!model.length){ tb.innerHTML='<tr><td colspan="7" class="muted">No products yet</td></tr>'; return; }
+  for(const p of model){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(p.name||'')}</strong></td>
+      <td>${esc(p.sku||'')}</td>
+      <td><code>${esc(p.id||'')}</code></td>
+      <td>$${Number(p.price||0).toFixed(2)}</td>
+      <td>${Number(p.stock||0)}</td>
+      <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+      <td><button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button></td>
+    `;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click', onEdit));
+}
+function startNew(){
+  isNew=true;
+  current={ id:'', sku:'', name:'', price:0, stock:0, active:true, category:'', image:'', options:[], description:'' };
+  fillForm(current); $('#modeChip').textContent='New'; $('#editMsg').textContent='Create a new product and Save.';
+}
+function fillForm(p){
+  $('#f_name').value=p.name||''; $('#f_id').value=p.id||''; $('#f_sku').value=p.sku||'';
+  $('#f_price').value=p.price!=null?String(p.price):''; $('#f_stock').value=p.stock!=null?String(p.stock):'';
+  $('#f_active').value=String(p.active!==false); $('#f_category').value=p.category||'';
+  $('#f_image').value=p.image||''; $('#f_options').value=Array.isArray(p.options)?p.options.join(','):'';
+  $('#f_desc').value=p.description||'';
+}
+function readForm(){
+  return {
+    id: $('#f_id').value.trim(),
+    sku: $('#f_sku').value.trim(),
+    name: $('#f_name').value.trim(),
+    price: Number($('#f_price').value||0),
+    stock: Number($('#f_stock').value||0),
+    active: $('#f_active').value==='true',
+    category: $('#f_category').value.trim(),
+    image: $('#f_image').value.trim(),
+    options: $('#f_options').value.trim()? $('#f_options').value.split(',').map(s=>s.trim()) : [],
+    description: $('#f_desc').value.trim()
+  };
+}
+function validate(p){
+  if(!p.name) return 'Name required';
+  if(!p.id || !/^[a-z0-9-]+$/.test(p.id)) return 'ID must be lowercase letters, numbers, dashes';
+  if(p.price<0 || isNaN(p.price)) return 'Invalid price';
+  if(p.stock<0 || isNaN(p.stock)) return 'Invalid stock';
+  return null;
+}
+function onEdit(e){
+  const id=e.currentTarget.getAttribute('data-id');
+  const p=model.find(x=>x.id===id); if(!p) return;
+  isNew=false; current=p; fillForm(current);
+  $('#modeChip').textContent='Edit'; $('#editMsg').textContent=`Editing ${p.name}`;
+}
 
-    function blank(){
-      return {
-        id: uid(),
-        sku: '',
-        name: '',
-        priceCents: 0,
-        active: true,
-        stockQty: null,         // null = untracked
-        sort: (state.items?.length ?? 0) + 1,
-        thumbnailUrl: '',
-        meta: {}                // flexible key/value bag (tiers, tags, ribbons, etc.)
-      };
-    }
+$('#btnNew').addEventListener('click', startNew);
+$('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
+$('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallback(); renderList(); startNew(); });
 
-    function draw(){
-      elList.innerHTML = '';
-      (state.items||[]).sort((a,b)=>(a.sort??0)-(b.sort??0)).forEach(it=>{
-        const box = document.createElement('div');
-        box.className = 'item';
-        box.innerHTML = `
-          <div class="row">
-            <div>
-              <label>SKU</label>
-              <input value="${it.sku||''}" data-k="sku" data-id="${it.id}">
-            </div>
-            <div>
-              <label>Name</label>
-              <input value="${it.name||''}" data-k="name" data-id="${it.id}">
-            </div>
-          </div>
-          <div class="row">
-            <div>
-              <label>Price ($)</label>
-              <input value="${centsToMoney(it.priceCents||0)}" data-k="priceCents" data-id="${it.id}">
-            </div>
-            <div>
-              <label>Active</label>
-              <select data-k="active" data-id="${it.id}">
-                <option value="true" ${it.active?'selected':''}>true</option>
-                <option value="false" ${!it.active?'selected':''}>false</option>
-              </select>
-            </div>
-          </div>
-          <div class="row">
-            <div>
-              <label>Stock Qty (null = unlimited)</label>
-              <input placeholder="null" value="${it.stockQty??''}" data-k="stockQty" data-id="${it.id}">
-            </div>
-            <div>
-              <label>Sort</label>
-              <input type="number" value="${it.sort??0}" data-k="sort" data-id="${it.id}">
-            </div>
-          </div>
-          <label>Thumbnail URL</label>
-          <input value="${it.thumbnailUrl||''}" data-k="thumbnailUrl" data-id="${it.id}">
-          <details style="margin-top:10px">
-            <summary><b>Meta</b> (add any custom variables)</summary>
-            <div class="kv" style="margin-top:8px">
-              <input placeholder="key (e.g. tier1_qty)" data-meta-k data-id="${it.id}">
-              <input placeholder="value (e.g. 10)" data-meta-v data-id="${it.id}">
-              <button class="btn" data-meta-add data-id="${it.id}">Add</button>
-            </div>
-            <div data-meta-list data-id="${it.id}"></div>
-          </details>
-          <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn danger" data-del="${it.id}">Remove</button>
-          </div>
-        `;
-        elList.appendChild(box);
+$('#btnExport').addEventListener('click', ()=>{
+  const blob=new Blob([JSON.stringify({ PRODUCTS:model },null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='products-export.json'; a.click();
+});
+$('#fileImport').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
+  try{ const j=JSON.parse(t); const list=Array.isArray(j)?j:(Array.isArray(j.PRODUCTS)?j.PRODUCTS:[]); if(!list.length) throw new Error('No PRODUCTS found'); model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.'; }
+  catch(err){ $('#listMsg').textContent='Import failed: '+err.message; }
+});
 
-        // render meta rows
-        const holder = box.querySelector('[data-meta-list]');
-        holder.innerHTML = '';
-        Object.entries(it.meta||{}).forEach(([k,v])=>{
-          const row = document.createElement('div');
-          row.className = 'kv';
-          row.innerHTML = `
-            <input value="${k}" data-meta-k-edit data-id="${it.id}">
-            <input value="${String(v)}" data-meta-v-edit data-id="${it.id}" data-meta-key="${k}">
-            <button class="btn" data-meta-del data-id="${it.id}" data-meta-key="${k}">✕</button>
-          `;
-          holder.appendChild(row);
-        });
-      });
+$('#btnSave').addEventListener('click', async ()=>{
+  const obj=readForm(); const err=validate(obj);
+  if(err){ setMsg($('#editMsg'),err,false); return; }
+  if(isNew){
+    if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'),'ID exists — choose another',false); return; }
+    model.push(obj);
+  }else{
+    const i=model.findIndex(x=>x.id===current.id); model[i]=obj;
+  }
+  current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
-      // wire standard fields
-      elList.querySelectorAll('input,select').forEach(i=>{
-        if (i.hasAttribute('data-meta-k') || i.hasAttribute('data-meta-v') || i.hasAttribute('data-meta-k-edit') || i.hasAttribute('data-meta-v-edit')) return;
-        i.addEventListener('input', onChange);
-      });
+  try{
+    const headers={ 'Content-Type':'application/json' };
+    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
+    const r=await fetch('/api/admin/products',{ method:'POST', headers, body:JSON.stringify({ products:model }) });
+    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
+    setMsg($('#editMsg'),'Saved to server.',true);
+  }catch(e){
+    setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
+  }
+});
 
-      // meta add/del/edit
-      elList.querySelectorAll('[data-meta-add]').forEach(b=>{
-        b.addEventListener('click', ()=>{
-          const id = b.getAttribute('data-id');
-          const k = elList.querySelector(`input[data-meta-k][data-id="${id}"]`).value.trim();
-          const v = elList.querySelector(`input[data-meta-v][data-id="${id}"]`).value;
-          if (!k) return alert('Meta key required');
-          const item = state.items.find(x=>x.id===id);
-          item.meta ||= {};
-          item.meta[k] = parseMaybeNumber(v);
-          syncJson(); draw();
-        });
-      });
-      elList.querySelectorAll('[data-meta-del]').forEach(b=>{
-        b.addEventListener('click', ()=>{
-          const id = b.getAttribute('data-id');
-          const key = b.getAttribute('data-meta-key');
-          const item = state.items.find(x=>x.id===id);
-          if (item.meta) delete item.meta[key];
-          syncJson(); draw();
-        });
-      });
-      elList.querySelectorAll('[data-meta-k-edit]').forEach(inp=>{
-        inp.addEventListener('change', ()=>{
-          const id = inp.getAttribute('data-id');
-          const oldKey = inp.closest('.kv').querySelector('[data-meta-v-edit]').getAttribute('data-meta-key');
-          const newKey = inp.value.trim();
-          if (!newKey) return alert('Meta key required');
-          const item = state.items.find(x=>x.id===id);
-          const val = item.meta?.[oldKey];
-          delete item.meta[oldKey];
-          item.meta[newKey] = val;
-          syncJson(); draw();
-        });
-      });
-      elList.querySelectorAll('[data-meta-v-edit]').forEach(inp=>{
-        inp.addEventListener('input', ()=>{
-          const id = inp.getAttribute('data-id');
-          const key = inp.getAttribute('data-meta-key');
-          const item = state.items.find(x=>x.id===id);
-          item.meta ||= {};
-          item.meta[key] = parseMaybeNumber(inp.value);
-          syncJson();
-        });
-      });
+$('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
 
-      // delete
-      elList.querySelectorAll('[data-del]').forEach(b=>{
-        b.addEventListener('click', ()=>{
-          const id = b.getAttribute('data-del');
-          state.items = state.items.filter(x=>x.id!==id);
-          syncJson(); draw();
-        });
-      });
-
-      elJson.value = JSON.stringify(state, null, 2);
-    }
-
-    function parseMaybeNumber(v){
-      if (v==='' || v==='null') return null;
-      const n = Number(v);
-      return Number.isFinite(n) && String(n)===v ? n : v;
-    }
-
-    function onChange(e){
-      const id = e.target.getAttribute('data-id');
-      const key = e.target.getAttribute('data-k');
-      const item = state.items.find(x=>x.id===id);
-      let val = e.target.value;
-      if (key==='priceCents') val = moneyToCents(val);
-      if (key==='active') val = (val==='true');
-      if (key==='stockQty' || key==='sort'){
-        val = (val===''||val==='null') ? null : Number(val);
-      }
-      item[key] = val;
-      syncJson();
-    }
-
-    function syncJson(){ elJson.value = JSON.stringify(state, null, 2); }
-
-    document.getElementById('btn-new').addEventListener('click', ()=>{
-      state.items.push(blank());
-      syncJson(); draw();
-    });
-
-    document.getElementById('btn-save').addEventListener('click', async ()=>{
-      try{
-        state = JSON.parse(elJson.value);       // trust JSON panel
-        await apiPut('/api/admin/catalog', state);
-        setStatus('Saved ✓');
-        setTimeout(()=>setStatus('Ready'), 1200);
-        draw();
-      }catch(err){
-        setStatus('Error saving');
-        alert(err.message||err);
-      }
-    });
-
-    (async ()=>{
-      try{
-        setStatus('Loading…');
-        const data = await apiGet('/api/admin/catalog');
-        state = data && data.items ? data : { items: [] };
-        setStatus('Ready');
-        draw();
-      }catch(err){
-        setStatus('Error');
-        alert(err.message||err);
-      }
-    })();
-  </script>
+(async function init(){ await loadServer(); loadFallback(); renderList(); startNew(); })();
+</script>
+<script>window.PRODUCTS = window.PRODUCTS || [];</script>
 </body>
 </html>
