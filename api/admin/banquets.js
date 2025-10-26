@@ -1,88 +1,202 @@
 // /api/admin/banquets.js
-// Saves the full banquets list to Vercel KV (protected by REPORT_TOKEN)
+//
+// Admin endpoint to GET/POST the canonical banquets list.
+// - Persists to Redis if REDIS_URL is set, else to Vercel KV if available.
+// - POST requires Authorization: Bearer <REPORT_TOKEN>
+// - Normalizes eventAt (ISO) and keeps legacy .datetime (pretty string) in sync.
 
-import { kv } from '@vercel/kv';
+import { kv as vercelKV } from "@vercel/kv";          // optional fallback
+import { createClient as createRedisClient } from "redis";
 
-function bad(res, code, msg, details = []) {
-  return res.status(code).json({ error: msg, details });
+const KEY = "banquets:list";
+
+// ---- Storage helpers: prefer Redis, fallback to Vercel KV ----
+let redisClient = null;
+async function getRedis() {
+  if (!process.env.REDIS_URL) return null;
+  if (redisClient) return redisClient;
+  redisClient = createRedisClient({ url: process.env.REDIS_URL });
+  redisClient.on("error", (e) => console.error("[redis] error", e));
+  await redisClient.connect();
+  return redisClient;
 }
 
-function ok(res, data = {}) {
-  return res.status(200).json({ ok: true, ...data });
+async function saveJSON(key, value) {
+  const asStr = JSON.stringify(value);
+  const redis = await getRedis();
+  if (redis) {
+    await redis.set(key, asStr);
+    return;
+  }
+  // Fallback to Vercel KV if configured
+  if (vercelKV) {
+    await vercelKV.set(key, asStr);
+    return;
+  }
+  throw new Error("No storage configured (set REDIS_URL or Vercel KV).");
 }
 
-// Minimal validation of each banquet object
-function validateBanquet(b) {
-  const errors = [];
-  if (!b || typeof b !== 'object') { errors.push('Item is not an object'); return errors; }
-  if (!b.id) errors.push('Missing id');
-  if (b.id && !/^[a-z0-9-]+$/.test(b.id)) errors.push(`Invalid id "${b.id}" (lowercase letters, numbers, dashes only)`);
-  if (!b.name) errors.push(`Missing name for id "${b.id || '?'}"`);
-  if (b.chairEmails && !Array.isArray(b.chairEmails)) errors.push(`chairEmails must be an array for id "${b.id}"`);
-  if (b.publishStart && isNaN(new Date(b.publishStart))) errors.push(`publishStart is invalid for id "${b.id}"`);
-  if (b.publishEnd && isNaN(new Date(b.publishEnd))) errors.push(`publishEnd is invalid for id "${b.id}"`);
-  if (b.publishStart && b.publishEnd && new Date(b.publishStart) > new Date(b.publishEnd)) {
-    errors.push(`publishStart must be before publishEnd for id "${b.id}"`);
+async function loadJSON(key) {
+  const redis = await getRedis();
+  if (redis) {
+    const str = await redis.get(key);
+    return str ? JSON.parse(str) : null;
   }
-  return errors;
+  if (vercelKV) {
+    const str = await vercelKV.get(key);
+    // vercelKV.get may already parse JSON; handle both forms safely:
+    if (typeof str === "string") return JSON.parse(str);
+    if (str && typeof str === "object") return str; // already parsed
+    return null;
+  }
+  throw new Error("No storage configured (set REDIS_URL or Vercel KV).");
 }
 
-export default async function handler(req, res) {
-  // CORS (optional; useful if you ever open this to another origin)
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    return res.status(204).end();
-  }
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// ---- Auth helper ----
+function requireBearerToken(req) {
+  const hdr = req.headers.authorization || req.headers.Authorization;
+  const want = process.env.REPORT_TOKEN;
+  if (!want) return { ok: false, reason: "REPORT_TOKEN not set on server" };
+  if (!hdr || !hdr.startsWith("Bearer ")) return { ok: false, reason: "Missing bearer token" };
+  const got = hdr.slice("Bearer ".length).trim();
+  if (got !== want) return { ok: false, reason: "Invalid token" };
+  return { ok: true };
+}
 
-  // Auth: Bearer <REPORT_TOKEN>
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const expected = process.env.REPORT_TOKEN;
-  if (!expected) {
-    return bad(res, 500, 'REPORT_TOKEN not configured in environment');
-  }
-  if (token !== expected) {
-    return bad(res, 401, 'Unauthorized: invalid or missing token');
-  }
+// ---- Validation / normalization ----
+const idOK = (id) => /^[a-z0-9-]+$/.test(id);
+const emailOK = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
-  // Support GET (optional) to read what’s stored
-  if (req.method === 'GET') {
-    try {
-      const raw = await kv.get('banquets'); // stored as JSON string or array
-      const banquets = Array.isArray(raw) ? raw : (raw ? JSON.parse(raw) : []);
-      return ok(res, { banquets });
-    } catch (e) {
-      console.error('KV read error', e);
-      return bad(res, 500, 'Failed to read banquets from KV');
-    }
-  }
-
-  if (req.method !== 'POST') {
-    return bad(res, 405, 'Method not allowed');
-  }
-
+function prettyFromISO(iso) {
+  // Server-side pretty string; client will often re-render anyway.
   try {
-    const body = req.body || {};
-    const list = Array.isArray(body?.banquets) ? body.banquets : null;
-    if (!list) return bad(res, 400, 'Body must include { banquets: [...] }');
-
-    // Validate all
-    const allErrors = [];
-    list.forEach((b, idx) => {
-      const errs = validateBanquet(b);
-      if (errs.length) allErrors.push(`Index ${idx} (${b?.id ?? '?'}) → ${errs.join('; ')}`);
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    // Use a stable, readable format (US English fallback)
+    return d.toLocaleString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
     });
-    if (allErrors.length) return bad(res, 400, 'Validation failed', allErrors);
+  } catch {
+    return "";
+  }
+}
 
-    // Save into KV (store as JSON string to be safe)
-    await kv.set('banquets', JSON.stringify(list));
+function normalizeItem(b) {
+  const out = { ...b };
 
-    return ok(res, { saved: list.length });
+  // eventAt: ensure ISO or blank
+  if (out.eventAt) {
+    const d = new Date(out.eventAt);
+    out.eventAt = isNaN(d) ? "" : d.toISOString();
+  } else {
+    out.eventAt = "";
+  }
+
+  // Keep legacy human string in sync if possible
+  if (!out.datetime && out.eventAt) {
+    out.datetime = prettyFromISO(out.eventAt);
+  }
+
+  // Normalize common fields to safe defaults
+  out.id = (out.id || "").trim();
+  out.name = (out.name || "").trim();
+  out.active = out.active !== false;
+  out.price = Number(out.price || 0);
+  out.location = (out.location || "").trim();
+  out.notes = (out.notes || out.description || "").trim();
+  out.publishStart = out.publishStart ? new Date(out.publishStart).toISOString() : "";
+  out.publishEnd   = out.publishEnd   ? new Date(out.publishEnd).toISOString()   : "";
+
+  // Chair emails as array
+  const emails = Array.isArray(out.chairEmails)
+    ? out.chairEmails
+    : (out.chair && out.chair.email ? [out.chair.email] : []);
+  out.chairEmails = emails.filter(Boolean);
+
+  // Meals (editor uses "meals"; public file used "mealChoices")
+  if (!Array.isArray(out.meals) && Array.isArray(out.mealChoices)) {
+    out.meals = out.mealChoices;
+  }
+  if (!Array.isArray(out.meals)) out.meals = [];
+
+  return out;
+}
+
+function validateItem(b) {
+  if (!b.name) return "Name is required";
+  if (!b.id) return "ID is required";
+  if (!idOK(b.id)) return "ID must be lowercase letters, numbers, and dashes only";
+  if (b.price < 0) return "Price cannot be negative";
+  for (const e of b.chairEmails || []) {
+    if (!emailOK(e)) return `Invalid email: ${e}`;
+  }
+  if (b.publishStart && isNaN(new Date(b.publishStart))) return "Publish start is invalid";
+  if (b.publishEnd && isNaN(new Date(b.publishEnd))) return "Publish end is invalid";
+  if (b.publishStart && b.publishEnd && new Date(b.publishStart) > new Date(b.publishEnd)) {
+    return "Publish start must be before publish end";
+  }
+  if (b.eventAt && isNaN(new Date(b.eventAt))) return "Event date/time is invalid";
+  return null;
+}
+
+// ---- Route handler ----
+export default async function handler(req, res) {
+  try {
+    if (req.method === "GET") {
+      // Return whatever is stored (or 404 if nothing yet)
+      let list = null;
+      try { list = await loadJSON(KEY); }
+      catch (e) {
+        console.warn("[banquets admin GET] storage not configured:", e.message);
+        return res.status(501).json({ error: "storage-not-configured" });
+      }
+      if (!Array.isArray(list)) {
+        return res.status(404).json({ error: "no-banquets-stored" });
+      }
+      return res.status(200).json({ banquets: list });
+    }
+
+    if (req.method === "POST") {
+      const auth = requireBearerToken(req);
+      if (!auth.ok) {
+        return res.status(401).json({ error: "unauthorized", details: auth.reason });
+      }
+      const body = req.body || {};
+      const incoming = Array.isArray(body.banquets) ? body.banquets : [];
+      if (!incoming.length) {
+        return res.status(400).json({ error: "banquets-array-required" });
+      }
+      if (incoming.length > 500) {
+        return res.status(413).json({ error: "too-many-items" });
+      }
+
+      const normalized = [];
+      for (const raw of incoming) {
+        const n = normalizeItem(raw);
+        const err = validateItem(n);
+        if (err) {
+          return res.status(422).json({ error: "validation-failed", details: [err, `item id: ${raw?.id ?? "(none)"}`] });
+        }
+        normalized.push(n);
+      }
+
+      try {
+        await saveJSON(KEY, normalized);
+      } catch (e) {
+        console.error("[banquets admin POST] save failed:", e);
+        return res.status(500).json({ error: "persist-failed" });
+      }
+
+      return res.status(200).json({ ok: true, count: normalized.length });
+    }
+
+    return res.status(405).json({ error: "method-not-allowed" });
   } catch (e) {
-    console.error('Save error', e);
-    return bad(res, 500, 'Failed to save banquets');
+    console.error("[banquets admin] unexpected error:", e);
+    return res.status(500).json({ error: "internal-error" });
   }
 }
