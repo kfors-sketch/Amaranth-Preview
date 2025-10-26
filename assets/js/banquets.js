@@ -219,7 +219,7 @@ window.BANQUETS = [
     const token = localStorage.getItem('amaranth_report_token');
     if (!token) {
       console.debug('[banquets/register] skipped: no token in localStorage');
-      return; // public pages won’t attempt admin calls
+      return;
     }
 
     const list = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
@@ -235,10 +235,9 @@ window.BANQUETS = [
         name: b.name,
         chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : [b?.chair?.email].filter(Boolean),
         publishStart: b.publishStart || "",
-        publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
+        publishEnd: b.publishEnd || ""
       };
 
-      // Quick validation/log
       if (!payload.id || !/^[a-z0-9-]+$/.test(payload.id)) {
         console.warn('[banquets/register] skip invalid id:', payload);
         return;
@@ -248,28 +247,13 @@ window.BANQUETS = [
         return;
       }
 
-      fetch("/api/admin/register-item", {
+      // Fire-and-forget register via router (no auth header)
+      fetch("/api/router?action=register_item", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         keepalive: true
-      })
-      .then(async (r) => {
-        const txt = await r.text().catch(()=> '');
-        let json = null;
-        try { json = txt ? JSON.parse(txt) : null; } catch {}
-        if (!r.ok) {
-          console.error('[banquets/register] fail', payload.id, r.status, json || txt);
-          return;
-        }
-        console.debug('[banquets/register] success', payload.id, json);
-      })
-      .catch(err => {
-        console.error('[banquets/register] network error', payload.id, err);
-      });
+      }).catch(()=>{});
 
       sent++;
     });
