@@ -66,6 +66,10 @@
     /* --- Hideable --- */
     .hide{display:none!important}
   </style>
+  <!-- CSV helper MUST come before our main script so window.CSV is available -->
+  <script src="/assets/js/lib/csv.js"></script>
+  <!-- Banquets (for Send Now dropdown) -->
+  <script src="/assets/js/banquets.js"></script>
 </head>
 <body>
   <div class="container">
@@ -190,7 +194,6 @@
 
 <script>
 /**** Amaranth Reporting — Main dashboard (with auth guard) ****/
-// Hard guard: require successful login first
 (function authGuard(){
   if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
     location.replace('reporting_login.html');
@@ -222,7 +225,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
 });
 
 /** Data layer **/
-let rows = []; // normalized, row-per-item
+let rows = [];
 function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
 function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
 
@@ -374,7 +377,7 @@ document.getElementById('fileImport').addEventListener('change', async (e)=>{
   e.target.value = '';
 });
 
-// Export CSV via shared helper (rowsToCSV)
+// Export CSV using global CSV helper (with fallback)
 document.getElementById('btnExportCsv').addEventListener('click', ()=>{
   const visible = applyFilters(rows);
   const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
@@ -393,11 +396,32 @@ document.getElementById('btnExportCsv').addEventListener('click', ()=>{
     status: r.status || '',
     notes: r.notes || ''
   }));
-  const csv = rowsToCSV(headers, exportRows);
-  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+
+  const filename = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+
+  if (window.CSV && typeof CSV.downloadCSV === 'function') {
+    // If your CSV helper supports headers as 3rd arg, pass them; if not, it will ignore gracefully.
+    try { CSV.downloadCSV(filename, exportRows, headers); return; } catch {}
+    try { CSV.downloadCSV(filename, exportRows); return; } catch {}
+  }
+
+  // Fallback: build and download manually using CSV.toCSV or last-resort inline builder
+  let csvText = '';
+  if (window.CSV && typeof CSV.toCSV === 'function') {
+    try { csvText = CSV.toCSV(exportRows, headers); } catch {}
+  }
+  if (!csvText) {
+    // last resort minimal builder
+    const escCell = (v)=> `"${String(v??'').replace(/"/g,'""')}"`;
+    const lines = [headers.map(escCell).join(',')].concat(
+      exportRows.map(r => headers.map(h => escCell(r[h])).join(','))
+    );
+    csvText = lines.join('\n');
+  }
+  const blob = new Blob([csvText],{type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
 });
 
@@ -486,7 +510,6 @@ function sampleRows(){
     panel.classList.toggle('hide');
   });
 
-  // Populate dropdown from window.BANQUETS
   function loadBanquets(){
     try{
       const list = (window.BANQUETS || []).filter(b => b && b.active !== false);
@@ -498,9 +521,8 @@ function sampleRows(){
         + list.map((b,idx)=>{
             const chairName = b?.chair?.name || 'TBD';
             const emails = Array.isArray(b?.chairEmails) ? b.chairEmails.join(',') : (b?.chair?.email || '');
-            const safeEmails = emails || '';
             const label = `${b.name} — ${chairName}`;
-            return `<option value="${idx}" data-emails="${safeEmails}">${label}</option>`;
+            return `<option value="${idx}" data-emails="${emails}">${label}</option>`;
           }).join('');
       hint.textContent = 'Tip: Update chair emails in /assets/js/banquets.js (field "chairEmails").';
     }catch(e){
@@ -509,16 +531,13 @@ function sampleRows(){
   }
 
   if(typeof window.BANQUETS === 'undefined'){
-    // In case the banquets.js <script> loads after this block, try again shortly
     setTimeout(loadBanquets, 250);
   } else {
     loadBanquets();
   }
 
-  // Build CSV for scope
   function rowsForScope(scope){
     if(scope === 'full') return rows.slice();
-    // current-month: from first of this month to now (ignores UI date filters)
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     return rows.filter(r=>{
@@ -546,7 +565,15 @@ function sampleRows(){
       status: r.status || '',
       notes: r.notes || ''
     }));
-    return rowsToCSV(headers, exportRows);
+    // Prefer shared CSV helper; fallback to simple builder if absent
+    if (window.CSV && typeof CSV.toCSV === 'function') {
+      try { return CSV.toCSV(exportRows, headers); } catch {}
+    }
+    const escCell = (v)=> `"${String(v??'').replace(/"/g,'""')}"`;
+    const lines = [headers.map(escCell).join(',')].concat(
+      exportRows.map(r => headers.map(h => escCell(r[h])).join(','))
+    );
+    return lines.join('\n');
   }
 
   async function doSend(){
@@ -585,7 +612,6 @@ function sampleRows(){
     }
   }
 
-  // NEW: Send Test Email
   async function doSendTest(){
     msg.textContent = 'Sending test…'; msg.style.color='#6b7280';
     try{
@@ -602,9 +628,5 @@ function sampleRows(){
   document.getElementById('btnSendTest').addEventListener('click', doSendTest);
 })();
 </script>
-
-<!-- Import shared helpers and data sources -->
-<script src="/assets/js/lib/csv.js"></script>
-<script src="/assets/js/banquets.js"></script>
 </body>
 </html>
