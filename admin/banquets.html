@@ -75,6 +75,8 @@
           <button id="btnExport" class="btn ghost">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
+          <!-- NEW: Refresh button -->
+          <button id="btnRefresh" class="btn ghost" title="Reload from server (Redis)">Refresh from Server</button>
           <span id="listMsg" class="muted"></span>
         </div>
 
@@ -409,6 +411,24 @@
       $('#listMsg').textContent = 'Imported.';
     }catch(err){
       $('#listMsg').textContent = 'Import failed: ' + err.message;
+    }
+  });
+
+  // NEW: Refresh from server (Redis)
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    const msg = document.getElementById('listMsg');
+    msg.textContent = 'Refreshing…';
+    try{
+      const r = await fetch('/api/banquets', { cache: 'no-store' });
+      if(!r.ok) throw new Error('server error ' + r.status);
+      const j = await r.json();
+      if(!Array.isArray(j?.banquets)) throw new Error('bad payload');
+      model = j.banquets;
+      renderList();
+      startNew();
+      msg.textContent = `Refreshed from server (${model.length} items).`;
+    }catch(e){
+      msg.textContent = 'Refresh failed: ' + e.message;
     }
   });
 
