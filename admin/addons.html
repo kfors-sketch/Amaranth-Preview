@@ -83,20 +83,24 @@
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
 
+// === LOAD (router) ===
 async function loadServer(){
   try{
-    const r = await fetch('/api/addons',{cache:'no-store'});
-    if(!r.ok) throw 0;
-    const j = await r.json();
-    if(Array.isArray(j.addons)) model = j.addons;
+    const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      if (Array.isArray(j?.addons)) model = j.addons;
+    }
   }catch{ model = []; }
 }
+
 function loadFallbackFromWindow(){
   if(!model.length && Array.isArray(window.ADDONS)) model = JSON.parse(JSON.stringify(window.ADDONS));
 }
+
 function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
 function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
-function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;"}[c])); }
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
 
 function renderList(){
@@ -188,8 +192,8 @@ document.getElementById('btnExportCsv').addEventListener('click', ()=>{
     try { CSV.downloadCSV(filename, rows); return; } catch{}
   }
   // fallback
-  const esc=(v)=>`"${String(v??'').replace(/"/g,'""')}"`;
-  const text=[headers.map(esc).join(',')].concat(rows.map(r=>headers.map(h=>esc(r[h])).join(','))).join('\n');
+  const escCSV=(v)=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const text=[headers.map(escCSV).join(',')].concat(rows.map(r=>headers.map(h=>escCSV(r[h])).join(','))).join('\n');
   const blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
 });
@@ -211,11 +215,22 @@ $('#btnSave').addEventListener('click', async ()=>{
   }
   current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
+  // === SAVE (router) ===
   try{
-    const headers={ 'Content-Type':'application/json' };
-    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
-    const r=await fetch('/api/admin/addons',{ method:'POST', headers, body:JSON.stringify({ addons:model }) });
-    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
+    const headers = { 'Content-Type':'application/json' };
+    const t = localStorage.getItem('amaranth_report_token');
+    if (t) headers.Authorization = 'Bearer ' + t;
+
+    const r2 = await fetch('/api/router?action=save_addons', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ addons: model })
+    });
+    if(!r2.ok){
+      let msg = 'server rejected';
+      try { const j = await r2.json(); if(j?.error) msg = j.error; } catch{}
+      throw new Error(msg);
+    }
     setMsg($('#editMsg'),'Saved to server.',true);
   }catch(e){
     setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
@@ -225,6 +240,7 @@ $('#btnSave').addEventListener('click', async ()=>{
 // logout
 $('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
 
+// init
 (async function init(){ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); })();
 </script>
 

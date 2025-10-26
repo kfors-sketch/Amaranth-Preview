@@ -117,10 +117,6 @@
 const $ = s => document.querySelector(s);
 const tokenKey = 'amaranth_report_token';
 
-function tokenHeader(){
-  const t = localStorage.getItem(tokenKey) || $('#token').value.trim();
-  return t ? { 'Authorization': 'Bearer ' + t } : {};
-}
 function setMsg(el, text, ok){
   el.textContent = text || '';
   el.className = ok ? 'ok' : (text ? 'err' : 'muted');
@@ -145,48 +141,53 @@ $('#logoutBtn').addEventListener('click', ()=>{
   location.href = '/admin/reporting_login.html';
 });
 
-/* ---------- Load current settings ---------- */
+/* ---------- Load current settings (router) ---------- */
 async function loadSettings(){
   $('#currentJson').textContent = 'Loading…';
   try{
-    const res = await fetch('/api/admin/settings', { headers: tokenHeader() });
-    const json = await res.json();
-    if(!res.ok) throw new Error(json?.error || res.statusText);
+    // LOAD
+    const r = await fetch('/api/router?type=settings');
+    const j = await r.json(); // { env, overrides, effective }
 
-    // fill form from server values
-    $('#fromEmail').value = json.overrides?.RESEND_FROM ?? json.env?.RESEND_FROM ?? '';
-    $('#ccList').value   = (json.overrides?.REPORTS_CC ?? json.env?.REPORTS_CC ?? '');
-    $('#maintOn').value  = String(json.overrides?.MAINTENANCE_ON ?? json.env?.MAINTENANCE_ON ?? 'false');
-    $('#maintMsg').value = json.overrides?.MAINTENANCE_MESSAGE ?? json.env?.MAINTENANCE_MESSAGE ?? '';
+    if(!r.ok) throw new Error((j && j.error) || r.statusText);
 
-    $('#currentJson').textContent = JSON.stringify(json, null, 2);
+    // Fill form from returned values (prefer overrides, then env, fall back to empty)
+    $('#fromEmail').value = j.overrides?.RESEND_FROM ?? j.env?.RESEND_FROM ?? '';
+    $('#ccList').value    = j.overrides?.REPORTS_CC ?? j.env?.REPORTS_CC ?? '';
+    $('#maintOn').value   = String(j.overrides?.MAINTENANCE_ON ?? j.env?.MAINTENANCE_ON ?? 'false');
+    $('#maintMsg').value  = j.overrides?.MAINTENANCE_MESSAGE ?? j.env?.MAINTENANCE_MESSAGE ?? '';
+
+    $('#currentJson').textContent = JSON.stringify(j, null, 2);
     setMsg($('#emailMsg'), '');
     setMsg($('#maintInfo'), '');
   }catch(e){
-    $('#currentJson').textContent = 'Failed to load: ' + e.message + '\n\nTip: Ensure /api/admin/settings exists and your token is correct.';
+    $('#currentJson').textContent = 'Failed to load: ' + (e?.message || e);
   }
 }
 
-/* ---------- Save settings ---------- */
+/* ---------- Save settings (router) ---------- */
 $('#saveAll').addEventListener('click', async ()=>{
-  const payload = {
-    RESEND_FROM: $('#fromEmail').value.trim(),
-    REPORTS_CC: $('#ccList').value.trim(),
-    MAINTENANCE_ON: $('#maintOn').value === 'true',
-    MAINTENANCE_MESSAGE: $('#maintMsg').value
-  };
+  const RESEND_FROM = $('#fromEmail').value.trim();
+  const REPORTS_CC = $('#ccList').value.trim();
+  const MAINTENANCE_ON = $('#maintOn').value === 'true';
+  const MAINTENANCE_MESSAGE = $('#maintMsg').value;
+
   try{
-    const res = await fetch('/api/admin/settings', {
+    // SAVE
+    await fetch('/api/router?action=save_settings', {
       method: 'POST',
-      headers: { 'Content-Type':'application/json', ...tokenHeader() },
-      body: JSON.stringify(payload)
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + (localStorage.getItem('amaranth_report_token') || '')
+      },
+      body: JSON.stringify({ RESEND_FROM, REPORTS_CC, MAINTENANCE_ON, MAINTENANCE_MESSAGE })
     });
-    const json = await res.json();
-    if(!res.ok) throw new Error(json?.error || res.statusText);
+
     setMsg($('#saveMsg'), 'Saved!', true);
-    $('#currentJson').textContent = JSON.stringify(json, null, 2);
+    // refresh view of effective/env/overrides
+    await loadSettings();
   }catch(e){
-    setMsg($('#saveMsg'), 'Save failed: ' + e.message, false);
+    setMsg($('#saveMsg'), 'Save failed: ' + (e?.message || e), false);
   }
 });
 
@@ -195,6 +196,7 @@ $('#reload').addEventListener('click', loadSettings);
 /* init */
 loadSettings();
 </script>
+
 <!-- === Cron Schedule Help Tooltip === -->
 <style>
   .cron-help-btn {
@@ -221,9 +223,7 @@ loadSettings();
     line-height:1.4;
     color:#333;
   }
-  .cron-help-box.show {
-    display:block;
-  }
+  .cron-help-box.show { display:block; }
   .cron-help-box code {
     background:#eee;
     padding:1px 4px;
@@ -256,7 +256,6 @@ loadSettings();
     document.getElementById("cronHelpBox").classList.toggle("show");
   });
 </script>
-
 
 </body>
 </html>

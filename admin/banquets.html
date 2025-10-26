@@ -159,10 +159,57 @@
     </div>
   </main>
 
-  <!-- Data sources -->
+  <!-- Data source (static fallback) -->
   <script src="/assets/js/banquets.js"></script>
-  <!-- Shared admin helpers (auth, token header, logout, etc.) -->
-  <script src="/assets/js/admin.js"></script>
+
+  <!-- Shared Admin Guard + Helpers (inlined, no external dependency) -->
+  <script>
+  (function(){
+    const STORAGE_KEY = 'amr_auth'; // { token, exp: ISO string, user:{...} }
+    const LOGIN_PATH  = '/admin/login.html';
+
+    function now(){ return Date.now(); }
+    function parse(item){ try{ return item ? JSON.parse(item) : null; }catch{ return null; } }
+    function getAuth(){
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const data = parse(raw);
+      if(!data || !data.token) return null;
+      const expMs = data.exp ? Date.parse(data.exp) : 0;
+      if(expMs && now() > expMs){ localStorage.removeItem(STORAGE_KEY); return null; }
+      return data;
+    }
+    function tokenHeader(){
+      const a = getAuth();
+      return a && a.token ? { Authorization: 'Bearer ' + a.token } : {};
+    }
+    function ensureAuth(){
+      const a = getAuth();
+      if(a) return;
+      // Build return URL to come back here after login
+      const ret = encodeURIComponent(location.pathname + location.search);
+      // If there is a lightweight whoami endpoint, we could probe; otherwise redirect.
+      location.href = LOGIN_PATH + '?return=' + ret;
+    }
+    function attachLogout(selector){
+      const btn = typeof selector === 'string' ? document.querySelector(selector) : selector;
+      if(!btn) return;
+      btn.addEventListener('click', ()=>{
+        localStorage.removeItem(STORAGE_KEY);
+        const ret = encodeURIComponent(location.pathname + location.search);
+        location.href = LOGIN_PATH + '?return=' + ret;
+      });
+    }
+    async function whoAmI(){
+      try{
+        const r = await fetch('/api/auth/whoami', { headers: tokenHeader(), cache:'no-store' });
+        if(!r.ok) throw 0;
+        return await r.json();
+      }catch{ return null; }
+    }
+    // Expose
+    window.Admin = { ensureAuth, attachLogout, tokenHeader, whoAmI, getAuth };
+  })();
+  </script>
 
   <script>
   // --- Auth & common helpers ---
@@ -188,6 +235,11 @@
           startNew();
           return;
         }
+      } else if (r.status === 401 || r.status === 403){
+        // Auth failed: bounce to login
+        const ret = encodeURIComponent(location.pathname + location.search);
+        location.href = '/admin/login.html?return=' + ret;
+        return;
       }
     } catch(e){ console.warn("Server banquets fetch failed:", e); }
     const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
@@ -201,7 +253,14 @@
     $('#listMsg').textContent = 'Refreshing…';
     try{
       const r = await fetch('/api/banquets', { cache: 'no-store' });
-      if(!r.ok) throw new Error('server returned ' + r.status);
+      if(!r.ok){
+        if (r.status === 401 || r.status === 403){
+          const ret = encodeURIComponent(location.pathname + location.search);
+          location.href = '/admin/login.html?return=' + ret;
+          return;
+        }
+        throw new Error('server returned ' + r.status);
+      }
       const j = await r.json();
       if(!Array.isArray(j?.banquets)) throw new Error('no banquets array');
       model = j.banquets;
@@ -319,94 +378,4 @@
 
   function onCopy(e){
     const id = e.currentTarget.getAttribute('data-id');
-    const b = model.find(x=>x.id===id); if(!b) return;
-    const clone = JSON.parse(JSON.stringify(b));
-    clone.id = (b.id + '-copy').toLowerCase();
-    clone.name = b.name + ' (Copy)';
-    isNew = true;
-    current = clone;
-    $('#f_notes').dataset.keepDatetime = '';
-    fillForm(current);
-    $('#modeChip').textContent = 'New (from copy)';
-    $('#editMsg').textContent = `Duplicated from ${b.name} — change ID before saving.`;
-  }
-
-  // Save
-  $('#btnSave').addEventListener('click', async ()=>{
-    const obj = readForm();
-    const err = validate(obj);
-    if(err){ setMsg($('#editMsg'), err, false); return; }
-
-    if(isNew){
-      if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'), 'ID already exists. Choose a different one.', false); return; }
-      model.push(obj);
-      setMsg($('#editMsg'), 'Created. Saving…', true);
-    } else {
-      const idx = model.findIndex(x=>x.id===current.id);
-      model[idx] = obj;
-      setMsg($('#editMsg'), 'Updated. Saving…', true);
-    }
-    current = obj;
-    renderList();
-
-    // Token-aware save using Admin helper
-    try{
-      const res = await fetch('/api/admin/banquets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...Admin.tokenHeader() },
-        body: JSON.stringify({ banquets: model })
-      });
-      if(!res.ok){
-        let msg = 'server rejected';
-        try {
-          const j = await res.json();
-          if (j?.error) msg = j.error;
-          if (Array.isArray(j?.details) && j.details.length) msg += ' — ' + j.details[0];
-        } catch {}
-        throw new Error(msg);
-      }
-      setMsg($('#editMsg'), 'Saved to server.', true);
-    }catch(e){
-      setMsg($('#editMsg'), 'Saved locally. (Backend endpoint not found or unauthorized — you can Export JSON and update banquets.js manually.)', true);
-    }
-  });
-
-  $('#btnReset').addEventListener('click', ()=> fillForm(current || {}));
-
-  // Export/Import
-  $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify({ BANQUETS: model }, null, 2)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'banquets-export.json';
-    a.click();
-  });
-
-  $('#fileImport').addEventListener('change', async (e)=>{
-    const file = e.target.files[0]; if(!file) return;
-    const text = await file.text(); e.target.value='';
-    try{
-      const json = JSON.parse(text);
-      const list = Array.isArray(json) ? json : (Array.isArray(json.BANQUETS) ? json.BANQUETS : []);
-      if(!list.length) throw new Error('No BANQUETS found in file.');
-      model = list;
-      renderList();
-      startNew();
-      $('#listMsg').textContent = 'Imported.';
-    }catch(err){
-      $('#listMsg').textContent = 'Import failed: ' + err.message;
-    }
-  });
-
-  // Helpers
-  function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-  function toLocalDT(v){ if(!v) return ''; const d = new Date(v); if(isNaN(d)) return ''; const z = new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
-  function fromLocalDT(v){ if(!v) return ''; const d = new Date(v); return isNaN(d)?'':d.toISOString(); }
-  function setMsg(el, text, ok){ el.textContent = text||''; el.className = ok ? 'ok' : (text ? 'danger' : 'muted'); }
-  function prettyDate(d){ if(!(d instanceof Date) || isNaN(d)) return ''; return d.toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); }
-
-  // Init
-  loadInitial();
-  </script>
-</body>
-</html>
+    const
