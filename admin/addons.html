@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · Grand Court Add-Ons</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{background:#f7f7fb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    h1{margin:0 0 16px}
+    .bar{display:flex;gap:8px;align-items:center;margin:12px 0 20px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer}
+    .btn.primary{background:#111;color:#fff;border-color:#111}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
+    label{display:block;font-size:12px;color:#555;margin:8px 0 4px}
+    input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font:inherit;background:#fff}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .item{display:flex;gap:12px;align-items:center;justify-content:space-between;border:1px dashed #ddd;border-radius:10px;padding:12px}
+    .tag{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;background:#fafafa}
+    .danger{color:#b91c1c}
+    textarea.code{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;min-height:220px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Grand Court Add-Ons</h1>
+    <div class="bar">
+      <button class="btn" onclick="location.href='/admin/index.html'">← Admin Hub</button>
+      <button class="btn primary" id="btn-new">+ New Add-On</button>
+      <button class="btn" id="btn-save">Save All</button>
+      <span id="status" class="tag">Loaded</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin-top:0">Items</h3>
+        <div id="list" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Raw JSON (advanced)</h3>
+        <p style="margin-top:-6px;color:#666;font-size:12px">
+          Edit the full payload. Click <b>Save All</b> to persist.
+        </p>
+        <textarea id="json" class="code"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { apiGet, apiPut, moneyToCents, centsToMoney, uid } from '/assets/js/admin.js';
+
+    let state = { items: [] };
+
+    const elList = document.getElementById('list');
+    const elJson = document.getElementById('json');
+    const elStatus = document.getElementById('status');
+
+    function setStatus(t){ elStatus.textContent = t; }
+
+    function blank(){
+      return {
+        id: uid(),
+        name: '',
+        priceCents: 0,
+        description: '',
+        note: '',
+        active: true,
+        maxQty: null,
+        perOrderLimit: null,
+        sort: (state.items?.length ?? 0) + 1
+      };
+    }
+
+    function draw(){
+      elList.innerHTML = '';
+      (state.items||[]).sort((a,b)=> (a.sort??0)-(b.sort??0)).forEach(it=>{
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML = `
+          <div style="flex:1;min-width:300px">
+            <div class="row">
+              <div>
+                <label>Name</label>
+                <input value="${it.name||''}" data-k="name" data-id="${it.id}">
+              </div>
+              <div>
+                <label>Price ($)</label>
+                <input value="${centsToMoney(it.priceCents||0)}" data-k="priceCents" data-id="${it.id}">
+              </div>
+            </div>
+            <label>Description</label>
+            <textarea data-k="description" data-id="${it.id}">${it.description||''}</textarea>
+            <label>Note (shown to buyers)</label>
+            <textarea data-k="note" data-id="${it.id}">${it.note||''}</textarea>
+            <div class="row">
+              <div>
+                <label>Active</label>
+                <select data-k="active" data-id="${it.id}">
+                  <option value="true" ${it.active?'selected':''}>true</option>
+                  <option value="false" ${!it.active?'selected':''}>false</option>
+                </select>
+              </div>
+              <div>
+                <label>Sort</label>
+                <input type="number" value="${it.sort??0}" data-k="sort" data-id="${it.id}">
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Max Qty (null for no limit)</label>
+                <input placeholder="null" value="${it.maxQty??''}" data-k="maxQty" data-id="${it.id}">
+              </div>
+              <div>
+                <label>Per-Order Limit (null for no limit)</label>
+                <input placeholder="null" value="${it.perOrderLimit??''}" data-k="perOrderLimit" data-id="${it.id}">
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+            <span class="tag">${it.active?'Active':'Inactive'}</span>
+            <button class="btn danger" data-del="${it.id}">Remove</button>
+          </div>
+        `;
+        elList.appendChild(row);
+      });
+
+      // wire inputs
+      elList.querySelectorAll('input,textarea,select').forEach(i=>{
+        i.addEventListener('input', onChange);
+      });
+      elList.querySelectorAll('[data-del]').forEach(b=>{
+        b.addEventListener('click', (e)=>{
+          const id = e.currentTarget.getAttribute('data-del');
+          state.items = state.items.filter(x=>x.id!==id);
+          syncJson(); draw();
+        });
+      });
+
+      elJson.value = JSON.stringify(state, null, 2);
+    }
+
+    function onChange(e){
+      const id = e.target.getAttribute('data-id');
+      const key = e.target.getAttribute('data-k');
+      const item = state.items.find(x=>x.id===id);
+      let val = e.target.value;
+      if (key==='priceCents') val = moneyToCents(val);
+      if (key==='active') val = (val==='true');
+      if (key==='maxQty' || key==='perOrderLimit' || key==='sort'){
+        val = (val===''||val==='null') ? null : Number(val);
+      }
+      item[key] = val;
+      syncJson();
+    }
+
+    function syncJson(){ elJson.value = JSON.stringify(state, null, 2); }
+
+    // buttons
+    document.getElementById('btn-new').addEventListener('click', ()=>{
+      state.items.push(blank());
+      syncJson(); draw();
+    });
+
+    document.getElementById('btn-save').addEventListener('click', async ()=>{
+      try{
+        // trust JSON panel as source of truth (in case power-user edited it)
+        state = JSON.parse(elJson.value);
+        await apiPut('/api/admin/addons', state);
+        setStatus('Saved ✓');
+        setTimeout(()=>setStatus('Ready'), 1200);
+        draw();
+      }catch(err){
+        setStatus('Error saving');
+        alert(err.message||err);
+      }
+    });
+
+    // initial load
+    (async ()=>{
+      try{
+        setStatus('Loading…');
+        const data = await apiGet('/api/admin/addons');
+        state = data && data.items ? data : { items: [] };
+        setStatus('Ready');
+        draw();
+      }catch(err){
+        setStatus('Error');
+        alert(err.message||err);
+      }
+    })();
+  </script>
+</body>
+</html>

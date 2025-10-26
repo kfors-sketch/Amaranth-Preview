@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · Product Catalog</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{background:#f7f7fb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+    .wrap{max-width:1200px;margin:32px auto;padding:0 16px}
+    .bar{display:flex;gap:8px;align-items:center;margin:12px 0 20px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;cursor:pointer}
+    .btn.primary{background:#111;color:#fff;border-color:#111}
+    .grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    label{display:block;font-size:12px;color:#555;margin:8px 0 4px}
+    input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font:inherit;background:#fff}
+    .list{display:flex;flex-direction:column;gap:12px}
+    .item{border:1px dashed #ddd;border-radius:12px;padding:12px}
+    .kv{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
+    .tag{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;background:#fafafa}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Product Catalog</h1>
+    <div class="bar">
+      <button class="btn" onclick="location.href='/admin/index.html'">← Admin Hub</button>
+      <button class="btn primary" id="btn-new">+ New Product</button>
+      <button class="btn" id="btn-save">Save All</button>
+      <span id="status" class="tag">Loaded</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin-top:0">Products</h3>
+        <div id="list" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Raw JSON (advanced)</h3>
+        <textarea id="json" style="width:100%;min-height:440px;font-family:ui-monospace,Menlo,Consolas,monospace"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { apiGet, apiPut, moneyToCents, centsToMoney, uid } from '/assets/js/admin.js';
+
+    let state = { items: [] };
+    const elList = document.getElementById('list');
+    const elJson = document.getElementById('json');
+    const elStatus = document.getElementById('status');
+
+    function setStatus(t){ elStatus.textContent = t; }
+
+    function blank(){
+      return {
+        id: uid(),
+        sku: '',
+        name: '',
+        priceCents: 0,
+        active: true,
+        stockQty: null,         // null = untracked
+        sort: (state.items?.length ?? 0) + 1,
+        thumbnailUrl: '',
+        meta: {}                // flexible key/value bag (tiers, tags, ribbons, etc.)
+      };
+    }
+
+    function draw(){
+      elList.innerHTML = '';
+      (state.items||[]).sort((a,b)=>(a.sort??0)-(b.sort??0)).forEach(it=>{
+        const box = document.createElement('div');
+        box.className = 'item';
+        box.innerHTML = `
+          <div class="row">
+            <div>
+              <label>SKU</label>
+              <input value="${it.sku||''}" data-k="sku" data-id="${it.id}">
+            </div>
+            <div>
+              <label>Name</label>
+              <input value="${it.name||''}" data-k="name" data-id="${it.id}">
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Price ($)</label>
+              <input value="${centsToMoney(it.priceCents||0)}" data-k="priceCents" data-id="${it.id}">
+            </div>
+            <div>
+              <label>Active</label>
+              <select data-k="active" data-id="${it.id}">
+                <option value="true" ${it.active?'selected':''}>true</option>
+                <option value="false" ${!it.active?'selected':''}>false</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Stock Qty (null = unlimited)</label>
+              <input placeholder="null" value="${it.stockQty??''}" data-k="stockQty" data-id="${it.id}">
+            </div>
+            <div>
+              <label>Sort</label>
+              <input type="number" value="${it.sort??0}" data-k="sort" data-id="${it.id}">
+            </div>
+          </div>
+          <label>Thumbnail URL</label>
+          <input value="${it.thumbnailUrl||''}" data-k="thumbnailUrl" data-id="${it.id}">
+          <details style="margin-top:10px">
+            <summary><b>Meta</b> (add any custom variables)</summary>
+            <div class="kv" style="margin-top:8px">
+              <input placeholder="key (e.g. tier1_qty)" data-meta-k data-id="${it.id}">
+              <input placeholder="value (e.g. 10)" data-meta-v data-id="${it.id}">
+              <button class="btn" data-meta-add data-id="${it.id}">Add</button>
+            </div>
+            <div data-meta-list data-id="${it.id}"></div>
+          </details>
+          <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn danger" data-del="${it.id}">Remove</button>
+          </div>
+        `;
+        elList.appendChild(box);
+
+        // render meta rows
+        const holder = box.querySelector('[data-meta-list]');
+        holder.innerHTML = '';
+        Object.entries(it.meta||{}).forEach(([k,v])=>{
+          const row = document.createElement('div');
+          row.className = 'kv';
+          row.innerHTML = `
+            <input value="${k}" data-meta-k-edit data-id="${it.id}">
+            <input value="${String(v)}" data-meta-v-edit data-id="${it.id}" data-meta-key="${k}">
+            <button class="btn" data-meta-del data-id="${it.id}" data-meta-key="${k}">✕</button>
+          `;
+          holder.appendChild(row);
+        });
+      });
+
+      // wire standard fields
+      elList.querySelectorAll('input,select').forEach(i=>{
+        if (i.hasAttribute('data-meta-k') || i.hasAttribute('data-meta-v') || i.hasAttribute('data-meta-k-edit') || i.hasAttribute('data-meta-v-edit')) return;
+        i.addEventListener('input', onChange);
+      });
+
+      // meta add/del/edit
+      elList.querySelectorAll('[data-meta-add]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          const id = b.getAttribute('data-id');
+          const k = elList.querySelector(`input[data-meta-k][data-id="${id}"]`).value.trim();
+          const v = elList.querySelector(`input[data-meta-v][data-id="${id}"]`).value;
+          if (!k) return alert('Meta key required');
+          const item = state.items.find(x=>x.id===id);
+          item.meta ||= {};
+          item.meta[k] = parseMaybeNumber(v);
+          syncJson(); draw();
+        });
+      });
+      elList.querySelectorAll('[data-meta-del]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          const id = b.getAttribute('data-id');
+          const key = b.getAttribute('data-meta-key');
+          const item = state.items.find(x=>x.id===id);
+          if (item.meta) delete item.meta[key];
+          syncJson(); draw();
+        });
+      });
+      elList.querySelectorAll('[data-meta-k-edit]').forEach(inp=>{
+        inp.addEventListener('change', ()=>{
+          const id = inp.getAttribute('data-id');
+          const oldKey = inp.closest('.kv').querySelector('[data-meta-v-edit]').getAttribute('data-meta-key');
+          const newKey = inp.value.trim();
+          if (!newKey) return alert('Meta key required');
+          const item = state.items.find(x=>x.id===id);
+          const val = item.meta?.[oldKey];
+          delete item.meta[oldKey];
+          item.meta[newKey] = val;
+          syncJson(); draw();
+        });
+      });
+      elList.querySelectorAll('[data-meta-v-edit]').forEach(inp=>{
+        inp.addEventListener('input', ()=>{
+          const id = inp.getAttribute('data-id');
+          const key = inp.getAttribute('data-meta-key');
+          const item = state.items.find(x=>x.id===id);
+          item.meta ||= {};
+          item.meta[key] = parseMaybeNumber(inp.value);
+          syncJson();
+        });
+      });
+
+      // delete
+      elList.querySelectorAll('[data-del]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          const id = b.getAttribute('data-del');
+          state.items = state.items.filter(x=>x.id!==id);
+          syncJson(); draw();
+        });
+      });
+
+      elJson.value = JSON.stringify(state, null, 2);
+    }
+
+    function parseMaybeNumber(v){
+      if (v==='' || v==='null') return null;
+      const n = Number(v);
+      return Number.isFinite(n) && String(n)===v ? n : v;
+    }
+
+    function onChange(e){
+      const id = e.target.getAttribute('data-id');
+      const key = e.target.getAttribute('data-k');
+      const item = state.items.find(x=>x.id===id);
+      let val = e.target.value;
+      if (key==='priceCents') val = moneyToCents(val);
+      if (key==='active') val = (val==='true');
+      if (key==='stockQty' || key==='sort'){
+        val = (val===''||val==='null') ? null : Number(val);
+      }
+      item[key] = val;
+      syncJson();
+    }
+
+    function syncJson(){ elJson.value = JSON.stringify(state, null, 2); }
+
+    document.getElementById('btn-new').addEventListener('click', ()=>{
+      state.items.push(blank());
+      syncJson(); draw();
+    });
+
+    document.getElementById('btn-save').addEventListener('click', async ()=>{
+      try{
+        state = JSON.parse(elJson.value);       // trust JSON panel
+        await apiPut('/api/admin/catalog', state);
+        setStatus('Saved ✓');
+        setTimeout(()=>setStatus('Ready'), 1200);
+        draw();
+      }catch(err){
+        setStatus('Error saving');
+        alert(err.message||err);
+      }
+    });
+
+    (async ()=>{
+      try{
+        setStatus('Loading…');
+        const data = await apiGet('/api/admin/catalog');
+        state = data && data.items ? data : { items: [] };
+        setStatus('Ready');
+        draw();
+      }catch(err){
+        setStatus('Error');
+        alert(err.message||err);
+      }
+    })();
+  </script>
+</body>
+</html>
