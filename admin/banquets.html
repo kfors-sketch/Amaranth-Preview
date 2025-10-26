@@ -9,19 +9,26 @@
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
-    .row{display:flex;gap:16px;align-items:flex-start}
+
+    /* allow wrapping so the right card doesn't get squished on small screens */
+    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+
     .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     .col.left{flex:2 1 640px;min-width:520px}
-    .col.right{flex:1 1 380px;min-width:340px;position:sticky;top:16px}
+    /* wider editor card so date/time inputs fit nicely */
+    .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
+
     h1{margin:0 0 10px}
     .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
     .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
     .btn.ghost{background:#fff;color:#111}
     .btn.warn{background:#b91c1c;border-color:#991b1b}
     .btn.success{background:#065f46;border-color:#064e3b}
+
     input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
     textarea{min-height:80px}
     label{font-weight:600;margin-top:8px;display:block}
+
     table{width:100%;border-collapse:separate;border-spacing:0}
     thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
     tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
@@ -170,7 +177,7 @@
   let current = null;     // currently edited object (by reference)
   let isNew = true;
 
-  // UPDATED: prefill from server first, fallback to static file
+  // Prefill from server first, fallback to static file
   async function loadInitial(){
     // 1) Try live API (if present)
     try {
@@ -277,7 +284,6 @@
     if(!o.id) return 'ID is required.';
     if(!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
     if(o.price < 0) return 'Price cannot be negative.';
-    // basic email format check
     for(const e of (o.chairEmails||[])){
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return `Invalid email: ${e}`;
     }
@@ -408,8 +414,19 @@
 
   // Helpers
   function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-  function toLocalDT(v){ if(!v) return ''; const d = new Date(v); if(isNaN(d)) return ''; const z = new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
-  function fromLocalDT(v){ if(!v) return ''; const d = new Date(v); return isNaN(d)?'':d.toISOString(); }
+  function toLocalDT(v){
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d)) return '';
+    const offset = d.getTimezoneOffset() * 60000;
+    const local = new Date(d.getTime() - offset);
+    return local.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+  }
+  function fromLocalDT(v){
+    if (!v) return '';
+    const d = new Date(v);
+    return isNaN(d) ? '' : d.toISOString();
+  }
   function setMsg(el, text, ok){ el.textContent = text||''; el.className = ok ? 'ok' : (text ? 'danger' : 'muted'); }
 
   // Logout
