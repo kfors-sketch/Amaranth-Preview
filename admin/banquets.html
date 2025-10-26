@@ -63,7 +63,7 @@
         <li><b>Chair Emails</b>: comma-separated list; leave blank if unknown.</li>
         <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
         <li><b>Publish Start/End</b>: local date/time using the pickers below (<code>YYYY-MM-DDTHH:MM</code>).</li>
-        <li><b>Active</b>: controls visibility; you can retire items by toggling to <em>false</em>.</li>
+        <li><b>Active</b>: controls visibility; toggle to retire/restore.</li>
       </ul>
     </section>
 
@@ -75,8 +75,6 @@
           <button id="btnExport" class="btn ghost">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
-          <!-- NEW: Refresh button -->
-          <button id="btnRefresh" class="btn ghost" title="Reload from server (Redis)">Refresh from Server</button>
           <span id="listMsg" class="muted"></span>
         </div>
 
@@ -154,7 +152,7 @@
         <div class="toolbar" style="margin-top:10px">
           <button id="btnSave" class="btn">Save</button>
           <button id="btnReset" class="btn ghost">Reset</button>
-          <button id="btnDelete" class="btn warn" style="margin-left:auto">Delete</button>
+          <!-- Delete button removed -->
         </div>
       </aside>
     </div>
@@ -181,7 +179,6 @@
 
   // Prefill from server first, fallback to static file
   async function loadInitial(){
-    // 1) Try live API (if present)
     try {
       const r = await fetch("/api/banquets", { cache: "no-store" });
       if (r.ok) {
@@ -190,20 +187,17 @@
           model = j.banquets;
           renderList();
           startNew();
-          console.log("Loaded banquets from server");
-          return; // server data wins
+          return;
         }
       }
     } catch (err) {
       console.warn("Server banquets fetch failed:", err);
     }
 
-    // 2) Fallback to static JS
     const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
     model = JSON.parse(JSON.stringify(src));
     renderList();
     startNew();
-    console.log("Loaded banquets from static file");
   }
 
   function renderList(){
@@ -227,16 +221,12 @@
         <td>
           <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
           <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
-          <button class="btn ghost btnToggle" data-id="${esc(b.id)}">${b.active===false?'Activate':'Deactivate'}</button>
-          <button class="btn warn btnDel" data-id="${esc(b.id)}">Delete</button>
         </td>
       `;
       tb.appendChild(tr);
     }
     tb.querySelectorAll('.btnEdit').forEach(el => el.addEventListener('click', onEdit));
     tb.querySelectorAll('.btnCopy').forEach(el => el.addEventListener('click', onCopy));
-    tb.querySelectorAll('.btnToggle').forEach(el => el.addEventListener('click', onToggle));
-    tb.querySelectorAll('.btnDel').forEach(el => el.addEventListener('click', onDelete));
   }
 
   function startNew(){
@@ -246,7 +236,6 @@
     fillForm(current);
     $('#modeChip').textContent = 'New';
     $('#editMsg').textContent = 'Create a new entry and click Save.';
-    $('#btnDelete').disabled = true;
   }
 
   function fillForm(b){
@@ -304,7 +293,6 @@
     fillForm(current);
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = `Editing ${b.name}`;
-    $('#btnDelete').disabled = false;
   }
 
   function onCopy(e){
@@ -319,27 +307,6 @@
     fillForm(current);
     $('#modeChip').textContent = 'New (from copy)';
     $('#editMsg').textContent = `Duplicated from ${b.name} — change ID before saving.`;
-    $('#btnDelete').disabled = true;
-  }
-
-  function onToggle(e){
-    const id = e.currentTarget.getAttribute('data-id');
-    const b = model.find(x=>x.id===id);
-    if(!b) return;
-    b.active = !(b.active !== false) ? true : false; // invert
-    renderList();
-    $('#editMsg').textContent = `${b.name} is now ${b.active ? 'active' : 'inactive'}.`;
-  }
-
-  function onDelete(e){
-    const id = e.currentTarget.getAttribute('data-id');
-    const idx = model.findIndex(x=>x.id===id);
-    if(idx<0) return;
-    if(!confirm('Delete this banquet/add-on?')) return;
-    model.splice(idx,1);
-    renderList();
-    startNew();
-    $('#listMsg').textContent = 'Deleted.';
   }
 
   // Save
@@ -414,24 +381,6 @@
     }
   });
 
-  // NEW: Refresh from server (Redis)
-  $('#btnRefresh').addEventListener('click', async ()=>{
-    const msg = document.getElementById('listMsg');
-    msg.textContent = 'Refreshing…';
-    try{
-      const r = await fetch('/api/banquets', { cache: 'no-store' });
-      if(!r.ok) throw new Error('server error ' + r.status);
-      const j = await r.json();
-      if(!Array.isArray(j?.banquets)) throw new Error('bad payload');
-      model = j.banquets;
-      renderList();
-      startNew();
-      msg.textContent = `Refreshed from server (${model.length} items).`;
-    }catch(e){
-      msg.textContent = 'Refresh failed: ' + e.message;
-    }
-  });
-
   // Helpers
   function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
   function toLocalDT(v){
@@ -441,7 +390,7 @@
     const offset = d.getTimezoneOffset() * 60000;
     const local = new Date(d.getTime() - offset);
     return local.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
-  }
+    }
   function fromLocalDT(v){
     if (!v) return '';
     const d = new Date(v);
