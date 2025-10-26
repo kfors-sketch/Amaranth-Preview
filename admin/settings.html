@@ -195,5 +195,68 @@ $('#reload').addEventListener('click', loadSettings);
 /* init */
 loadSettings();
 </script>
+<!-- === Cron Schedule Help Tooltip === -->
+<style>
+  .cron-help-btn {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:22px;height:22px;
+    border-radius:50%;
+    background:#444;
+    color:#fff;
+    font-weight:bold;
+    cursor:pointer;
+    margin-left:6px;
+    font-size:13px;
+  }
+  .cron-help-box {
+    display:none;
+    background:#f9fafb;
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:10px 14px;
+    margin-top:8px;
+    font-size:14px;
+    line-height:1.4;
+    color:#333;
+  }
+  .cron-help-box.show {
+    display:block;
+  }
+  .cron-help-box code {
+    background:#eee;
+    padding:1px 4px;
+    border-radius:4px;
+  }
+</style>
+
+<div id="cronHelpContainer" style="margin-top:12px;">
+  <div class="cron-help-btn" id="cronHelpBtn">?</div>
+  <div class="cron-help-box" id="cronHelpBox">
+    <strong>About Cron Format</strong><br><br>
+    <code>* * * * *</code> has 5 parts: minute, hour, day, month, day-of-week.<br><br>
+    <table style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:8px;">
+      <tr><td><code>*</code></td><td>every value</td></tr>
+      <tr><td><code>0</code></td><td>minute 0 (top of the hour)</td></tr>
+      <tr><td><code>14</code></td><td>2 PM UTC ≈ 10 AM ET (summer)</td></tr>
+      <tr><td><code>15</code></td><td>3 PM UTC ≈ 10 AM ET (winter)</td></tr>
+      <tr><td><code>1</code></td><td>1st day of month</td></tr>
+    </table>
+    <b>Examples:</b><br>
+    <code>0 * * * *</code> → every hour on the hour<br>
+    <code>0 14 1 * *</code> → 10 AM ET on the 1st (monthly)<br><br>
+    ⚙️ <em>Note:</em> Vercel uses UTC time. Your Admin Settings choose the local trigger
+    (America/New_York) even if these run hourly on the server.
+  </div>
+</div>
+
+<script>
+  document.getElementById("cronHelpBtn").addEventListener("click", () => {
+    document.getElementById("cronHelpBox").classList.toggle("show");
+  });
+</script>
+
+
 </body>
 </html>
