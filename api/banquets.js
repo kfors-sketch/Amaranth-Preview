@@ -1,58 +1,56 @@
 // /api/banquets.js
-// Public, read-only list of banquets.
-// Source: Redis (REDIS_URL) hash "report_items" with JSON values.
-// GET -> { ok: true, banquets: [...] }
+// Public reader for the canonical banquets list.
+// Reads from Redis key "banquets:list" (set by /api/admin/banquets.js).
+// Returns 200 with { banquets: [...] } or 404 if nothing stored yet.
 
-import { createClient } from 'redis';
+import { createClient as createRedisClient } from "redis";
 
-let client; // reuse between invocations
+const KEY = "banquets:list";
 
-async function getClient() {
-  if (client?.isOpen) return client;
-  const url = process.env.REDIS_URL;
-  if (!url) throw new Error('REDIS_URL not configured');
-  client = createClient({ url });
-  client.on('error', (e) => console.error('[banquets] redis error', e));
-  await client.connect();
-  return client;
+let redisClient = null;
+async function getRedis() {
+  if (!process.env.REDIS_URL) {
+    throw new Error("REDIS_URL is not set");
+  }
+  if (redisClient) return redisClient;
+  redisClient = createRedisClient({ url: process.env.REDIS_URL });
+  redisClient.on("error", (e) => console.error("[redis] error", e));
+  await redisClient.connect();
+  return redisClient;
 }
 
 export default async function handler(req, res) {
-  // CORS (safe for browser use)
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    return res.status(204).end();
-  }
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "method-not-allowed" });
   }
 
   try {
-    const r = await getClient();
+    const redis = await getRedis();
+    const raw = await redis.get(KEY);
 
-    // Each field in "report_items" is an item id; value is JSON string
-    const raw = await r.hGetAll('report_items'); // { id: jsonString, ... }
-    const banquets = [];
-
-    for (const [id, val] of Object.entries(raw || {})) {
-      try {
-        const obj = typeof val === 'string' ? JSON.parse(val) : val;
-        if (obj && obj.id) banquets.push(obj);
-      } catch (e) {
-        console.warn('[banquets] bad JSON for id', id);
-      }
+    if (!raw) {
+      // Nothing has been saved yet by the admin endpoint.
+      return res.status(404).json({ error: "no-banquets-stored" });
     }
 
-    // Sort stable by name to keep UI consistent
-    banquets.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    let banquets;
+    try {
+      banquets = JSON.parse(raw);
+    } catch {
+      console.error("[/api/banquets] stored value is not valid JSON");
+      return res.status(500).json({ error: "corrupt-data" });
+    }
 
-    return res.status(200).json({ ok: true, banquets });
-  } catch (err) {
-    console.error('Error in /api/banquets:', err);
-    return res.status(500).json({ error: 'failed-to-read-banquets' });
+    if (!Array.isArray(banquets)) {
+      return res.status(500).json({ error: "invalid-format" });
+    }
+
+    // Don't cache; always serve the latest
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    return res.status(200).json({ banquets });
+  } catch (e) {
+    console.error("[/api/banquets] error:", e);
+    return res.status(500).json({ error: "internal-error" });
   }
 }
