@@ -1,5 +1,4 @@
-<!-- File: /assets/js/admin.js -->
-<script>
+// File: /assets/js/admin.js
 /* Admin shared helpers (browser global: window.Admin) */
 (function(){
   const Admin = {};
@@ -56,4 +55,3 @@
 
   window.Admin = Admin;
 })();
-</script>
