@@ -1,39 +1,58 @@
-// Simple GET endpoint to provide banquet data
+// /api/banquets.js
+// Public, read-only list of banquets.
+// Source: Redis (REDIS_URL) hash "report_items" with JSON values.
+// GET -> { ok: true, banquets: [...] }
+
+import { createClient } from 'redis';
+
+let client; // reuse between invocations
+
+async function getClient() {
+  if (client?.isOpen) return client;
+  const url = process.env.REDIS_URL;
+  if (!url) throw new Error('REDIS_URL not configured');
+  client = createClient({ url });
+  client.on('error', (e) => console.error('[banquets] redis error', e));
+  await client.connect();
+  return client;
+}
+
 export default async function handler(req, res) {
-  // Handle only GET
+  // CORS (safe for browser use)
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    return res.status(204).end();
+  }
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Load from KV or fallback to static import
-    let banquets = [];
+    const r = await getClient();
 
-    try {
-      // Attempt to read from Vercel KV (if configured)
-      if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-        const r = await fetch(`${process.env.KV_REST_API_URL}/get/banquets`, {
-          headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
-          cache: 'no-store',
-        });
-        if (r.ok) {
-          const j = await r.json();
-          if (j?.result) banquets = JSON.parse(j.result);
-        }
+    // Each field in "report_items" is an item id; value is JSON string
+    const raw = await r.hGetAll('report_items'); // { id: jsonString, ... }
+    const banquets = [];
+
+    for (const [id, val] of Object.entries(raw || {})) {
+      try {
+        const obj = typeof val === 'string' ? JSON.parse(val) : val;
+        if (obj && obj.id) banquets.push(obj);
+      } catch (e) {
+        console.warn('[banquets] bad JSON for id', id);
       }
-    } catch (err) {
-      console.warn('KV fetch failed, using fallback:', err);
     }
 
-    // Fallback: static file import
-    if (!Array.isArray(banquets) || !banquets.length) {
-      const mod = await import('../../assets/js/banquets.js');
-      banquets = mod.BANQUETS || [];
-    }
+    // Sort stable by name to keep UI consistent
+    banquets.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
-    res.status(200).json({ banquets });
+    return res.status(200).json({ ok: true, banquets });
   } catch (err) {
     console.error('Error in /api/banquets:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'failed-to-read-banquets' });
   }
 }
