@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Product Catalog Manager — Amaranth</title>
+<title>Product Catalog — Amaranth</title>
 <meta name="robots" content="noindex, nofollow"/>
 <link rel="stylesheet" href="/assets/css/styles.css"/>
 <style>
@@ -15,21 +15,20 @@
   .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
   .btn.ghost{background:#fff;color:#111}
   input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
-  textarea{min-height:80px}
   table{width:100%;border-collapse:separate;border-spacing:0}
   thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
   tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
   .muted{color:#6b7280}
   .ok{color:#065f46}.danger{color:#b91c1c}
 </style>
+<script>
+  (function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();
+</script>
 </head>
 <body>
 <main class="container">
   <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div>
-      <h1 style="margin:0">Product Catalog Manager</h1>
-      <div class="muted">Create, edit, and retire catalog products</div>
-    </div>
+    <div><h1 style="margin:0">Product Catalog</h1><div class="muted">Create, edit, retire products</div></div>
     <div style="display:flex;gap:8px;align-items:center">
       <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
       <button id="refreshBtn" class="btn ghost">Refresh from server</button>
@@ -38,84 +37,39 @@
   </header>
 
   <div class="row">
-    <!-- List -->
     <section class="col left">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button id="btnNew" class="btn">+ New Product</button>
         <button id="btnExport" class="btn ghost">Export JSON</button>
+        <button id="btnExportCsv" class="btn ghost">Export CSV</button>
         <label class="btn ghost" for="fileImport" style="cursor:pointer">Import JSON</label>
         <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
         <span id="listMsg" class="muted"></span>
       </div>
       <div style="overflow:auto;max-height:65vh">
-        <table>
-          <thead>
-            <tr>
-              <th style="min-width:200px">Name</th>
-              <th style="min-width:140px">ID</th>
-              <th>SKU</th>
-              <th>Category</th>
-              <th>Price</th>
-              <th>Active</th>
-              <th>Publish Window</th>
-              <th style="min-width:160px">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
+        <table><thead><tr>
+          <th style="min-width:200px">Name</th><th style="min-width:140px">ID</th>
+          <th>Price</th><th>Active</th><th>Publish Window</th><th style="min-width:160px">Actions</th>
+        </tr></thead><tbody id="tbody"></tbody></table>
       </div>
     </section>
 
-    <!-- Editor -->
     <aside class="col right">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
       </div>
 
-      <label>Name</label>
-      <input id="f_name" type="text" placeholder="Tote Bag"/>
-
-      <label>ID (slug: lowercase letters, numbers, dashes)</label>
-      <input id="f_id" type="text" placeholder="tote-bag"/>
-
+      <label>Name</label><input id="f_name" type="text" placeholder="Product name"/>
+      <label>ID</label><input id="f_id" type="text" placeholder="product-id"/>
+      <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 150px">
-          <label>SKU (optional)</label>
-          <input id="f_sku" type="text" placeholder="TB-001"/>
-        </div>
-        <div style="flex:1 1 150px">
-          <label>Category (optional)</label>
-          <input id="f_category" type="text" placeholder="merch"/>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 140px">
-          <label>Price (USD)</label>
-          <input id="f_price" type="number" step="0.01" min="0" placeholder="20.00"/>
-        </div>
-        <div style="flex:1 1 120px">
-          <label>Active</label>
+        <div style="flex:1 1 120px"><label>Active</label>
           <select id="f_active"><option>true</option><option>false</option></select>
         </div>
+        <div style="flex:1 1 180px"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
+        <div style="flex:1 1 180px"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
       </div>
-
-      <label>Image URL (optional)</label>
-      <input id="f_image" type="url" placeholder="https://…/image.jpg"/>
-
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 180px">
-          <label>Publish Start</label>
-          <input id="f_start" type="datetime-local"/>
-        </div>
-        <div style="flex:1 1 180px">
-          <label>Publish End</label>
-          <input id="f_end" type="datetime-local"/>
-        </div>
-      </div>
-
-      <label>Notes / Description</label>
-      <textarea id="f_notes" placeholder="Shown on product page"></textarea>
+      <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
         <button id="btnSave" class="btn">Save</button>
@@ -125,51 +79,45 @@
   </div>
 </main>
 
-<!-- Optional static fallback list -->
-<script src="/assets/js/products.js"></script>
-<!-- Shared admin helpers (auth, token, logout) -->
-<script src="/assets/js/admin.js"></script>
-
+<!-- CSV helper -->
+<script src="/assets/js/lib/csv.js"></script>
 <script>
-/* Auth + common helpers */
-Admin.ensureAuth();
-Admin.attachLogout('#logoutBtn');
-
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
 
+/* swap these endpoints or data sources to your real product API/static */
 async function loadServer(){
   try{
-    const r = await fetch('/api/products',{cache:'no-store'});
+    const r = await fetch('/api/products',{cache:'no-store'}); // change if needed
     if(!r.ok) throw 0;
     const j = await r.json();
     if(Array.isArray(j.products)) model = j.products;
-  }catch{ /* keep empty, fallback later */ }
+  }catch{ model = []; }
 }
 function loadFallbackFromWindow(){
   if(!model.length && Array.isArray(window.PRODUCTS)) model = JSON.parse(JSON.stringify(window.PRODUCTS));
 }
 function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
 function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
-function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function esc(s){
+  return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
 function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
 
 function renderList(){
   const tb=$('#tbody'); tb.innerHTML='';
-  if(!model.length){ tb.innerHTML='<tr><td colspan="8" class="muted">No products yet</td></tr>'; return; }
-  for(const p of model){
+  if(!model.length){ tb.innerHTML='<tr><td colspan="6" class="muted">No products yet</td></tr>'; return; }
+  for(const a of model){
     const tr=document.createElement('tr');
-    const start=p.publishStart?new Date(p.publishStart).toLocaleString():'—';
-    const end=p.publishEnd?new Date(p.publishEnd).toLocaleString():'—';
+    const start=a.publishStart?new Date(a.publishStart).toLocaleString():'—';
+    const end=a.publishEnd?new Date(a.publishEnd).toLocaleString():'—';
     tr.innerHTML = `
-      <td><strong>${esc(p.name||'')}</strong></td>
-      <td><code>${esc(p.id||'')}</code></td>
-      <td>${esc(p.sku||'')}</td>
-      <td>${esc(p.category||'')}</td>
-      <td>$${Number(p.price||0).toFixed(2)}</td>
-      <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+      <td><strong>${esc(a.name||'')}</strong></td>
+      <td><code>${esc(a.id||'')}</code></td>
+      <td>$${Number(a.price||0).toFixed(2)}</td>
+      <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
       <td class="muted">${start} → ${end}</td>
-      <td><button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button></td>
+      <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>
     `;
     tb.appendChild(tr);
   }
@@ -178,30 +126,24 @@ function renderList(){
 
 function startNew(){
   isNew=true;
-  current={ id:'', name:'', sku:'', category:'', imageUrl:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'' };
+  current={ id:'', name:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'' };
   fillForm(current);
   $('#modeChip').textContent='New';
   $('#editMsg').textContent='Create a new product and Save.';
 }
-function fillForm(p){
-  $('#f_name').value = p.name||'';
-  $('#f_id').value = p.id||'';
-  $('#f_sku').value = p.sku||'';
-  $('#f_category').value = p.category||'';
-  $('#f_image').value = p.imageUrl||'';
-  $('#f_price').value = p.price!=null?String(p.price):'';
-  $('#f_active').value = String(p.active!==false);
-  $('#f_start').value = toLocalDT(p.publishStart);
-  $('#f_end').value = toLocalDT(p.publishEnd);
-  $('#f_notes').value = p.notes||'';
+function fillForm(a){
+  $('#f_name').value = a.name||'';
+  $('#f_id').value = a.id||'';
+  $('#f_price').value = a.price!=null?String(a.price):'';
+  $('#f_active').value = String(a.active!==false);
+  $('#f_start').value = toLocalDT(a.publishStart);
+  $('#f_end').value = toLocalDT(a.publishEnd);
+  $('#f_notes').value = a.notes||'';
 }
 function readForm(){
   return {
     name: $('#f_name').value.trim(),
     id: $('#f_id').value.trim(),
-    sku: $('#f_sku').value.trim(),
-    category: $('#f_category').value.trim(),
-    imageUrl: $('#f_image').value.trim(),
     price: Number($('#f_price').value||0),
     active: $('#f_active').value==='true',
     publishStart: fromLocalDT($('#f_start').value),
@@ -209,33 +151,55 @@ function readForm(){
     notes: $('#f_notes').value.trim()
   };
 }
-function validate(p){
-  if(!p.name) return 'Name required';
-  if(!p.id || !/^[a-z0-9-]+$/.test(p.id)) return 'ID must be lowercase letters, numbers, dashes';
-  if(p.price<0 || isNaN(p.price)) return 'Invalid price';
-  if(p.imageUrl && !/^https?:\/\//i.test(p.imageUrl)) return 'Image URL must start with http(s)://';
-  if(p.publishStart && isNaN(new Date(p.publishStart))) return 'Invalid publish start';
-  if(p.publishEnd && isNaN(new Date(p.publishEnd))) return 'Invalid publish end';
-  if(p.publishStart && p.publishEnd && new Date(p.publishStart) > new Date(p.publishEnd)) return 'Start must be before end';
+function validate(a){
+  if(!a.name) return 'Name required';
+  if(!a.id || !/^[a-z0-9-]+$/.test(a.id)) return 'ID must be lowercase letters, numbers, dashes';
+  if(a.price<0 || isNaN(a.price)) return 'Invalid price';
+  if(a.publishStart && isNaN(new Date(a.publishStart))) return 'Invalid publish start';
+  if(a.publishEnd && isNaN(new Date(a.publishEnd))) return 'Invalid publish end';
+  if(a.publishStart && a.publishEnd && new Date(a.publishStart) > new Date(a.publishEnd)) return 'Start must be before end';
   return null;
 }
 function onEdit(e){
   const id=e.currentTarget.getAttribute('data-id');
-  const p=model.find(x=>x.id===id); if(!p) return;
-  isNew=false; current=p; fillForm(current);
+  const a=model.find(x=>x.id===id); if(!a) return;
+  isNew=false; current=a; fillForm(current);
   $('#modeChip').textContent='Edit';
-  $('#editMsg').textContent=`Editing ${p.name}`;
+  $('#editMsg').textContent=`Editing ${a.name}`;
 }
 
-$('#btnNew').addEventListener('click', startNew);
-$('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
-$('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
+document.getElementById('btnNew').addEventListener('click', startNew);
+document.getElementById('btnReset').addEventListener('click', ()=>fillForm(current||{}));
+document.getElementById('refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
 
-$('#btnExport').addEventListener('click', ()=>{
+document.getElementById('btnExport').addEventListener('click', ()=>{
   const blob=new Blob([JSON.stringify({ PRODUCTS:model },null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='products-export.json'; a.click();
 });
-$('#fileImport').addEventListener('change', async (e)=>{
+document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+  const headers = ['id','name','price','active','publishStart','publishEnd','notes'];
+  const rows = (model||[]).map(a=>({
+    id:a.id||'',
+    name:a.name||'',
+    price:(+a.price||0).toFixed(2),
+    active: a.active!==false,
+    publishStart:a.publishStart||'',
+    publishEnd:a.publishEnd||'',
+    notes:a.notes||''
+  }));
+  const filename = 'products-export.csv';
+  if (window.CSV && typeof CSV.downloadCSV==='function'){
+    try { CSV.downloadCSV(filename, rows, headers); return; } catch{}
+    try { CSV.downloadCSV(filename, rows); return; } catch{}
+  }
+  // fallback
+  const esc=(v)=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const text=[headers.map(esc).join(',')].concat(rows.map(r=>headers.map(h=>esc(r[h])).join(','))).join('\n');
+  const blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+});
+
+document.getElementById('fileImport').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
   try{
     const j=JSON.parse(t);
@@ -247,7 +211,7 @@ $('#fileImport').addEventListener('change', async (e)=>{
   }
 });
 
-$('#btnSave').addEventListener('click', async ()=>{
+document.getElementById('btnSave').addEventListener('click', async ()=>{
   const obj=readForm(); const err=validate(obj);
   if(err){ setMsg($('#editMsg'), err, false); return; }
   if(isNew){
@@ -259,25 +223,23 @@ $('#btnSave').addEventListener('click', async ()=>{
   current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
   try{
-    const r=await fetch('/api/admin/products',{
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', ...Admin.tokenHeader() },
-      body:JSON.stringify({ products:model })
-    });
-    if(!r.ok){
-      let msg='server rejected';
-      try{ const j=await r.json(); if(j?.error) msg=j.error; }catch{}
-      throw new Error(msg);
-    }
+    const headers={ 'Content-Type':'application/json' };
+    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
+    const r=await fetch('/api/admin/products',{ method:'POST', headers, body:JSON.stringify({ products:model }) }); // change endpoint if needed
+    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
     setMsg($('#editMsg'),'Saved to server.',true);
   }catch(e){
     setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
   }
 });
 
-(async function init(){
-  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
-})();
+// logout
+document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
+
+(async function init(){ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); })();
 </script>
+
+<!-- Optional static fallback -->
+<script>window.PRODUCTS = window.PRODUCTS || [];</script>
 </body>
 </html>

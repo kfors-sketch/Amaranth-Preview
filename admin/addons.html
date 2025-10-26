@@ -21,6 +21,9 @@
   .muted{color:#6b7280}
   .ok{color:#065f46}.danger{color:#b91c1c}
 </style>
+<script>
+  (function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();
+</script>
 </head>
 <body>
 <main class="container">
@@ -35,9 +38,10 @@
 
   <div class="row">
     <section class="col left">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button id="btnNew" class="btn">+ New Add-On</button>
         <button id="btnExport" class="btn ghost">Export JSON</button>
+        <button id="btnExportCsv" class="btn ghost">Export CSV</button>
         <label class="btn ghost" for="fileImport" style="cursor:pointer">Import JSON</label>
         <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
         <span id="listMsg" class="muted"></span>
@@ -58,12 +62,10 @@
       <label>Name</label><input id="f_name" type="text" placeholder="Corsage"/>
       <label>ID</label><input id="f_id" type="text" placeholder="corsage"/>
       <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 120px"><label>Active</label>
-          <select id="f_active"><option>true</option><option>false</option></select>
-        </div>
-        <div style="flex:1 1 180px"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
-        <div style="flex:1 1 180px"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
+        <div style="flex:1"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
+        <div style="flex:1"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
       </div>
       <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
@@ -75,16 +77,9 @@
   </div>
 </main>
 
-<!-- Optional static fallback list -->
-<script src="/assets/js/addons.js"></script>
-<!-- Shared admin helpers (auth, token, logout) -->
-<script src="/assets/js/admin.js"></script>
-
+<!-- CSV helper -->
+<script src="/assets/js/lib/csv.js"></script>
 <script>
-/* Auth + common helpers */
-Admin.ensureAuth();
-Admin.attachLogout('#logoutBtn');
-
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
 
@@ -94,16 +89,14 @@ async function loadServer(){
     if(!r.ok) throw 0;
     const j = await r.json();
     if(Array.isArray(j.addons)) model = j.addons;
-  }catch{ /* keep empty, fallback later */ }
+  }catch{ model = []; }
 }
 function loadFallbackFromWindow(){
   if(!model.length && Array.isArray(window.ADDONS)) model = JSON.parse(JSON.stringify(window.ADDONS));
 }
 function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
 function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
-function esc(s){
-  return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-}
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;"}[c])); }
 function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
 
 function renderList(){
@@ -172,24 +165,39 @@ function onEdit(e){
 
 $('#btnNew').addEventListener('click', startNew);
 $('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
-$('#refreshBtn').addEventListener('click', async ()=>{
-  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
-});
+$('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
 
 $('#btnExport').addEventListener('click', ()=>{
   const blob=new Blob([JSON.stringify({ ADDONS:model },null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='addons-export.json'; a.click();
 });
+document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+  const headers = ['id','name','price','active','publishStart','publishEnd','notes'];
+  const rows = (model||[]).map(a=>({
+    id:a.id||'',
+    name:a.name||'',
+    price:(+a.price||0).toFixed(2),
+    active: a.active!==false,
+    publishStart:a.publishStart||'',
+    publishEnd:a.publishEnd||'',
+    notes:a.notes||''
+  }));
+  const filename = 'addons-export.csv';
+  if (window.CSV && typeof CSV.downloadCSV==='function'){
+    try { CSV.downloadCSV(filename, rows, headers); return; } catch{}
+    try { CSV.downloadCSV(filename, rows); return; } catch{}
+  }
+  // fallback
+  const esc=(v)=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const text=[headers.map(esc).join(',')].concat(rows.map(r=>headers.map(h=>esc(r[h])).join(','))).join('\n');
+  const blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+});
+
 $('#fileImport').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
-  try{
-    const j=JSON.parse(t);
-    const list=Array.isArray(j)?j:(Array.isArray(j.ADDONS)?j.ADDONS:[]);
-    if(!list.length) throw new Error('No ADDONS found');
-    model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.';
-  } catch(err){
-    $('#listMsg').textContent='Import failed: '+err.message;
-  }
+  try{ const j=JSON.parse(t); const list=Array.isArray(j)?j:(Array.isArray(j.ADDONS)?j.ADDONS:[]); if(!list.length) throw new Error('No ADDONS found'); model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.'; }
+  catch(err){ $('#listMsg').textContent='Import failed: '+err.message; }
 });
 
 $('#btnSave').addEventListener('click', async ()=>{
@@ -204,25 +212,23 @@ $('#btnSave').addEventListener('click', async ()=>{
   current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
   try{
-    const r=await fetch('/api/admin/addons',{
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', ...Admin.tokenHeader() },
-      body:JSON.stringify({ addons:model })
-    });
-    if(!r.ok){
-      let msg='server rejected';
-      try{ const j=await r.json(); if(j?.error) msg=j.error; }catch{}
-      throw new Error(msg);
-    }
+    const headers={ 'Content-Type':'application/json' };
+    const t=localStorage.getItem('amaranth_report_token'); if(t) headers.Authorization='Bearer '+t;
+    const r=await fetch('/api/admin/addons',{ method:'POST', headers, body:JSON.stringify({ addons:model }) });
+    if(!r.ok) throw new Error((await r.json())?.error||'server rejected');
     setMsg($('#editMsg'),'Saved to server.',true);
   }catch(e){
     setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
   }
 });
 
-(async function init(){
-  await loadServer(); loadFallbackFromWindow(); renderList(); startNew();
-})();
+// logout
+$('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
+
+(async function init(){ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); })();
 </script>
+
+<!-- Optional static fallback list -->
+<script>window.ADDONS = window.ADDONS || [];</script>
 </body>
 </html>
