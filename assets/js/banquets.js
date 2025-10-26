@@ -12,7 +12,7 @@ window.BANQUETS = [
     location: "Court Room",
     description: "YADA YADA",
     options: [
-      { id: "adult",  label: "Ticket",  price: 60 },
+      { id: "adult", label: "Ticket", price: 60 },
     ],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],
@@ -213,10 +213,23 @@ window.BANQUETS = [
   }
 ];
 
-/* ===== Auto-register metadata for email reports (banquets) ===== */
+/* ===== Auto-register metadata for email reports (banquets) — token-gated with debug ===== */
 (function(){
   try{
-    (window.BANQUETS || []).forEach(b => {
+    const token = localStorage.getItem('amaranth_report_token');
+    if (!token) {
+      console.debug('[banquets/register] skipped: no token in localStorage');
+      return; // public pages won’t attempt admin calls
+    }
+
+    const list = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+    if (!list.length) {
+      console.debug('[banquets/register] skipped: empty BANQUETS list');
+      return;
+    }
+
+    let sent = 0;
+    list.forEach(b => {
       const payload = {
         id: b.id,
         name: b.name,
@@ -224,14 +237,45 @@ window.BANQUETS = [
         publishStart: b.publishStart || "",
         publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
       };
+
+      // Quick validation/log
+      if (!payload.id || !/^[a-z0-9-]+$/.test(payload.id)) {
+        console.warn('[banquets/register] skip invalid id:', payload);
+        return;
+      }
+      if (!payload.name) {
+        console.warn('[banquets/register] skip missing name:', payload);
+        return;
+      }
+
       fetch("/api/admin/register-item", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
         body: JSON.stringify(payload),
         keepalive: true
-      }).catch(()=>{});
+      })
+      .then(async (r) => {
+        const txt = await r.text().catch(()=> '');
+        let json = null;
+        try { json = txt ? JSON.parse(txt) : null; } catch {}
+        if (!r.ok) {
+          console.error('[banquets/register] fail', payload.id, r.status, json || txt);
+          return;
+        }
+        console.debug('[banquets/register] success', payload.id, json);
+      })
+      .catch(err => {
+        console.error('[banquets/register] network error', payload.id, err);
+      });
+
+      sent++;
     });
+
+    console.debug('[banquets/register] queued', sent, 'items');
   } catch(e){
-    console.warn("[banquets] auto-register failed:", e);
+    console.warn("[banquets/register] auto-register skipped:", e);
   }
 })();
