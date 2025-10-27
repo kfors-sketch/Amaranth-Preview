@@ -213,53 +213,32 @@ window.BANQUETS = [
   }
 ];
 
-/* ===== Auto-register metadata for email reports (banquets) — token-gated with debug ===== */
+// ===== Auto-register metadata for email reports (banquets) =====
 (function(){
   try{
-    const token = localStorage.getItem('amaranth_report_token');
-    if (!token) {
-      console.debug('[banquets/register] skipped: no token in localStorage');
-      return;
-    }
+    // Only run from admin pages AND only if we have a token
+    const isAdminPath = typeof location !== 'undefined' && (/^\/admin(\/|$)/.test(location.pathname));
+    const tok = (typeof localStorage !== 'undefined') ? localStorage.getItem('amaranth_report_token') : '';
+    if (!isAdminPath || !tok) return;  // <-- quietly skip; no 401s
 
-    const list = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-    if (!list.length) {
-      console.debug('[banquets/register] skipped: empty BANQUETS list');
-      return;
-    }
+    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok };
 
-    let sent = 0;
-    list.forEach(b => {
+    (window.BANQUETS || []).forEach(b => {
       const payload = {
         id: b.id,
         name: b.name,
         chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : [b?.chair?.email].filter(Boolean),
         publishStart: b.publishStart || "",
-        publishEnd: b.publishEnd || ""
+        publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
       };
-
-      if (!payload.id || !/^[a-z0-9-]+$/.test(payload.id)) {
-        console.warn('[banquets/register] skip invalid id:', payload);
-        return;
-      }
-      if (!payload.name) {
-        console.warn('[banquets/register] skip missing name:', payload);
-        return;
-      }
-
-      // Fire-and-forget register via router (no auth header)
       fetch("/api/router?action=register_item", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
         keepalive: true
-      }).catch(()=>{});
-
-      sent++;
+      }).catch(()=>{ /* ignore */ });
     });
-
-    console.debug('[banquets/register] queued', sent, 'items');
   } catch(e){
-    console.warn("[banquets/register] auto-register skipped:", e);
+    console.warn("[banquets] auto-register skipped:", e);
   }
 })();
