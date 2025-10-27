@@ -4,7 +4,7 @@ import { Resend } from "resend";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const REQ_OK = (res, data) => res.status(200).json(data);
-const REQ_ERR = (res, code, msg, extra={}) => res.status(code).json({ error: msg, ...extra });
+const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
@@ -20,38 +20,24 @@ function requireToken(req, res) {
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const action = url.searchParams.get("action");   // for POST "mutations"
-    const type   = url.searchParams.get("type");     // for GET "reads"
+    const action = url.searchParams.get("action"); // for POST "mutations"
+    const type = url.searchParams.get("type"); // for GET "reads"
 
     // ---------- READS (GET) ----------
     if (req.method === "GET") {
       if (type === "banquets") {
-        // try KV first
-        let banquets = (await kv.get("banquets")) || null;
-        // fallback to static file if available
-        if (!banquets) {
-          const mod = await import("../../assets/js/banquets.js");
-          banquets = mod?.BANQUETS || [];
-        }
-        return REQ_OK(res, { banquets });
+        const banquets = await kv.get("banquets");
+        return REQ_OK(res, { banquets: Array.isArray(banquets) ? banquets : [] });
       }
 
       if (type === "addons") {
-        let addons = (await kv.get("addons")) || null;
-        if (!addons) {
-          const mod = await import("../../assets/js/addons.js");
-          addons = mod?.ADDONS || [];
-        }
-        return REQ_OK(res, { addons });
+        const addons = await kv.get("addons");
+        return REQ_OK(res, { addons: Array.isArray(addons) ? addons : [] });
       }
 
       if (type === "products") {
-        let products = (await kv.get("products")) || null;
-        if (!products) {
-          const mod = await import("../../assets/js/products.js");
-          products = mod?.PRODUCTS || [];
-        }
-        return REQ_OK(res, { products });
+        const products = await kv.get("products");
+        return REQ_OK(res, { products: Array.isArray(products) ? products : [] });
       }
 
       if (type === "settings") {
@@ -61,13 +47,12 @@ export default async function handler(req, res) {
           RESEND_FROM: process.env.RESEND_FROM || "",
           REPORTS_CC: process.env.REPORTS_CC || "",
           MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || ""
+          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
         };
         const effective = {
           ...env,
           ...overrides,
-          MAINTENANCE_ON:
-            String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
+          MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
         };
         return REQ_OK(res, { env, overrides, effective });
       }
@@ -80,7 +65,7 @@ export default async function handler(req, res) {
           from: process.env.RESEND_FROM,
           to,
           subject: "Amaranth Reports — Test",
-          text: "This is a test email to confirm deliverability."
+          text: "This is a test email to confirm deliverability.",
         });
         return REQ_OK(res, { ok: true });
       }
@@ -114,8 +99,9 @@ export default async function handler(req, res) {
 
       if (action === "save_settings") {
         const allow = {};
-        ["RESEND_FROM","REPORTS_CC","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
-          .forEach(k => { if (k in body) allow[k] = body[k]; });
+        ["RESEND_FROM", "REPORTS_CC", "MAINTENANCE_ON", "MAINTENANCE_MESSAGE"].forEach((k) => {
+          if (k in body) allow[k] = body[k];
+        });
         // coerce MAINTENANCE_ON to string "true"/"false"
         if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         if (Object.keys(allow).length) await kv.hset("settings:overrides", allow);
@@ -126,10 +112,12 @@ export default async function handler(req, res) {
         const { id, name, chairEmails = [], publishStart = "", publishEnd = "" } = body;
         if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
         const cfg = {
-          id, name,
+          id,
+          name,
           chairEmails: chairEmails.filter(Boolean),
-          publishStart, publishEnd,
-          updatedAt: new Date().toISOString()
+          publishStart,
+          publishEnd,
+          updatedAt: new Date().toISOString(),
         };
         await kv.hset(`itemcfg:${id}`, cfg);
         await kv.sadd("itemcfg:index", id);
@@ -144,16 +132,19 @@ export default async function handler(req, res) {
           {
             filename: "report.csv",
             content: Buffer.from(csv).toString("base64"),
-            encoding: "base64"
-          }
+            encoding: "base64",
+          },
         ];
         await resend.emails.send({
           from: process.env.RESEND_FROM,
           to,
-          cc: (process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean),
+          cc: (process.env.REPORTS_CC || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
           subject,
           text: "Attached is your report.",
-          attachments: attachment
+          attachments: attachment,
         });
         return REQ_OK(res, { ok: true });
       }
