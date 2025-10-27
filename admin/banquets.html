@@ -33,6 +33,7 @@
     .hint{font-size:12px;color:#6b7280;margin-top:4px}
     .danger{color:#b91c1c}
     .ok{color:#065f46}
+    code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
   </style>
 </head>
 <body>
@@ -185,9 +186,7 @@
     function ensureAuth(){
       const a = getAuth();
       if(a) return;
-      // Build return URL to come back here after login
       const ret = encodeURIComponent(location.pathname + location.search);
-      // If there is a lightweight whoami endpoint, we could probe; otherwise redirect.
       location.href = LOGIN_PATH + '?return=' + ret;
     }
     function attachLogout(selector){
@@ -206,72 +205,101 @@
         return await r.json();
       }catch{ return null; }
     }
-    // Expose
     window.Admin = { ensureAuth, attachLogout, tokenHeader, whoAmI, getAuth };
   })();
   </script>
 
   <script>
-  // --- Auth & common helpers ---
+  // --- Auth & small helpers ---
   Admin.ensureAuth();
   Admin.attachLogout('#logoutBtn');
 
-  const $ = s => document.querySelector(s);
+  const $  = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
   const idOK = id => /^[a-z0-9-]+$/.test(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pad = n => String(n).padStart(2,'0');
+  const prettyDate = d => d instanceof Date && !isNaN(d) ? (
+    d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
+  ) : '—';
+
+  // Convert ISO->local input[type=datetime-local] value
+  function toLocalDT(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    if(isNaN(d)) return '';
+    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
+    return `${y}-${m}-${day}T${hh}:${mm}`;
+  }
+  // Convert local datetime-local value -> ISO
+  function fromLocalDT(local){
+    if(!local) return '';
+    const d = new Date(local);
+    return isNaN(d) ? '' : d.toISOString();
+  }
 
   let model = [];
   let current = null;
   let isNew = true;
 
+  // ---- Initial Load with "always fallback" ----
   async function loadInitial(){
+    let loaded = false;
+
+    // 1) Try live API
     try {
-      const r = await fetch("/api/banquets", { cache: "no-store" });
+      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
         if (Array.isArray(j?.banquets) && j.banquets.length) {
           model = j.banquets;
-          renderList();
-          startNew();
-          return;
+          loaded = true;
         }
-      } else if (r.status === 401 || r.status === 403){
-        // Auth failed: bounce to login
-        const ret = encodeURIComponent(location.pathname + location.search);
-        location.href = '/admin/login.html?return=' + ret;
-        return;
       }
-    } catch(e){ console.warn("Server banquets fetch failed:", e); }
-    const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-    model = JSON.parse(JSON.stringify(src));
+    } catch (e) {
+      console.warn('Server banquets fetch failed:', e);
+    }
+
+    // 2) Fallback to static JS (always)
+    if (!loaded) {
+      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Using static list (fallback).';
+    } else {
+      $('#listMsg').textContent = 'Loaded from server.';
+    }
+
     renderList();
     startNew();
   }
 
-  // Manual refresh from server
+  // ---- Manual refresh (also safe fallback) ----
   $('#btnRefresh').addEventListener('click', async ()=>{
     $('#listMsg').textContent = 'Refreshing…';
+    let loaded = false;
     try{
-      const r = await fetch('/api/banquets', { cache: 'no-store' });
-      if(!r.ok){
-        if (r.status === 401 || r.status === 403){
-          const ret = encodeURIComponent(location.pathname + location.search);
-          location.href = '/admin/login.html?return=' + ret;
-          return;
+      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.banquets) && j.banquets.length){
+          model = j.banquets;
+          loaded = true;
+          $('#listMsg').textContent = 'Loaded from server.';
         }
-        throw new Error('server returned ' + r.status);
       }
-      const j = await r.json();
-      if(!Array.isArray(j?.banquets)) throw new Error('no banquets array');
-      model = j.banquets;
-      renderList();
-      startNew();
-      $('#listMsg').textContent = 'Loaded from server.';
     }catch(err){
-      $('#listMsg').textContent = 'Refresh failed: ' + err.message;
+      console.warn('Refresh server error:', err);
     }
+    if(!loaded){
+      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Server empty/unavailable — using static fallback.';
+    }
+    renderList();
+    startNew();
   });
 
+  // ---- Render list table ----
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
@@ -302,6 +330,7 @@
     tb.querySelectorAll('.btnCopy').forEach(el => el.addEventListener('click', onCopy));
   }
 
+  // ---- Editor state ----
   function startNew(){
     isNew = true;
     current = {
@@ -365,6 +394,7 @@
     return null;
   }
 
+  // ---- Row actions ----
   function onEdit(e){
     const id = e.currentTarget.getAttribute('data-id');
     const b = model.find(x=>x.id===id); if(!b) return;
@@ -376,6 +406,96 @@
     $('#editMsg').textContent = `Editing ${b.name}`;
   }
 
+  function uniqueId(base){
+    let id = base, i = 2;
+    while(model.some(x => x.id === id)) id = `${base}-${i++}`;
+    return id;
+  }
+
   function onCopy(e){
     const id = e.currentTarget.getAttribute('data-id');
-    const
+    const src = model.find(x=>x.id===id); if(!src) return;
+    const copy = JSON.parse(JSON.stringify(src));
+    copy.id = uniqueId(src.id + '-copy');
+    copy.name = src.name + ' (Copy)';
+    model.push(copy);
+    renderList();
+    $('#editMsg').textContent = `Duplicated ${src.name}`;
+  }
+
+  // ---- Buttons ----
+  $('#btnAddNew').addEventListener('click', startNew);
+
+  $('#btnReset').addEventListener('click', ()=>{
+    if(isNew) startNew(); else fillForm(current);
+  });
+
+  $('#btnSave').addEventListener('click', async ()=>{
+    const o = readForm();
+    const err = validate(o);
+    if(err){ $('#editMsg').textContent = err; return; }
+
+    // Upsert into local model
+    const idx = model.findIndex(x => x.id === o.id);
+    if(idx >= 0){
+      model[idx] = {...model[idx], ...o};
+      $('#editMsg').textContent = 'Saved changes locally.';
+    }else{
+      model.push(o);
+      $('#editMsg').textContent = 'Added to list locally.';
+      isNew = false; current = o;
+      $('#modeChip').textContent = 'Edit';
+    }
+    renderList();
+
+    // Try server upsert (optional, non-blocking)
+    try{
+      const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
+      await fetch('/api/router?action=upsert_banquet', {
+        method:'POST', headers, body: JSON.stringify(o), keepalive:true
+      });
+      $('#editMsg').textContent = 'Saved (server attempted); local list updated.';
+    }catch{
+      // ignore
+    }
+  });
+
+  // ---- Export / Import ----
+  $('#btnExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify({ banquets: model }, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'banquets-export.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $('#fileImport').addEventListener('change', async (e)=>{
+    const f = e.target.files?.[0]; if(!f) return;
+    try{
+      const text = await f.text();
+      const j = JSON.parse(text);
+      const arr = Array.isArray(j) ? j : (Array.isArray(j?.banquets) ? j.banquets : []);
+      if(!arr.length) throw new Error('No banquets found in file.');
+      model = arr;
+      renderList();
+      startNew();
+      $('#listMsg').textContent = 'Imported JSON into list.';
+    }catch(err){
+      $('#listMsg').textContent = 'Import failed: ' + err.message;
+    }finally{
+      e.target.value = '';
+    }
+  });
+
+  // ---- Utility for event date pretty printing ----
+  function prettyFromInputs(){
+    const iso = fromLocalDT($('#f_eventAt').value);
+    return iso ? prettyDate(new Date(iso)) : '—';
+  }
+
+  // Kick things off
+  loadInitial();
+  </script>
+</body>
+</html>
