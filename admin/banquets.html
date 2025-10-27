@@ -161,6 +161,8 @@
   </main>
 
   <!-- Data source (static fallback) -->
+  <!-- Tell banquets.js to register through the router -->
+  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
   <script src="/assets/js/banquets.js"></script>
 
   <!-- Admin shared helpers (must load before page inline script) -->
@@ -205,6 +207,7 @@
 
     // 1) Try live API
     try {
+      // before: fetch("/api/banquets", { cache: "no-store" })
       const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
@@ -405,15 +408,27 @@
     }
     renderList();
 
-    // Try server upsert (optional, non-blocking)
+    // === SAVE LIST (router) ===
     try{
-      const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
-      await fetch('/api/router?action=upsert_banquet', {
-        method:'POST', headers, body: JSON.stringify(o), keepalive:true
+      const headers = { "Content-Type": "application/json" };
+      const t = localStorage.getItem("amaranth_report_token");
+      if (t) headers.Authorization = "Bearer " + t;
+
+      const res = await fetch("/api/router?action=save_banquets", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ banquets: model })
       });
-      $('#editMsg').textContent = 'Saved (server attempted); local list updated.';
-    }catch{
-      // ignore
+
+      if (!res.ok) {
+        let msg = "server rejected";
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch {}
+        throw new Error(msg);
+      }
+
+      $('#editMsg').textContent = 'Saved to server.';
+    } catch(e){
+      $('#editMsg').textContent = 'Saved locally. (Server not found/unauthorized — export JSON and update manually.)';
     }
   });
 
