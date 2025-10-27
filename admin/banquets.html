@@ -163,51 +163,8 @@
   <!-- Data source (static fallback) -->
   <script src="/assets/js/banquets.js"></script>
 
-  <!-- Shared Admin Guard + Helpers (inlined, no external dependency) -->
-  <script>
-  (function(){
-    const STORAGE_KEY = 'amr_auth'; // { token, exp: ISO string, user:{...} }
-    const LOGIN_PATH  = '/admin/login.html';
-
-    function now(){ return Date.now(); }
-    function parse(item){ try{ return item ? JSON.parse(item) : null; }catch{ return null; } }
-    function getAuth(){
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data = parse(raw);
-      if(!data || !data.token) return null;
-      const expMs = data.exp ? Date.parse(data.exp) : 0;
-      if(expMs && now() > expMs){ localStorage.removeItem(STORAGE_KEY); return null; }
-      return data;
-    }
-    function tokenHeader(){
-      const a = getAuth();
-      return a && a.token ? { Authorization: 'Bearer ' + a.token } : {};
-    }
-    function ensureAuth(){
-      const a = getAuth();
-      if(a) return;
-      const ret = encodeURIComponent(location.pathname + location.search);
-      location.href = LOGIN_PATH + '?return=' + ret;
-    }
-    function attachLogout(selector){
-      const btn = typeof selector === 'string' ? document.querySelector(selector) : selector;
-      if(!btn) return;
-      btn.addEventListener('click', ()=>{
-        localStorage.removeItem(STORAGE_KEY);
-        const ret = encodeURIComponent(location.pathname + location.search);
-        location.href = LOGIN_PATH + '?return=' + ret;
-      });
-    }
-    async function whoAmI(){
-      try{
-        const r = await fetch('/api/auth/whoami', { headers: tokenHeader(), cache:'no-store' });
-        if(!r.ok) throw 0;
-        return await r.json();
-      }catch{ return null; }
-    }
-    window.Admin = { ensureAuth, attachLogout, tokenHeader, whoAmI, getAuth };
-  })();
-  </script>
+  <!-- Admin shared helpers (must load before page inline script) -->
+  <script src="/assets/js/admin.js"></script>
 
   <script>
   // --- Auth & small helpers ---

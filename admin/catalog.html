@@ -81,6 +81,10 @@
 
 <!-- CSV helper -->
 <script src="/assets/js/lib/csv.js"></script>
+
+<!-- Admin shared helpers (must load before page inline script) -->
+<script src="/assets/js/admin.js"></script>
+
 <script>
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;

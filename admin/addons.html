@@ -79,6 +79,10 @@
 
 <!-- CSV helper -->
 <script src="/assets/js/lib/csv.js"></script>
+
+<!-- Admin shared helpers (must load before page inline script) -->
+<script src="/assets/js/admin.js"></script>
+
 <script>
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
@@ -174,6 +178,7 @@ $('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadF
 $('#btnExport').addEventListener('click', ()=>{
   const blob=new Blob([JSON.stringify({ ADDONS:model },null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='addons-export.json'; a.click();
+  URL.revokeObjectURL(a.href);
 });
 document.getElementById('btnExportCsv').addEventListener('click', ()=>{
   const headers = ['id','name','price','active','publishStart','publishEnd','notes'];
