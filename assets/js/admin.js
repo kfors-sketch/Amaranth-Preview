@@ -1,6 +1,6 @@
-<script>
+// /assets/js/admin.js  (pure JS; no <script> tags)
+
 // =========== Admin Shared Helpers (banquets, addons, products) ===========
-// Path: /assets/js/admin.js
 
 (function (global) {
   const Admin = {};
@@ -84,6 +84,7 @@
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   Admin.importJSON = function importJSON(fileInput, onLoaded) {
@@ -108,7 +109,8 @@
     if (isNaN(d)) return "";
     const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
     return z.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
-    };
+  };
+
   Admin.fromLocalDT = function fromLocalDT(v) {
     if (!v) return "";
     const d = new Date(v);
@@ -119,9 +121,9 @@
   Admin.idOK = (id) => /^[a-z0-9-]+$/.test(id);
   Admin.esc = (s) => (s ?? "").toString().replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   Admin.setMsg = (el, text, ok) => { if(!el) return; el.textContent = text || ""; el.className = ok ? "ok" : (text ? "danger" : "muted"); };
+
   function deepClone(x){ return JSON.parse(JSON.stringify(x)); }
 
   // expose globally
   global.Admin = Admin;
 })(window);
-</script>
