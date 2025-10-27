@@ -11,9 +11,7 @@ window.BANQUETS = [
     datetime: "Saturday, April 18th at 5 PM",
     location: "Court Room",
     description: "YADA YADA",
-    options: [
-      { id: "adult", label: "Ticket", price: 60 },
-    ],
+    options: [{ id: "adult", label: "Ticket", price: 60 }],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],
     active: true,
@@ -47,9 +45,7 @@ window.BANQUETS = [
     datetime: "Sunday, April 19th at 12 PM",
     location: "Tea Room",
     description: "BLAH BLAH",
-    options: [
-      { id: "adult", label: "Ticket", price: 60 },
-    ],
+    options: [{ id: "adult", label: "Ticket", price: 60 }],
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],
     active: true,
@@ -214,43 +210,35 @@ window.BANQUETS = [
 ];
 
 /* ===== Auto-register metadata for email reports (banquets) ===== */
-(function(){
-  try{
-    if (!/^\/admin\//.test(location.pathname)) return;
+(function () {
+  try {
+    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+    if (!endpoint) return;
 
-    const token = localStorage.getItem('amaranth_report_token');
-    if (!token) return;
+    const token = localStorage.getItem("amaranth_report_token") || "";
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = "Bearer " + token;
 
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + token
-    };
-
-    (window.BANQUETS || []).forEach(async b => {
+    (window.BANQUETS || []).forEach((b) => {
       const payload = {
         id: b.id,
         name: b.name,
-        chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : [b?.chair?.email].filter(Boolean),
+        chairEmails: Array.isArray(b.chairEmails)
+          ? b.chairEmails
+          : [b?.chair?.email].filter(Boolean),
         publishStart: b.publishStart || "",
-        publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
+        publishEnd: b.publishEnd || "", // treated as "ordering closes" for FINAL reports
       };
 
-      try {
-        const res = await fetch("/api/admin/register-item", {   // <-- switched back here
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-          keepalive: true
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(()=>null);
-          console.warn("register-item failed:", res.status, j || "no body");
-        }
-      } catch (e) {
-        console.warn("register-item network error:", e);
-      }
+      // fire-and-forget; ignore failures silently
+      fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }).catch(() => {});
     });
-  } catch(e){
-    console.warn("[banquets] auto-register skipped:", e);
+  } catch (e) {
+    console.warn("[banquets] auto-register failed:", e);
   }
 })();
