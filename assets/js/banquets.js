@@ -213,17 +213,20 @@ window.BANQUETS = [
   }
 ];
 
-// ===== Auto-register metadata for email reports (banquets) =====
+/* ===== Auto-register metadata for email reports (banquets) ===== */
 (function(){
   try{
-    // Only run from admin pages AND only if we have a token
-    const isAdminPath = typeof location !== 'undefined' && (/^\/admin(\/|$)/.test(location.pathname));
-    const tok = (typeof localStorage !== 'undefined') ? localStorage.getItem('amaranth_report_token') : '';
-    if (!isAdminPath || !tok) return;  // <-- quietly skip; no 401s
+    if (!/^\/admin\//.test(location.pathname)) return;
 
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok };
+    const token = localStorage.getItem('amaranth_report_token');
+    if (!token) return;
 
-    (window.BANQUETS || []).forEach(b => {
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + token
+    };
+
+    (window.BANQUETS || []).forEach(async b => {
       const payload = {
         id: b.id,
         name: b.name,
@@ -231,12 +234,21 @@ window.BANQUETS = [
         publishStart: b.publishStart || "",
         publishEnd: b.publishEnd || ""   // treated as "ordering closes" for FINAL reports
       };
-      fetch("/api/router?action=register_item", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-        keepalive: true
-      }).catch(()=>{ /* ignore */ });
+
+      try {
+        const res = await fetch("/api/admin/register-item", {   // <-- switched back here
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          keepalive: true
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(()=>null);
+          console.warn("register-item failed:", res.status, j || "no body");
+        }
+      } catch (e) {
+        console.warn("register-item network error:", e);
+      }
     });
   } catch(e){
     console.warn("[banquets] auto-register skipped:", e);
