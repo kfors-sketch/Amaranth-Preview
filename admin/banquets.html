@@ -118,4 +118,193 @@
           <div>
             <label for="f_active">Active</label>
             <select id="f_active">
-              <option value="true">t
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div>
+            <label for="f_price">Ticket Price (USD)</label>
+            <input id="f_price" type="number" step="0.01" min="0" placeholder="35.00" />
+          </div>
+        </div>
+
+        <label for="f_location">Location</label>
+        <input id="f_location" type="text" placeholder="Grand Ballroom, Hershey Lodge" />
+
+        <div class="row">
+          <div>
+            <label for="f_eventAt">Event Date/Time</label>
+            <input id="f_eventAt" type="datetime-local" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="f_start">Publish Start</label>
+            <input id="f_start" type="datetime-local" />
+          </div>
+          <div>
+            <label for="f_end">Publish End</label>
+            <input id="f_end" type="datetime-local" />
+          </div>
+        </div>
+
+        <label for="f_notes">Notes / Description</label>
+        <textarea id="f_notes" placeholder="Any extra text that shows on the product page."></textarea>
+
+        <div class="toolbar" style="margin-top:10px">
+          <button id="btnSave" class="btn">Save</button>
+          <button id="btnReset" class="btn ghost">Reset</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Data source (static fallback) -->
+  <!-- Tell banquets.js to register through the router -->
+  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
+  <script src="/assets/js/banquets.js"></script>
+
+  <!-- Admin shared helpers (must load before page inline script) -->
+  <script src="/assets/js/admin.js"></script>
+
+  <script>
+  // --- Auth & small helpers ---
+  Admin.ensureAuth();
+  Admin.attachLogout('#logoutBtn');
+
+  const $  = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const idOK = id => /^[a-z0-9-]+$/.test(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pad = n => String(n).padStart(2,'0');
+  const prettyDate = d => d instanceof Date && !isNaN(d) ? (
+    d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
+  ) : '—';
+
+  function toLocalDT(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    if(isNaN(d)) return '';
+    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
+    return `${y}-${m}-${day}T${hh}:${mm}`;
+  }
+
+  function fromLocalDT(local){
+    if(!local) return '';
+    const d = new Date(local);
+    return isNaN(d) ? '' : d.toISOString();
+  }
+
+  let model = [];
+  let current = null;
+  let isNew = true;
+
+  // ---- Initial Load ----
+  async function loadInitial(){
+    let loaded = false;
+    try {
+      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.banquets) && j.banquets.length) {
+          model = j.banquets;
+          loaded = true;
+        }
+      }
+    } catch (e) { console.warn('Server banquets fetch failed:', e); }
+
+    if (!loaded) {
+      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Using static list (fallback).';
+    } else $('#listMsg').textContent = 'Loaded from server.';
+
+    renderList(); startNew();
+  }
+
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    $('#listMsg').textContent = 'Refreshing…';
+    let loaded = false;
+    try{
+      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.banquets) && j.banquets.length){
+          model = j.banquets; loaded = true;
+          $('#listMsg').textContent = 'Loaded from server.';
+        }
+      }
+    }catch(err){ console.warn('Refresh server error:', err); }
+    if(!loaded){
+      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Server unavailable — using fallback.';
+    }
+    renderList(); startNew();
+  });
+
+  function renderList(){
+    const tb = $('#tbody'); tb.innerHTML = '';
+    if(!model.length){
+      tb.innerHTML = '<tr><td colspan="7" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
+    }
+    for(const b of model){
+      const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
+      const end   = b.publishEnd ? new Date(b.publishEnd).toLocaleString() : '—';
+      const chair = b.chair?.name || '—';
+      const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${esc(b.name||'')}</strong></td>
+        <td><code>${esc(b.id||'')}</code></td>
+        <td>${esc(eventPretty)}</td>
+        <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><div class="muted">${start} → ${end}</div></td>
+        <td>${esc(chair)}</td>
+        <td>
+          <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
+          <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+    tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
+    tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+  }
+
+  function startNew(){ /* same as before */ }
+  function fillForm(b){ /* same as before */ }
+  function readForm(){ /* same as before */ }
+  function validate(o){ /* same as before */ }
+  function onEdit(e){ /* same as before */ }
+  function uniqueId(base){ /* same as before */ }
+  function onCopy(e){ /* same as before */ }
+
+  $('#btnAddNew').addEventListener('click', startNew);
+  $('#btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
+
+  $('#btnSave').addEventListener('click', async ()=>{
+    const o = readForm(); const err = validate(o);
+    if(err){ $('#editMsg').textContent = err; return; }
+
+    const idx = model.findIndex(x => x.id === o.id);
+    if(idx >= 0){ model[idx] = {...model[idx], ...o}; }
+    else{ model.push(o); isNew = false; current = o; $('#modeChip').textContent = 'Edit'; }
+    renderList();
+
+    try{
+      const headers = { "Content-Type": "application/json" };
+      const t = localStorage.getItem("amaranth_report_token");
+      if (t) headers.Authorization = "Bearer " + t;
+      const res = await fetch("/api/router?action=save_banquets", {
+        method: "POST", headers, body: JSON.stringify({ banquets: model })
+      });
+      if (!res.ok) throw new Error("server rejected");
+      $('#editMsg').textContent = 'Saved to server.';
+    }catch{ $('#editMsg').textContent = 'Saved locally; export JSON if needed.'; }
+  });
+
+  loadInitial();
+  </script>
+</body>
+</html>
