@@ -212,19 +212,23 @@ window.BANQUETS = [
 /* ===== Auto-register metadata for email reports (banquets) ===== */
 (function () {
   try {
-    // Only attempt when an admin token exists (prevents noisy 401/500s on public pages)
-    const token = localStorage.getItem('amaranth_report_token');
-    if (!token) return;
+    // Only auto-register on admin pages AND when a token exists
+    const isAdmin =
+      typeof location !== "undefined" && location.pathname.startsWith("/admin/");
+    const token =
+      typeof localStorage !== "undefined" && localStorage.getItem("amaranth_report_token");
+    if (!isAdmin || !token) return;
 
     const ENDPOINT =
-      window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+      (typeof window !== "undefined" && window.AMARANTH_REGISTER_ENDPOINT) ||
+      "/api/router?action=register_item";
 
     const headers = {
       "Content-Type": "application/json",
       Authorization: "Bearer " + token
     };
 
-    (window.BANQUETS || []).forEach(b => {
+    (window.BANQUETS || []).forEach((b) => {
       const payload = {
         id: b.id,
         name: b.name,
@@ -235,7 +239,7 @@ window.BANQUETS = [
         publishEnd: b.publishEnd || "" // treated as "ordering closes" for FINAL reports
       };
 
-      // Fire and forget; suppress any errors
+      // Fire-and-forget; suppress any errors
       fetch(ENDPOINT, {
         method: "POST",
         headers,
@@ -243,8 +247,7 @@ window.BANQUETS = [
         keepalive: true
       }).catch(() => {});
     });
-  } catch (e) {
-    // Stay silent in production; avoids console noise for shoppers
-    // console.warn("[banquets] auto-register failed:", e);
+  } catch {
+    // intentionally silent to avoid noisy consoles on public pages
   }
 })();
