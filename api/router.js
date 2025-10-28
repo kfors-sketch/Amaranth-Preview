@@ -7,6 +7,20 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 const REQ_OK = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
+// ---------- NEW: data URL/base64 helper ----------
+function dataUrlToParts(dataUrlOrBase64, mimeFromClient = "") {
+  // Accept either a full data URL ("data:image/png;base64,...") or a bare base64 string.
+  // Returns { mime, base64 } or null.
+  if (!dataUrlOrBase64) return null;
+  const s = String(dataUrlOrBase64);
+  if (s.startsWith("data:")) {
+    const m = s.match(/^data:([^;]+);base64,(.*)$/);
+    if (!m) return null;
+    return { mime: m[1] || (mimeFromClient || "application/octet-stream"), base64: m[2] };
+  }
+  return { mime: mimeFromClient || "application/octet-stream", base64: s };
+}
+
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
   const auth = req.headers.authorization || "";
@@ -43,7 +57,6 @@ export default async function handler(req, res) {
     // ---------- READS ----------
     if (req.method === "GET") {
       if (type === "banquets") {
-        // Try KV; if not there, return empty array (client will fallback to /assets/js/banquets.js)
         const banquets = (await kvGetSafe("banquets")) || [];
         return REQ_OK(res, { banquets });
       }
@@ -85,6 +98,21 @@ export default async function handler(req, res) {
           text: "This is a test email to confirm deliverability."
         });
         return REQ_OK(res, { ok: true });
+      }
+
+      // ---------- NEW: serve product image from KV ----------
+      if (type === "product_image") {
+        // /api/router?type=product_image&id={productId}&slot={thumb|image1|...}
+        const id = url.searchParams.get("id") || "";
+        const slot = url.searchParams.get("slot") || "image1";
+        if (!id) return REQ_ERR(res, 400, "missing-id");
+        const key = `productimg:${id}:${slot}`;
+        const stored = await kvGetSafe(key, null);
+        if (!stored || !stored.base64) return REQ_ERR(res, 404, "not-found");
+        const buf = Buffer.from(stored.base64, "base64");
+        res.setHeader("Content-Type", stored.mime || "application/octet-stream");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        return res.status(200).send(buf);
       }
 
       return REQ_ERR(res, 400, "unknown-type");
@@ -136,10 +164,30 @@ export default async function handler(req, res) {
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
         if (!ok1 || !ok2) {
-          // still succeed so the client/UI doesn't error
           return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
         }
         return REQ_OK(res, { ok: true });
+      }
+
+      // ---------- NEW: upload product image to KV ----------
+      if (action === "upload_product_image") {
+        const { id = "", slot = "image1", dataUrl = "", fileBase64 = "", mime = "" } = body || {};
+        if (!id) return REQ_ERR(res, 400, "missing-id");
+        const parts = dataUrlToParts(dataUrl || fileBase64, mime);
+        if (!parts || !parts.base64) return REQ_ERR(res, 400, "missing-image");
+
+        const key = `productimg:${id}:${slot}`;
+        const saved = await kvSetSafe(key, {
+          mime: parts.mime,
+          base64: parts.base64,
+          updatedAt: new Date().toISOString()
+        });
+        if (!saved) {
+          // do not hard fail; let UI proceed
+          return REQ_OK(res, { ok: false, warning: "kv-unavailable" });
+        }
+        const urlOut = `/api/router?type=product_image&id=${encodeURIComponent(id)}&slot=${encodeURIComponent(slot)}`;
+        return REQ_OK(res, { ok: true, url: urlOut });
       }
 
       if (action === "send_report") {
