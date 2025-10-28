@@ -20,14 +20,14 @@
   tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
   .muted{color:#6b7280}
   .ok{color:#065f46}.danger{color:#b91c1c}
-  .imgrow{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
-  .imgbox{display:flex;gap:8px;align-items:flex-start}
-  .preview{width:96px;height:96px;object-fit:cover;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa}
-  .urlrow{display:flex;gap:8px;align-items:center}
-  .urlrow input{flex:1}
+  .preview{width:96px;height:96px;object-fit:cover;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;margin-bottom:6px}
 </style>
 <script>
-  (function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();
+  (function(){
+    if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){
+      location.replace('/admin/reporting_login.html');
+    }
+  })();
 </script>
 </head>
 <body>
@@ -36,7 +36,7 @@
     <div><h1 style="margin:0">Product Catalog</h1><div class="muted">Create, edit, retire products</div></div>
     <div style="display:flex;gap:8px;align-items:center">
       <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
-      <button id="refreshBtn" class="btn ghost">Refresh from server</button>
+      <button id="refreshBtn" class="btn ghost">Refresh</button>
       <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
     </div>
   </header>
@@ -53,8 +53,10 @@
       </div>
       <div style="overflow:auto;max-height:65vh">
         <table><thead><tr>
-          <th style="min-width:200px">Name</th><th style="min-width:140px">ID</th>
-          <th>Price</th><th>Active</th><th>Publish Window</th><th style="min-width:160px">Actions</th>
+          <th style="min-width:200px">Name</th>
+          <th style="min-width:140px">ID</th>
+          <th>Price</th><th>Active</th>
+          <th>Publish Window</th><th style="min-width:160px">Actions</th>
         </tr></thead><tbody id="tbody"></tbody></table>
       </div>
     </section>
@@ -64,68 +66,30 @@
         <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
       </div>
 
-      <label for="f_name">Name</label>
-      <input id="f_name" type="text" placeholder="Product name"/>
-
-      <label for="f_id">ID</label>
-      <input id="f_id" type="text" placeholder="product-id"/>
-
-      <label for="f_price">Price (USD)</label>
-      <input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
+      <label>Name</label><input id="f_name" type="text" placeholder="Product name"/>
+      <label>ID</label><input id="f_id" type="text" placeholder="product-id"/>
+      <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
 
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 120px">
-          <label for="f_active">Active</label>
-          <select id="f_active"><option>true</option><option>false</option></select>
-        </div>
-        <div style="flex:1 1 180px">
-          <label for="f_start">Publish Start</label>
-          <input id="f_start" type="datetime-local"/>
-        </div>
-        <div style="flex:1 1 180px">
-          <label for="f_end">Publish End</label>
-          <input id="f_end" type="datetime-local"/>
-        </div>
+        <div style="flex:1 1 120px"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
+        <div style="flex:1 1 180px"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
+        <div style="flex:1 1 180px"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
       </div>
 
-      <label for="f_notes">Notes / Description</label>
-      <textarea id="f_notes" placeholder="Shown on product page"></textarea>
+      <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
-      <!-- Images -->
-      <div style="margin-top:12px">
-        <h3 style="margin:0 0 8px;font-size:15px;color:#374151">Images</h3>
-
-        <!-- Thumbnail -->
-        <div class="imgrow">
-          <div class="imgbox">
-            <img id="thumbPreview" class="preview" alt="thumbnail preview"/>
-            <div>
-              <label for="f_thumb">Thumbnail (square-ish)</label>
-              <input id="f_thumb" type="file" accept="image/*"/>
-              <div class="urlrow" style="margin-top:6px">
-                <input id="f_thumb_url" type="text" placeholder="Thumbnail URL (optional)"/>
-                <button id="btnThumbClear" class="btn ghost" type="button" style="height:32px">Clear</button>
-              </div>
-              <div class="muted" style="font-size:12px;margin-top:4px">If you choose a file, we’ll upload on Save.</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Main image -->
-        <div class="imgrow" style="margin-top:12px">
-          <div class="imgbox">
-            <img id="img1Preview" class="preview" alt="image preview"/>
-            <div>
-              <label for="f_img1">Main Image</label>
-              <input id="f_img1" type="file" accept="image/*"/>
-              <div class="urlrow" style="margin-top:6px">
-                <input id="f_img1_url" type="text" placeholder="Main image URL (optional)"/>
-                <button id="btnImg1Clear" class="btn ghost" type="button" style="height:32px">Clear</button>
-              </div>
-              <div class="muted" style="font-size:12px;margin-top:4px">If you choose a file, we’ll upload on Save.</div>
-            </div>
-          </div>
-        </div>
+      <h3 style="margin-top:14px">Images</h3>
+      <div>
+        <label>Thumbnail</label>
+        <img id="thumbPreview" class="preview" alt="thumbnail"/>
+        <input id="f_thumb" type="file" accept="image/*"/>
+        <input id="f_thumb_url" type="text" placeholder="Thumbnail URL (optional)"/>
+      </div>
+      <div style="margin-top:8px">
+        <label>Main Image</label>
+        <img id="img1Preview" class="preview" alt="main image"/>
+        <input id="f_img1" type="file" accept="image/*"/>
+        <input id="f_img1_url" type="text" placeholder="Main image URL (optional)"/>
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
@@ -136,263 +100,175 @@
   </div>
 </main>
 
-<!-- CSV helper -->
 <script src="/assets/js/lib/csv.js"></script>
-<!-- Admin shared helpers (must load before page inline script) -->
 <script src="/assets/js/admin.js"></script>
 
 <script>
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
 
-// ------- endpoints (router-based) -------
+// endpoints
 const READ_URL  = '/api/router?type=products';
 const WRITE_URL = '/api/router?action=save_products';
-const UPLOAD_URL = '/api/router?action=upload_product_image'; // expects form-data: file,id,slot  -> {url}
+const UPLOAD_URL = '/api/router?action=upload_product_image';
 
-// ------- basic utils -------
-function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
-function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
-function esc(s){ return (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
+// utils
+function toLocalDT(v){if(!v)return'';const d=new Date(v);if(isNaN(d))return'';const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,16);}
+function fromLocalDT(v){if(!v)return'';const d=new Date(v);return isNaN(d)?'':d.toISOString();}
+function esc(s){return(s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function setMsg(el,t,ok){el.textContent=t||'';el.className=ok?'ok':(t?'danger':'muted');}
 
-// ------- load/save -------
+// image previews
+function setPreview(sel, url){
+  const img=$(sel); if(!img)return;
+  if(url){ img.src=url; img.style.opacity='1'; }
+  else{ img.removeAttribute('src'); img.style.opacity='0.35'; }
+}
+function previewLocalFile(inputSel, imgSel){
+  const inp=$(inputSel), img=$(imgSel);
+  if(!inp||!img)return;
+  const f=inp.files&&inp.files[0];
+  if(!f){setPreview(imgSel,null);return;}
+  const reader=new FileReader();
+  reader.onload=()=>{img.src=reader.result;img.style.opacity='1';};
+  reader.readAsDataURL(f);
+}
+$('#f_thumb').addEventListener('change',()=>previewLocalFile('#f_thumb','#thumbPreview'));
+$('#f_img1').addEventListener('change',()=>previewLocalFile('#f_img1','#img1Preview'));
+
+// upload file -> router (base64 JSON)
+async function uploadIfChosen(fileInputId, productId, slot){
+  const inp=$(fileInputId);
+  if(!inp||!inp.files||!inp.files[0])return null;
+  const file=inp.files[0];
+  const dataUrl=await new Promise((res,rej)=>{
+    const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file);
+  });
+  const headers={"Content-Type":"application/json",...Admin.tokenHeader()};
+  const r=await fetch(UPLOAD_URL,{
+    method:'POST',
+    headers,
+    body:JSON.stringify({id:productId,slot,dataUrl})
+  });
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j?.url)throw new Error(j?.error||'upload failed');
+  return j.url;
+}
+
+// load/save
 async function loadServer(){
-  try{
-    const r = await fetch(READ_URL,{cache:'no-store'});
-    if(!r.ok) throw 0;
-    const j = await r.json();
-    if(Array.isArray(j.products)) model = j.products;
-  }catch{ model = []; }
+  try{const r=await fetch(READ_URL,{cache:'no-store'});if(!r.ok)throw 0;
+  const j=await r.json();if(Array.isArray(j.products))model=j.products;}catch{model=[];}
 }
 function loadFallbackFromWindow(){
-  if(!model.length && Array.isArray(window.PRODUCTS)) model = JSON.parse(JSON.stringify(window.PRODUCTS));
+  if(!model.length&&Array.isArray(window.PRODUCTS))model=JSON.parse(JSON.stringify(window.PRODUCTS));
 }
-
 function renderList(){
-  const tb=$('#tbody'); tb.innerHTML='';
-  if(!model.length){ tb.innerHTML='<tr><td colspan="6" class="muted">No products yet</td></tr>'; return; }
+  const tb=$('#tbody');tb.innerHTML='';
+  if(!model.length){tb.innerHTML='<tr><td colspan="6" class="muted">No products yet</td></tr>';return;}
   for(const a of model){
     const tr=document.createElement('tr');
     const start=a.publishStart?new Date(a.publishStart).toLocaleString():'—';
     const end=a.publishEnd?new Date(a.publishEnd).toLocaleString():'—';
-    tr.innerHTML = `
+    tr.innerHTML=`
       <td><strong>${esc(a.name||'')}</strong></td>
       <td><code>${esc(a.id||'')}</code></td>
       <td>$${Number(a.price||0).toFixed(2)}</td>
       <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
       <td class="muted">${start} → ${end}</td>
-      <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>
-    `;
+      <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>`;
     tb.appendChild(tr);
   }
-  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click', onEdit));
+  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click',onEdit));
 }
-
 function startNew(){
   isNew=true;
-  current={ id:'', name:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'', thumbnailUrl:'', imageUrl:'' };
+  current={id:'',name:'',price:0,active:true,publishStart:'',publishEnd:'',notes:'',thumbnailUrl:'',imageUrl:''};
   fillForm(current);
-  $('#modeChip').textContent='New';
-  $('#editMsg').textContent='Create a new product and Save.';
+  $('#modeChip').textContent='New';$('#editMsg').textContent='Create new product.';
 }
-
 function fillForm(p){
-  $('#f_name').value = p.name||'';
-  $('#f_id').value = p.id||'';
-  $('#f_price').value = p.price!=null?String(p.price):'';
-  $('#f_active').value = String(p.active!==false);
-  $('#f_start').value = toLocalDT(p.publishStart);
-  $('#f_end').value = toLocalDT(p.publishEnd);
-  $('#f_notes').value = p.notes||'';
-
-  // image URLs
-  $('#f_thumb_url').value = p.thumbnailUrl || '';
-  $('#f_img1_url').value  = p.imageUrl || '';
-
-  // previews (prefer URL fields)
-  setPreview('#thumbPreview', p.thumbnailUrl);
-  setPreview('#img1Preview',  p.imageUrl);
-
-  // clear file inputs (so we don't accidentally re-upload last chosen file)
-  $('#f_thumb').value = '';
-  $('#f_img1').value = '';
+  $('#f_name').value=p.name||'';$('#f_id').value=p.id||'';$('#f_price').value=p.price??'';
+  $('#f_active').value=String(p.active!==false);$('#f_start').value=toLocalDT(p.publishStart);$('#f_end').value=toLocalDT(p.publishEnd);
+  $('#f_notes').value=p.notes||'';$('#f_thumb_url').value=p.thumbnailUrl||'';$('#f_img1_url').value=p.imageUrl||'';
+  setPreview('#thumbPreview',p.thumbnailUrl);setPreview('#img1Preview',p.imageUrl);
+  $('#f_thumb').value='';$('#f_img1').value='';
 }
-
 function readForm(){
-  return {
-    name: $('#f_name').value.trim(),
-    id: $('#f_id').value.trim(),
-    price: Number($('#f_price').value||0),
-    active: $('#f_active').value==='true',
-    publishStart: fromLocalDT($('#f_start').value),
-    publishEnd: fromLocalDT($('#f_end').value),
-    notes: $('#f_notes').value.trim(),
-    thumbnailUrl: $('#f_thumb_url').value.trim(),
-    imageUrl: $('#f_img1_url').value.trim()
+  return{
+    name:$('#f_name').value.trim(),
+    id:$('#f_id').value.trim(),
+    price:Number($('#f_price').value||0),
+    active:$('#f_active').value==='true',
+    publishStart:fromLocalDT($('#f_start').value),
+    publishEnd:fromLocalDT($('#f_end').value),
+    notes:$('#f_notes').value.trim(),
+    thumbnailUrl:$('#f_thumb_url').value.trim(),
+    imageUrl:$('#f_img1_url').value.trim()
   };
 }
-
 function validate(p){
-  if(!p.name) return 'Name required';
-  if(!p.id || !/^[a-z0-9-]+$/.test(p.id)) return 'ID must be lowercase letters, numbers, dashes';
-  if(p.price<0 || isNaN(p.price)) return 'Invalid price';
-  if(p.publishStart && isNaN(new Date(p.publishStart))) return 'Invalid publish start';
-  if(p.publishEnd && isNaN(new Date(p.publishEnd))) return 'Invalid publish end';
-  if(p.publishStart && p.publishEnd && new Date(p.publishStart) > new Date(p.publishEnd)) return 'Start must be before end';
+  if(!p.name)return'Name required';
+  if(!p.id||!/^[a-z0-9-]+$/.test(p.id))return'ID must be lowercase letters, numbers, dashes';
+  if(p.price<0||isNaN(p.price))return'Invalid price';
+  if(p.publishStart&&isNaN(new Date(p.publishStart)))return'Invalid start';
+  if(p.publishEnd&&isNaN(new Date(p.publishEnd)))return'Invalid end';
+  if(p.publishStart&&p.publishEnd&&new Date(p.publishStart)>new Date(p.publishEnd))return'Start must be before end';
   return null;
 }
-
 function onEdit(e){
-  const id=e.currentTarget.getAttribute('data-id');
-  const p=model.find(x=>x.id===id); if(!p) return;
-  isNew=false; current=p; fillForm(current);
-  $('#modeChip').textContent='Edit';
-  $('#editMsg').textContent=`Editing ${p.name}`;
+  const id=e.currentTarget.dataset.id;
+  const p=model.find(x=>x.id===id);if(!p)return;
+  isNew=false;current=p;fillForm(p);
+  $('#modeChip').textContent='Edit';$('#editMsg').textContent=`Editing ${p.name}`;
 }
 
-// ------- image helpers -------
-function setPreview(sel, url){
-  const img = $(sel);
-  if(!img) return;
-  if(url){ img.src = url; img.style.opacity='1'; }
-  else{ img.removeAttribute('src'); img.style.opacity='0.35'; }
-}
-function previewLocalFile(inputSel, imgSel){
-  const inp = $(inputSel), img = $(imgSel);
-  if(!inp || !img) return;
-  const f = inp.files && inp.files[0];
-  if(!f){ setPreview(imgSel, null); return; }
-  const reader = new FileReader();
-  reader.onload = () => { img.src = reader.result; img.style.opacity='1'; };
-  reader.readAsDataURL(f);
-}
-$('#f_thumb').addEventListener('change', ()=> previewLocalFile('#f_thumb','#thumbPreview'));
-$('#f_img1').addEventListener('change',  ()=> previewLocalFile('#f_img1','#img1Preview'));
-$('#btnThumbClear').addEventListener('click', ()=>{
-  $('#f_thumb').value=''; $('#f_thumb_url').value=''; setPreview('#thumbPreview', null);
-});
-$('#btnImg1Clear').addEventListener('click', ()=>{
-  $('#f_img1').value=''; $('#f_img1_url').value=''; setPreview('#img1Preview', null);
-});
+// buttons
+$('#btnNew').onclick=startNew;
+$('#btnReset').onclick=()=>fillForm(current||{});
+$('#refreshBtn').onclick=async()=>{await loadServer();loadFallbackFromWindow();renderList();startNew();};
 
-// Upload a file if present; returns the resulting URL or null if no file
-async function uploadIfChosen(fileInputId, productId, slot){
-  const inp = $(fileInputId);
-  if(!inp || !inp.files || !inp.files[0]) return null;
-  const fd = new FormData();
-  fd.append('file', inp.files[0]);
-  fd.append('id', productId);
-  fd.append('slot', slot); // 'thumb' | 'image1'
-  const headers = Admin ? Admin.tokenHeader() : {};
-  const r = await fetch(UPLOAD_URL, { method:'POST', headers, body: fd });
-  const j = await r.json().catch(()=> ({}));
-  if(!r.ok || !j?.url) throw new Error(j?.error || 'upload failed');
-  return j.url;
-}
+$('#btnExport').onclick=()=>{
+  const blob=new Blob([JSON.stringify({PRODUCTS:model},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='products-export.json';a.click();
+};
 
-// ------- actions -------
-document.getElementById('btnNew').addEventListener('click', startNew);
-document.getElementById('btnReset').addEventListener('click', ()=>fillForm(current||{}));
-document.getElementById('refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
-
-document.getElementById('btnExport').addEventListener('click', ()=>{
-  const blob=new Blob([JSON.stringify({ PRODUCTS:model },null,2)],{type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='products-export.json'; a.click();
-});
-document.getElementById('btnExportCsv').addEventListener('click', ()=>{
-  const headers = ['id','name','price','active','publishStart','publishEnd','notes','thumbnailUrl','imageUrl'];
-  const rows = (model||[]).map(a=>({
-    id:a.id||'',
-    name:a.name||'',
-    price:(+a.price||0).toFixed(2),
-    active: a.active!==false,
-    publishStart:a.publishStart||'',
-    publishEnd:a.publishEnd||'',
-    notes:a.notes||'',
-    thumbnailUrl:a.thumbnailUrl||'',
-    imageUrl:a.imageUrl||''
-  }));
-  const filename = 'products-export.csv';
-  if (window.CSV && typeof CSV.downloadCSV==='function'){
-    try { CSV.downloadCSV(filename, rows, headers); return; } catch{}
-    try { CSV.downloadCSV(filename, rows); return; } catch{}
-  }
-  // fallback
-  const esc=(v)=>`"${String(v??'').replace(/"/g,'""')}"`;
-  const text=[headers.map(esc).join(',')].concat(rows.map(r=>headers.map(h=>esc(r[h])).join(','))).join('\n');
-  const blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
-});
-
-document.getElementById('fileImport').addEventListener('change', async (e)=>{
-  const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
-  try{
-    const j=JSON.parse(t);
-    const list=Array.isArray(j)?j:(Array.isArray(j.PRODUCTS)?j.PRODUCTS:[]);
-    if(!list.length) throw new Error('No PRODUCTS found');
-    model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.';
-  } catch(err){
-    $('#listMsg').textContent='Import failed: '+err.message;
-  }
-});
-
-document.getElementById('btnSave').addEventListener('click', async ()=>{
-  const obj=readForm();
-  const err=validate(obj);
-  if(err){ setMsg($('#editMsg'), err, false); return; }
-
-  // ensure unique ID on create
-  if(isNew){
-    if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'),'ID exists — choose another',false); return; }
-  }
-
+// Save
+$('#btnSave').onclick=async()=>{
+  const obj=readForm();const err=validate(obj);
+  if(err){setMsg($('#editMsg'),err,false);return;}
   setMsg($('#editMsg'),'Saving…',true);
-
-  // 1) upload images if files chosen
   try{
     if(obj.id){
-      const thumbUrl = await uploadIfChosen('#f_thumb', obj.id, 'thumb');
-      if(thumbUrl) obj.thumbnailUrl = thumbUrl;
-      const mainUrl  = await uploadIfChosen('#f_img1', obj.id, 'image1');
-      if(mainUrl) obj.imageUrl = mainUrl;
+      const thumbUrl=await uploadIfChosen('#f_thumb',obj.id,'thumb');
+      if(thumbUrl)obj.thumbnailUrl=thumbUrl;
+      const mainUrl=await uploadIfChosen('#f_img1',obj.id,'image1');
+      if(mainUrl)obj.imageUrl=mainUrl;
     }
-  }catch(e){
-    // don't block saving everything else
-    console.warn('image upload failed:', e);
-    setMsg($('#editMsg'),'Saved (image upload failed — check token/router).', false);
-  }
+  }catch(e){console.warn('upload fail',e);}
 
-  // 2) merge into model
-  if(isNew){
-    model.push(obj);
-    isNew=false;
-  }else{
+  if(isNew)model.push(obj);else{
     const i=model.findIndex(x=>x.id===current.id);
-    if(i>=0) model[i]=obj; else model.push(obj);
+    if(i>=0)model[i]=obj;else model.push(obj);
   }
-  current=obj; renderList();
+  current=obj;renderList();
 
-  // 3) save to server via router
   try{
-    const headers={ 'Content-Type':'application/json', ...Admin.tokenHeader() };
-    const r=await fetch(WRITE_URL,{ method:'POST', headers, body:JSON.stringify({ products:model }) });
-    const j = await r.json().catch(()=> ({}));
-    if(!r.ok) throw new Error(j?.error||'server rejected');
+    const headers={'Content-Type':'application/json',...Admin.tokenHeader()};
+    const r=await fetch(WRITE_URL,{method:'POST',headers,body:JSON.stringify({products:model})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(j?.error||'server rejected');
     setMsg($('#editMsg'),'Saved to server.',true);
-  }catch(e){
-    setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
-  }
-});
+  }catch{setMsg($('#editMsg'),'Saved locally (server error).',false);}
+};
 
 // logout
-document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
+$('#logoutBtn').onclick=()=>{localStorage.removeItem('amaranth_admin_pw_ok');location.href='/admin/reporting_login.html';};
 
 // init
-(async function init(){ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); })();
+(async()=>{await loadServer();loadFallbackFromWindow();renderList();startNew();})();
 </script>
 
-<!-- Optional static fallback -->
-<script>window.PRODUCTS = window.PRODUCTS || [];</script>
+<script>window.PRODUCTS=window.PRODUCTS||[];</script>
 </body>
 </html>
