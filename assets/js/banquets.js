@@ -17,8 +17,8 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"]
+    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+    chairEmails: ["mrskfors@yahoo.com"]
   },
 
   // 02 — No meal choices
@@ -34,8 +34,8 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"]
+    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+    chairEmails: ["mrskfors@yahoo.com"]
   },
 
   // 03 — Has meal choices
@@ -51,8 +51,8 @@ window.BANQUETS = [
     active: true,
     publishStart: "",
     publishEnd: "",
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"]
+    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+    chairEmails: ["mrskfors@yahoo.com"]
   },
 
   // 04 — Has meal choices
