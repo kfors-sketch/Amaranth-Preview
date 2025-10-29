@@ -1,10 +1,19 @@
 // /api/router.js
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
-import Stripe from "stripe";
+
+// ---- Lazy Stripe loader (avoid crashing function at import time) ----
+let _stripe = null;
+async function getStripe() {
+  if (_stripe) return _stripe;
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (!key) return null;
+  const { default: Stripe } = await import("stripe");
+  _stripe = new Stripe(key);
+  return _stripe;
+}
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
@@ -43,6 +52,9 @@ async function kvHgetallSafe(key)            { try { return (await kv.hgetall(ke
 
 // ----- order persistence helpers -----
 async function saveOrderFromSession(session) {
+  const stripe = await getStripe();
+  if (!stripe) throw new Error("stripe-not-configured");
+
   // Expand line items if not present
   const s = await stripe.checkout.sessions.retrieve(session.id, {
     expand: ["line_items.data.price.product", "payment_intent"],
@@ -50,7 +62,7 @@ async function saveOrderFromSession(session) {
 
   const lines = (s.line_items?.data || []).map(li => {
     const name  = li.description || li.price?.product?.name || "Item";
-    const qty  = Number(li.quantity || 1);
+    const qty   = Number(li.quantity || 1);
     const unit  = cents(li.price?.unit_amount || 0);
     const total = unit * qty;
 
@@ -83,7 +95,7 @@ async function saveOrderFromSession(session) {
     },
     lines,
     fees: { pct: 0, flat: 0 }, // already baked into a dedicated fee line if you used it
-    refunds: [],              // [{id, amount, charge, created}]
+    refunds: [],               // [{id, amount, charge, created}]
     refunded_cents: 0,
     status: "paid"
   };
@@ -103,7 +115,6 @@ async function saveOrderFromSession(session) {
 }
 
 async function applyRefundToOrder(chargeId, refund) {
-  // Find the order by scanning saved orders for matching charge/payment_intent
   const ids = await kvGetSafe("orders:index", []);
   for (const sid of ids) {
     const key = `order:${sid}`;
@@ -135,12 +146,12 @@ async function applyRefundToOrder(chargeId, refund) {
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
-    const net = li.gross; // fees line is separate if used; keep simple
+    const net = li.gross;
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: "", // could map from attendeeId if you want
+      attendee: "",
       category: li.category || 'other',
       item: li.itemName || '',
       qty: li.qty || 1,
@@ -156,7 +167,6 @@ function flattenOrderToRows(o) {
     });
   });
 
-  // If fees were added as a separate line (named "Processing Fee"), include it as category 'other'
   const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
     rows.push({
@@ -194,16 +204,17 @@ export default async function handler(req, res) {
       // --- Diagnostics: smoketest ---
       if (type === "smoketest") {
         return REQ_OK(res, {
+          ok: true,
           node: process.versions.node,
-          hasStripe: !!stripe,
           hasSecret: !!process.env.STRIPE_SECRET_KEY,
           hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
+          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
           hasResend: !!resend,
           kvOk: typeof kv?.get === "function"
         });
       }
 
-      // --- Diagnostics: echo (helps see body parse behavior when POSTing here) ---
+      // --- Diagnostics: echo ---
       if (type === "echo") {
         return REQ_OK(res, {
           method: req.method,
@@ -245,7 +256,7 @@ export default async function handler(req, res) {
         await resend.emails.send({
           from: process.env.RESEND_FROM,
           to,
-                   subject: "Amaranth Reports — Test",
+          subject: "Amaranth Reports — Test",
           text: "This is a test email to confirm deliverability."
         });
         return REQ_OK(res, { ok: true });
@@ -266,6 +277,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
       if (type === "checkout_session") {
+        const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
         const id = url.searchParams.get("id");
         if (!id) return REQ_ERR(res, 400, "missing-id");
@@ -298,6 +310,7 @@ export default async function handler(req, res) {
 
       // PUBLIC: Create Stripe Checkout Session
       if (action === "create_checkout_session") {
+        const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
@@ -391,10 +404,9 @@ export default async function handler(req, res) {
 
       // STRIPE WEBHOOK (point your Stripe endpoint to: /api/router?action=stripe_webhook)
       if (action === "stripe_webhook") {
+        const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
-        // Try to construct the event with signature. If body parsing middleware already parsed JSON,
-        // signature verification may fail; in that case we fallback to trusting the JSON in test mode.
         let event;
         const sig = req.headers["stripe-signature"];
         const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
@@ -426,7 +438,6 @@ export default async function handler(req, res) {
             break;
           }
           default:
-            // ignore others for now
             break;
         }
 
@@ -512,6 +523,7 @@ export default async function handler(req, res) {
 
       // Admin refunds (full or partial)
       if (action === "create_refund") {
+        const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
         const { payment_intent, charge, amount_cents } = body || {};
         if (!payment_intent && !charge) return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
@@ -529,7 +541,6 @@ export default async function handler(req, res) {
     return REQ_ERR(res, 405, "method-not-allowed");
   } catch (e) {
     console.error(e);
-    // expose a non-secret error message to help debug 500s from the browser
     return REQ_ERR(res, 500, "router-failed", { message: e?.message || String(e) });
   }
 }
