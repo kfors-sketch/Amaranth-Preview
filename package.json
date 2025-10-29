@@ -1,7 +1,10 @@
 {
+  "type": "module",
+  "engines": { "node": "18.x" },
   "dependencies": {
-    "@vercel/kv": "latest",
-    "resend": "latest",
-    "redis": "^4.6.14"
+    "@vercel/kv": "^1.0.0",
+    "resend": "^3.2.0",
+    "stripe": "^16.0.0"
   }
 }
+
