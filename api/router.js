@@ -38,7 +38,7 @@ function requireToken(req, res) {
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
 async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
-async function kvSetSafe(key, val)          { try { await kv.set(key, val);  return true; } catch { return false; } }
+async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
 
 // ----- order persistence helpers -----
@@ -190,6 +190,29 @@ export default async function handler(req, res) {
 
     // ---------- READS ----------
     if (req.method === "GET") {
+
+      // --- Diagnostics: smoketest ---
+      if (type === "smoketest") {
+        return REQ_OK(res, {
+          node: process.versions.node,
+          hasStripe: !!stripe,
+          hasSecret: !!process.env.STRIPE_SECRET_KEY,
+          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
+          hasResend: !!resend,
+          kvOk: typeof kv?.get === "function"
+        });
+      }
+
+      // --- Diagnostics: echo (helps see body parse behavior when POSTing here) ---
+      if (type === "echo") {
+        return REQ_OK(res, {
+          method: req.method,
+          contentType: req.headers["content-type"] || "",
+          typeofBody: typeof req.body,
+          rawBodyKeys: req.body && typeof req.body === "object" ? Object.keys(req.body) : null
+        });
+      }
+
       if (type === "banquets") {
         const banquets = (await kvGetSafe("banquets")) || [];
         return REQ_OK(res, { banquets });
@@ -222,7 +245,7 @@ export default async function handler(req, res) {
         await resend.emails.send({
           from: process.env.RESEND_FROM,
           to,
-          subject: "Amaranth Reports — Test",
+                   subject: "Amaranth Reports — Test",
           text: "This is a test email to confirm deliverability."
         });
         return REQ_OK(res, { ok: true });
@@ -506,6 +529,7 @@ export default async function handler(req, res) {
     return REQ_ERR(res, 405, "method-not-allowed");
   } catch (e) {
     console.error(e);
-    return REQ_ERR(res, 500, "router-failed");
+    // expose a non-secret error message to help debug 500s from the browser
+    return REQ_ERR(res, 500, "router-failed", { message: e?.message || String(e) });
   }
 }
