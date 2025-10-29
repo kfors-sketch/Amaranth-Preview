@@ -100,7 +100,7 @@ window.CATALOG_ITEMS = [
         publishStart: item.publishStart || "",
         publishEnd: item.publishEnd || ""   // used as "ordering closes" for FINAL report if set
       };
-      fetch("/api/admin/register-item", {
+      fetch("/api/router?action=register_item", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
