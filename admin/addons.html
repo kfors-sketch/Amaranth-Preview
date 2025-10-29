@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Add-Ons Manager — Amaranth</title>
 <meta name="robots" content="noindex, nofollow"/>
 <link rel="stylesheet" href="/assets/css/styles.css"/>
@@ -22,13 +23,17 @@
   .ok{color:#065f46}.danger{color:#b91c1c}
 </style>
 <script>
+  // Auth guard
   (function(){ if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){ location.replace('/admin/reporting_login.html'); }})();
 </script>
 </head>
 <body>
 <main class="container">
   <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div><h1 style="margin:0">Add-Ons Manager</h1><div class="muted">Create, edit, retire add-ons</div></div>
+    <div>
+      <h1 style="margin:0">Add-Ons Manager</h1>
+      <div class="muted">Create, edit, retire add-ons</div>
+    </div>
     <div style="display:flex;gap:8px;align-items:center">
       <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
       <button id="refreshBtn" class="btn ghost">Refresh from server</button>
@@ -37,6 +42,7 @@
   </header>
 
   <div class="row">
+    <!-- List -->
     <section class="col left">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button id="btnNew" class="btn">+ New Add-On</button>
@@ -47,27 +53,55 @@
         <span id="listMsg" class="muted"></span>
       </div>
       <div style="overflow:auto;max-height:65vh">
-        <table><thead><tr>
-          <th style="min-width:200px">Name</th><th style="min-width:140px">ID</th>
-          <th>Price</th><th>Active</th><th>Publish Window</th><th style="min-width:160px">Actions</th>
-        </tr></thead><tbody id="tbody"></tbody></table>
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:200px">Name</th>
+              <th style="min-width:140px">ID</th>
+              <th>Price</th>
+              <th>Active</th>
+              <th>Publish Window</th>
+              <th style="min-width:160px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
       </div>
     </section>
 
+    <!-- Editor -->
     <aside class="col right">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
+        <strong id="modeChip">New</strong>
+        <span id="editMsg" class="muted"></span>
       </div>
 
-      <label>Name</label><input id="f_name" type="text" placeholder="Corsage"/>
-      <label>ID</label><input id="f_id" type="text" placeholder="corsage"/>
-      <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
-      <div style="display:flex;gap:12px">
-        <div style="flex:1"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
-        <div style="flex:1"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
-        <div style="flex:1"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
+      <label for="f_name">Name</label>
+      <input id="f_name" type="text" placeholder="Corsage"/>
+
+      <label for="f_id">ID</label>
+      <input id="f_id" type="text" placeholder="corsage"/>
+
+      <label for="f_price">Price (USD)</label>
+      <input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 120px">
+          <label for="f_active">Active</label>
+          <select id="f_active"><option>true</option><option>false</option></select>
+        </div>
+        <div style="flex:1 1 180px">
+          <label for="f_start">Publish Start</label>
+          <input id="f_start" type="datetime-local"/>
+        </div>
+        <div style="flex:1 1 180px">
+          <label for="f_end">Publish End</label>
+          <input id="f_end" type="datetime-local"/>
+        </div>
       </div>
-      <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
+
+      <label for="f_notes">Notes / Description</label>
+      <textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
         <button id="btnSave" class="btn">Save</button>
@@ -77,39 +111,45 @@
   </div>
 </main>
 
-<!-- CSV helper -->
+<!-- CSV helper (optional) -->
 <script src="/assets/js/lib/csv.js"></script>
-
-<!-- Admin shared helpers (must load before page inline script) -->
+<!-- Shared admin helpers (token header, logout, etc.) -->
 <script src="/assets/js/admin.js"></script>
 
 <script>
-const $ = s=>document.querySelector(s);
-let model=[], current=null, isNew=true;
+/* ====== State & helpers ====== */
+const $ = s => document.querySelector(s);
+let model = [], current = null, isNew = true;
 
-// === LOAD (router) ===
-async function loadServer(){
-  try{
-    const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      if (Array.isArray(j?.addons)) model = j.addons;
-    }
-  }catch{ model = []; }
-}
-
-function loadFallbackFromWindow(){
-  if(!model.length && Array.isArray(window.ADDONS)) model = JSON.parse(JSON.stringify(window.ADDONS));
-}
+const READ_URL  = '/api/router?type=addons';
+const WRITE_URL = '/api/router?action=save_addons';
 
 function toLocalDT(v){ if(!v) return ''; const d=new Date(v); if(isNaN(d))return''; const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,16); }
 function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
 function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function setMsg(el,t,ok){ el.textContent=t||''; el.className=ok?'ok':(t?'danger':'muted'); }
 
+/* ====== Data I/O ====== */
+async function loadServer(){
+  try{
+    const r = await fetch(READ_URL, { cache: 'no-store' });
+    if (!r.ok) throw 0;
+    const j = await r.json();
+    if (Array.isArray(j?.addons)) model = j.addons;
+  }catch{ model = []; }
+}
+function loadFallbackFromWindow(){
+  if(!model.length && Array.isArray(window.ADDONS)) model = JSON.parse(JSON.stringify(window.ADDONS));
+}
+
+/* ====== Render ====== */
 function renderList(){
   const tb=$('#tbody'); tb.innerHTML='';
-  if(!model.length){ tb.innerHTML='<tr><td colspan="6" class="muted">No add-ons yet</td></tr>'; return; }
+  if(!model.length){
+    tb.innerHTML='<tr><td colspan="6" class="muted">No add-ons yet</td></tr>';
+    return;
+  }
+  const frag=document.createDocumentFragment();
   for(const a of model){
     const tr=document.createElement('tr');
     const start=a.publishStart?new Date(a.publishStart).toLocaleString():'—';
@@ -122,11 +162,10 @@ function renderList(){
       <td class="muted">${start} → ${end}</td>
       <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>
     `;
-    tb.appendChild(tr);
+    frag.appendChild(tr);
   }
-  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click', onEdit));
+  tb.appendChild(frag);
 }
-
 function startNew(){
   isNew=true;
   current={ id:'', name:'', price:0, active:true, publishStart:'', publishEnd:'', notes:'' };
@@ -163,14 +202,19 @@ function validate(a){
   if(a.publishStart && a.publishEnd && new Date(a.publishStart) > new Date(a.publishEnd)) return 'Start must be before end';
   return null;
 }
-function onEdit(e){
-  const id=e.currentTarget.getAttribute('data-id');
-  const a=model.find(x=>x.id===id); if(!a) return;
+
+/* Event delegation for Edit (robust across re-renders) */
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.btnEdit');
+  if(!btn) return;
+  const id = btn.getAttribute('data-id');
+  const a = model.find(x=>x.id===id); if(!a) return;
   isNew=false; current=a; fillForm(current);
   $('#modeChip').textContent='Edit';
   $('#editMsg').textContent=`Editing ${a.name}`;
-}
+});
 
+/* ====== Wire up buttons ====== */
 $('#btnNew').addEventListener('click', startNew);
 $('#btnReset').addEventListener('click', ()=>fillForm(current||{}));
 $('#refreshBtn').addEventListener('click', async ()=>{ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); });
@@ -180,13 +224,14 @@ $('#btnExport').addEventListener('click', ()=>{
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='addons-export.json'; a.click();
   URL.revokeObjectURL(a.href);
 });
+
 document.getElementById('btnExportCsv').addEventListener('click', ()=>{
   const headers = ['id','name','price','active','publishStart','publishEnd','notes'];
   const rows = (model||[]).map(a=>({
     id:a.id||'',
     name:a.name||'',
     price:(+a.price||0).toFixed(2),
-    active: a.active!==false,
+    active:a.active!==false,
     publishStart:a.publishStart||'',
     publishEnd:a.publishEnd||'',
     notes:a.notes||''
@@ -205,48 +250,53 @@ document.getElementById('btnExportCsv').addEventListener('click', ()=>{
 
 $('#fileImport').addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return; const t=await f.text(); e.target.value='';
-  try{ const j=JSON.parse(t); const list=Array.isArray(j)?j:(Array.isArray(j.ADDONS)?j.ADDONS:[]); if(!list.length) throw new Error('No ADDONS found'); model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.'; }
-  catch(err){ $('#listMsg').textContent='Import failed: '+err.message; }
+  try{
+    const j=JSON.parse(t);
+    const list=Array.isArray(j)?j:(Array.isArray(j.ADDONS)?j.ADDONS:[]);
+    if(!list.length) throw new Error('No ADDONS found');
+    model=list; renderList(); startNew(); $('#listMsg').textContent='Imported.';
+  }catch(err){
+    $('#listMsg').textContent='Import failed: '+err.message;
+  }
 });
 
 $('#btnSave').addEventListener('click', async ()=>{
   const obj=readForm(); const err=validate(obj);
   if(err){ setMsg($('#editMsg'), err, false); return; }
+
   if(isNew){
     if(model.some(x=>x.id===obj.id)){ setMsg($('#editMsg'),'ID exists — choose another',false); return; }
     model.push(obj);
   }else{
-    const i=model.findIndex(x=>x.id===current.id); model[i]=obj;
+    const i=model.findIndex(x=>x.id===current.id);
+    if(i>=0) model[i]=obj; else model.push(obj);
   }
   current=obj; renderList(); setMsg($('#editMsg'),'Saving…',true);
 
-  // === SAVE (router) ===
   try{
-    const headers = { 'Content-Type':'application/json' };
-    const t = localStorage.getItem('amaranth_report_token');
-    if (t) headers.Authorization = 'Bearer ' + t;
-
-    const r2 = await fetch('/api/router?action=save_addons', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ addons: model })
-    });
-    if(!r2.ok){
-      let msg = 'server rejected';
-      try { const j = await r2.json(); if(j?.error) msg = j.error; } catch{}
-      throw new Error(msg);
-    }
+    const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
+    const r = await fetch(WRITE_URL, { method:'POST', headers, body: JSON.stringify({ addons: model }) });
+    const j = await r.json().catch(()=> ({}));
+    if(!r.ok) throw new Error(j?.error || 'server rejected');
     setMsg($('#editMsg'),'Saved to server.',true);
   }catch(e){
     setMsg($('#editMsg'),'Saved locally. (Server not found/unauthorized — export JSON and update manually.)',true);
   }
 });
 
-// logout
-$('#logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('amaranth_admin_pw_ok'); location.href='/admin/reporting_login.html'; });
+/* Logout */
+$('#logoutBtn').addEventListener('click', ()=>{
+  localStorage.removeItem('amaranth_admin_pw_ok');
+  location.href='/admin/reporting_login.html';
+});
 
-// init
-(async function init(){ await loadServer(); loadFallbackFromWindow(); renderList(); startNew(); })();
+/* Init */
+(async function init(){
+  await loadServer();    // try KV via router
+  loadFallbackFromWindow(); // fallback to static
+  renderList();
+  startNew();
+})();
 </script>
 
 <!-- Optional static fallback list -->
