@@ -202,17 +202,31 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
 
       // --- Diagnostics: smoketest ---
-      if (type === "smoketest") {
-        return REQ_OK(res, {
-          ok: true,
-          node: process.versions.node,
-          hasSecret: !!process.env.STRIPE_SECRET_KEY,
-          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
-          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
-          hasResend: !!resend,
-          kvOk: typeof kv?.get === "function"
-        });
-      }
+if (type === "smoketest") {
+  const out = {
+    ok: true,
+    node: process.versions?.node || "unknown",
+    runtime: process.env.VERCEL ? "vercel" : "local",
+    hasSecret: !!process.env.STRIPE_SECRET_KEY,
+    hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
+    hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
+    hasResendEnv: !!process.env.RESEND_API_KEY,
+    hasResendClient: !!resend,
+    kvSetGetOk: false,
+  };
+
+  // Actively test KV read/write (not just method presence)
+  try {
+    await kv.set("smoketest:key", "ok", { ex: 30 });
+    const v = await kv.get("smoketest:key");
+    out.kvSetGetOk = (v === "ok");
+  } catch (e) {
+    out.kvError = String(e?.message || e);
+  }
+
+  return REQ_OK(res, out);
+}
+
 
       // --- Diagnostics: echo ---
       if (type === "echo") {
