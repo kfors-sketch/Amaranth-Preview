@@ -35,8 +35,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"],
+    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+    chairEmails: ["mrskfors@yahoo.com"],
     publishStart: "",
     publishEnd: ""
   },
@@ -49,7 +49,7 @@ window.CATALOG_ITEMS = [
     pricing: [
       { qty: 1,  price: 10 },
       { qty: 3,  price: 25 },
-      { qty: 10, price: 75 }
+      { qty: 6,  price: 40 }
     ],
     image: "/assets/shop/Raffle-Cancun_thumb.jpg",
     images: [
@@ -63,8 +63,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"],
+    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+    chairEmails: ["mrskfors@yahoo.com"],
     publishStart: "",
     publishEnd: ""
   },
