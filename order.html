@@ -542,7 +542,7 @@
   <script>
   (async () => {
     try {
-      const resp = await fetch('/api/admin/settings.js');
+      const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
 
       if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
