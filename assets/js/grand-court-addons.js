@@ -9,8 +9,8 @@
       type: "fixed",             // fixed | qty | amount | variantQty
       price: 30,                 // dollars
       limitPerAttendee: 1,
-      chair: { name: "TBD", email: "tbd@example.com" },
-      chairEmails: ["tbd@example.com"],
+      chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+      chairEmails: ["mrskfors@yahoo.com"],
       publishStart: "",          // e.g. "2026-01-01T00:00:00-05:00"
       publishEnd: ""
     },
@@ -29,8 +29,8 @@
       name: "Love Gift",
       type: "amount",
       minAmount: 0.01,           // USD
-      chair: { name: "TBD", email: "tbd@example.com" },
-      chairEmails: ["tbd@example.com"],
+      chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+      chairEmails: ["mrskfors@yahoo.com"],
       publishStart: "",
       publishEnd: ""
     },
@@ -50,8 +50,8 @@
       type: "variantQty",        // variant + optional custom + qty
       price: 15,
       variants: ["Red Roses","Pink Roses","Yellow Roses","Spring Flowers","Custom"],
-      chair: { name: "TBD", email: "tbd@example.com" },
-      chairEmails: ["tbd@example.com"],
+      chair: { name: "TBD", email: "mrskfors@yahoo.com" },
+      chairEmails: ["mrskfors@yahoo.com"],
       publishStart: "",
       publishEnd: ""
     }
