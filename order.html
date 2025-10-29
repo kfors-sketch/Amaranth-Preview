@@ -13,7 +13,7 @@
     .att-head {
       display:flex;
       align-items:center;
-      gap:.5rem;            /* <-- puts [Edit] right next to the name */
+      gap:.5rem;
       margin:0 0 .25rem 0;
       font-size:1.1rem;
       font-weight:800;
@@ -50,7 +50,7 @@
     .order-table .ta-center{ text-align:center }
 
     /* Consistent column widths via colgroup */
-    .col-item   { width: 50% }  /* Item name */
+    .col-item  { width: 50% }  /* Item name */
     .col-qty    { width: 10% }
     .col-price  { width: 15% }
     .col-total  { width: 15% }
@@ -66,19 +66,31 @@
       -webkit-backdrop-filter: saturate(120%) blur(2px);
       border-radius:10px;
     }
-  
+ 
     .att-notes {
       font-size:.9rem;
       opacity:.85;
       margin: .1rem 0 .4rem;
     }
-  
+ 
     /* Darker order text for better readability */
     .order-table, .order-table td, .order-table th { color: #111; }
     .order-table .tiny { color: #111; opacity: .95; }
     .att-notes { color: #111; opacity: .95; }
 
+    /* Small helper for inline status */
+    #checkoutStatus { margin-left:10px; font-size:.95rem }
+    #checkoutStatus.err { color:#b91c1c }
+    #checkoutStatus.ok { color:#065f46 }
+    #checkout[disabled]{ opacity:.7; cursor:not-allowed }
   </style>
+
+  <!-- Stripe.js (required for redirectToCheckout) -->
+  <script src="https://js.stripe.com/v3"></script>
+  <!-- Optional: set your publishable key here as a fallback (you can keep this, it's safe to expose) -->
+  <script>
+    window.STRIPE_PUBLISHABLE_KEY = "pk_test_51SBDHKF9brZtHXuA8XTuAes5eBfBG1e95bFeEjWwLwlsuk36PSJxB88HjuqSV1SBlYNJ2CWbHgnv96VIU3Qf6hW400P7jB4s30";
+  </script>
 </head>
 
 <body data-page="order">
@@ -137,7 +149,10 @@
 
       <div class="fees-box" id="order-summary"></div>
 
-      <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
+        <span id="checkoutStatus" class="tiny"></span>
+      </div>
       <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
     </section>
   </main>
@@ -216,11 +231,10 @@
 
         let personSubtotal = 0;
         const rows = lines.map(l => {
-          
-          
+
           // --- unified subline: one per row ---
           const isBanquet = (l.itemType === 'banquet');
-          const attObj = (st.attendees || []).find(x => x.id === (l.attendeeId || ''));
+          const attObj = (st.attendees || []).find(x => x.id=== (l.attendeeId || ''));
           const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
           const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
           const banquetNotes = isBanquet ? (lnMeta || lnAtt) : '';
@@ -234,12 +248,10 @@
             : (itemNote ? `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>` : '');
 
           const price = normalizePrice(l.unitPrice);
-          const qty   = Number(l.qty || 0);
+          const qty  = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
-    
-    
-    
+
           return `
             <tr>
               <td>${l.itemName || ''}${detail}</td>
@@ -263,8 +275,8 @@
                 <label>Name<input type="text" class="ed-name" placeholder="Name"></label>
                 <label>Email<input type="email" class="ed-email" placeholder="Email"></label>
                 <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
-              
-                <label style=\"flex:1 1 100%\">Notes<textarea class=\"ed-notes\" rows=\"2\" placeholder=\"Dietary needs, allergies, seating, etc.\"></textarea></label>
+               
+                <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
               </div>
               <div style="margin-top:.5rem; display:flex; gap:.5rem;">
                 <button class="btn btn-primary save-ed" data-save="${aid}">Save</button>
@@ -341,22 +353,20 @@
           panel.querySelector('.ed-name').value  = a?.name || '';
           panel.querySelector('.ed-email').value = a?.email || '';
           panel.querySelector('.ed-title').value = a?.title || '';
-        
           if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
-};
+        };
       });
       list.querySelectorAll('.cancel-ed').forEach(btn=>{
         btn.onclick = ()=>{
           const aid = btn.dataset.cancel;
           const panel = document.getElementById(`edit-${aid}`);
           if (panel) panel.style.display = 'none';
-          // propagate notes to existing banquet lines for this attendee
           try {
             const st3 = Cart.get();
             (st3.lines || []).forEach(l => {
               if (l.attendeeId === aid && l.itemType === 'banquet'){
                 l.meta = l.meta || {};
-                l.meta.attendeeNotes = notes;
+                l.meta.attendeeNotes = panel?.querySelector?.('.ed-notes')?.value?.trim?.() || '';
                 Cart.updateLine(l.id, { meta: l.meta });
               }
             });
@@ -372,9 +382,8 @@
           const name  = panel.querySelector('.ed-name').value.trim();
           const email = panel.querySelector('.ed-email').value.trim();
           const title = panel.querySelector('.ed-title').value.trim();
-          
           const notes = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
-Cart.updateAttendee(aid, { name, email, title, notes });
+          Cart.updateAttendee(aid, { name, email, title, notes });
           panel.style.display = 'none';
           render();
         };
@@ -406,7 +415,7 @@ Cart.updateAttendee(aid, { name, email, title, notes });
       if (el) el.addEventListener('input', render);
     });
   });
-  
+ 
     // --- Auto-resync when returning to this tab or when storage changes (added from Banquets page) ---
     function resyncFromStorage(){
       try { Cart.load(); } catch(e) {}
@@ -416,7 +425,7 @@ Cart.updateAttendee(aid, { name, email, title, notes });
     window.addEventListener('focus', resyncFromStorage);
     window.addEventListener('storage', function(){ resyncFromStorage(); });
 
-</script>
+  </script>
 
   <!-- Core site scripts (order matters) -->
   <script src="/assets/js/site-settings.js"></script>
@@ -425,27 +434,132 @@ Cart.updateAttendee(aid, { name, email, title, notes });
   <script src="/assets/js/cart.js"></script>
   <script src="/assets/js/data-store.js"></script>
   <script src="/assets/js/site-boot.js"></script>
-  <script>
-(async () => {
-  try {
-    const resp = await fetch('/api/admin/settings.js');
-    const data = await resp.json();
 
-    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
-      document.body.innerHTML = `
-        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-          <p style="font-size:1.2em;max-width:500px;">
-            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
-          </p>
-        </div>
-      `;
+  <!-- Checkout wiring -->
+  <script>
+    async function getStripeInstance() {
+      // Option A: ask router for publishable key (optional server helper)
+      try {
+        const r = await fetch('/api/router?type=stripe_pk', { cache:'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (j && j.publishableKey) {
+            return Stripe(j.publishableKey);
+          }
+        }
+      } catch {}
+
+      // Option B: use inline fallback (safe to expose)
+      if (window.STRIPE_PUBLISHABLE_KEY) return Stripe(window.STRIPE_PUBLISHABLE_KEY);
+
+      throw new Error('Stripe publishable key not available.');
     }
-  } catch (err) {
-    console.error('Maintenance check failed:', err);
-  }
-})();
-</script>
+
+    function readPurchaser() {
+      const g = id => (document.getElementById(id)?.value || '').trim();
+      return {
+        name:    g('p_name'),
+        title:    g('p_title'),
+        email:    g('p_email'),
+        phone:    g('p_phone'),
+        address1: g('p_addr1'),
+        address2: g('p_addr2'),
+        city:    g('p_city'),
+        state:    g('p_state'),
+        postal:  g('p_zip'),
+        country:  g('p_country') || 'US'
+      };
+    }
+
+    function buildPayloadFromCart() {
+      const st = Cart.get();
+      const lines = (st.lines || []).map(l => ({
+        id: l.id,
+        itemId: l.itemId,
+        itemType: l.itemType,
+        itemName: l.itemName,
+        unitPrice: Number(normalizePrice(l.unitPrice)), // cents integer expected server-side
+        qty: Number(l.qty || 1),
+        attendeeId: l.attendeeId || '',
+        meta: l.meta || {}
+      }));
+      const fees = Cart.totals(); // { pct, flat }
+      return { lines, fees };
+    }
+
+    async function goToCheckout() {
+      const btn = document.getElementById('checkout');
+      const status = document.getElementById('checkoutStatus');
+      const setStatus = (msg, ok) => { status.textContent = msg || ''; status.className = ok ? 'ok' : (msg ? 'err' : ''); };
+
+      try {
+        setStatus('', false);
+        btn.disabled = true; setStatus('Contacting payment server…', false);
+
+        const purchaser = readPurchaser();
+        // basic client-side validation (you can make this stricter if you want)
+        if (!purchaser.name || !purchaser.email || !purchaser.phone) {
+          throw new Error('Please complete your name, email, and phone.');
+        }
+
+        const payload = {
+          purchaser,
+          ...buildPayloadFromCart(),
+          // success/cancel URLs (adjust paths if you prefer a different page)
+          success_url: `${location.origin}/thank-you.html?sid={CHECKOUT_SESSION_ID}`,
+          cancel_url: location.href
+        };
+
+        // Create Checkout Session on your router
+        const r = await fetch('/api/router?action=create_checkout_session', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const j = await r.json().catch(()=> ({}));
+        if (!r.ok) throw new Error(j?.error || 'Payment server error');
+
+        const stripe = await getStripeInstance();
+
+        // Depending on how the handler returns, accept sessionId or id
+        const sessionId = j.sessionId || j.id;
+        if (!sessionId) throw new Error('Missing session id.');
+
+        setStatus('Redirecting to Stripe…', true);
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+        if (error) throw error;
+
+      } catch (e) {
+        console.error(e);
+        setStatus(e.message || 'Checkout failed. Please try again.', false);
+        document.getElementById('checkout').disabled = false;
+      }
+    }
+
+    document.getElementById('checkout').addEventListener('click', goToCheckout);
+  </script>
+
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/admin/settings.js');
+      const data = await resp.json();
+
+      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
+    }
+  })();
+  </script>
 
 </body>
 </html>

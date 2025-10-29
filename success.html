@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thank you!</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:720px;margin:32px auto;padding:0 16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:18px}
+    .muted{color:#6b7280}
+    .btn{height:40px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 14px;font-weight:700;cursor:pointer}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+    .val{font-weight:700}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div class="card">
+      <h1 style="margin:0 0 8px">Thank you for your order!</h1>
+      <div class="muted" id="status">Finalizing your receipt…</div>
+
+      <div id="details" style="margin-top:14px;display:none">
+        <div class="row"><div>Order #</div><div class="val" id="ordId">—</div></div>
+        <div class="row"><div>Paid</div><div class="val" id="paid">$0.00</div></div>
+        <div class="row"><div>Email</div><div class="val" id="email">—</div></div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <a class="btn" href="/home.html">Back to Home</a>
+        <a class="btn" href="/order.html">New Order</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    (function(){
+      const q = new URLSearchParams(location.search);
+      const sid = q.get('sid') || q.get('session_id');
+      try {
+        // Clear cart (local storage) after successful payment
+        if (window.Cart && Cart.clear) Cart.clear();
+        localStorage.removeItem('amaranth_cart'); // belt + suspenders
+      } catch(e){}
+
+      if(!sid){
+        document.getElementById('status').textContent = 'Payment completed, but no session id was provided.';
+        return;
+      }
+
+      fetch('/api/router?type=checkout_session&id='+encodeURIComponent(sid))
+        .then(r => r.json())
+        .then(j => {
+          if (j && j.id) {
+            document.getElementById('status').textContent = 'Payment confirmed.';
+            document.getElementById('details').style.display = 'block';
+            document.getElementById('ordId').textContent = j.id;
+            const total = (j.amount_total||0)/100;
+            document.getElementById('paid').textContent = total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+            document.getElementById('email').textContent = j.customer_details?.email || '—';
+          } else {
+            document.getElementById('status').textContent = (j && j.error) ? j.error : 'Could not load receipt.';
+          }
+        })
+        .catch(()=>{ document.getElementById('status').textContent = 'Could not load receipt.'; });
+    })();
+  </script>
+</body>
+</html>
