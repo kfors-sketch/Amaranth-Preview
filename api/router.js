@@ -559,4 +559,4 @@ export default async function handler(req, res) {
 }
 
 // 👇 Node 22 runtime hint for Vercel
-export const config = { runtime: "nodejs22.x" };
+export const config = { runtime: "nodejs" };
