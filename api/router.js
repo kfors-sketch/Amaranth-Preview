@@ -29,6 +29,8 @@ function dataUrlToParts(dataUrlOrBase64, mimeFromClient = "") {
   }
   return { mime: mimeFromClient || "application/octet-stream", base64: s };
 }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtMoney = (cents=0) => (Math.round(Number(cents||0))/100).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
 
 function cents(n) { return Math.round(Number(n || 0)); }
 function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
@@ -55,6 +57,19 @@ async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); re
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
+// NEW: safe INCR with initial seed (e.g., first order number)
+async function kvIncrSafe(key, seedIfMissing = 1000) {
+  try {
+    // Ensure the counter exists with a seed
+    const existing = await kv.get(key);
+    if (existing === null || existing === undefined) {
+      await kv.set(key, Number(seedIfMissing));
+    }
+    return await kv.incr(key);
+  } catch {
+    return null; // fall back later
+  }
+}
 
 // ----- order persistence helpers -----
 async function saveOrderFromSession(session) {
@@ -71,7 +86,6 @@ async function saveOrderFromSession(session) {
     const qty   = Number(li.quantity || 1);
     const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents already
     const total = unit * qty;
-
     const meta = (li.price?.product?.metadata || {});
     return {
       id: `${s.id}:${li.id}`,
@@ -86,8 +100,19 @@ async function saveOrderFromSession(session) {
     };
   });
 
+  // Assign a sequential order number (stable per session)
+  let order_no = await kvGetSafe(`orderNo:${s.id}`, null);
+  if (!order_no) {
+    const next = await kvIncrSafe("orders:seq", 1000); // first order will be 1001
+    if (next) {
+      order_no = next;
+      await kvSetSafe(`orderNo:${s.id}`, order_no);
+    }
+  }
+
   const order = {
     id: s.id,
+    order_no: order_no || null, // might be null if KV unavailable
     created: Date.now(),
     payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
     charge: null,
@@ -97,20 +122,24 @@ async function saveOrderFromSession(session) {
     purchaser: {
       name: s.customer_details?.name || "",
       phone: s.customer_details?.phone || "",
+      // Pull a few helpful metadata fields (if provided at session create)
+      title: s.metadata?.purchaser_title || "",
+      city: s.metadata?.purchaser_city || "",
+      state: s.metadata?.purchaser_state || "",
+      postal: s.metadata?.purchaser_postal || "",
     },
     lines,
-    fees: { pct: 0, flat: 0 },
+    fees: { pct: 0, flat: 0 }, // fee is baked into a “Processing Fee” line if present
     refunds: [],
     refunded_cents: 0,
-    status: "paid"
+    status: "paid",
+    test_mode: s.livemode === false
   };
 
   const piId = order.payment_intent;
   if (piId) {
     const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
-    if (pi?.charges?.data?.length) {
-      order.charge = pi.charges.data[0].id;
-    }
+    if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
   await kvSetSafe(`order:${order.id}`, order);
@@ -134,12 +163,7 @@ async function applyRefundToOrder(chargeId, refund) {
       o.refunds = Array.isArray(o.refunds) ? o.refunds : [];
       o.refunds.push(entry);
       o.refunded_cents = (o.refunded_cents || 0) + entry.amount;
-
-      if (o.refunded_cents >= o.amount_total) {
-        o.status = "refunded";
-      } else {
-        o.status = "partial_refund";
-      }
+      o.status = (o.refunded_cents >= o.amount_total) ? "refunded" : "partial_refund";
       await kvSetSafe(key, o);
       return true;
     }
@@ -153,6 +177,7 @@ function flattenOrderToRows(o) {
     const net = li.gross;
     rows.push({
       id: o.id,
+      order_no: o.order_no || null, // NEW
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: "",
@@ -175,6 +200,7 @@ function flattenOrderToRows(o) {
   if (feeLine) {
     rows.push({
       id: o.id,
+      order_no: o.order_no || null, // NEW
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: "",
@@ -196,6 +222,193 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
+// ---------- EMAIL: receipt rendering & sending ----------
+
+function groupLinesByAttendee(order) {
+  const buckets = { "(unassigned)": [] };
+  for (const li of (order.lines || [])) {
+    const key = li.attendeeId || "(unassigned)";
+    (buckets[key] ||= []).push(li);
+  }
+  return buckets;
+}
+
+// Header block with your requested two-line title
+function orderEmailHeader(order) {
+  return `
+    <div style="padding:16px 18px;border-bottom:1px solid #eef2f7;text-align:center">
+      <img src="/assets/img/logo.svg" alt="Logo" style="height:56px;vertical-align:middle" />
+      <div style="margin-top:8px;line-height:1.4">
+        <div style="font:700 16px system-ui;color:#111;">Grand Court of PA</div>
+        <div style="font:600 15px system-ui;color:#111;">Order of the Amaranth</div>
+      </div>
+      <div style="margin-top:6px;color:#6b7280;font:13px system-ui">
+        ${order?.test_mode ? "Test Mode" : ""}
+        ${order?.order_no ? (order?.test_mode ? " • " : "") + "Order #"+order.order_no : ""}
+      </div>
+    </div>
+  `;
+}
+
+function orderEmailBody(order) {
+  const created = new Date(order.created || Date.now());
+  const when = created.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+  // Totals (sum lines; fee line is already included as a normal line)
+  const subtotalCents = (order.lines || [])
+    .filter(li => !/processing fee/i.test(li.itemName || ""))
+    .reduce((s, li) => s + (Number(li.unitPrice||0) * Number(li.qty||0)), 0);
+
+  const feeCents = (order.lines || [])
+    .filter(li => /processing fee/i.test(li.itemName || ""))
+    .reduce((s, li) => s + (Number(li.unitPrice||0) * Number(li.qty||0)), 0);
+
+  const totalCents = subtotalCents + feeCents;
+
+  const purchaserBlock = `
+    <div style="padding:12px 16px">
+      <div style="font:600 14px system-ui;margin:0 0 6px 0;">Payee</div>
+      <div style="font:14px system-ui;color:#111">
+        ${esc(order.purchaser?.name || "")}
+        ${order.customer_email ? `<div style="color:#374151">${esc(order.customer_email)}</div>` : ""}
+        ${order.purchaser?.phone ? `<div style="color:#374151">${esc(order.purchaser.phone)}</div>` : ""}
+      </div>
+      <div style="margin-top:6px;color:#6b7280;font:13px system-ui">${when}</div>
+    </div>
+  `;
+
+  const buckets = groupLinesByAttendee(order);
+
+  const tableCss = "width:100%;border-collapse:collapse;border-spacing:0";
+  const thTd = "border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;font:14px system-ui;color:#111";
+  const tdNum = thTd + ";text-align:right";
+
+  function blockFor(attId, lines) {
+    const who = (attId === "(unassigned)") ? "Purchaser" : "Attendee";
+    const personTotal = lines.reduce((s, li)=> s + (Number(li.unitPrice||0)*Number(li.qty||0)), 0);
+
+    const rows = lines.map(li => {
+      const price = Number(li.unitPrice||0);
+      const qty   = Number(li.qty||0);
+      const lineT = price * qty;
+      return `
+        <tr>
+          <td style="${thTd}">${esc(li.itemName||"")}</td>
+          <td style="${thTd};text-align:center">${qty}</td>
+          <td style="${tdNum}">${fmtMoney(price)}</td>
+          <td style="${tdNum}">${fmtMoney(lineT)}</td>
+        </tr>
+      `;
+    }).join("");
+
+    return `
+      <div style="padding:10px 16px 2px 16px">
+        <div style="font:700 15px system-ui;margin:6px 0 6px 0">${who}</div>
+        <table style="${tableCss}">
+          <thead>
+            <tr>
+              <th style="${thTd};color:#6b7280">Item</th>
+              <th style="${thTd};color:#6b7280;text-align:center">Qty</th>
+              <th style="${tdNum};color:#6b7280">Price</th>
+              <th style="${tdNum};color:#6b7280">Line Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="${tdNum};font-weight:700;border-top:2px solid #d1d5db">Subtotal</td>
+              <td style="${tdNum};font-weight:700;border-top:2px solid #d1d5db">${fmtMoney(personTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+  }
+
+  const blocks = Object.entries(buckets).map(([aid, lines]) => blockFor(aid, lines)).join("");
+
+  const totalsBlock = `
+    <div style="padding:12px 16px">
+      <div style="font:600 14px system-ui">Summary</div>
+      <div style="font:14px system-ui;margin-top:6px">
+        <div><strong>Subtotal:</strong> ${fmtMoney(subtotalCents)}</div>
+        ${feeCents ? `<div><strong>Fees:</strong> ${fmtMoney(feeCents)}</div>` : ""}
+        <div style="margin-top:6px;font-size:15px"><strong>Total:</strong> ${fmtMoney(totalCents)}</div>
+      </div>
+    </div>
+  `;
+
+  return purchaserBlock + blocks + totalsBlock;
+}
+
+function renderOrderEmail(order) {
+  return `
+  <!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Order Receipt</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f6f7fb">
+    <table role="presentation" style="width:100%;border-collapse:collapse;background:#f6f7fb">
+      <tr><td>
+        <div style="max-width:760px;margin:16px auto;background:#fff;border:1px solid #eef2f7;border-radius:12px;overflow:hidden">
+          ${orderEmailHeader(order)}
+          <div>${orderEmailBody(order)}</div>
+          <div style="height:10px"></div>
+        </div>
+        <div style="max-width:760px;margin:8px auto;text-align:center;color:#6b7280;font:12px system-ui">
+          This receipt was sent by Grand Court of PA — Order of the Amaranth.
+        </div>
+      </td></tr>
+    </table>
+  </body>
+  </html>`;
+}
+
+async function sendEmailReceipt(order) {
+  if (!resend) return { ok:false, reason: "resend-not-configured" };
+  const from = process.env.RESEND_FROM || "";
+  if (!from) return { ok:false, reason: "missing-from" };
+
+  const toPrimary = (order.customer_email || "").trim();
+  const ccList = (process.env.REPORTS_CC || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // NEW: subject uses sequential order number when available
+  const orderTag = order?.order_no ? `order #${order.order_no}` : `order ${order.id}`;
+  const subject = `Grand Court of PA - ${orderTag}`;
+
+  // Plaintext fallback
+  const plain = `Thank you for your purchase.
+
+Order: ${order.order_no ? "#" + order.order_no : order.id}
+Total: ${fmtMoney(order.amount_total)}
+Payee: ${order.purchaser?.name || ""} ${order.customer_email ? `(${order.customer_email})` : ""}
+
+This is an automated receipt.`;
+
+  const html = renderOrderEmail(order);
+
+  // If customer email is missing, just send to admin list
+  const recipients = toPrimary ? [toPrimary] : (ccList.length ? [ccList[0]] : []);
+  if (!recipients.length) return { ok:false, reason: "no-recipients" };
+
+  await resend.emails.send({
+    from,
+    to: recipients,
+    cc: ccList,
+    subject,
+    text: plain,
+    html
+  });
+  return { ok:true };
+}
+
+// ------------- main handler -------------
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -218,7 +431,6 @@ export default async function handler(req, res) {
           hasResendClient: !!resend,
           kvSetGetOk: false,
         };
-
         try {
           await kv.set("smoketest:key", "ok", { ex: 30 });
           const v = await kv.get("smoketest:key");
@@ -226,7 +438,6 @@ export default async function handler(req, res) {
         } catch (e) {
           out.kvError = String(e?.message || e);
         }
-
         return REQ_OK(res, out);
       }
 
@@ -279,7 +490,7 @@ export default async function handler(req, res) {
       }
       if (type === "product_image") {
         const id = url.searchParams.get("id") || "";
-        const slot = url.searchParams.get("slot") || "image1";
+        the const slot = url.searchParams.get("slot") || "image1";
         if (!id) return REQ_ERR(res, 400, "missing-id");
         const key = `productimg:${id}:${slot}`;
         const stored = await kvGetSafe(key, null);
@@ -289,7 +500,8 @@ export default async function handler(req, res) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         return res.status(200).send(buf);
       }
-      if (type === "stripe_pubkey") {
+      // Accept both names for publishable key
+      if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
       if (type === "checkout_session") {
@@ -330,8 +542,8 @@ export default async function handler(req, res) {
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
-        const successUrl = (body.successUrl || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
-        const cancelUrl  = body.cancelUrl  || `${origin}/cancel.html`;
+        const successUrl = (body.success_url || body.successUrl || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+        const cancelUrl  = (body.cancel_url  || body.cancelUrl  || `${origin}/cancel.html`);
 
         let line_items = [];
 
@@ -344,7 +556,7 @@ export default async function handler(req, res) {
             quantity: Math.max(1, Number(l.qty || 1)),
             price_data: {
               currency: "usd",
-              unit_amount: toCentsAuto(l.unitPrice || 0), // <-- auto dollars→cents
+              unit_amount: toCentsAuto(l.unitPrice || 0),
               product_data: {
                 name: String(l.itemName || "Item"),
                 metadata: {
@@ -358,13 +570,10 @@ export default async function handler(req, res) {
 
           const pct       = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
-
-          // Subtotal in cents with the same auto rule
           const subtotalCents = lines.reduce(
             (s, l) => s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0),
             0
           );
-
           const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
           if (feeAmount > 0) {
             line_items.push({
@@ -397,7 +606,6 @@ export default async function handler(req, res) {
           return REQ_OK(res, { url: session.url, id: session.id });
         }
 
-        // Simple "items" fallback (already dollars → cents)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) return REQ_ERR(res, 400, "no-items");
 
@@ -440,7 +648,6 @@ export default async function handler(req, res) {
           } else if (whsec && req.rawBody) {
             event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
           } else {
-            // fallback (test mode) – trust parsed JSON
             event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
           }
         } catch (err) {
@@ -451,7 +658,8 @@ export default async function handler(req, res) {
         switch (event.type) {
           case "checkout.session.completed": {
             const session = event.data.object;
-            await saveOrderFromSession(session);
+            const order = await saveOrderFromSession(session);
+            try { await sendEmailReceipt(order); } catch (e) { console.error("email failed", e); }
             break;
           }
           case "charge.refunded": {
