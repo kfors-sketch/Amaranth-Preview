@@ -165,6 +165,22 @@
   <!-- Optional legacy scripts -->
   <script src="/assets/js/main.js" defer></script>
 
+  <!-- ===== NEW: Phone helpers (US dashes; keep +international) ===== -->
+  <script>
+    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
+    function formatUS(d){
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return d.slice(0,3) + '-' + d.slice(3);
+      return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6,10);
+    }
+    function formatPhoneLive(inputEl){
+      const raw = inputEl.value.trim();
+      if (raw.startsWith('+')) return;               // keep international intact
+      const d = digitsOnly(raw).slice(0,10);         // cap to 10 for US mask
+      inputEl.value = formatUS(d);
+    }
+  </script>
+
   <script>
   // Dollars-safe UI formatter
   function money(n){
@@ -202,6 +218,13 @@
         st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
       }
     })();
+
+    // NEW: Purchaser phone auto-format
+    const pPhone = document.getElementById('p_phone');
+    if (pPhone){
+      pPhone.addEventListener('input', ()=>formatPhoneLive(pPhone));
+      pPhone.addEventListener('blur',  ()=>formatPhoneLive(pPhone));
+    }
 
     const list = document.getElementById('order-list');
     const summaryBox  = document.getElementById('order-summary');
@@ -379,14 +402,21 @@
           panel.style.display = 'block';
           panel.querySelector('.ed-name').value   = a?.name || '';
           panel.querySelector('.ed-email').value  = a?.email || '';
-          panel.querySelector('.ed-phone').value  = a?.phone || '';         // NEW
+          panel.querySelector('.ed-phone').value  = a?.phone || '';   // NEW
+          // NEW: live US formatting while typing (respects +international)
+          const edPhone = panel.querySelector('.ed-phone');
+          if (edPhone){
+            edPhone.addEventListener('input', ()=>formatPhoneLive(edPhone));
+            edPhone.addEventListener('blur',  ()=>formatPhoneLive(edPhone));
+          }
+
           panel.querySelector('.ed-title').value  = a?.title || '';
-          panel.querySelector('.ed-addr1').value  = a?.address1 || '';      // NEW
-          panel.querySelector('.ed-addr2').value  = a?.address2 || '';      // NEW
-          panel.querySelector('.ed-city').value   = a?.city || '';          // NEW
-          panel.querySelector('.ed-state').value  = a?.state || '';         // NEW
-          panel.querySelector('.ed-postal').value = a?.postal || '';        // NEW
-          panel.querySelector('.ed-country').value= a?.country || 'US';     // NEW
+          panel.querySelector('.ed-addr1').value  = a?.address1 || '';
+          panel.querySelector('.ed-addr2').value  = a?.address2 || '';
+          panel.querySelector('.ed-city').value   = a?.city || '';
+          panel.querySelector('.ed-state').value  = a?.state || '';
+          panel.querySelector('.ed-postal').value = a?.postal || '';
+          panel.querySelector('.ed-country').value= a?.country || 'US';
           if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
         };
       });

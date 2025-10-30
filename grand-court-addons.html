@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v4"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v5"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -61,7 +61,7 @@
       <div id="attendees"></div>
     </section>
 
-    <!-- Add-ons grid (cards rendered and wired by JS) -->
+    <!-- Add-ons grid -->
     <section class="grid-2 mt-lg" id="addonsGrid"></section>
   </main>
 
@@ -78,25 +78,44 @@
     .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   </style>
 
-  <!-- Core site scripts (order matters) -->
+  <!-- Core site scripts -->
   <script src="assets/js/site-settings.js"></script>
   <script src="assets/js/items.js"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
-
-  <!-- Page JS (existing) -->
   <script src="assets/js/grand-court-addons.js"></script>
 
+  <!-- ===== NEW: Phone helpers (US dashes; keep +international) ===== -->
   <script>
-  // Simple email check
+    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
+    function formatUS(d){
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return d.slice(0,3)+'-'+d.slice(3);
+      return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6,10);
+    }
+    function formatPhoneLive(inputEl){
+      const raw = inputEl.value.trim();
+      if (raw.startsWith('+')) return;  // keep international
+      const d = digitsOnly(raw).slice(0,10);
+      inputEl.value = formatUS(d);
+    }
+  </script>
+
+  <script>
   function looksLikeEmail(s){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim()); }
 
-  // Hook attendee add to enforce requireds + store address/phone
   document.addEventListener('DOMContentLoaded', function(){
     const attForm = document.getElementById('attForm');
     const list = document.getElementById('attendees');
+
+    // Attach live formatting to phone field
+    const phoneField = attForm?.querySelector('input[name="phone"]');
+    if (phoneField){
+      phoneField.addEventListener('input', ()=>formatPhoneLive(phoneField));
+      phoneField.addEventListener('blur',  ()=>formatPhoneLive(phoneField));
+    }
 
     function renderAttendees(){
       const st = Cart.get();
@@ -118,7 +137,7 @@
         `;
       }).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = () => { Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
+        btn.onclick = ()=>{ Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
       });
     }
 
@@ -170,7 +189,7 @@
   });
   </script>
 
-  <!-- Keep this: Add-Ons lines themselves remain note-free -->
+  <!-- Strip attendeeNotes from Add-Ons (unchanged behavior) -->
   <script>
   document.addEventListener('DOMContentLoaded', function(){
     if (document.body?.dataset?.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
@@ -188,7 +207,7 @@
   });
   </script>
 
-  <!-- Maintenance check via router (fixes previous 404 path) -->
+  <!-- Maintenance check -->
   <script>
   (async () => {
     try {
