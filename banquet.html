@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v5">
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v6"><!-- NEW: bump version -->
   <title>Banquets</title>
 </head>
 
@@ -33,16 +33,33 @@
 
     <div id="banquet-list" class="grid-2"></div>
 
-    <!-- Attendees section: frosted card; Notes is single-line input labeled 'Dietary notes' aligned with other fields -->
+    <!-- Attendees section: frosted card; Address + Phone now included -->
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(229,231,235,0.45);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
-        <input name="name" placeholder="Name" required>
-        <input name="email" type="email" placeholder="Email">
-        <input name="title" placeholder="Title">
-        <input name="notes" placeholder="Dietary notes">
+        <div class="grid-3"><!-- NEW -->
+          <input name="name" placeholder="Name *" required>
+          <input name="email" type="email" placeholder="Email *" required>
+          <input name="phone" type="tel" placeholder="Phone *" required>
+        </div>
+        <div class="grid-3"><!-- NEW -->
+          <input name="title" placeholder="Title">
+          <input name="notes" placeholder="Dietary notes">
+          <input name="addr1" placeholder="Address line 1 *" required>
+        </div>
+        <div class="grid-3"><!-- NEW -->
+          <input name="addr2" placeholder="Address line 2">
+          <input name="city" placeholder="City *" required>
+          <input name="state" placeholder="State/Province *" required>
+        </div>
+        <div class="grid-3"><!-- NEW -->
+          <input name="postal" placeholder="Postal code *" required>
+          <input name="country" placeholder="Country *" value="US" required>
+          <span></span>
+        </div>
         <button type="submit">Add attendee</button>
       </form>
+
       <div id="attendees"></div>
     </section>
 
@@ -71,6 +88,10 @@
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n*100) : n;
   }
+  // NEW: simple email check
+  function looksLikeEmail(s){
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
+  }
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
@@ -92,15 +113,23 @@
 
     function renderAttendees(){
       const st = Cart.get();
-      list.innerHTML = (st.attendees||[]).map(a=>`
-        <div class="att-card">
-          <div>
-            <strong>${a.name||''}</strong> <small>${a.email||''}</small> <em>${a.title||''}</em>
-            ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${a.notes.replace(/</g,'&lt;')}</div>` : ''}
+      list.innerHTML = (st.attendees||[]).map(a=>{
+        const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country); // NEW
+        const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing'; // NEW
+        const phone = a?.phone ? ` • ${a.phone}` : ''; // NEW
+        return `
+          <div class="att-card">
+            <div>
+              <strong>${a.name||''}</strong>
+              <small>${a.email||''}</small>
+              <em>${a.title||''}</em>
+              <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div> <!-- NEW -->
+              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
+            </div>
+            <button data-del="${a.id}">Remove</button>
           </div>
-          <button data-del="${a.id}">Remove</button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
         btn.onclick = () => {
           Cart.removeAttendee(btn.dataset.del);
@@ -130,13 +159,44 @@
     form.onsubmit = (e)=>{
       e.preventDefault();
       const fd = new FormData(form);
+
+      const name   = (fd.get('name')||'').trim();
+      const email  = (fd.get('email')||'').trim();
+      const phone  = (fd.get('phone')||'').trim();
+      const title  = (fd.get('title')||'').trim();
+      const notes  = (fd.get('notes')||'').trim();
+
+      const address1 = (fd.get('addr1')||'').trim();
+      const address2 = (fd.get('addr2')||'').trim();
+      const city     = (fd.get('city')||'').trim();
+      const state    = (fd.get('state')||'').trim();
+      const postal   = (fd.get('postal')||'').trim();
+      const country  = (fd.get('country')||'US').trim() || 'US';
+
+      // Validate requireds (NEW)
+      const missing = [];
+      if (!name) missing.push('Name');
+      if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
+      if (!phone) missing.push('Phone');
+      if (!address1) missing.push('Address line 1');
+      if (!city) missing.push('City');
+      if (!state) missing.push('State/Province');
+      if (!postal) missing.push('Postal code');
+      if (!country) missing.push('Country');
+
+      if (missing.length){
+        alert('Please complete the following fields:\n• ' + missing.join('\n• '));
+        return;
+      }
+
       Cart.addAttendee({
-        name: fd.get('name'),
-        email: fd.get('email'),
-        title: fd.get('title'),
-        notes: (fd.get('notes')||'').trim()
+        name, email, phone, title, notes,
+        address1, address2, city, state, postal, country
       });
       form.reset();
+      // keep country default to US for convenience (NEW)
+      form.querySelector('input[name="country"]').value = 'US';
+
       renderAttendees();
       refreshAllAttendeeSelects();
     };
@@ -261,6 +321,7 @@
     .att-form input{margin:4px;padding:6px}
     .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
     .banquet-card{background:rgba(255,255,255,0.40);border:1px solid rgba(229,231,235,0.45);border-radius:10px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,0.06);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px)}
+    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px} /* NEW */
   </style>
 
   <!-- Core site scripts (order matters) -->
@@ -270,27 +331,32 @@
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
-  <script>
-(async () => {
-  try {
-    const resp = await fetch('/api/admin/settings.js');
-    const data = await resp.json();
 
-    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
-      document.body.innerHTML = `
-        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-          <p style="font-size:1.2em;max-width:500px;">
-            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
-          </p>
-        </div>
-      `;
+  <!-- NEW: Maintenance check via router (fixes previous 404) -->
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/router?type=settings');
+      const data = await resp.json();
+
+      const on = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
     }
-  } catch (err) {
-    console.error('Maintenance check failed:', err);
-  }
-})();
-</script>
+  })();
+  </script>
 
 </body>
 </html>

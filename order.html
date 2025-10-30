@@ -37,7 +37,7 @@
       min-width: 220px;
       font-weight:600; font-size:.95rem;
     }
-    .edit-panel input {
+    .edit-panel input, .edit-panel textarea, .edit-panel select {
       padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
       background: rgba(255,255,255,0.9);
     }
@@ -67,16 +67,17 @@
       border-radius:10px;
     }
  
-    .att-notes {
+    .att-notes,
+    .att-meta { /* NEW: small meta line under name */
       font-size:.9rem;
-      opacity:.85;
+      opacity:.95;
       margin: .1rem 0 .4rem;
+      color:#111;
     }
- 
+
     /* Darker order text for better readability */
     .order-table, .order-table td, .order-table th { color: #111; }
     .order-table .tiny { color: #111; opacity: .95; }
-    .att-notes { color: #111; opacity: .95; }
 
     /* Small helper for inline status */
     #checkoutStatus { margin-left:10px; font-size:.95rem }
@@ -178,6 +179,11 @@
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
+  // Simple email check
+  function looksLikeEmail(s){
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
@@ -218,11 +224,22 @@
       function buildBlock(aid, lines) {
         // Resolve display name
         let displayName = '';
+        let displayMeta = ''; // NEW: shows “Mailing address: attached/missing” + phone/email
+        let a = null;
+
         if (aid === '(unassigned)') {
           displayName = getPurchaserName(); // no "(unassigned)" text
         } else {
-          const a = st.attendees.find(x=>x.id===aid);
+          a = (st.attendees || []).find(x=>x.id===aid);
           displayName = a?.name || 'Attendee';
+
+          // Build small meta line (no raw address; just status)
+          const hasAddr =
+            !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
+          const addrStatus = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
+          const phone = a?.phone ? ` • ${a.phone}` : '';
+          const email = a?.email ? ` • ${a.email}` : '';
+          displayMeta = `<div class="att-meta tiny">${addrStatus}${phone}${email}</div>`;
         }
 
         // Inline edit form (for real attendees only)
@@ -268,14 +285,24 @@
               <span>${displayName}</span>
               ${showEdit ? `<button class="btn edit" data-edit="${aid}">Edit</button>` : ''}
             </div>
+            ${displayMeta || ''} <!-- NEW -->
 
             ${showEdit ? `
             <div class="edit-panel" id="${editPanelId}">
               <div class="row">
-                <label>Name<input type="text" class="ed-name" placeholder="Name"></label>
-                <label>Email<input type="email" class="ed-email" placeholder="Email"></label>
+                <label>Name*<input type="text" class="ed-name" placeholder="Name" required></label>
+                <label>Email*<input type="email" class="ed-email" placeholder="Email" required></label>
+                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone" required></label> <!-- NEW -->
                 <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
-               
+
+                <!-- NEW: Mailing address (required to be considered 'attached') -->
+                <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1" required></label>
+                <label>Address line 2<input type="text" class="ed-addr2" placeholder="Address line 2"></label>
+                <label>City*<input type="text" class="ed-city" placeholder="City" required></label>
+                <label>State/Province*<input type="text" class="ed-state" placeholder="State/Province" required></label>
+                <label>Postal code*<input type="text" class="ed-postal" placeholder="Postal code" required></label>
+                <label>Country*<input type="text" class="ed-country" placeholder="Country" value="US" required></label>
+
                 <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
               </div>
               <div style="margin-top:.5rem; display:flex; gap:.5rem;">
@@ -350,12 +377,20 @@
           const st2 = Cart.get();
           const a = st2.attendees.find(x=>x.id===aid);
           panel.style.display = 'block';
-          panel.querySelector('.ed-name').value  = a?.name || '';
-          panel.querySelector('.ed-email').value = a?.email || '';
-          panel.querySelector('.ed-title').value = a?.title || '';
+          panel.querySelector('.ed-name').value   = a?.name || '';
+          panel.querySelector('.ed-email').value  = a?.email || '';
+          panel.querySelector('.ed-phone').value  = a?.phone || '';         // NEW
+          panel.querySelector('.ed-title').value  = a?.title || '';
+          panel.querySelector('.ed-addr1').value  = a?.address1 || '';      // NEW
+          panel.querySelector('.ed-addr2').value  = a?.address2 || '';      // NEW
+          panel.querySelector('.ed-city').value   = a?.city || '';          // NEW
+          panel.querySelector('.ed-state').value  = a?.state || '';         // NEW
+          panel.querySelector('.ed-postal').value = a?.postal || '';        // NEW
+          panel.querySelector('.ed-country').value= a?.country || 'US';     // NEW
           if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
         };
       });
+
       list.querySelectorAll('.cancel-ed').forEach(btn=>{
         btn.onclick = ()=>{
           const aid = btn.dataset.cancel;
@@ -363,10 +398,11 @@
           if (panel) panel.style.display = 'none';
           try {
             const st3 = Cart.get();
+            const notes = panel?.querySelector?.('.ed-notes')?.value?.trim?.() || '';
             (st3.lines || []).forEach(l => {
               if (l.attendeeId === aid && l.itemType === 'banquet'){
                 l.meta = l.meta || {};
-                l.meta.attendeeNotes = panel?.querySelector?.('.ed-notes')?.value?.trim?.() || '';
+                l.meta.attendeeNotes = notes;
                 Cart.updateLine(l.id, { meta: l.meta });
               }
             });
@@ -374,16 +410,61 @@
           render();
         };
       });
+
       list.querySelectorAll('.save-ed').forEach(btn=>{
         btn.onclick = ()=>{
           const aid = btn.dataset.save;
           const panel = document.getElementById(`edit-${aid}`);
           if (!panel) return;
-          const name  = panel.querySelector('.ed-name').value.trim();
-          const email = panel.querySelector('.ed-email').value.trim();
-          const title = panel.querySelector('.ed-title').value.trim();
-          const notes = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
-          Cart.updateAttendee(aid, { name, email, title, notes });
+
+          // Read fields
+          const name    = panel.querySelector('.ed-name').value.trim();
+          const email   = panel.querySelector('.ed-email').value.trim();
+          const phone   = panel.querySelector('.ed-phone').value.trim();   // NEW
+          const title   = panel.querySelector('.ed-title').value.trim();
+          const addr1   = panel.querySelector('.ed-addr1').value.trim();   // NEW
+          const addr2   = panel.querySelector('.ed-addr2').value.trim();   // NEW
+          const city    = panel.querySelector('.ed-city').value.trim();    // NEW
+          const state   = panel.querySelector('.ed-state').value.trim();   // NEW
+          const postal  = panel.querySelector('.ed-postal').value.trim();  // NEW
+          const country = panel.querySelector('.ed-country').value.trim() || 'US'; // NEW
+          const notes   = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
+
+          // Validate requireds
+          const missing = [];
+          if (!name) missing.push('Name');
+          if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
+          if (!phone) missing.push('Phone');
+          if (!addr1) missing.push('Address line 1');
+          if (!city) missing.push('City');
+          if (!state) missing.push('State/Province');
+          if (!postal) missing.push('Postal code');
+          if (!country) missing.push('Country');
+
+          if (missing.length){
+            alert('Please complete the following fields:\n• ' + missing.join('\n• '));
+            return;
+          }
+
+          // Save attendee (Cart must persist these fields)
+          Cart.updateAttendee(aid, {
+            name, email, phone, title,
+            address1: addr1, address2: addr2, city, state, postal, country,
+            notes
+          });
+
+          // Optionally propagate notes to banquet lines for this attendee
+          try {
+            const st4 = Cart.get();
+            (st4.lines || []).forEach(l => {
+              if (l.attendeeId === aid && l.itemType === 'banquet'){
+                l.meta = l.meta || {};
+                l.meta.attendeeNotes = notes;
+                Cart.updateLine(l.id, { meta: l.meta });
+              }
+            });
+          } catch(e){}
+
           panel.style.display = 'none';
           render();
         };
@@ -459,15 +540,15 @@
       const g = id => (document.getElementById(id)?.value || '').trim();
       return {
         name:    g('p_name'),
-        title:    g('p_title'),
-        email:    g('p_email'),
-        phone:    g('p_phone'),
-        address1: g('p_addr1'),
-        address2: g('p_addr2'),
+        title:   g('p_title'),
+        email:   g('p_email'),
+        phone:   g('p_phone'),
+        address1:g('p_addr1'),
+        address2:g('p_addr2'),
         city:    g('p_city'),
-        state:    g('p_state'),
+        state:   g('p_state'),
         postal:  g('p_zip'),
-        country:  g('p_country') || 'US'
+        country: g('p_country') || 'US'
       };
     }
 
@@ -497,9 +578,9 @@
         btn.disabled = true; setStatus('Contacting payment server…', false);
 
         const purchaser = readPurchaser();
-        // basic client-side validation (you can make this stricter if you want)
-        if (!purchaser.name || !purchaser.email || !purchaser.phone) {
-          throw new Error('Please complete your name, email, and phone.');
+        // basic client-side validation for purchaser
+        if (!purchaser.name || !looksLikeEmail(purchaser.email) || !purchaser.phone) {
+          throw new Error('Please complete your name, valid email, and phone.');
         }
 
         const payload = {

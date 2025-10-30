@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v3">
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v4"><!-- bump -->
   <title>Grand Court Add-Ons</title>
 </head>
 
 <body data-page="addons">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+
   <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
@@ -35,11 +36,26 @@
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
-        <input name="name" placeholder="Name" required>
-        <input name="email" type="email" placeholder="Email">
-        <input name="title" placeholder="Title">
-        <input name="notes" placeholder="Dietary notes">
-        
+        <div class="grid-3">
+          <input name="name"  placeholder="Name *" required>
+          <input name="email" type="email" placeholder="Email *" required>
+          <input name="phone" type="tel" placeholder="Phone *" required>
+        </div>
+        <div class="grid-3">
+          <input name="title" placeholder="Title">
+          <input name="notes" placeholder="Notes (e.g., dietary)">
+          <input name="addr1" placeholder="Address line 1 *" required>
+        </div>
+        <div class="grid-3">
+          <input name="addr2" placeholder="Address line 2">
+          <input name="city" placeholder="City *" required>
+          <input name="state" placeholder="State/Province *" required>
+        </div>
+        <div class="grid-3">
+          <input name="postal" placeholder="Postal code *" required>
+          <input name="country" placeholder="Country *" value="US" required>
+          <span></span>
+        </div>
         <button type="submit">Add attendee</button>
       </form>
       <div id="attendees"></div>
@@ -59,6 +75,7 @@
     .addon .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
     .addon label{display:flex;flex-direction:column;gap:6px}
     .addon input,.addon select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
+    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   </style>
 
   <!-- Core site scripts (order matters) -->
@@ -69,73 +86,133 @@
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
-  <!-- Page JS (new) -->
+  <!-- Page JS (existing) -->
   <script src="assets/js/grand-court-addons.js"></script>
 
   <script>
-  // Strip attendeeNotes for any lines added from this Add-Ons page.
+  // Simple email check
+  function looksLikeEmail(s){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim()); }
+
+  // Hook attendee add to enforce requireds + store address/phone
   document.addEventListener('DOMContentLoaded', function(){
-    if (document.body && document.body.dataset && document.body.dataset.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
+    const attForm = document.getElementById('attForm');
+    const list = document.getElementById('attendees');
+
+    function renderAttendees(){
+      const st = Cart.get();
+      list.innerHTML = (st.attendees||[]).map(a=>{
+        const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
+        const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
+        const phone = a?.phone ? ` • ${a.phone}` : '';
+        return `
+          <div class="att-card">
+            <div>
+              <strong>${a.name||''}</strong>
+              <small>${a.email||''}</small>
+              <em>${a.title||''}</em>
+              <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div>
+              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
+            </div>
+            <button data-del="${a.id}">Remove</button>
+          </div>
+        `;
+      }).join('');
+      list.querySelectorAll('button[data-del]').forEach(btn=>{
+        btn.onclick = () => { Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
+      });
+    }
+
+    if (attForm){
+      attForm.onsubmit = (e)=>{
+        e.preventDefault();
+        const fd = new FormData(attForm);
+
+        const name   = (fd.get('name')||'').trim();
+        const email  = (fd.get('email')||'').trim();
+        const phone  = (fd.get('phone')||'').trim();
+        const title  = (fd.get('title')||'').trim();
+        const notes  = (fd.get('notes')||'').trim();
+
+        const address1 = (fd.get('addr1')||'').trim();
+        const address2 = (fd.get('addr2')||'').trim();
+        const city     = (fd.get('city')||'').trim();
+        const state    = (fd.get('state')||'').trim();
+        const postal   = (fd.get('postal')||'').trim();
+        const country  = (fd.get('country')||'US').trim() || 'US';
+
+        const missing = [];
+        if (!name) missing.push('Name');
+        if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
+        if (!phone) missing.push('Phone');
+        if (!address1) missing.push('Address line 1');
+        if (!city) missing.push('City');
+        if (!state) missing.push('State/Province');
+        if (!postal) missing.push('Postal code');
+        if (!country) missing.push('Country');
+
+        if (missing.length){
+          alert('Please complete the following fields:\n• ' + missing.join('\n• '));
+          return;
+        }
+
+        Cart.addAttendee({
+          name, email, phone, title, notes,
+          address1, address2, city, state, postal, country
+        });
+
+        attForm.reset();
+        attForm.querySelector('input[name="country"]').value = 'US';
+        renderAttendees();
+      };
+    }
+
+    renderAttendees();
+  });
+  </script>
+
+  <!-- Keep this: Add-Ons lines themselves remain note-free -->
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    if (document.body?.dataset?.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
       const _add = Cart.addLine.bind(Cart);
       Cart.addLine = function(line){
         try{
-          // Deep-clone to avoid mutating caller's object
           const copy = JSON.parse(JSON.stringify(line || {}));
-          if (copy && copy.meta && Object.prototype.hasOwnProperty.call(copy.meta, 'attendeeNotes')){
+          if (copy?.meta && Object.prototype.hasOwnProperty.call(copy.meta,'attendeeNotes')){
             delete copy.meta.attendeeNotes;
           }
           return _add(copy);
-        }catch(e){
-          // On any error, fall back to original add
-          return _add(line);
-        }
+        }catch(e){ return _add(line); }
       };
     }
   });
   </script>
 
-
+  <!-- Maintenance check via router (fixes previous 404 path) -->
   <script>
-  // Ensure notes entered here are saved on the attendee profile,
-  // but Add-Ons lines themselves remain note-free (see addLine wrapper below).
-  document.addEventListener('DOMContentLoaded', function(){
-    var attForm = document.getElementById('attForm');
-    if (attForm && window.Cart && typeof Cart.addAttendee === 'function'){
-      var _addAtt = Cart.addAttendee.bind(Cart);
-      Cart.addAttendee = function(a){
-        try{
-          var notesInput = attForm.querySelector('[name="notes"]');
-          var n = notesInput ? String(notesInput.value || '').trim() : '';
-          if (n && (!a || !a.notes)){
-            a = Object.assign({}, a || {}, { notes: n });
-          }
-        }catch(e){}
-        return _addAtt(a);
-      };
-    }
-  });
-  </script>
-<script>
-(async () => {
-  try {
-    const resp = await fetch('/api/admin/settings.js');
-    const data = await resp.json();
+  (async () => {
+    try {
+      const resp = await fetch('/api/router?type=settings');
+      const data = await resp.json();
 
-    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
-      document.body.innerHTML = `
-        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-          <p style="font-size:1.2em;max-width:500px;">
-            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
-          </p>
-        </div>
-      `;
+      const on = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
     }
-  } catch (err) {
-    console.error('Maintenance check failed:', err);
-  }
-})();
-</script>
+  })();
+  </script>
 
 </body>
 </html>
