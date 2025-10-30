@@ -33,6 +33,12 @@ function dataUrlToParts(dataUrlOrBase64, mimeFromClient = "") {
 function cents(n) { return Math.round(Number(n || 0)); }
 function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
 
+// NEW: auto-detect dollars vs cents (60 -> 6000, 6000 -> 6000)
+function toCentsAuto(v){
+  const n = Number(v || 0);
+  return n < 1000 ? Math.round(n * 100) : Math.round(n);
+}
+
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
   const auth = req.headers.authorization || "";
@@ -63,10 +69,9 @@ async function saveOrderFromSession(session) {
   const lines = (s.line_items?.data || []).map(li => {
     const name  = li.description || li.price?.product?.name || "Item";
     const qty   = Number(li.quantity || 1);
-    const unit  = cents(li.price?.unit_amount || 0);
+    const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents already
     const total = unit * qty;
 
-    // metadata we put into product_data.metadata in create_checkout_session (new cart path)
     const meta = (li.price?.product?.metadata || {});
     return {
       id: `${s.id}:${li.id}`,
@@ -85,7 +90,7 @@ async function saveOrderFromSession(session) {
     id: s.id,
     created: Date.now(),
     payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
-    charge: null, // can be filled by subsequent webhook or PI expand
+    charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
     customer_email: s.customer_details?.email || "",
@@ -94,13 +99,12 @@ async function saveOrderFromSession(session) {
       phone: s.customer_details?.phone || "",
     },
     lines,
-    fees: { pct: 0, flat: 0 }, // already baked into a dedicated fee line if you used it
-    refunds: [],               // [{id, amount, charge, created}]
+    fees: { pct: 0, flat: 0 },
+    refunds: [],
     refunded_cents: 0,
     status: "paid"
   };
 
-  // Try to get charge id from payment intent (if expanded)
   const piId = order.payment_intent;
   if (piId) {
     const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
@@ -215,7 +219,6 @@ export default async function handler(req, res) {
           kvSetGetOk: false,
         };
 
-        // Actively test KV read/write (not just method presence)
         try {
           await kv.set("smoketest:key", "ok", { ex: 30 });
           const v = await kv.get("smoketest:key");
@@ -341,7 +344,7 @@ export default async function handler(req, res) {
             quantity: Math.max(1, Number(l.qty || 1)),
             price_data: {
               currency: "usd",
-              unit_amount: cents(l.unitPrice || 0),
+              unit_amount: toCentsAuto(l.unitPrice || 0), // <-- auto dollars→cents
               product_data: {
                 name: String(l.itemName || "Item"),
                 metadata: {
@@ -353,10 +356,16 @@ export default async function handler(req, res) {
             }
           }));
 
-          const pct  = Number(fees.pct || 0);
-          const flat = cents(fees.flat || 0);
-          const subtotal = lines.reduce((s, l) => s + cents(l.unitPrice||0) * Number(l.qty||0), 0);
-          const feeAmount = Math.max(0, Math.round(subtotal * (pct/100)) + flat);
+          const pct       = Number(fees.pct || 0);
+          const flatCents = toCentsAuto(fees.flat || 0);
+
+          // Subtotal in cents with the same auto rule
+          const subtotalCents = lines.reduce(
+            (s, l) => s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0),
+            0
+          );
+
+          const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
           if (feeAmount > 0) {
             line_items.push({
               quantity: 1,
@@ -388,6 +397,7 @@ export default async function handler(req, res) {
           return REQ_OK(res, { url: session.url, id: session.id });
         }
 
+        // Simple "items" fallback (already dollars → cents)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) return REQ_ERR(res, 400, "no-items");
 
