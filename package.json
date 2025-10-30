@@ -1,6 +1,6 @@
 {
   "type": "module",
-  "engines": { "node": "18.x" },
+  "engines": { "node": "22.x" },
   "dependencies": {
     "@vercel/kv": "^1.0.0",
     "resend": "^3.2.0",
