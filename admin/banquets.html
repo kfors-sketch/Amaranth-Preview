@@ -65,11 +65,11 @@
       <!-- List -->
       <section class="col left">
         <div class="toolbar">
-          <button id="btnAddNew" class="btn success">+ New Banquet/Add-On</button>
-          <button id="btnExport" class="btn ghost">Export JSON</button>
+          <button id="btnAddNew" class="btn success" type="button">+ New Banquet/Add-On</button>
+          <button id="btnExport" class="btn ghost" type="button">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
-          <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
+          <button id="btnRefresh" class="btn ghost" type="button">Refresh from Server</button>
           <span id="listMsg" class="muted"></span>
         </div>
 
@@ -153,15 +153,14 @@
         <textarea id="f_notes" placeholder="Any extra text that shows on the product page."></textarea>
 
         <div class="toolbar" style="margin-top:10px">
-          <button id="btnSave" class="btn">Save</button>
-          <button id="btnReset" class="btn ghost">Reset</button>
+          <button id="btnSave" class="btn" type="button">Save</button>
+          <button id="btnReset" class="btn ghost" type="button">Reset</button>
         </div>
       </aside>
     </div>
   </main>
 
   <!-- Data source (static fallback) -->
-  <!-- Tell banquets.js to register through the router -->
   <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
   <script src="/assets/js/banquets.js"></script>
 
@@ -189,12 +188,12 @@
     const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
     return `${y}-${m}-${day}T${hh}:${mm}`;
   }
-
   function fromLocalDT(local){
     if(!local) return '';
     const d = new Date(local);
     return isNaN(d) ? '' : d.toISOString();
   }
+  const csv = s => s.split(',').map(v=>v.trim()).filter(Boolean);
 
   let model = [];
   let current = null;
@@ -207,7 +206,7 @@
       const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.banquets) && j.banquets.length) {
+        if (Array.isArray(j?.banquets)) {
           model = j.banquets;
           loaded = true;
         }
@@ -230,7 +229,7 @@
       const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.banquets) && j.banquets.length){
+        if (Array.isArray(j?.banquets)){
           model = j.banquets; loaded = true;
           $('#listMsg').textContent = 'Loaded from server.';
         }
@@ -244,6 +243,7 @@
     renderList(); startNew();
   });
 
+  // ----- Render table -----
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
@@ -263,8 +263,8 @@
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(chair)}</td>
         <td>
-          <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
-          <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
+          <button type="button" class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
+          <button type="button" class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
         </td>`;
       tb.appendChild(tr);
     }
@@ -272,24 +272,156 @@
     tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
   }
 
-  function startNew(){ /* same as before */ }
-  function fillForm(b){ /* same as before */ }
-  function readForm(){ /* same as before */ }
-  function validate(o){ /* same as before */ }
-  function onEdit(e){ /* same as before */ }
-  function uniqueId(base){ /* same as before */ }
-  function onCopy(e){ /* same as before */ }
+  // ----- Editor helpers -----
+  function startNew(){
+    isNew = true;
+    current = null;
+    $('#modeChip').textContent = 'New';
+    $('#editMsg').textContent = '';
 
+    $('#f_name').value = '';
+    $('#f_id').value = '';
+    $('#f_chair_name').value = '';
+    $('#f_chair_emails').value = '';
+    $('#f_meals').value = '';
+    $('#f_active').value = 'true';
+    $('#f_price').value = '';
+    $('#f_location').value = '';
+    $('#f_eventAt').value = '';
+    $('#f_start').value = '';
+    $('#f_end').value = '';
+    $('#f_notes').value = '';
+  }
+
+  function fillForm(b){
+    isNew = false;
+    current = b;
+    $('#modeChip').textContent = 'Edit';
+    $('#editMsg').textContent = '';
+
+    const price = Array.isArray(b.options) && b.options[0]?.price != null ? Number(b.options[0].price) : (b.price ?? '');
+
+    $('#f_name').value = b.name || '';
+    $('#f_id').value = b.id || '';
+    $('#f_chair_name').value = b.chair?.name || '';
+    $('#f_chair_emails').value = (b.chairEmails || []).join(', ');
+    $('#f_meals').value = Array.isArray(b.mealChoices) ? b.mealChoices.join(',') : (b.meals || '');
+    $('#f_active').value = (b.active === false) ? 'false' : 'true';
+    $('#f_price').value = price !== '' && !isNaN(price) ? String(price) : '';
+    $('#f_location').value = b.location || '';
+    $('#f_eventAt').value = toLocalDT(b.eventAt || '');
+    $('#f_start').value = toLocalDT(b.publishStart || '');
+    $('#f_end').value = toLocalDT(b.publishEnd || '');
+    $('#f_notes').value = b.description || b.notes || '';
+  }
+
+  function readForm(){
+    const name = $('#f_name').value.trim();
+    const id   = $('#f_id').value.trim();
+    const chairName = $('#f_chair_name').value.trim();
+    const chairEmails = csv($('#f_chair_emails').value || '');
+    const mealChoices = csv($('#f_meals').value || '');
+    const active = $('#f_active').value === 'true';
+    const price  = Number($('#f_price').value || 0);
+    const location = $('#f_location').value.trim();
+    const eventAt  = fromLocalDT($('#f_eventAt').value);
+    const publishStart = fromLocalDT($('#f_start').value);
+    const publishEnd   = fromLocalDT($('#f_end').value);
+    const description  = $('#f_notes').value.trim();
+
+    // Normalize into public page shape
+    const out = {
+      id, name,
+      active,
+      location,
+      eventAt,                       // used by admin + preview; banquets page can still show .datetime if present
+      publishStart, publishEnd,
+      chair: chairName ? { name: chairName } : {},
+      chairEmails,
+      mealChoices,                   // [] if none
+      options: [{
+        id: 'ticket',
+        label: 'Ticket',
+        price: isFinite(price) ? price : 0
+      }],
+      description
+    };
+
+    // keep backward-compatible alias for older consumer code
+    out.datetime = eventAt ? prettyDate(new Date(eventAt)) : '';
+    return out;
+  }
+
+  function validate(o){
+    if (!o.name) return 'Name is required.';
+    if (!o.id) return 'ID is required.';
+    if (!idOK(o.id)) return 'ID must contain only lowercase letters, numbers, and dashes.';
+    if (!isFinite(o.options?.[0]?.price) || o.options[0].price < 0) return 'Ticket price must be 0 or greater.';
+    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) return 'Publish End must be after Publish Start.';
+    if (isNew && model.some(x => x.id === o.id)) return 'ID already exists. Choose a different ID.';
+    return '';
+  }
+
+  function onEdit(e){
+    const id = e.currentTarget?.dataset?.id;
+    if (!id) return;
+    const b = model.find(x => x.id === id);
+    if (!b) { $('#editMsg').textContent = 'Could not find item to edit.'; return; }
+    fillForm(b);
+  }
+
+  function uniqueId(base){
+    let slug = (base || 'item').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'');
+    if (!slug) slug = 'item';
+    if (!model.some(x=>x.id===slug)) return slug;
+    let i = 2;
+    while (model.some(x => x.id === `${slug}-${i}`)) i++;
+    return `${slug}-${i}`;
+  }
+
+  function onCopy(e){
+    const id = e.currentTarget?.dataset?.id;
+    if (!id) return;
+    const b = model.find(x => x.id === id);
+    if (!b) return;
+
+    const copy = JSON.parse(JSON.stringify(b));
+    copy.name = (copy.name || 'Item') + ' (Copy)';
+    copy.id = uniqueId(copy.id || copy.name || 'item');
+
+    // shift publish window out of the way (optional)
+    copy.publishStart = '';
+    copy.publishEnd   = '';
+
+    isNew = true;
+    fillForm(copy); // shows in editor as "Edit", but we want 'New' for copies
+    isNew = true;
+    $('#modeChip').textContent = 'New';
+  }
+
+  // Toolbar: New/Reset/Save
   $('#btnAddNew').addEventListener('click', startNew);
   $('#btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
 
   $('#btnSave').addEventListener('click', async ()=>{
-    const o = readForm(); const err = validate(o);
+    const o = readForm();
+    const err = validate(o);
     if(err){ $('#editMsg').textContent = err; return; }
 
     const idx = model.findIndex(x => x.id === o.id);
-    if(idx >= 0){ model[idx] = {...model[idx], ...o}; }
-    else{ model.push(o); isNew = false; current = o; $('#modeChip').textContent = 'Edit'; }
+    if(idx >= 0){
+      // update existing
+      model[idx] = { ...model[idx], ...o };
+      current = model[idx];
+      isNew = false;
+      $('#modeChip').textContent = 'Edit';
+    } else {
+      // create new
+      model.push(o);
+      current = o;
+      isNew = false;
+      $('#modeChip').textContent = 'Edit';
+    }
     renderList();
 
     try{
@@ -301,7 +433,40 @@
       });
       if (!res.ok) throw new Error("server rejected");
       $('#editMsg').textContent = 'Saved to server.';
-    }catch{ $('#editMsg').textContent = 'Saved locally; export JSON if needed.'; }
+    }catch{
+      $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
+    }
+  });
+
+  // Export / Import
+  $('#btnExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(model, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'banquets-export.json';
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(url);
+    a.remove();
+  });
+
+  $('#fileImport').addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try{
+      const text = await f.text();
+      const arr = JSON.parse(text);
+      if (!Array.isArray(arr)) throw new Error('File must contain a JSON array.');
+      model = arr;
+      renderList();
+      startNew();
+      $('#listMsg').textContent = 'Imported JSON (not yet saved to server).';
+    }catch(err){
+      alert('Import failed: ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
   });
 
   loadInitial();
