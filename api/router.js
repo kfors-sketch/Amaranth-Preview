@@ -5,12 +5,12 @@ import { Resend } from "resend";
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
 async function getStripe() {
-  if (_stripe) return _stripe;
-  const key = process.env.STRIPE_SECRET_KEY || "";
-  if (!key) return null;
-  const { default: Stripe } = await import("stripe");
-  _stripe = new Stripe(key);
-  return _stripe;
+ if (_stripe) return _stripe;
+ const key = process.env.STRIPE_SECRET_KEY || "";
+ if (!key) return null;
+ const { default: Stripe } = await import("stripe");
+ _stripe = new Stripe(key);
+ return _stripe;
 }
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -19,762 +19,485 @@ const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
 // ---------- helpers ----------
-function dataUrlToParts(dataUrlOrBase64, mimeFromClient = "") {
-  if (!dataUrlOrBase64) return null;
-  const s = String(dataUrlOrBase64);
-  if (s.startsWith("data:")) {
-    const m = s.match(/^data:([^;]+);base64,(.*)$/);
-    if (!m) return null;
-    return { mime: m[1] || (mimeFromClient || "application/octet-stream"), base64: m[2] };
-  }
-  return { mime: mimeFromClient || "application/octet-stream", base64: s };
-}
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmtMoney = (cents=0) => (Math.round(Number(cents||0))/100).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
-
 function cents(n) { return Math.round(Number(n || 0)); }
 function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
-
-// NEW: auto-detect dollars vs cents (60 -> 6000, 6000 -> 6000)
-function toCentsAuto(v){
-  const n = Number(v || 0);
-  return n < 1000 ? Math.round(n * 100) : Math.round(n);
-}
-
-// Simple bearer auth for admin writes
-function requireToken(req, res) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token || token !== (process.env.REPORT_TOKEN || "")) {
-    REQ_ERR(res, 401, "unauthorized");
-    return false;
-  }
-  return true;
-}
+// Auto dollars→cents if small integer
+function toCentsAuto(v){ const n = Number(v || 0); return n < 1000 ? Math.round(n * 100) : Math.round(n); }
 
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
 async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
-// NEW: safe INCR with initial seed (e.g., first order number)
-async function kvIncrSafe(key, seedIfMissing = 1000) {
-  try {
-    // Ensure the counter exists with a seed
-    const existing = await kv.get(key);
-    if (existing === null || existing === undefined) {
-      await kv.set(key, Number(seedIfMissing));
-    }
-    return await kv.incr(key);
-  } catch {
-    return null; // fall back later
-  }
+
+// Simple bearer auth for admin writes
+function requireToken(req, res) {
+ const auth = req.headers.authorization || "";
+ const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+ if (!token || token !== (process.env.REPORT_TOKEN || "")) {
+   REQ_ERR(res, 401, "unauthorized");
+   return false;
+ }
+ return true;
 }
 
 // ----- order persistence helpers -----
-async function saveOrderFromSession(session) {
-  const stripe = await getStripe();
-  if (!stripe) throw new Error("stripe-not-configured");
+async function saveOrderFromSession(sessionLike) {
+ const stripe = await getStripe();
+ if (!stripe) throw new Error("stripe-not-configured");
 
-  // Expand line items if not present
-  const s = await stripe.checkout.sessions.retrieve(session.id, {
-    expand: ["line_items.data.price.product", "payment_intent"],
-  });
+ const s = await stripe.checkout.sessions.retrieve(sessionLike.id, {
+   expand: ["line_items.data.price.product", "payment_intent"],
+ });
 
-  const lines = (s.line_items?.data || []).map(li => {
-    const name  = li.description || li.price?.product?.name || "Item";
-    const qty   = Number(li.quantity || 1);
-    const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents already
-    const total = unit * qty;
-    const meta = (li.price?.product?.metadata || {});
-    return {
-      id: `${s.id}:${li.id}`,
-      itemName: name,
-      qty,
-      unitPrice: unit,
-      gross: total,
-      category: (meta.itemType || '').toLowerCase() || 'other',
-      notes: "",
-      attendeeId: meta.attendeeId || "",
-      itemId: meta.itemId || "",
-    };
-  });
+ const lines = (s.line_items?.data || []).map(li => {
+   const name  = li.description || li.price?.product?.name || "Item";
+   const qty   = Number(li.quantity || 1);
+   const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
+   const total = unit * qty;
+   const meta  = (li.price?.product?.metadata || {});
+   return {
+     id: `${s.id}:${li.id}`,
+     itemName: name,
+     qty,
+     unitPrice: unit,
+     gross: total,
+     category: (meta.itemType || '').toLowerCase() || 'other',
+     notes: "",
+     attendeeId: meta.attendeeId || "",
+     itemId: meta.itemId || "",
+   };
+ });
 
-  // Assign a sequential order number (stable per session)
-  let order_no = await kvGetSafe(`orderNo:${s.id}`, null);
-  if (!order_no) {
-    const next = await kvIncrSafe("orders:seq", 1000); // first order will be 1001
-    if (next) {
-      order_no = next;
-      await kvSetSafe(`orderNo:${s.id}`, order_no);
-    }
-  }
+ const order = {
+   id: s.id,
+   created: Date.now(),
+   payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
+   charge: null,
+   currency: s.currency || "usd",
+   amount_total: cents(s.amount_total || 0),
+   customer_email: s.customer_details?.email || "",
+   purchaser: {
+     name: s.customer_details?.name || "",
+     phone: s.customer_details?.phone || "",
+   },
+   lines,
+   fees: { pct: 0, flat: 0 },
+   refunds: [],
+   refunded_cents: 0,
+   status: "paid"
+ };
 
-  const order = {
-    id: s.id,
-    order_no: order_no || null, // might be null if KV unavailable
-    created: Date.now(),
-    payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
-    charge: null,
-    currency: s.currency || "usd",
-    amount_total: cents(s.amount_total || 0),
-    customer_email: s.customer_details?.email || "",
-    purchaser: {
-      name: s.customer_details?.name || "",
-      phone: s.customer_details?.phone || "",
-      // Pull a few helpful metadata fields (if provided at session create)
-      title: s.metadata?.purchaser_title || "",
-      city: s.metadata?.purchaser_city || "",
-      state: s.metadata?.purchaser_state || "",
-      postal: s.metadata?.purchaser_postal || "",
-    },
-    lines,
-    fees: { pct: 0, flat: 0 }, // fee is baked into a “Processing Fee” line if present
-    refunds: [],
-    refunded_cents: 0,
-    status: "paid",
-    test_mode: s.livemode === false
-  };
+ const piId = order.payment_intent;
+ if (piId) {
+   const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
+   if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
+ }
 
-  const piId = order.payment_intent;
-  if (piId) {
-    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
-    if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
-  }
-
-  await kvSetSafe(`order:${order.id}`, order);
-  await kvSaddSafe("orders:index", order.id);
-  return order;
+ await kvSetSafe(`order:${order.id}`, order);
+ await kvSaddSafe("orders:index", order.id);
+ return order;
 }
 
 async function applyRefundToOrder(chargeId, refund) {
-  const ids = await kvGetSafe("orders:index", []);
-  for (const sid of ids) {
-    const key = `order:${sid}`;
-    const o = await kvGetSafe(key, null);
-    if (!o) continue;
-    if (o.charge === chargeId || o.payment_intent === refund.payment_intent) {
-      const entry = {
-        id: refund.id,
-        amount: cents(refund.amount || 0),
-        charge: refund.charge || chargeId,
-        created: refund.created ? refund.created * 1000 : Date.now()
-      };
-      o.refunds = Array.isArray(o.refunds) ? o.refunds : [];
-      o.refunds.push(entry);
-      o.refunded_cents = (o.refunded_cents || 0) + entry.amount;
-      o.status = (o.refunded_cents >= o.amount_total) ? "refunded" : "partial_refund";
-      await kvSetSafe(key, o);
-      return true;
-    }
-  }
-  return false;
+ const ids = await kvGetSafe("orders:index", []);
+ for (const sid of ids) {
+   const key = `order:${sid}`;
+   const o = await kvGetSafe(key, null);
+   if (!o) continue;
+   if (o.charge === chargeId || o.payment_intent === refund.payment_intent) {
+     const entry = {
+       id: refund.id,
+       amount: cents(refund.amount || 0),
+       charge: refund.charge || chargeId,
+       created: refund.created ? refund.created * 1000 : Date.now()
+     };
+     o.refunds = Array.isArray(o.refunds) ? o.refunds : [];
+     o.refunds.push(entry);
+     o.refunded_cents = (o.refunded_cents || 0) + entry.amount;
+     o.status = o.refunded_cents >= o.amount_total ? "refunded" : "partial_refund";
+     await kvSetSafe(key, o);
+     return true;
+   }
+ }
+ return false;
 }
 
 function flattenOrderToRows(o) {
-  const rows = [];
-  (o.lines || []).forEach(li => {
-    const net = li.gross;
-    rows.push({
-      id: o.id,
-      order_no: o.order_no || null, // NEW
-      date: new Date(o.created || Date.now()).toISOString(),
-      purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: "",
-      category: li.category || 'other',
-      item: li.itemName || '',
-      qty: li.qty || 1,
-      price: (li.unitPrice || 0) / 100,
-      gross: (li.gross || 0) / 100,
-      fees: 0,
-      net: (net || 0) / 100,
-      status: o.status || "paid",
-      notes: "",
-      _pi: o.payment_intent || "",
-      _charge: o.charge || "",
-      _session: o.id
-    });
-  });
-
-  const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
-  if (feeLine) {
-    rows.push({
-      id: o.id,
-      order_no: o.order_no || null, // NEW
-      date: new Date(o.created || Date.now()).toISOString(),
-      purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: "",
-      category: 'other',
-      item: feeLine.itemName || 'Processing Fee',
-      qty: feeLine.qty || 1,
-      price: (feeLine.unitPrice || 0) / 100,
-      gross: (feeLine.gross || 0) / 100,
-      fees: 0,
-      net: (feeLine.gross || 0) / 100,
-      status: o.status || "paid",
-      notes: "",
-      _pi: o.payment_intent || "",
-      _charge: o.charge || "",
-      _session: o.id
-    });
-  }
-
-  return rows;
+ const rows = [];
+ (o.lines || []).forEach(li => {
+   const net = li.gross;
+   rows.push({
+     id: o.id,
+     date: new Date(o.created || Date.now()).toISOString(),
+     purchaser: o.purchaser?.name || o.customer_email || "",
+     attendee: "",
+     category: li.category || 'other',
+     item: li.itemName || '',
+     qty: li.qty || 1,
+     price: (li.unitPrice || 0) / 100,
+     gross: (li.gross || 0) / 100,
+     fees: 0,
+     net: (net || 0) / 100,
+     status: o.status || "paid",
+     notes: "",
+     _pi: o.payment_intent || "",
+     _charge: o.charge || "",
+     _session: o.id
+   });
+ });
+ const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
+ if (feeLine) {
+   rows.push({
+     id: o.id, date: new Date(o.created || Date.now()).toISOString(),
+     purchaser: o.purchaser?.name || o.customer_email || "",
+     attendee: "", category: 'other',
+     item: feeLine.itemName || 'Processing Fee',
+     qty: feeLine.qty || 1,
+     price: (feeLine.unitPrice || 0) / 100,
+     gross: (feeLine.gross || 0) / 100,
+     fees: 0, net: (feeLine.gross || 0) / 100,
+     status: o.status || "paid",
+     notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
+   });
+ }
+ return rows;
 }
 
-// ---------- EMAIL: receipt rendering & sending ----------
-
-function groupLinesByAttendee(order) {
-  const buckets = { "(unassigned)": [] };
-  for (const li of (order.lines || [])) {
-    const key = li.attendeeId || "(unassigned)";
-    (buckets[key] ||= []).push(li);
-  }
-  return buckets;
+// -------- Email rendering + sending (safe) --------
+function absoluteUrl(path = "/") {
+ const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
+ if (!base) return path;
+ return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// Header block with your requested two-line title
-function orderEmailHeader(order) {
-  return `
-    <div style="padding:16px 18px;border-bottom:1px solid #eef2f7;text-align:center">
-      <img src="/assets/img/logo.svg" alt="Logo" style="height:56px;vertical-align:middle" />
-      <div style="margin-top:8px;line-height:1.4">
-        <div style="font:700 16px system-ui;color:#111;">Grand Court of PA</div>
-        <div style="font:600 15px system-ui;color:#111;">Order of the Amaranth</div>
-      </div>
-      <div style="margin-top:6px;color:#6b7280;font:13px system-ui">
-        ${order?.test_mode ? "Test Mode" : ""}
-        ${order?.order_no ? (order?.test_mode ? " • " : "") + "Order #"+order.order_no : ""}
-      </div>
-    </div>
-  `;
+function renderOrderEmailHTML(order) {
+ // header with logo and title
+ const logoUrl = absoluteUrl("/assets/img/logo.svg");
+ const title = "Grand Court of PA — Order of the Amaranth";
+ const subtitle = `Order #${order.id}`;
+
+ const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
+ const rows = (order.lines||[]).map(li => `
+   <tr>
+     <td style="padding:8px;border-bottom:1px solid #eee">${li.itemName || ""}</td>
+     <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
+     <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
+     <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
+   </tr>`).join("");
+
+ const subtotal = (order.lines||[]).reduce((s,li)=>s+(li.gross||0),0);
+ const total = order.amount_total || subtotal;
+
+ return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
+ <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
+   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+     <img src="${logoUrl}" alt="Logo" style="height:40px" />
+     <div>
+       <div style="font-size:18px;font-weight:800">${title}</div>
+       <div style="font-size:14px;color:#555">${subtitle}</div>
+     </div>
+   </div>
+
+   <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
+     <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
+     <div>${order.purchaser?.name || ""}</div>
+     <div>${order.customer_email || ""}</div>
+     <div>${order.purchaser?.phone || ""}</div>
+   </div>
+
+   <h2 style="margin:16px 0 8px">Order Summary</h2>
+   <table style="width:100%;border-collapse:collapse">
+     <thead>
+       <tr>
+         <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
+         <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
+         <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
+         <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
+       </tr>
+     </thead>
+     <tbody>${rows || ""}</tbody>
+     <tfoot>
+       <tr>
+         <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
+         <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+       </tr>
+     </tfoot>
+   </table>
+
+   <p style="color:#666;font-size:12px;margin-top:12px">Thank you for your order!</p>
+ </div>
+ </body></html>`;
 }
 
-function orderEmailBody(order) {
-  const created = new Date(order.created || Date.now());
-  const when = created.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+async function sendOrderReceipts(order) {
+ if (!resend) return { sent: false, reason: "resend-not-configured" };
+ const toList = [order.customer_email].filter(Boolean);
+ const ccList = (process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean);
 
-  // Totals (sum lines; fee line is already included as a normal line)
-  const subtotalCents = (order.lines || [])
-    .filter(li => !/processing fee/i.test(li.itemName || ""))
-    .reduce((s, li) => s + (Number(li.unitPrice||0) * Number(li.qty||0)), 0);
+ const subject = `Grand Court of PA - order #${order.id}`;
+ const html = renderOrderEmailHTML(order);
 
-  const feeCents = (order.lines || [])
-    .filter(li => /processing fee/i.test(li.itemName || ""))
-    .reduce((s, li) => s + (Number(li.unitPrice||0) * Number(li.qty||0)), 0);
-
-  const totalCents = subtotalCents + feeCents;
-
-  const purchaserBlock = `
-    <div style="padding:12px 16px">
-      <div style="font:600 14px system-ui;margin:0 0 6px 0;">Payee</div>
-      <div style="font:14px system-ui;color:#111">
-        ${esc(order.purchaser?.name || "")}
-        ${order.customer_email ? `<div style="color:#374151">${esc(order.customer_email)}</div>` : ""}
-        ${order.purchaser?.phone ? `<div style="color:#374151">${esc(order.purchaser.phone)}</div>` : ""}
-      </div>
-      <div style="margin-top:6px;color:#6b7280;font:13px system-ui">${when}</div>
-    </div>
-  `;
-
-  const buckets = groupLinesByAttendee(order);
-
-  const tableCss = "width:100%;border-collapse:collapse;border-spacing:0";
-  const thTd = "border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;font:14px system-ui;color:#111";
-  const tdNum = thTd + ";text-align:right";
-
-  function blockFor(attId, lines) {
-    const who = (attId === "(unassigned)") ? "Purchaser" : "Attendee";
-    const personTotal = lines.reduce((s, li)=> s + (Number(li.unitPrice||0)*Number(li.qty||0)), 0);
-
-    const rows = lines.map(li => {
-      const price = Number(li.unitPrice||0);
-      const qty   = Number(li.qty||0);
-      const lineT = price * qty;
-      return `
-        <tr>
-          <td style="${thTd}">${esc(li.itemName||"")}</td>
-          <td style="${thTd};text-align:center">${qty}</td>
-          <td style="${tdNum}">${fmtMoney(price)}</td>
-          <td style="${tdNum}">${fmtMoney(lineT)}</td>
-        </tr>
-      `;
-    }).join("");
-
-    return `
-      <div style="padding:10px 16px 2px 16px">
-        <div style="font:700 15px system-ui;margin:6px 0 6px 0">${who}</div>
-        <table style="${tableCss}">
-          <thead>
-            <tr>
-              <th style="${thTd};color:#6b7280">Item</th>
-              <th style="${thTd};color:#6b7280;text-align:center">Qty</th>
-              <th style="${tdNum};color:#6b7280">Price</th>
-              <th style="${tdNum};color:#6b7280">Line Total</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" style="${tdNum};font-weight:700;border-top:2px solid #d1d5db">Subtotal</td>
-              <td style="${tdNum};font-weight:700;border-top:2px solid #d1d5db">${fmtMoney(personTotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
-  }
-
-  const blocks = Object.entries(buckets).map(([aid, lines]) => blockFor(aid, lines)).join("");
-
-  const totalsBlock = `
-    <div style="padding:12px 16px">
-      <div style="font:600 14px system-ui">Summary</div>
-      <div style="font:14px system-ui;margin-top:6px">
-        <div><strong>Subtotal:</strong> ${fmtMoney(subtotalCents)}</div>
-        ${feeCents ? `<div><strong>Fees:</strong> ${fmtMoney(feeCents)}</div>` : ""}
-        <div style="margin-top:6px;font-size:15px"><strong>Total:</strong> ${fmtMoney(totalCents)}</div>
-      </div>
-    </div>
-  `;
-
-  return purchaserBlock + blocks + totalsBlock;
+ await resend.emails.send({
+   from: process.env.RESEND_FROM,
+   to: toList.length ? toList : ccList, // fallback to CC if no purchaser email
+   cc: ccList.length ? ccList : undefined,
+   subject,
+   html
+ });
+ return { sent: true };
 }
 
-function renderOrderEmail(order) {
-  return `
-  <!doctype html>
-  <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Order Receipt</title>
-  </head>
-  <body style="margin:0;padding:0;background:#f6f7fb">
-    <table role="presentation" style="width:100%;border-collapse:collapse;background:#f6f7fb">
-      <tr><td>
-        <div style="max-width:760px;margin:16px auto;background:#fff;border:1px solid #eef2f7;border-radius:12px;overflow:hidden">
-          ${orderEmailHeader(order)}
-          <div>${orderEmailBody(order)}</div>
-          <div style="height:10px"></div>
-        </div>
-        <div style="max-width:760px;margin:8px auto;text-align:center;color:#6b7280;font:12px system-ui">
-          This receipt was sent by Grand Court of PA — Order of the Amaranth.
-        </div>
-      </td></tr>
-    </table>
-  </body>
-  </html>`;
-}
-
-async function sendEmailReceipt(order) {
-  if (!resend) return { ok:false, reason: "resend-not-configured" };
-  const from = process.env.RESEND_FROM || "";
-  if (!from) return { ok:false, reason: "missing-from" };
-
-  const toPrimary = (order.customer_email || "").trim();
-  const ccList = (process.env.REPORTS_CC || "")
-    .split(",")
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  // NEW: subject uses sequential order number when available
-  const orderTag = order?.order_no ? `order #${order.order_no}` : `order ${order.id}`;
-  const subject = `Grand Court of PA - ${orderTag}`;
-
-  // Plaintext fallback
-  const plain = `Thank you for your purchase.
-
-Order: ${order.order_no ? "#" + order.order_no : order.id}
-Total: ${fmtMoney(order.amount_total)}
-Payee: ${order.purchaser?.name || ""} ${order.customer_email ? `(${order.customer_email})` : ""}
-
-This is an automated receipt.`;
-
-  const html = renderOrderEmail(order);
-
-  // If customer email is missing, just send to admin list
-  const recipients = toPrimary ? [toPrimary] : (ccList.length ? [ccList[0]] : []);
-  if (!recipients.length) return { ok:false, reason: "no-recipients" };
-
-  await resend.emails.send({
-    from,
-    to: recipients,
-    cc: ccList,
-    subject,
-    text: plain,
-    html
-  });
-  return { ok:true };
-}
-
-// ------------- main handler -------------
+// -------------- main handler --------------
 export default async function handler(req, res) {
-  try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const action = url.searchParams.get("action");
-    const type  = url.searchParams.get("type");
+ try {
+   const url = new URL(req.url, `http://${req.headers.host}`);
+   const action = url.searchParams.get("action");
+   const type  = url.searchParams.get("type");
 
-    // ---------- READS ----------
-    if (req.method === "GET") {
+   // ---------- GET ----------
+   if (req.method === "GET") {
 
-      // --- Diagnostics: smoketest ---
-      if (type === "smoketest") {
-        const out = {
-          ok: true,
-          node: process.versions?.node || "unknown",
-          runtime: process.env.VERCEL ? "vercel" : "local",
-          hasSecret: !!process.env.STRIPE_SECRET_KEY,
-          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
-          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
-          hasResendEnv: !!process.env.RESEND_API_KEY,
-          hasResendClient: !!resend,
-          kvSetGetOk: false,
-        };
-        try {
-          await kv.set("smoketest:key", "ok", { ex: 30 });
-          const v = await kv.get("smoketest:key");
-          out.kvSetGetOk = (v === "ok");
-        } catch (e) {
-          out.kvError = String(e?.message || e);
-        }
-        return REQ_OK(res, out);
-      }
+     // --- Smoketest ---
+     if (type === "smoketest") {
+       const out = {
+         ok: true,
+         node: process.versions?.node || "unknown",
+         runtime: process.env.VERCEL ? "vercel" : "local",
+         hasSecret: !!process.env.STRIPE_SECRET_KEY,
+         hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
+         hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
+         hasResendEnv: !!process.env.RESEND_API_KEY,
+         hasResendClient: !!resend,
+         kvSetGetOk: false,
+       };
+       try {
+         await kv.set("smoketest:key", "ok", { ex: 30 });
+         const v = await kv.get("smoketest:key");
+         out.kvSetGetOk = (v === "ok");
+       } catch (e) { out.kvError = String(e?.message || e); }
+       return REQ_OK(res, out);
+     }
 
-      // --- Diagnostics: echo ---
-      if (type === "echo") {
-        return REQ_OK(res, {
-          method: req.method,
-          contentType: req.headers["content-type"] || "",
-          typeofBody: typeof req.body,
-          rawBodyKeys: req.body && typeof req.body === "object" ? Object.keys(req.body) : null
-        });
-      }
+     if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
+     if (type === "addons")    return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
+     if (type === "products")  return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
 
-      if (type === "banquets") {
-        const banquets = (await kvGetSafe("banquets")) || [];
-        return REQ_OK(res, { banquets });
-      }
-      if (type === "addons") {
-        const addons = (await kvGetSafe("addons")) || [];
-        return REQ_OK(res, { addons });
-      }
-      if (type === "products") {
-        const products = (await kvGetSafe("products")) || [];
-        return REQ_OK(res, { products });
-      }
-      if (type === "settings") {
-        const overrides = await kvHgetallSafe("settings:overrides");
-        const env = {
-          RESEND_FROM: process.env.RESEND_FROM || "",
-          REPORTS_CC: process.env.REPORTS_CC || "",
-          MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || ""
-        };
-        const effective = { ...env, ...overrides,
-          MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
-        };
-        return REQ_OK(res, { env, overrides, effective });
-      }
-      if (type === "send-test") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const to = url.searchParams.get("to") || process.env.REPORTS_CC || "";
-        if (!to) return REQ_ERR(res, 400, "missing-to");
-        await resend.emails.send({
-          from: process.env.RESEND_FROM,
-          to,
-          subject: "Amaranth Reports — Test",
-          text: "This is a test email to confirm deliverability."
-        });
-        return REQ_OK(res, { ok: true });
-      }
-      if (type === "product_image") {
-        const id = url.searchParams.get("id") || "";
-        the const slot = url.searchParams.get("slot") || "image1";
-        if (!id) return REQ_ERR(res, 400, "missing-id");
-        const key = `productimg:${id}:${slot}`;
-        const stored = await kvGetSafe(key, null);
-        if (!stored || !stored.base64) return REQ_ERR(res, 404, "not-found");
-        const buf = Buffer.from(stored.base64, "base64");
-        res.setHeader("Content-Type", stored.mime || "application/octet-stream");
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        return res.status(200).send(buf);
-      }
-      // Accept both names for publishable key
-      if (type === "stripe_pubkey" || type === "stripe_pk") {
-        return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
-      }
-      if (type === "checkout_session") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const id = url.searchParams.get("id");
-        if (!id) return REQ_ERR(res, 400, "missing-id");
-        const s = await stripe.checkout.sessions.retrieve(id, { expand: ["payment_intent"] });
-        return REQ_OK(res, {
-          id: s.id,
-          amount_total: s.amount_total,
-          currency: s.currency,
-          customer_details: s.customer_details || {},
-          payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id
-        });
-      }
-      // NEW: orders feed for reporting
-      if (type === "orders") {
-        const ids = await kvGetSafe("orders:index", []);
-        const all = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
-        }
-        return REQ_OK(res, { rows: all });
-      }
+     if (type === "settings") {
+       const overrides = await kvHgetallSafe("settings:overrides");
+       const env = {
+         RESEND_FROM: process.env.RESEND_FROM || "",
+         REPORTS_CC: process.env.REPORTS_CC || "",
+         SITE_BASE_URL: process.env.SITE_BASE_URL || "",
+         MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
+         MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || ""
+       };
+       const effective = { ...env, ...overrides,
+         MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
+       };
+       return REQ_OK(res, { env, overrides, effective });
+     }
 
-      return REQ_ERR(res, 400, "unknown-type");
-    }
+     if (type === "stripe_pubkey") {
+       return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
+     }
 
-    // ---------- WRITES ----------
-    if (req.method === "POST") {
-      const body = req.body || {};
+     if (type === "checkout_session") {
+       const stripe = await getStripe();
+       if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+       const id = url.searchParams.get("id");
+       if (!id) return REQ_ERR(res, 400, "missing-id");
+       const s = await stripe.checkout.sessions.retrieve(id, { expand: ["payment_intent"] });
+       return REQ_OK(res, {
+         id: s.id,
+         amount_total: s.amount_total,
+         currency: s.currency,
+         customer_details: s.customer_details || {},
+         payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id
+       });
+     }
 
-      // PUBLIC: Create Stripe Checkout Session
-      if (action === "create_checkout_session") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+     if (type === "orders") {
+       const ids = await kvGetSafe("orders:index", []);
+       const all = [];
+       for (const sid of ids) {
+         const o = await kvGetSafe(`order:${sid}`, null);
+         if (o) all.push(...flattenOrderToRows(o));
+       }
+       return REQ_OK(res, { rows: all });
+     }
 
-        const origin = req.headers.origin || `https://${req.headers.host}`;
-        const successUrl = (body.success_url || body.successUrl || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
-        const cancelUrl  = (body.cancel_url  || body.cancelUrl  || `${origin}/cancel.html`);
+     return REQ_ERR(res, 400, "unknown-type");
+   }
 
-        let line_items = [];
+   // ---------- POST ----------
+   if (req.method === "POST") {
+     const body = req.body || {};
 
-        if (Array.isArray(body.lines) && body.lines.length) {
-          const lines = body.lines;
-          const fees = body.fees || { pct: 0, flat: 0 };
-          const purchaser = body.purchaser || {};
+     if (action === "create_checkout_session") {
+       const stripe = await getStripe();
+       if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
-          line_items = lines.map(l => ({
-            quantity: Math.max(1, Number(l.qty || 1)),
-            price_data: {
-              currency: "usd",
-              unit_amount: toCentsAuto(l.unitPrice || 0),
-              product_data: {
-                name: String(l.itemName || "Item"),
-                metadata: {
-                  itemId: l.itemId || "",
-                  itemType: l.itemType || "",
-                  attendeeId: l.attendeeId || ""
-                }
-              }
-            }
-          }));
+       const origin = req.headers.origin || `https://${req.headers.host}`;
+       const successUrl = (body.success_url || `${origin}/thank-you.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+       const cancelUrl  = body.cancel_url  || `${origin}/order.html`;
 
-          const pct       = Number(fees.pct || 0);
-          const flatCents = toCentsAuto(fees.flat || 0);
-          const subtotalCents = lines.reduce(
-            (s, l) => s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0),
-            0
-          );
-          const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
-          if (feeAmount > 0) {
-            line_items.push({
-              quantity: 1,
-              price_data: {
-                currency: "usd",
-                unit_amount: feeAmount,
-                product_data: { name: "Processing Fee" }
-              }
-            });
-          }
+       if (Array.isArray(body.lines) && body.lines.length) {
+         const lines = body.lines;
+         const fees = body.fees || { pct: 0, flat: 0 };
+         const purchaser = body.purchaser || {};
 
-          const session = await stripe.checkout.sessions.create({
-            mode: "payment",
-            line_items,
-            customer_email: purchaser.email || undefined,
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            metadata: {
-              purchaser_name: purchaser.name || "",
-              purchaser_phone: purchaser.phone || "",
-              purchaser_title: purchaser.title || "",
-              purchaser_city: purchaser.city || "",
-              purchaser_state: purchaser.state || "",
-              purchaser_postal: purchaser.postal || "",
-              cart_count: String(lines.length || 0)
-            }
-          });
+         const line_items = lines.map(l => ({
+           quantity: Math.max(1, Number(l.qty || 1)),
+           price_data: {
+             currency: "usd",
+             unit_amount: toCentsAuto(l.unitPrice || 0),
+             product_data: {
+               name: String(l.itemName || "Item"),
+               metadata: {
+                 itemId: l.itemId || "",
+                 itemType: l.itemType || "",
+                 attendeeId: l.attendeeId || ""
+               }
+             }
+           }
+         }));
 
-          return REQ_OK(res, { url: session.url, id: session.id });
-        }
+         const pct       = Number(fees.pct || 0);
+         const flatCents = toCentsAuto(fees.flat || 0);
+         const subtotalCents = lines.reduce((s,l)=> s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0), 0);
+         const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
+         if (feeAmount > 0) {
+           line_items.push({
+             quantity: 1,
+             price_data: {
+               currency: "usd",
+               unit_amount: feeAmount,
+               product_data: { name: "Processing Fee" }
+             }
+           });
+         }
 
-        const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length) return REQ_ERR(res, 400, "no-items");
+         const session = await stripe.checkout.sessions.create({
+           mode: "payment",
+           line_items,
+           customer_email: purchaser.email || undefined,
+           success_url: successUrl,
+           cancel_url: cancelUrl,
+           metadata: {
+             purchaser_name: purchaser.name || "",
+             purchaser_phone: purchaser.phone || "",
+             purchaser_title: purchaser.title || "",
+             purchaser_city: purchaser.city || "",
+             purchaser_state: purchaser.state || "",
+             purchaser_postal: purchaser.postal || "",
+             cart_count: String(lines.length || 0)
+           }
+         });
 
-        line_items = items.map(it => ({
-          quantity: Math.max(1, Number(it.quantity || 1)),
-          price_data: {
-            currency: "usd",
-            unit_amount: dollarsToCents(it.price || 0),
-            product_data: {
-              name: String(it.name || "Item"),
-              images: it.imageUrl ? [it.imageUrl] : undefined,
-            },
-          },
-        }));
+         return REQ_OK(res, { url: session.url, id: session.id });
+       }
 
-        const session = await stripe.checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items,
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : undefined,
-        });
+       const items = Array.isArray(body.items) ? body.items : [];
+       if (!items.length) return REQ_ERR(res, 400, "no-items");
 
-        return REQ_OK(res, { url: session.url, id: session.id });
-      }
+       const session = await stripe.checkout.sessions.create({
+         mode: "payment",
+         payment_method_types: ["card"],
+         line_items: items.map(it => ({
+           quantity: Math.max(1, Number(it.quantity || 1)),
+           price_data: {
+             currency: "usd",
+             unit_amount: dollarsToCents(it.price || 0),
+             product_data: { name: String(it.name || "Item") }
+           }
+         })),
+         success_url: successUrl,
+         cancel_url: cancelUrl
+       });
+       return REQ_OK(res, { url: session.url, id: session.id });
+     }
 
-      // STRIPE WEBHOOK (point your Stripe endpoint to: /api/router?action=stripe_webhook)
-      if (action === "stripe_webhook") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+     // Stripe webhook
+     if (action === "stripe_webhook") {
+       const stripe = await getStripe();
+       if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
-        let event;
-        const sig = req.headers["stripe-signature"];
-        const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
+       let event;
+       const sig = req.headers["stripe-signature"];
+       const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
 
-        try {
-          if (whsec && typeof req.body === "string") {
-            event = stripe.webhooks.constructEvent(req.body, sig, whsec);
-          } else if (whsec && req.rawBody) {
-            event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
-          } else {
-            event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-          }
-        } catch (err) {
-          console.error("Webhook signature verification failed:", err?.message);
-          return REQ_ERR(res, 400, "invalid-signature");
-        }
+       try {
+         if (whsec && typeof req.body === "string") {
+           event = stripe.webhooks.constructEvent(req.body, sig, whsec);
+         } else if (whsec && req.rawBody) {
+           event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
+         } else {
+           event = typeof req.body === "string" ? JSON.parse(req.body) : req.body; // dev fallback
+         }
+       } catch (err) {
+         console.error("Webhook signature verification failed:", err?.message);
+         return REQ_ERR(res, 400, "invalid-signature");
+       }
 
-        switch (event.type) {
-          case "checkout.session.completed": {
-            const session = event.data.object;
-            const order = await saveOrderFromSession(session);
-            try { await sendEmailReceipt(order); } catch (e) { console.error("email failed", e); }
-            break;
-          }
-          case "charge.refunded": {
-            const refund = event.data.object;
-            const chargeId = refund.charge;
-            await applyRefundToOrder(chargeId, refund);
-            break;
-          }
-          default:
-            break;
-        }
+       switch (event.type) {
+         case "checkout.session.completed": {
+           const session = event.data.object;
+           const order = await saveOrderFromSession(session);
 
-        return REQ_OK(res, { received: true });
-      }
+           // Fire-and-forget email — never block webhook
+           (async () => {
+             try { await sendOrderReceipts(order); }
+             catch (err) { console.error("email-failed", err?.message || err); }
+           })();
+           break;
+         }
+         case "charge.refunded": {
+           const refund = event.data.object;
+           await applyRefundToOrder(refund.charge, refund);
+           break;
+         }
+         default: break;
+       }
+       return REQ_OK(res, { received: true });
+     }
 
-      // ADMIN-ONLY from here down
-      if (!requireToken(req, res)) return;
+     // -------- ADMIN (auth) --------
+     if (!requireToken(req, res)) return;
 
-      if (action === "save_banquets") {
-        const list = Array.isArray(body.banquets) ? body.banquets : [];
-        await kvSetSafe("banquets", list);
-        return REQ_OK(res, { ok: true, count: list.length });
-      }
-      if (action === "save_addons") {
-        const list = Array.isArray(body.addons) ? body.addons : [];
-        await kvSetSafe("addons", list);
-        return REQ_OK(res, { ok: true, count: list.length });
-      }
-      if (action === "save_products") {
-        const list = Array.isArray(body.products) ? body.products : [];
-        await kvSetSafe("products", list);
-        return REQ_OK(res, { ok: true, count: list.length });
-      }
-      if (action === "save_settings") {
-        const allow = {};
-        ["RESEND_FROM","REPORTS_CC","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
-          .forEach(k => { if (k in body) allow[k] = body[k]; });
-        if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
-        if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
-        return REQ_OK(res, { ok: true, overrides: allow });
-      }
-      if (action === "register_item") {
-        const { id, name, chairEmails = [], publishStart = "", publishEnd = "" } = body;
-        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
-        const cfg = {
-          id, name,
-          chairEmails: (Array.isArray(chairEmails) ? chairEmails : []).filter(Boolean),
-          publishStart, publishEnd,
-          updatedAt: new Date().toISOString()
-        };
-        const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
-        const ok2 = await kvSaddSafe("itemcfg:index", id);
-        if (!ok1 || !ok2) {
-          return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
-        }
-        return REQ_OK(res, { ok: true });
-      }
-      if (action === "upload_product_image") {
-        const { id = "", slot = "image1", dataUrl = "", fileBase64 = "", mime = "" } = body || {};
-        if (!id) return REQ_ERR(res, 400, "missing-id");
-        const parts = dataUrlToParts(dataUrl || fileBase64, mime);
-        if (!parts || !parts.base64) return REQ_ERR(res, 400, "missing-image");
-        const key = `productimg:${id}:${slot}`;
-        const saved = await kvSetSafe(key, {
-          mime: parts.mime,
-          base64: parts.base64,
-          updatedAt: new Date().toISOString()
-        });
-        if (!saved) return REQ_OK(res, { ok: false, warning: "kv-unavailable" });
-        const urlOut = `/api/router?type=product_image&id=${encodeURIComponent(id)}&slot=${encodeURIComponent(slot)}`;
-        return REQ_OK(res, { ok: true, url: urlOut });
-      }
-      if (action === "send_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const { to = [], subject = "Amaranth Report", csv = "" } = body;
-        if (!to.length) return REQ_ERR(res, 400, "missing-recipients");
-        const attachment = [{
-          filename: "report.csv",
-          content: Buffer.from(csv).toString("base64"),
-          encoding: "base64"
-        }];
-        await resend.emails.send({
-          from: process.env.RESEND_FROM,
-          to,
-          cc: (process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean),
-          subject,
-          text: "Attached is your report.",
-          attachments: attachment
-        });
-        return REQ_OK(res, { ok: true });
-      }
+     if (action === "save_banquets") {
+       const list = Array.isArray(body.banquets) ? body.banquets : [];
+       await kvSetSafe("banquets", list);
+       return REQ_OK(res, { ok: true, count: list.length });
+     }
+     if (action === "save_addons") {
+       const list = Array.isArray(body.addons) ? body.addons : [];
+       await kvSetSafe("addons", list);
+       return REQ_OK(res, { ok: true, count: list.length });
+     }
+     if (action === "save_products") {
+       const list = Array.isArray(body.products) ? body.products : [];
+       await kvSetSafe("products", list);
+       return REQ_OK(res, { ok: true, count: list.length });
+     }
+     if (action === "save_settings") {
+       const allow = {};
+       ["RESEND_FROM","REPORTS_CC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
+         .forEach(k => { if (k in body) allow[k] = body[k]; });
+       if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
+       if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
+       return REQ_OK(res, { ok: true, overrides: allow });
+     }
 
-      // Admin refunds (full or partial)
-      if (action === "create_refund") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const { payment_intent, charge, amount_cents } = body || {};
-        if (!payment_intent && !charge) return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
-        const params = {
-          ...(payment_intent ? { payment_intent } : { charge }),
-          ...(Number.isFinite(amount_cents) ? { amount: Number(amount_cents) } : {})
-        };
-        const refund = await stripe.refunds.create(params);
-        return REQ_OK(res, { ok: true, refund });
-      }
+     return REQ_ERR(res, 400, "unknown-action");
+   }
 
-      return REQ_ERR(res, 400, "unknown-action");
-    }
-
-    return REQ_ERR(res, 405, "method-not-allowed");
-  } catch (e) {
-    console.error(e);
-    return REQ_ERR(res, 500, "router-failed", { message: e?.message || String(e) });
-  }
+   return REQ_ERR(res, 405, "method-not-allowed");
+ } catch (e) {
+   console.error(e);
+   return REQ_ERR(res, 500, "router-failed", { message: e?.message || String(e) });
+ }
 }
 
-// 👇 Node 22 runtime hint for Vercel
+// Vercel Node 22 runtime
 export const config = { runtime: "nodejs" };
