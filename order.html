@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=3" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -68,7 +68,7 @@
     }
  
     .att-notes,
-    .att-meta { /* NEW: small meta line under name */
+    .att-meta {
       font-size:.9rem;
       opacity:.95;
       margin: .1rem 0 .4rem;
@@ -165,7 +165,7 @@
   <!-- Optional legacy scripts -->
   <script src="/assets/js/main.js" defer></script>
 
-  <!-- ===== NEW: Phone helpers (US dashes; keep +international) ===== -->
+  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
   <script>
     function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
     function formatUS(d){
@@ -175,8 +175,8 @@
     }
     function formatPhoneLive(inputEl){
       const raw = inputEl.value.trim();
-      if (raw.startsWith('+')) return;               // keep international intact
-      const d = digitsOnly(raw).slice(0,10);         // cap to 10 for US mask
+      if (raw.startsWith('+')) return;             // keep international intact
+      const d = digitsOnly(raw).slice(0,10);       // cap to 10 for US mask
       inputEl.value = formatUS(d);
     }
   </script>
@@ -247,7 +247,7 @@
       function buildBlock(aid, lines) {
         // Resolve display name
         let displayName = '';
-        let displayMeta = ''; // NEW: shows “Mailing address: attached/missing” + phone/email
+        let displayMeta = ''; // shows “Mailing address: attached/missing” + phone/email
         let a = null;
 
         if (aid === '(unassigned)') {
@@ -308,17 +308,17 @@
               <span>${displayName}</span>
               ${showEdit ? `<button class="btn edit" data-edit="${aid}">Edit</button>` : ''}
             </div>
-            ${displayMeta || ''} <!-- NEW -->
+            ${displayMeta || ''}
 
             ${showEdit ? `
             <div class="edit-panel" id="${editPanelId}">
               <div class="row">
                 <label>Name*<input type="text" class="ed-name" placeholder="Name" required></label>
                 <label>Email*<input type="email" class="ed-email" placeholder="Email" required></label>
-                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone" required></label> <!-- NEW -->
+                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone" required></label>
                 <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
 
-                <!-- NEW: Mailing address (required to be considered 'attached') -->
+                <!-- Mailing address (required to be considered 'attached') -->
                 <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1" required></label>
                 <label>Address line 2<input type="text" class="ed-addr2" placeholder="Address line 2"></label>
                 <label>City*<input type="text" class="ed-city" placeholder="City" required></label>
@@ -366,17 +366,16 @@
       // ---- Build in desired order: Purchaser first, then Attendees in ADDED ORDER ----
       const blocks = [];
 
-      // 1) Purchaser (aid === '(unassigned)') at the TOP if any lines exist
+      // 1) Purchaser at the TOP if any lines exist
       if (byA['(unassigned)'] && byA['(unassigned)'].length) {
         blocks.push(buildBlock('(unassigned)', byA['(unassigned)']));
       }
 
-      // 2) Attendees in the order they were added (st.attendees is insertion-ordered)
-      // Only include attendees that actually have lines
+      // 2) Attendees in the order they were added (only if they have lines)
       const attendeesWithLines = (st.attendees || []).filter(a => byA[a.id] && byA[a.id].length);
       attendeesWithLines.forEach(a => blocks.push(buildBlock(a.id, byA[a.id])));
 
-      // 3) Edge case: if any attendee IDs exist in byA but aren't in st.attendees, include them last
+      // 3) Edge case: stray attendeeIds not in st.attendees
       Object.entries(byA).forEach(([aid, lines]) => {
         if (aid === '(unassigned)') return;
         if (!(st.attendees || []).some(a => a.id === aid)) {
@@ -402,7 +401,7 @@
           panel.style.display = 'block';
           panel.querySelector('.ed-name').value   = a?.name || '';
           panel.querySelector('.ed-email').value  = a?.email || '';
-          panel.querySelector('.ed-phone').value  = a?.phone || '';   // NEW
+          panel.querySelector('.ed-phone').value  = a?.phone || '';
           // live US formatting while typing (respects +international)
           const edPhone = panel.querySelector('.ed-phone');
           if (edPhone){
@@ -450,14 +449,14 @@
           // Read fields
           const name    = panel.querySelector('.ed-name').value.trim();
           const email   = panel.querySelector('.ed-email').value.trim();
-          const phone   = panel.querySelector('.ed-phone').value.trim();   // NEW
+          const phone   = panel.querySelector('.ed-phone').value.trim();
           const title   = panel.querySelector('.ed-title').value.trim();
-          const addr1   = panel.querySelector('.ed-addr1').value.trim();   // NEW
-          const addr2   = panel.querySelector('.ed-addr2').value.trim();   // NEW
-          const city    = panel.querySelector('.ed-city').value.trim();    // NEW
-          const state   = panel.querySelector('.ed-state').value.trim();   // NEW
-          const postal  = panel.querySelector('.ed-postal').value.trim();  // NEW
-          const country = panel.querySelector('.ed-country').value.trim() || 'US'; // NEW
+          const addr1   = panel.querySelector('.ed-addr1').value.trim();
+          const addr2   = panel.querySelector('.ed-addr2').value.trim();
+          const city    = panel.querySelector('.ed-city').value.trim();
+          const state   = panel.querySelector('.ed-state').value.trim();
+          const postal  = panel.querySelector('.ed-postal').value.trim();
+          const country = panel.querySelector('.ed-country').value.trim() || 'US';
           const notes   = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
 
           // Validate requireds
@@ -516,9 +515,6 @@
       `;
     }
 
-    // expose for external callers (storage/visibility events on iOS)
-    window.__orderRender = render;
-
     // initial + react to cart changes
     render();
     window.addEventListener('cart:updated', render);
@@ -529,20 +525,30 @@
       if (el) el.addEventListener('input', render);
     });
   });
+ 
+    // --- Auto-resync when returning to this tab or when storage changes (added from Banquets page) ---
+    function resyncFromStorage(){
+      try { Cart.load(); } catch(e) {}
+      try { render(); } catch(e) {}
+    }
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
+    window.addEventListener('focus', resyncFromStorage);
+    window.addEventListener('storage', function(){ resyncFromStorage(); });
+
   </script>
 
-  <!-- Core site scripts (order matters) + cache-busting -->
-  <script src="/assets/js/site-settings.js?v=3"></script>
-  <script src="/assets/js/items.js?v=3"></script>
-  <script src="/assets/js/banquets.js?v=3"></script>
-  <script src="/assets/js/cart.js?v=3"></script>
-  <script src="/assets/js/data-store.js?v=3"></script>
-  <script src="/assets/js/site-boot.js?v=3"></script>
+  <!-- Core site scripts (order matters) -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script src="/assets/js/items.js"></script>
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/cart.js"></script>
+  <script src="/assets/js/data-store.js"></script>
+  <script src="/assets/js/site-boot.js"></script>
 
   <!-- Checkout wiring -->
   <script>
     async function getStripeInstance() {
-      // Ask router for publishable key
+      // Ask router for publishable key (correct endpoint name)
       try {
         const r = await fetch('/api/router?type=stripe_pubkey', { cache:'no-store' });
         if (r.ok) {
@@ -609,9 +615,8 @@
         const payload = {
           purchaser,
           ...buildPayloadFromCart(),
-          // success/cancel URLs (router expects camelCase keys)
-          successUrl: `${location.origin}/thank-you.html?sid={CHECKOUT_SESSION_ID}`,
-          cancelUrl: location.href
+          // Let router default success to /success.html?sid=...
+          cancelUrl: location.href // camelCase, returns here on cancel
         };
 
         // Create Checkout Session on your router
@@ -625,7 +630,7 @@
 
         const stripe = await getStripeInstance();
 
-        // Depending on how the handler returns, accept sessionId or id
+        // Accept session id
         const sessionId = j.sessionId || j.id;
         if (!sessionId) throw new Error('Missing session id.');
 
@@ -643,22 +648,18 @@
     document.getElementById('checkout').addEventListener('click', goToCheckout);
   </script>
 
-  <!-- Maintenance (reads from effective) -->
   <script>
   (async () => {
     try {
-      const resp = await fetch('/api/router?type=settings', { cache: 'no-store' });
+      const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
 
-      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
-      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
-      if (on === 'true' || on === true) {
+      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
             <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
             <p style="font-size:1.2em;max-width:500px;">
-              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
             </p>
           </div>
         `;
@@ -669,15 +670,5 @@
   })();
   </script>
 
-  <!-- Robust auto-resync (works on iOS Safari) -->
-  <script>
-    function resyncFromStorage(){
-      try { Cart.load(); } catch(e) {}
-      try { (window.__orderRender || function(){})(); } catch(e) {}
-    }
-    document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
-    window.addEventListener('focus', resyncFromStorage);
-    window.addEventListener('storage', resyncFromStorage);
-  </script>
 </body>
 </html>
