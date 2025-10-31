@@ -38,10 +38,12 @@
     (function(){
       const q = new URLSearchParams(location.search);
       const sid = q.get('sid') || q.get('session_id');
+
+      // Clear cart in this tab and ping other tabs to refresh
       try {
-        // Clear cart (local storage) after successful payment
         if (window.Cart && Cart.clear) Cart.clear();
         localStorage.removeItem('amaranth_cart'); // belt + suspenders
+        localStorage.setItem('amaranth_cart_ping', String(Date.now())); // <<< NEW
       } catch(e){}
 
       if(!sid){
