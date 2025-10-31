@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=3" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -50,7 +50,7 @@
     .order-table .ta-center{ text-align:center }
 
     /* Consistent column widths via colgroup */
-    .col-item  { width: 50% }
+    .col-item  { width: 50% }  /* Item name */
     .col-qty    { width: 10% }
     .col-price  { width: 15% }
     .col-total  { width: 15% }
@@ -66,25 +66,29 @@
       -webkit-backdrop-filter: saturate(120%) blur(2px);
       border-radius:10px;
     }
-
+ 
     .att-notes,
-    .att-meta {
+    .att-meta { /* NEW: small meta line under name */
       font-size:.9rem;
       opacity:.95;
       margin: .1rem 0 .4rem;
       color:#111;
     }
 
+    /* Darker order text for better readability */
     .order-table, .order-table td, .order-table th { color: #111; }
     .order-table .tiny { color: #111; opacity: .95; }
 
+    /* Small helper for inline status */
     #checkoutStatus { margin-left:10px; font-size:.95rem }
     #checkoutStatus.err { color:#b91c1c }
     #checkoutStatus.ok { color:#065f46 }
     #checkout[disabled]{ opacity:.7; cursor:not-allowed }
   </style>
 
+  <!-- Stripe.js (required for redirectToCheckout) -->
   <script src="https://js.stripe.com/v3"></script>
+  <!-- Optional: set your publishable key here as a fallback (you can keep this, it's safe to expose) -->
   <script>
     window.STRIPE_PUBLISHABLE_KEY = "pk_test_51SBDHKF9brZtHXuA8XTuAes5eBfBG1e95bFeEjWwLwlsuk36PSJxB88HjuqSV1SBlYNJ2CWbHgnv96VIU3Qf6hW400P7jB4s30";
   </script>
@@ -92,6 +96,7 @@
 
 <body data-page="order">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="/home.html">
@@ -110,6 +115,8 @@
 
   <main class="container mt-lg">
     <h1>Order</h1>
+
+    <!-- Purchaser -->
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
@@ -132,6 +139,7 @@
       </div>
     </section>
 
+    <!-- Summary / Lines -->
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
@@ -139,6 +147,7 @@
       </div>
 
       <div id="order-list" class="mt"></div>
+
       <div class="fees-box" id="order-summary"></div>
 
       <div style="display:flex;align-items:center;gap:10px">
@@ -149,14 +158,393 @@
     </section>
   </main>
 
-  <footer class="site-footer"><div class="container tiny">© 2025</div></footer>
+  <footer class="site-footer">
+    <div class="container tiny">© 2025</div>
+  </footer>
 
+  <!-- Optional legacy scripts -->
   <script src="/assets/js/main.js" defer></script>
 
+  <!-- ===== NEW: Phone helpers (US dashes; keep +international) ===== -->
+  <script>
+    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
+    function formatUS(d){
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return d.slice(0,3) + '-' + d.slice(3);
+      return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6,10);
+    }
+    function formatPhoneLive(inputEl){
+      const raw = inputEl.value.trim();
+      if (raw.startsWith('+')) return;               // keep international intact
+      const d = digitsOnly(raw).slice(0,10);         // cap to 10 for US mask
+      inputEl.value = formatUS(d);
+    }
+  </script>
+
+  <script>
+  // Dollars-safe UI formatter
+  function money(n){
+    const v = Math.round(Number(n) * 100) / 100;
+    return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2, style:'currency', currency:'USD' });
+  }
+
+  // Treat 0<n<1 as cents
+  function normalizePrice(p){
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+
+  // Simple email check
+  function looksLikeEmail(s){
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    Cart.load();
+
+    // HOTFIX: migrate any legacy cents (once per load)
+    (function migrateLegacyCents(){
+      const st = Cart.get();
+      let changed = false;
+      (st.lines || []).forEach(l => {
+        const n = Number(l.unitPrice);
+        if (isFinite(n) && n > 0 && n < 1) {
+          l.unitPrice = Math.round(n * 100);
+          changed = true;
+        }
+      });
+      if (changed) {
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+      }
+    })();
+
+    // NEW: Purchaser phone auto-format
+    const pPhone = document.getElementById('p_phone');
+    if (pPhone){
+      pPhone.addEventListener('input', ()=>formatPhoneLive(pPhone));
+      pPhone.addEventListener('blur',  ()=>formatPhoneLive(pPhone));
+    }
+
+    const list = document.getElementById('order-list');
+    const summaryBox  = document.getElementById('order-summary');
+    const orderTotal  = document.getElementById('order-total');
+
+    // purchaser name helper
+    function getPurchaserName(){
+      const name = (document.getElementById('p_name')?.value || '').trim();
+      return name || 'Purchaser';
+    }
+
+    function render(){
+      const st = Cart.get();
+
+      // group lines by attendeeId (with purchaser bucket)
+      const byA = {};
+      (st.lines || []).forEach(l => { (byA[l.attendeeId] ||= []).push(l); });
+
+      // ---- helper to build one block with aligned columns + per-person subtotal ----
+      function buildBlock(aid, lines) {
+        // Resolve display name
+        let displayName = '';
+        let displayMeta = ''; // NEW: shows “Mailing address: attached/missing” + phone/email
+        let a = null;
+
+        if (aid === '(unassigned)') {
+          displayName = getPurchaserName(); // no "(unassigned)" text
+        } else {
+          a = (st.attendees || []).find(x=>x.id===aid);
+          displayName = a?.name || 'Attendee';
+
+          // Build small meta line (no raw address; just status)
+          const hasAddr =
+            !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
+          const addrStatus = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
+          const phone = a?.phone ? ` • ${a.phone}` : '';
+          const email = a?.email ? ` • ${a.email}` : '';
+          displayMeta = `<div class="att-meta tiny">${addrStatus}${phone}${email}</div>`;
+        }
+
+        // Inline edit form (for real attendees only)
+        const showEdit = (aid !== '(unassigned)');
+        const editPanelId = `edit-${aid}`;
+
+        let personSubtotal = 0;
+        const rows = lines.map(l => {
+
+          // --- unified subline: one per row ---
+          const isBanquet = (l.itemType === 'banquet');
+          const attObj = (st.attendees || []).find(x => x.id=== (l.attendeeId || ''));
+          const lnMeta = l.meta && l.meta.attendeeNotes ? String(l.meta.attendeeNotes) : '';
+          const lnAtt  = attObj && attObj.notes ? String(attObj.notes) : '';
+          const banquetNotes = isBanquet ? (lnMeta || lnAtt) : '';
+
+          const itemNote = (!isBanquet && l.meta && (l.meta.note || l.meta.notes || l.meta.message))
+            ? String(l.meta.note || l.meta.notes || l.meta.message)
+            : '';
+
+          const detail = banquetNotes
+            ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(/</g,'&lt;')}</div>`
+            : (itemNote ? `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(/</g,'&lt;')}</div>` : '');
+
+          const price = normalizePrice(l.unitPrice);
+          const qty  = Number(l.qty || 0);
+          const lineTotal = price * qty;
+          personSubtotal += lineTotal;
+
+          return `
+            <tr>
+              <td>${l.itemName || ''}${detail}</td>
+              <td class="ta-center">${qty}</td>
+              <td class="ta-right">${money(price)}</td>
+              <td class="ta-right">${money(lineTotal)}</td>
+              <td><button data-remove="${l.id}">Remove</button></td>
+            </tr>`;
+        }).join('');
+
+        return `
+          <div class="att-block" data-aid="${aid}">
+            <div class="att-head">
+              <span>${displayName}</span>
+              ${showEdit ? `<button class="btn edit" data-edit="${aid}">Edit</button>` : ''}
+            </div>
+            ${displayMeta || ''} <!-- NEW -->
+
+            ${showEdit ? `
+            <div class="edit-panel" id="${editPanelId}">
+              <div class="row">
+                <label>Name*<input type="text" class="ed-name" placeholder="Name" required></label>
+                <label>Email*<input type="email" class="ed-email" placeholder="Email" required></label>
+                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone" required></label> <!-- NEW -->
+                <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
+
+                <!-- NEW: Mailing address (required to be considered 'attached') -->
+                <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1" required></label>
+                <label>Address line 2<input type="text" class="ed-addr2" placeholder="Address line 2"></label>
+                <label>City*<input type="text" class="ed-city" placeholder="City" required></label>
+                <label>State/Province*<input type="text" class="ed-state" placeholder="State/Province" required></label>
+                <label>Postal code*<input type="text" class="ed-postal" placeholder="Postal code" required></label>
+                <label>Country*<input type="text" class="ed-country" placeholder="Country" value="US" required></label>
+
+                <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
+              </div>
+              <div style="margin-top:.5rem; display:flex; gap:.5rem;">
+                <button class="btn btn-primary save-ed" data-save="${aid}">Save</button>
+                <button class="btn cancel-ed" data-cancel="${aid}">Cancel</button>
+              </div>
+            </div>` : ''}
+
+            <table class="order-table">
+              <colgroup>
+                <col class="col-item">
+                <col class="col-qty">
+                <col class="col-price">
+                <col class="col-total">
+                <col class="col-action">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="ta-center">Qty</th>
+                  <th class="ta-right">Price</th>
+                  <th class="ta-right">Line Total</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3" class="ta-right">Subtotal</td>
+                  <td class="ta-right">${money(personSubtotal)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>`;
+      }
+
+      // ---- Build in desired order: Purchaser first, then Attendees in ADDED ORDER ----
+      const blocks = [];
+
+      // 1) Purchaser (aid === '(unassigned)') at the TOP if any lines exist
+      if (byA['(unassigned)'] && byA['(unassigned)'].length) {
+        blocks.push(buildBlock('(unassigned)', byA['(unassigned)']));
+      }
+
+      // 2) Attendees in the order they were added (st.attendees is insertion-ordered)
+      // Only include attendees that actually have lines
+      const attendeesWithLines = (st.attendees || []).filter(a => byA[a.id] && byA[a.id].length);
+      attendeesWithLines.forEach(a => blocks.push(buildBlock(a.id, byA[a.id])));
+
+      // 3) Edge case: if any attendee IDs exist in byA but aren't in st.attendees, include them last
+      Object.entries(byA).forEach(([aid, lines]) => {
+        if (aid === '(unassigned)') return;
+        if (!(st.attendees || []).some(a => a.id === aid)) {
+          blocks.push(buildBlock(aid, lines));
+        }
+      });
+
+      list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
+
+      // wire remove
+      list.querySelectorAll('button[data-remove]').forEach(b=>{
+        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+      });
+
+      // wire edit show/hide + populate
+      list.querySelectorAll('button[data-edit]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.edit;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (!panel) return;
+          const st2 = Cart.get();
+          const a = st2.attendees.find(x=>x.id===aid);
+          panel.style.display = 'block';
+          panel.querySelector('.ed-name').value   = a?.name || '';
+          panel.querySelector('.ed-email').value  = a?.email || '';
+          panel.querySelector('.ed-phone').value  = a?.phone || '';   // NEW
+          // live US formatting while typing (respects +international)
+          const edPhone = panel.querySelector('.ed-phone');
+          if (edPhone){
+            edPhone.addEventListener('input', ()=>formatPhoneLive(edPhone));
+            edPhone.addEventListener('blur',  ()=>formatPhoneLive(edPhone));
+          }
+
+          panel.querySelector('.ed-title').value  = a?.title || '';
+          panel.querySelector('.ed-addr1').value  = a?.address1 || '';
+          panel.querySelector('.ed-addr2').value  = a?.address2 || '';
+          panel.querySelector('.ed-city').value   = a?.city || '';
+          panel.querySelector('.ed-state').value  = a?.state || '';
+          panel.querySelector('.ed-postal').value = a?.postal || '';
+          panel.querySelector('.ed-country').value= a?.country || 'US';
+          if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
+        };
+      });
+
+      list.querySelectorAll('.cancel-ed').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.cancel;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (panel) panel.style.display = 'none';
+          try {
+            const st3 = Cart.get();
+            const notes = panel?.querySelector?.('.ed-notes')?.value?.trim?.() || '';
+            (st3.lines || []).forEach(l => {
+              if (l.attendeeId === aid && l.itemType === 'banquet'){
+                l.meta = l.meta || {};
+                l.meta.attendeeNotes = notes;
+                Cart.updateLine(l.id, { meta: l.meta });
+              }
+            });
+          } catch(e) {}
+          render();
+        };
+      });
+
+      list.querySelectorAll('.save-ed').forEach(btn=>{
+        btn.onclick = ()=>{
+          const aid = btn.dataset.save;
+          const panel = document.getElementById(`edit-${aid}`);
+          if (!panel) return;
+
+          // Read fields
+          const name    = panel.querySelector('.ed-name').value.trim();
+          const email   = panel.querySelector('.ed-email').value.trim();
+          const phone   = panel.querySelector('.ed-phone').value.trim();   // NEW
+          const title   = panel.querySelector('.ed-title').value.trim();
+          const addr1   = panel.querySelector('.ed-addr1').value.trim();   // NEW
+          const addr2   = panel.querySelector('.ed-addr2').value.trim();   // NEW
+          const city    = panel.querySelector('.ed-city').value.trim();    // NEW
+          const state   = panel.querySelector('.ed-state').value.trim();   // NEW
+          const postal  = panel.querySelector('.ed-postal').value.trim();  // NEW
+          const country = panel.querySelector('.ed-country').value.trim() || 'US'; // NEW
+          const notes   = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
+
+          // Validate requireds
+          const missing = [];
+          if (!name) missing.push('Name');
+          if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
+          if (!phone) missing.push('Phone');
+          if (!addr1) missing.push('Address line 1');
+          if (!city) missing.push('City');
+          if (!state) missing.push('State/Province');
+          if (!postal) missing.push('Postal code');
+          if (!country) missing.push('Country');
+
+          if (missing.length){
+            alert('Please complete the following fields:\n• ' + missing.join('\n• '));
+            return;
+          }
+
+          // Save attendee (Cart must persist these fields)
+          Cart.updateAttendee(aid, {
+            name, email, phone, title,
+            address1: addr1, address2: addr2, city, state, postal, country,
+            notes
+          });
+
+          // Optionally propagate notes to banquet lines for this attendee
+          try {
+            const st4 = Cart.get();
+            (st4.lines || []).forEach(l => {
+              if (l.attendeeId === aid && l.itemType === 'banquet'){
+                l.meta = l.meta || {};
+                l.meta.attendeeNotes = notes;
+                Cart.updateLine(l.id, { meta: l.meta });
+              }
+            });
+          } catch(e){}
+
+          panel.style.display = 'none';
+          render();
+        };
+      });
+
+      // totals (normalized)
+      const subtotal = (st.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
+      const t = Cart.totals();
+      const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
+      const total = subtotal + fee;
+
+      orderTotal.textContent = money(total);
+      summaryBox.innerHTML = `
+        <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
+        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
+        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
+        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
+      `;
+    }
+
+    // expose for external callers (storage/visibility events on iOS)
+    window.__orderRender = render;
+
+    // initial + react to cart changes
+    render();
+    window.addEventListener('cart:updated', render);
+
+    // Re-render purchaser header when they type their name (affects Purchaser group label)
+    ['p_name'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', render);
+    });
+  });
+  </script>
+
+  <!-- Core site scripts (order matters) + cache-busting -->
+  <script src="/assets/js/site-settings.js?v=3"></script>
+  <script src="/assets/js/items.js?v=3"></script>
+  <script src="/assets/js/banquets.js?v=3"></script>
+  <script src="/assets/js/cart.js?v=3"></script>
+  <script src="/assets/js/data-store.js?v=3"></script>
+  <script src="/assets/js/site-boot.js?v=3"></script>
+
+  <!-- Checkout wiring -->
   <script>
     async function getStripeInstance() {
+      // Ask router for publishable key
       try {
-        const r = await fetch('/api/router?type=stripe_pubkey', { cache:'no-store' }); <!-- ✅ FIXED -->
+        const r = await fetch('/api/router?type=stripe_pubkey', { cache:'no-store' });
         if (r.ok) {
           const j = await r.json();
           if (j && j.publishableKey) {
@@ -164,12 +552,132 @@
           }
         }
       } catch {}
+
+      // Fallback (safe to expose)
       if (window.STRIPE_PUBLISHABLE_KEY) return Stripe(window.STRIPE_PUBLISHABLE_KEY);
+
       throw new Error('Stripe publishable key not available.');
     }
+
+    function readPurchaser() {
+      const g = id => (document.getElementById(id)?.value || '').trim();
+      return {
+        name:    g('p_name'),
+        title:   g('p_title'),
+        email:   g('p_email'),
+        phone:   g('p_phone'),
+        address1:g('p_addr1'),
+        address2:g('p_addr2'),
+        city:    g('p_city'),
+        state:   g('p_state'),
+        postal:  g('p_zip'),
+        country: g('p_country') || 'US'
+      };
+    }
+
+    function buildPayloadFromCart() {
+      const st = Cart.get();
+      const lines = (st.lines || []).map(l => ({
+        id: l.id,
+        itemId: l.itemId,
+        itemType: l.itemType,
+        itemName: l.itemName,
+        unitPrice: Number(normalizePrice(l.unitPrice)), // cents integer expected server-side
+        qty: Number(l.qty || 1),
+        attendeeId: l.attendeeId || '',
+        meta: l.meta || {}
+      }));
+      const fees = Cart.totals(); // { pct, flat }
+      return { lines, fees };
+    }
+
+    async function goToCheckout() {
+      const btn = document.getElementById('checkout');
+      const status = document.getElementById('checkoutStatus');
+      const setStatus = (msg, ok) => { status.textContent = msg || ''; status.className = ok ? 'ok' : (msg ? 'err' : ''); };
+
+      try {
+        setStatus('', false);
+        btn.disabled = true; setStatus('Contacting payment server…', false);
+
+        const purchaser = readPurchaser();
+        // basic client-side validation for purchaser
+        if (!purchaser.name || !looksLikeEmail(purchaser.email) || !purchaser.phone) {
+          throw new Error('Please complete your name, valid email, and phone.');
+        }
+
+        const payload = {
+          purchaser,
+          ...buildPayloadFromCart(),
+          // success/cancel URLs (router expects camelCase keys)
+          successUrl: `${location.origin}/thank-you.html?sid={CHECKOUT_SESSION_ID}`,
+          cancelUrl: location.href
+        };
+
+        // Create Checkout Session on your router
+        const r = await fetch('/api/router?action=create_checkout_session', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const j = await r.json().catch(()=> ({}));
+        if (!r.ok) throw new Error(j?.error || 'Payment server error');
+
+        const stripe = await getStripeInstance();
+
+        // Depending on how the handler returns, accept sessionId or id
+        const sessionId = j.sessionId || j.id;
+        if (!sessionId) throw new Error('Missing session id.');
+
+        setStatus('Redirecting to Stripe…', true);
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+        if (error) throw error;
+
+      } catch (e) {
+        console.error(e);
+        setStatus(e.message || 'Checkout failed. Please try again.', false);
+        document.getElementById('checkout').disabled = false;
+      }
+    }
+
+    document.getElementById('checkout').addEventListener('click', goToCheckout);
   </script>
 
-  <!-- Rest of your order.html remains unchanged -->
-  <!-- (all functions for money, Cart.load, render, goToCheckout, etc.) -->
+  <!-- Maintenance (reads from effective) -->
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/router?type=settings', { cache: 'no-store' });
+      const data = await resp.json();
+
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
+    }
+  })();
+  </script>
+
+  <!-- Robust auto-resync (works on iOS Safari) -->
+  <script>
+    function resyncFromStorage(){
+      try { Cart.load(); } catch(e) {}
+      try { (window.__orderRender || function(){})(); } catch(e) {}
+    }
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
+    window.addEventListener('focus', resyncFromStorage);
+    window.addEventListener('storage', resyncFromStorage);
+  </script>
 </body>
 </html>
