@@ -1,229 +1,10 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Banquets and related items for registration.">
-  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v6">
-  <title>Banquets</title>
-</head>
-
-<body data-page="banquets">
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
-  <!-- Header / Logo + Nav -->
-  <header class="site-header">
-    <div class="container header-inner">
-      <a class="logo" href="home.html">
-        <img src="assets/img/logo.svg" alt="Logo">
-      </a>
-      <span class="site-title">Order of the Amaranth</span>
-      <nav class="site-nav nav">
-        <a href="home.html">Home</a>
-        <span class="nav-current">Banquets</span>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="product-catalog.html">Product Catalog</a>
-        <a href="order.html">Order</a>
-      </nav>
-    </div>
-  </header>
-
-  <main class="container mt-lg">
-    <h1 class="page-title">Banquets</h1>
-
-    <div id="banquet-list" class="grid-2"></div>
-
-    <!-- Attendees section: frosted card; Address + Phone now included -->
-    <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(229,231,235,0.45);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;">
-      <h2>Attendees</h2>
-      <form id="attForm" class="att-form">
-        <div class="grid-3">
-          <input name="name" placeholder="Name *" required>
-          <input name="email" type="email" placeholder="Email *" required>
-          <input name="phone" type="tel" placeholder="Phone *" required>
-        </div>
-        <div class="grid-3">
-          <input name="title" placeholder="Title">
-          <input name="notes" placeholder="Dietary notes">
-          <input name="addr1" placeholder="Address line 1 *" required>
-        </div>
-        <div class="grid-3">
-          <input name="addr2" placeholder="Address line 2">
-          <input name="city" placeholder="City *" required>
-          <input name="state" placeholder="State/Province *" required>
-        </div>
-        <div class="grid-3">
-          <input name="postal" placeholder="Postal code *" required>
-          <input name="country" placeholder="Country *" value="US" required>
-          <span></span>
-        </div>
-        <button type="submit">Add attendee</button>
-      </form>
-
-      <div id="attendees"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Banquets</h2>
-      <div id="banquets"></div>
-    </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="container tiny">© 2025</div>
-  </footer>
-
-  <!-- Optional legacy scripts -->
-  <script src="assets/js/main.js" defer></script>
-
-  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
-  <script>
-    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
-    function formatUS(d){
-      if (d.length <= 3) return d;
-      if (d.length <= 6) return d.slice(0,3) + '-' + d.slice(3);
-      return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6,10);
-    }
-    function formatPhoneLive(inputEl){
-      const raw = inputEl.value.trim();
-      if (raw.startsWith('+')) return;              // keep international intact
-      const d = digitsOnly(raw).slice(0,10);        // cap to 10 for US mask
-      inputEl.value = formatUS(d);
-    }
-  </script>
-
-  <script>
-  // Display as $X,XXX.00 (never show < $0.01 visually)
-  function money(n){
-    const v = Math.max(0.01, Math.round(Number(n)*100)/100);
-    return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
-  }
-  // Treat 0<n<1 as cents accidentally stored; convert to dollars
-  function normalizePrice(p){
-    const n = Number(p);
-    if (!isFinite(n)) return 0;
-    return (n > 0 && n < 1) ? Math.round(n*100) : n;
-  }
-  // Simple email check
-  function looksLikeEmail(s){
-    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
-  }
+<script>
+  // ... keep the helpers above (money, normalizePrice, looksLikeEmail, etc.) ...
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // Live phone mask on the attendee form
-    const form = document.getElementById('attForm');
-    const phoneInput = form?.querySelector('input[name="phone"]');
-    if (phoneInput){
-      phoneInput.addEventListener('input', ()=>formatPhoneLive(phoneInput));
-      phoneInput.addEventListener('blur',  ()=>formatPhoneLive(phoneInput));
-    }
-
-    // Migrate any legacy cents (0<n<1) to dollars in existing cart
-    (function migrateLegacyCents(){
-      const st = Cart.get();
-      let changed = false;
-      (st.lines || []).forEach(l => {
-        const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
-      });
-      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-    })();
-
-    // ===== Attendees UI =====
-    const list = document.getElementById('attendees');
-
-    function renderAttendees(){
-      const st = Cart.get();
-      list.innerHTML = (st.attendees||[]).map(a=>{
-        const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
-        const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
-        const phone = a?.phone ? ` • ${a.phone}` : '';
-        return `
-          <div class="att-card">
-            <div>
-              <strong>${a.name||''}</strong>
-              <small>${a.email||''}</small>
-              <em>${a.title||''}</em>
-              <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div>
-              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
-            </div>
-            <button data-del="${a.id}">Remove</button>
-          </div>
-        `;
-      }).join('');
-      list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = () => {
-          Cart.removeAttendee(btn.dataset.del);
-          renderAttendees();
-          refreshAllAttendeeSelects();
-        };
-      });
-    }
-
-    function populateSelectWithAttendees(sel){
-      const a = (Cart.get() || {}).attendees || [];
-      sel.innerHTML = '';
-      if (!a.length){
-        sel.disabled = true;
-        sel.innerHTML = '<option value="">Add attendee first</option>';
-      } else {
-        sel.disabled = false;
-        sel.innerHTML = '<option value="" disabled selected>Select attendee…</option>' +
-          a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
-      }
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    function refreshAllAttendeeSelects(){
-      document.querySelectorAll('.assign select').forEach(populateSelectWithAttendees);
-    }
-
-    form.onsubmit = (e)=>{
-      e.preventDefault();
-      const fd = new FormData(form);
-
-      const name   = (fd.get('name')||'').trim();
-      const email  = (fd.get('email')||'').trim();
-      const phone  = (fd.get('phone')||'').trim();
-      const title  = (fd.get('title')||'').trim();
-      const notes  = (fd.get('notes')||'').trim();
-
-      const address1 = (fd.get('addr1')||'').trim();
-      const address2 = (fd.get('addr2')||'').trim();
-      const city     = (fd.get('city')||'').trim();
-      const state    = (fd.get('state')||'').trim();
-      const postal   = (fd.get('postal')||'').trim();
-      const country  = (fd.get('country')||'US').trim() || 'US';
-
-      // Validate requireds
-      const missing = [];
-      if (!name) missing.push('Name');
-      if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
-      if (!phone) missing.push('Phone');
-      if (!address1) missing.push('Address line 1');
-      if (!city) missing.push('City');
-      if (!state) missing.push('State/Province');
-      if (!postal) missing.push('Postal code');
-      if (!country) missing.push('Country');
-
-      if (missing.length){
-        alert('Please complete the following fields:\n• ' + missing.join('\n• '));
-        return;
-      }
-
-      Cart.addAttendee({
-        name, email, phone, title, notes,
-        address1, address2, city, state, postal, country
-      });
-      form.reset();
-      // keep country default to US for convenience
-      form.querySelector('input[name="country"]').value = 'US';
-
-      renderAttendees();
-      refreshAllAttendeeSelects();
-    };
-    renderAttendees();
+    // --- existing attendee UI code stays the same ---
 
     // ===== Banquets UI =====
     const wrap = document.getElementById('banquets');
@@ -326,60 +107,40 @@
       wrap.appendChild(div);
     }
 
-    function isWithinWindow(b, now){
-      const s = b.publishStart ? new Date(b.publishStart) : null;
-      const e = b.publishEnd   ? new Date(b.publishEnd)   : null;
-      return (!s || now >= s) && (!e || now <= e);
-    }
-    const now = new Date();
-    (window.BANQUETS || [])
-      .filter(b => b.active !== false)
-      .filter(b => isWithinWindow(b, now))
-      .slice(0, 12)
-      .forEach(addBanquet);
-  });
-  </script>
-
-  <style>
-    .att-form input{margin:4px;padding:6px}
-    .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
-    .banquet-card{background:rgba(255,255,255,0.40);border:1px solid rgba(229,231,235,0.45);border-radius:10px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,0.06);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px)}
-    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-  </style>
-
-  <!-- Core site scripts (order matters) -->
-  <script src="assets/js/site-settings.js"></script>
-  <script src="assets/js/items.js"></script>
-  <script src="assets/js/banquets.js"></script>
-  <script src="assets/js/cart.js"></script>
-  <script src="assets/js/data-store.js"></script>
-  <script src="assets/js/site-boot.js"></script>
-
-  <!-- Maintenance check via router -->
-  <script>
-  (async () => {
-    try {
-      const resp = await fetch('/api/router?type=settings');
-      const data = await resp.json();
-
-      const on = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
-      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
-      if (on === 'true' || on === true) {
-        document.body.innerHTML = `
-          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-            <p style="font-size:1.2em;max-width:500px;">
-              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
-            </p>
-          </div>
-        `;
+    // Use server banquets first; fall back to static list
+    async function loadBanquets() {
+      // Helper: publish-window check (compare as timestamps)
+      function isWithinWindow(b, nowTs){
+        const s = b.publishStart ? Date.parse(b.publishStart) : null;
+        const e = b.publishEnd   ? Date.parse(b.publishEnd)   : null;
+        return (s == null || nowTs >= s) && (e == null || nowTs <= e);
       }
-    } catch (err) {
-      console.error('Maintenance check failed:', err);
-    }
-  })();
-  </script>
 
-</body>
-</html>
+      const nowTs = Date.now();
+      let list = [];
+
+      try {
+        const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (Array.isArray(j?.banquets)) list = j.banquets;
+        }
+      } catch (e) {
+        console.warn('Server banquets fetch failed:', e);
+      }
+
+      if (!list.length && Array.isArray(window.BANQUETS)) {
+        // fallback to static file
+        list = window.BANQUETS;
+      }
+
+      // Filter by active + publish window
+      list
+        .filter(b => b.active !== false)
+        .filter(b => isWithinWindow(b, nowTs))
+        .forEach(addBanquet);
+    }
+
+    loadBanquets();
+  });
+</script>
