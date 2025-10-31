@@ -171,8 +171,8 @@ function absoluteUrl(path = "/") {
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+// (kept simple here; can be swapped for the richer template later)
 function renderOrderEmailHTML(order) {
-  // header with logo and title
   const logoUrl = absoluteUrl("/assets/img/logo.svg");
   const title = "Grand Court of PA — Order of the Amaranth";
   const subtitle = `Order #${order.id}`;
@@ -282,6 +282,8 @@ export default async function handler(req, res) {
         };
         try {
           await kv.set("smoketest:key", "ok", { ex: 30 });
+        } catch (e) {}
+        try {
           const v = await kv.get("smoketest:key");
           out.kvSetGetOk = (v === "ok");
         } catch (e) { out.kvError = String(e?.message || e); }
