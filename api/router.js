@@ -33,7 +33,7 @@ async function kvHgetallSafe(key)            { try { return (await kv.hgetall(ke
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
   const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  the token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token || token !== (process.env.REPORT_TOKEN || "")) {
     REQ_ERR(res, 401, "unauthorized");
     return false;
@@ -230,7 +230,7 @@ function renderOrderEmailHTML(order) {
   </body></html>`;
 }
 
-// *** CHANGED: use BCC for admins (REPORTS_BCC overrides; falls back to REPORTS_CC) ***
+// *** BCC admins; REPORTS_BCC overrides REPORTS_CC ***
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
@@ -242,17 +242,14 @@ async function sendOrderReceipts(order) {
   const subject = `Grand Court of PA - order #${order.id}`;
   const html = renderOrderEmailHTML(order);
 
-  // Ensure at least one visible "to" recipient:
-  // - If purchaser exists: send to purchaser, BCC admins.
-  // - If purchaser is missing: send to the first admin in "to" (so the message can be delivered),
-  //   and do NOT BCC duplicates.
+  // Ensure a visible "to" recipient to avoid provider rejections.
   const to = purchaserTo.length ? purchaserTo : (adminList.length ? [adminList[0]] : []);
   const bcc = purchaserTo.length ? (adminList.length ? adminList : undefined) : undefined;
 
   await resend.emails.send({
     from: process.env.RESEND_FROM,
     to,
-    bcc,                 // <-- admins hidden from purchaser
+    bcc,       // admins hidden from purchaser
     subject,
     html
   });
@@ -300,6 +297,7 @@ export default async function handler(req, res) {
         const env = {
           RESEND_FROM: process.env.RESEND_FROM || "",
           REPORTS_CC: process.env.REPORTS_CC || "",
+          REPORTS_BCC: process.env.REPORTS_BCC || "",
           SITE_BASE_URL: process.env.SITE_BASE_URL || "",
           MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
           MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || ""
@@ -310,7 +308,8 @@ export default async function handler(req, res) {
         return REQ_OK(res, { env, overrides, effective });
       }
 
-      if (type === "stripe_pubkey") {
+      // Publishable key (supports both names for safety)
+      if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
 
@@ -351,7 +350,8 @@ export default async function handler(req, res) {
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
-        const successUrl = (body.success_url || `${origin}/thank-you.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+        // ✅ Redirect to /success.html now
+        const successUrl = (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
         const cancelUrl  = body.cancel_url  || `${origin}/order.html`;
 
         if (Array.isArray(body.lines) && body.lines.length) {
@@ -494,7 +494,7 @@ export default async function handler(req, res) {
       }
       if (action === "save_settings") {
         const allow = {};
-        ["RESEND_FROM","REPORTS_CC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
+        ["RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
           .forEach(k => { if (k in body) allow[k] = body[k]; });
         if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
