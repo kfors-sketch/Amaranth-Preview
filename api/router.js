@@ -33,7 +33,7 @@ async function kvHgetallSafe(key)            { try { return (await kv.hgetall(ke
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
   const auth = req.headers.authorization || "";
-  the token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token || token !== (process.env.REPORT_TOKEN || "")) {
     REQ_ERR(res, 401, "unauthorized");
     return false;
@@ -472,6 +472,28 @@ export default async function handler(req, res) {
           default: break;
         }
         return REQ_OK(res, { received: true });
+      }
+
+      // --- PUBLIC: register an item config (used by pages calling AMARANTH_REGISTER_ENDPOINT) ---
+      if (action === "register_item") {
+        const { id = "", name = "", chairEmails = [], publishStart = "", publishEnd = "" } = body || {};
+        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
+
+        const cfg = {
+          id,
+          name,
+          chairEmails: (Array.isArray(chairEmails) ? chairEmails : String(chairEmails).split(","))
+            .map(s => String(s||"").trim()).filter(Boolean),
+          publishStart,
+          publishEnd,
+          updatedAt: new Date().toISOString()
+        };
+
+        const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
+        const ok2 = await kvSaddSafe("itemcfg:index", id);
+        if (!ok1 || !ok2) return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
+
+        return REQ_OK(res, { ok: true });
       }
 
       // -------- ADMIN (auth) --------
