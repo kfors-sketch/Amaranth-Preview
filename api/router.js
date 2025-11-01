@@ -355,7 +355,8 @@ export default async function handler(req, res) {
           REPORTS_BCC: process.env.REPORTS_BCC || "",
           SITE_BASE_URL: process.env.SITE_BASE_URL || "",
           MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || ""
+          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
+          REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true")
         };
         const effective = { ...env, ...overrides,
           MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -580,7 +581,7 @@ export default async function handler(req, res) {
       }
       if (action === "save_settings") {
         const allow = {};
-        ["RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE"]
+        ["RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE","REPORTS_SEND_SEPARATE"]
           .forEach(k => { if (k in body) allow[k] = body[k]; });
         if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
