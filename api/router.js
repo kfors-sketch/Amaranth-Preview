@@ -1,4 +1,4 @@
-// /api/router.js
+// /api/router.js 
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 
@@ -29,6 +29,12 @@ async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); re
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
+
+// --- Mail visibility helpers (Section A) ---
+const MAIL_LOG_KEY = "mail:lastlog";
+async function recordMailLog(payload) {
+  try { await kv.set(MAIL_LOG_KEY, payload, { ex: 60 * 60 }); } catch {}
+}
 
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
@@ -261,8 +267,8 @@ function renderOrderEmailHTML(order) {
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${"#ddd"};font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid ${"#ddd"};font-weight:700">${money(total)}</td>
         </tr>
       </tfoot>
     </table>
@@ -288,21 +294,43 @@ async function sendOrderReceipts(order) {
 
   // (1) Purchaser copy
   if (purchaserEmail) {
-    await resend.emails.send({
+    const sendResult = await resend.emails.send({
       from: process.env.RESEND_FROM,
       to: [purchaserEmail],
       subject,
       html
     });
+
+    // record basic details for quick debugging
+    await recordMailLog({
+      ts: Date.now(),
+      from: process.env.RESEND_FROM || "",
+      to: [purchaserEmail],
+      bcc: undefined,
+      subject,
+      orderId: order?.id || "",
+      resultId: sendResult?.id || null
+    });
   }
 
   // (2) Admin copy (send even if purchaser is also an admin)
   if (adminList.length) {
-    await resend.emails.send({
+    const sendResult = await resend.emails.send({
       from: process.env.RESEND_FROM,
       to: adminList, // send to all admins explicitly
       subject: `${subject} (admin copy)`,
       html
+    });
+
+    // record basic details for quick debugging
+    await recordMailLog({
+      ts: Date.now(),
+      from: process.env.RESEND_FROM || "",
+      to: adminList,
+      bcc: undefined,
+      subject: `${subject} (admin copy)`,
+      orderId: order?.id || "",
+      resultId: sendResult?.id || null
     });
   }
 
@@ -341,6 +369,12 @@ export default async function handler(req, res) {
           out.kvSetGetOk = (v === "ok");
         } catch (e) { out.kvError = String(e?.message || e); }
         return REQ_OK(res, out);
+      }
+
+      // --- Last sent mail visibility (Section C) ---
+      if (type === "lastmail") {
+        const data = await kvGetSafe(MAIL_LOG_KEY, { note: "no recent email log" });
+        return REQ_OK(res, data);
       }
 
       if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
@@ -405,6 +439,37 @@ export default async function handler(req, res) {
     // ---------- POST ----------
     if (req.method === "POST") {
       const body = req.body || {};
+
+      // --- Quick manual Resend test (no auth) ---
+      if (action === "test_resend") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        const urlObj = new URL(req.url, `http://${req.headers.host}`);
+        const bodyTo = (req.body && req.body.to) || urlObj.searchParams.get("to") || "";
+        const fallbackAdmin = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean)[0] || "";
+        const to = bodyTo || fallbackAdmin;
+
+        if (!to) return REQ_ERR(res, 400, "missing-to");
+
+        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+          <h2>Resend test OK</h2>
+          <p>Time: ${new Date().toISOString()}</p>
+          <p>From: ${process.env.RESEND_FROM || ""}</p>
+        </div>`;
+
+        const sendResult = await resend.emails.send({
+          from: process.env.RESEND_FROM,
+          to: [to],
+          subject: "Amaranth test email",
+          html
+        });
+
+        await recordMailLog({
+          ts: Date.now(), from: process.env.RESEND_FROM || "", to: [to],
+          subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test"
+        });
+
+        return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+      }
 
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
