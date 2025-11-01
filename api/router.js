@@ -164,23 +164,28 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-// -------- Email rendering + sending (safe) --------
+// -------- Email rendering + sending --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// (kept simple here; can be swapped for the richer template later)
-function renderOrderEmailHTML(order) {
+function renderOrderEmailHTML(order, { adminCopy = false } = {}) {
   const logoUrl = absoluteUrl("/assets/img/logo.svg");
   const title = "Grand Court of PA — Order of the Amaranth";
-  const subtitle = `Order #${order.id}`;
-
+  const subtitle = `${adminCopy ? "Admin copy — " : ""}Order #${order.id}`;
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
+
   const rows = (order.lines||[]).map(li => `
     <tr>
-      <td style="padding:8px;border-bottom:1px solid #eee">${li.itemName || ""}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee">
+        <div style="font-weight:600">${li.itemName || ""}</div>
+        ${li.category ? `<div style="color:#6b7280;font-size:12px">Category: ${li.category}</div>` : ""}
+        ${li.attendeeId ? `<div style="color:#6b7280;font-size:12px">Attendee ID: ${li.attendeeId}</div>` : ""}
+        ${li.itemId ? `<div style="color:#6b7280;font-size:12px">Item ID: ${li.itemId}</div>` : ""}
+        ${li.notes ? `<div style="color:#374151;font-size:12px">Notes: ${li.notes}</div>` : ""}
+      </td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
@@ -192,21 +197,32 @@ function renderOrderEmailHTML(order) {
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
   <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <img src="${logoUrl}" alt="Logo" style="height:40px" />
+      <img src="${logoUrl}" alt="Logo" style="height:28px" />
       <div>
         <div style="font-size:18px;font-weight:800">${title}</div>
-        <div style="font-size:14px;color:#555">${subtitle}</div>
+        <div style="font-size:13px;color:#555">${subtitle}</div>
       </div>
     </div>
 
-    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
-      <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
-      <div>${order.purchaser?.name || ""}</div>
-      <div>${order.customer_email || ""}</div>
-      <div>${order.purchaser?.phone || ""}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px">
+        <div style="font-weight:700;margin-bottom:6px">Purchaser</div>
+        <div>${order.purchaser?.name || "—"}</div>
+        <div>${order.customer_email || "—"}</div>
+        <div>${order.purchaser?.phone || "—"}</div>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px">
+        <div style="font-weight:700;margin-bottom:6px">Payment</div>
+        <div>Date: ${new Date(order.created||Date.now()).toLocaleString()}</div>
+        <div>Currency: ${(order.currency||"USD").toUpperCase()}</div>
+        <div>Session: ${order.id}</div>
+        ${order.payment_intent ? `<div>Payment Intent: ${order.payment_intent}</div>` : ""}
+        ${order.charge ? `<div>Charge: ${order.charge}</div>` : ""}
+        <div>Status: ${order.status || "paid"}</div>
+      </div>
     </div>
 
-    <h2 style="margin:16px 0 8px">Order Summary</h2>
+    <h2 style="margin:16px 0 8px;font-size:16px">Order Summary</h2>
     <table style="width:100%;border-collapse:collapse">
       <thead>
         <tr>
@@ -225,35 +241,57 @@ function renderOrderEmailHTML(order) {
       </tfoot>
     </table>
 
-    <p style="color:#666;font-size:12px;margin-top:12px">Thank you for your order!</p>
+    <p style="color:#6b7280;font-size:12px;margin-top:12px">
+      Thank you for your order! If you have questions, reply to this email.
+    </p>
   </div>
   </body></html>`;
 }
 
-// *** BCC admins; REPORTS_BCC overrides REPORTS_CC ***
+// *** Two-email flow: customer receipt + separate Admin copy (REPORTS_BCC overrides REPORTS_CC) ***
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
-  const purchaserTo = [order.customer_email].filter(Boolean);
+  const purchaserEmail = (order.customer_email || "").trim().toLowerCase();
+  const purchaserTo = purchaserEmail ? [purchaserEmail] : [];
+
   const adminList = (
     process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
   ).split(",").map(s=>s.trim()).filter(Boolean);
 
-  const subject = `Grand Court of PA - order #${order.id}`;
-  const html = renderOrderEmailHTML(order);
+  const adminListLower = adminList.map(e => e.toLowerCase());
+  const adminExcludingPurchaser = adminList.filter(e => e.toLowerCase() !== purchaserEmail);
 
-  // Ensure a visible "to" recipient to avoid provider rejections.
-  const to = purchaserTo.length ? purchaserTo : (adminList.length ? [adminList[0]] : []);
-  const bcc = purchaserTo.length ? (adminList.length ? adminList : undefined) : undefined;
+  const baseSubject = `Grand Court of PA - order #${order.id}`;
+  const customerHtml = renderOrderEmailHTML(order, { adminCopy: false });
+  const adminHtml    = renderOrderEmailHTML(order, { adminCopy: true });
 
-  await resend.emails.send({
-    from: process.env.RESEND_FROM,
-    to,
-    bcc,       // admins hidden from purchaser
-    subject,
-    html
-  });
+  // 1) Customer receipt (admins in BCC, excluding purchaser if overlapped)
+  if (purchaserTo.length) {
+    await resend.emails.send({
+      from: process.env.RESEND_FROM,
+      to: purchaserTo,
+      bcc: adminExcludingPurchaser.length ? adminExcludingPurchaser : undefined,
+      subject: baseSubject,
+      html: customerHtml
+    });
+  }
 
+  // 2) Separate Admin copy — ensures two distinct messages when purchaser is also an admin
+  const shouldSendAdminCopy =
+    adminList.length > 0 && (purchaserTo.length === 0 || adminListLower.includes(purchaserEmail));
+  if (shouldSendAdminCopy) {
+    await resend.emails.send({
+      from: process.env.RESEND_FROM,
+      to: adminList,
+      subject: `${baseSubject} — Admin copy`,
+      html: adminHtml
+    });
+  }
+
+  if (!purchaserTo.length && adminList.length === 0) {
+    return { sent: false, reason: "no-recipients" };
+  }
   return { sent: true };
 }
 
@@ -280,9 +318,7 @@ export default async function handler(req, res) {
           hasResendClient: !!resend,
           kvSetGetOk: false,
         };
-        try {
-          await kv.set("smoketest:key", "ok", { ex: 30 });
-        } catch (e) {}
+        try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch (e) {}
         try {
           const v = await kv.get("smoketest:key");
           out.kvSetGetOk = (v === "ok");
@@ -352,7 +388,7 @@ export default async function handler(req, res) {
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
-        // ✅ Redirect to /success.html now
+        // Redirect to /success.html now
         const successUrl = (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
         const cancelUrl  = body.cancel_url  || `${origin}/order.html`;
 
