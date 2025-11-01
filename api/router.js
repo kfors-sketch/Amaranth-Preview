@@ -164,91 +164,105 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-// -------- Email rendering + sending --------
+// -------- Email rendering + sending (order-page style) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+// Renders two variants:
+// - Customer: clean, mirrors order page (no tech details)
+// - Admin copy: includes a compact meta panel
 function renderOrderEmailHTML(order, { adminCopy = false } = {}) {
-  const logoUrl = absoluteUrl("/assets/img/logo.svg");
-  const title = "Grand Court of PA — Order of the Amaranth";
-  const subtitle = `${adminCopy ? "Admin copy — " : ""}Order #${order.id}`;
+  // Allow swapping logo and size via env if you want later
+  const logoUrl = (process.env.EMAIL_BRAND_LOGO_URL || absoluteUrl("/assets/img/logo.svg"));
+  const logoH   = Number(process.env.EMAIL_LOGO_HEIGHT || 20); // smaller on purpose
+
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
 
-  const rows = (order.lines||[]).map(li => `
-    <tr>
-      <td style="padding:8px;border-bottom:1px solid #eee">
-        <div style="font-weight:600">${li.itemName || ""}</div>
-        ${li.category ? `<div style="color:#6b7280;font-size:12px">Category: ${li.category}</div>` : ""}
-        ${li.attendeeId ? `<div style="color:#6b7280;font-size:12px">Attendee ID: ${li.attendeeId}</div>` : ""}
-        ${li.itemId ? `<div style="color:#6b7280;font-size:12px">Item ID: ${li.itemId}</div>` : ""}
-        ${li.notes ? `<div style="color:#374151;font-size:12px">Notes: ${li.notes}</div>` : ""}
-      </td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
-    </tr>`).join("");
+  // Table rows (customer view = minimal; admin adds tiny meta lines)
+  const rows = (order.lines||[]).map(li => {
+    const base = `
+      <div style="font-weight:600">${li.itemName || ""}</div>
+      ${adminCopy && li.category    ? `<div style="color:#6b7280;font-size:12px">Category: ${li.category}</div>` : ""}
+      ${adminCopy && li.attendeeId  ? `<div style="color:#6b7280;font-size:12px">Attendee ID: ${li.attendeeId}</div>` : ""}
+      ${adminCopy && li.itemId      ? `<div style="color:#6b7280;font-size:12px">Item ID: ${li.itemId}</div>` : ""}
+      ${adminCopy && li.notes       ? `<div style="color:#374151;font-size:12px">Notes: ${li.notes}</div>` : ""}
+    `;
+    return `
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #eee">${base}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
+      </tr>`;
+  }).join("");
 
   const subtotal = (order.lines||[]).reduce((s,li)=>s+(li.gross||0),0);
   const total = order.amount_total || subtotal;
 
-  return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
-  <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <img src="${logoUrl}" alt="Logo" style="height:28px" />
-      <div>
-        <div style="font-size:18px;font-weight:800">${title}</div>
-        <div style="font-size:13px;color:#555">${subtitle}</div>
-      </div>
+  // Tiny meta panel only on admin copy
+  const adminMeta = adminCopy ? `
+    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:12px">
+      <div style="font-weight:700;margin-bottom:6px">Admin details</div>
+      <div>Date: ${new Date(order.created||Date.now()).toLocaleString()}</div>
+      <div>Currency: ${(order.currency||"USD").toUpperCase()}</div>
+      <div>Session: ${order.id}</div>
+      ${order.payment_intent ? `<div>Payment Intent: ${order.payment_intent}</div>` : ""}
+      ${order.charge ? `<div>Charge: ${order.charge}</div>` : ""}
+      <div>Status: ${order.status || "paid"}</div>
     </div>
+  ` : "";
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
-      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px">
+  return `<!doctype html><html>
+  <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0">
+    <div style="max-width:720px;margin:0 auto;padding:16px 20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <img src="${logoUrl}" alt="Logo" style="height:${logoH}px" />
+        <div>
+          <div style="font-size:16px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
+          <div style="font-size:13px;color:#555">${adminCopy ? "Admin copy — " : ""}Order #${order.id}</div>
+        </div>
+      </div>
+
+      <!-- Purchaser (same block for both) -->
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
         <div style="font-weight:700;margin-bottom:6px">Purchaser</div>
         <div>${order.purchaser?.name || "—"}</div>
         <div>${order.customer_email || "—"}</div>
         <div>${order.purchaser?.phone || "—"}</div>
       </div>
-      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px">
-        <div style="font-weight:700;margin-bottom:6px">Payment</div>
-        <div>Date: ${new Date(order.created||Date.now()).toLocaleString()}</div>
-        <div>Currency: ${(order.currency||"USD").toUpperCase()}</div>
-        <div>Session: ${order.id}</div>
-        ${order.payment_intent ? `<div>Payment Intent: ${order.payment_intent}</div>` : ""}
-        ${order.charge ? `<div>Charge: ${order.charge}</div>` : ""}
-        <div>Status: ${order.status || "paid"}</div>
-      </div>
+
+      <h2 style="margin:16px 0 8px;font-size:16px">Order Summary</h2>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd">Item</th>
+            <th style="text-align:center;padding:10px;border-bottom:1px solid #ddd">Qty</th>
+            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Price</th>
+            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Line</th>
+          </tr>
+        </thead>
+        <tbody>${rows || ""}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">Total</td>
+            <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      ${adminMeta}
+
+      <p style="color:#6b7280;font-size:12px;margin-top:12px">
+        Thank you for your order! If you have questions, just reply to this email.
+      </p>
     </div>
-
-    <h2 style="margin:16px 0 8px;font-size:16px">Order Summary</h2>
-    <table style="width:100%;border-collapse:collapse">
-      <thead>
-        <tr>
-          <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
-          <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
-          <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
-          <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
-        </tr>
-      </thead>
-      <tbody>${rows || ""}</tbody>
-      <tfoot>
-        <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
-        </tr>
-      </tfoot>
-    </table>
-
-    <p style="color:#6b7280;font-size:12px;margin-top:12px">
-      Thank you for your order! If you have questions, reply to this email.
-    </p>
-  </div>
   </body></html>`;
 }
 
-// *** Two-email flow: customer receipt + separate Admin copy (REPORTS_BCC overrides REPORTS_CC) ***
+// Sends two emails: Customer (clean) + Admin copy (with compact meta)
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
@@ -259,33 +273,32 @@ async function sendOrderReceipts(order) {
     process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
   ).split(",").map(s=>s.trim()).filter(Boolean);
 
-  const adminListLower = adminList.map(e => e.toLowerCase());
   const adminExcludingPurchaser = adminList.filter(e => e.toLowerCase() !== purchaserEmail);
+  const subject = `Grand Court of PA - order #${order.id}`;
 
-  const baseSubject = `Grand Court of PA - order #${order.id}`;
-  const customerHtml = renderOrderEmailHTML(order, { adminCopy: false });
-  const adminHtml    = renderOrderEmailHTML(order, { adminCopy: true });
-
-  // 1) Customer receipt (admins in BCC, excluding purchaser if overlapped)
+  // 1) Customer receipt — clean layout, admins BCC (excluding the purchaser)
   if (purchaserTo.length) {
     await resend.emails.send({
       from: process.env.RESEND_FROM,
       to: purchaserTo,
       bcc: adminExcludingPurchaser.length ? adminExcludingPurchaser : undefined,
-      subject: baseSubject,
-      html: customerHtml
+      subject,
+      html: renderOrderEmailHTML(order, { adminCopy: false })
     });
   }
 
-  // 2) Separate Admin copy — ensures two distinct messages when purchaser is also an admin
+  // 2) Admin copy — send only if:
+  //    - purchaser is missing OR purchaser is one of the admin emails (so you still see a separate message)
   const shouldSendAdminCopy =
-    adminList.length > 0 && (purchaserTo.length === 0 || adminListLower.includes(purchaserEmail));
+    adminList.length > 0 &&
+    (!purchaserTo.length || adminList.map(e=>e.toLowerCase()).includes(purchaserEmail));
+
   if (shouldSendAdminCopy) {
     await resend.emails.send({
       from: process.env.RESEND_FROM,
       to: adminList,
-      subject: `${baseSubject} — Admin copy`,
-      html: adminHtml
+      subject: `${subject} — Admin copy`,
+      html: renderOrderEmailHTML(order, { adminCopy: true })
     });
   }
 
