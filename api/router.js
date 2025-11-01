@@ -1,4 +1,4 @@
-// /api/router.js 
+// /api/router.js
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 
@@ -30,11 +30,9 @@ async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); re
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
 
-// --- Mail visibility helpers (Section A) ---
+// --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
-async function recordMailLog(payload) {
-  try { await kv.set(MAIL_LOG_KEY, payload, { ex: 60 * 60 }); } catch {}
-}
+async function recordMailLog(payload) { try { await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 }); } catch {} }
 
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
@@ -71,13 +69,13 @@ async function saveOrderFromSession(sessionLike) {
       category: (meta.itemType || '').toLowerCase() || 'other',
       attendeeId: meta.attendeeId || "",
       itemId: meta.itemId || "",
-      // NEW: carry through for emails/reporting (nested under .meta)
+      // carry attendee + notes for emails/reporting
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
         itemNote: meta.itemNote || ""
       },
-      // legacy field no longer used (kept for backwards compatibility)
+      // legacy field
       notes: ""
     };
   });
@@ -267,8 +265,8 @@ function renderOrderEmailHTML(order) {
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${"#ddd"};font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid ${"#ddd"};font-weight:700">${money(total)}</td>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
         </tr>
       </tfoot>
     </table>
@@ -300,43 +298,21 @@ async function sendOrderReceipts(order) {
       subject,
       html
     });
-
-    // record basic details for quick debugging
-    await recordMailLog({
-      ts: Date.now(),
-      from: process.env.RESEND_FROM || "",
-      to: [purchaserEmail],
-      bcc: undefined,
-      subject,
-      orderId: order?.id || "",
-      resultId: sendResult?.id || null
-    });
+    await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: [purchaserEmail], subject, orderId: order?.id || "", resultId: sendResult?.id || null });
   }
 
-  // (2) Admin copy (send even if purchaser is also an admin)
+  // (2) Admin copy
   if (adminList.length) {
     const sendResult = await resend.emails.send({
       from: process.env.RESEND_FROM,
-      to: adminList, // send to all admins explicitly
+      to: adminList,
       subject: `${subject} (admin copy)`,
       html
     });
-
-    // record basic details for quick debugging
-    await recordMailLog({
-      ts: Date.now(),
-      from: process.env.RESEND_FROM || "",
-      to: adminList,
-      bcc: undefined,
-      subject: `${subject} (admin copy)`,
-      orderId: order?.id || "",
-      resultId: sendResult?.id || null
-    });
+    await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: sendResult?.id || null });
   }
 
-  if (!purchaserEmail && !adminList.length) {
-    return { sent: false, reason: "no-recipients" };
-  }
+  if (!purchaserEmail && !adminList.length) return { sent: false, reason: "no-recipients" };
   return { sent: true };
 }
 
@@ -371,10 +347,33 @@ export default async function handler(req, res) {
         return REQ_OK(res, out);
       }
 
-      // --- Last sent mail visibility (Section C) ---
+      // --- Last sent mail visibility
       if (type === "lastmail") {
         const data = await kvGetSafe(MAIL_LOG_KEY, { note: "no recent email log" });
         return REQ_OK(res, data);
+      }
+
+      // --- GET email test (browser quick check): /api/router?action=test_resend&to=you@example.com
+      if (action === "test_resend") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        const to = (url.searchParams.get("to") || "").trim();
+        if (!to) return REQ_ERR(res, 400, "missing-to");
+
+        const from = process.env.RESEND_FROM || "onboarding@resend.dev";
+        const html = `
+          <!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+            <h2>Resend test</h2>
+            <p>This is a test email via GET.</p>
+            <p>From: <b>${from}</b><br/>To: <b>${to}</b></p>
+          </body></html>`;
+
+        try {
+          const r = await resend.emails.send({ from, to: [to], subject: "Amaranth — Resend test (GET)", html });
+          await recordMailLog({ ts: Date.now(), from, to: [to], subject: "Amaranth — Resend test (GET)", resultId: r?.id || null, kind: "manual-test" });
+          return REQ_OK(res, { sent: true, via: "GET", to });
+        } catch (e) {
+          return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
+        }
       }
 
       if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
@@ -395,7 +394,6 @@ export default async function handler(req, res) {
         const effective = { ...env, ...overrides,
           MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
         };
-        // Back-compat convenience fields (your order.html reads MAINTENANCE_ON at root)
         return REQ_OK(res, {
           env, overrides, effective,
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
@@ -446,8 +444,7 @@ export default async function handler(req, res) {
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
         const bodyTo = (req.body && req.body.to) || urlObj.searchParams.get("to") || "";
         const fallbackAdmin = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean)[0] || "";
-        const to = bodyTo || fallbackAdmin;
-
+        const to = (bodyTo || fallbackAdmin).trim();
         if (!to) return REQ_ERR(res, 400, "missing-to");
 
         const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
@@ -463,12 +460,20 @@ export default async function handler(req, res) {
           html
         });
 
-        await recordMailLog({
-          ts: Date.now(), from: process.env.RESEND_FROM || "", to: [to],
-          subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test"
-        });
-
+        await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: [to], subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test" });
         return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+      }
+
+      // --- Fail-safe: finalize_checkout (save + email) if webhook is delayed/missing ---
+      // POST /api/router?action=finalize_checkout { sid: "cs_test_..." }
+      if (action === "finalize_checkout") {
+        const stripe = await getStripe();
+        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        const sid = String(body.sid || body.id || "").trim();
+        if (!sid) return REQ_ERR(res, 400, "missing-sid");
+        const order = await saveOrderFromSession({ id: sid });
+        await sendOrderReceipts(order);
+        return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
       if (action === "create_checkout_session") {
