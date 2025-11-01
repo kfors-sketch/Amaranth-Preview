@@ -583,16 +583,46 @@
 
     function buildPayloadFromCart() {
       const st = Cart.get();
-      const lines = (st.lines || []).map(l => ({
-        id: l.id,
-        itemId: l.itemId,
-        itemType: l.itemType,
-        itemName: l.itemName,
-        unitPrice: Number(normalizePrice(l.unitPrice)), // cents integer expected server-side
-        qty: Number(l.qty || 1),
-        attendeeId: l.attendeeId || '',
-        meta: l.meta || {}
-      }));
+
+      // Build an attendee lookup to grab names/notes fast
+      const attMap = {};
+      (st.attendees || []).forEach(a => { attMap[a.id] = a; });
+
+      const lines = (st.lines || []).map(l => {
+        const attendeeId = l.attendeeId || '';
+        const a = attMap[attendeeId];
+
+        // Collect notes:
+        // - Banquets: prefer line.meta.attendeeNotes, else attendee.notes
+        // - Other items: any line.meta.note|notes|message
+        const isBanquet = l.itemType === 'banquet';
+        const banquetNotes = isBanquet
+          ? (l.meta?.attendeeNotes || a?.notes || '')
+          : '';
+        const itemNote = !isBanquet
+          ? (l.meta?.note || l.meta?.notes || l.meta?.message || '')
+          : '';
+
+        // NEW: enrich meta for receipts and server save
+        const meta = {
+          ...l.meta,
+          attendeeName: a?.name || (attendeeId === '(unassigned)' ? (document.getElementById('p_name')?.value || 'Purchaser') : ''),
+          attendeeNotes: banquetNotes || '',
+          itemNote: itemNote || ''
+        };
+
+        return {
+          id: l.id,
+          itemId: l.itemId,
+          itemType: l.itemType,
+          itemName: l.itemName,
+          unitPrice: Number(normalizePrice(l.unitPrice)), // cents integer expected server-side
+          qty: Number(l.qty || 1),
+          attendeeId,
+          meta
+        };
+      });
+
       const fees = Cart.totals(); // { pct, flat }
       return { lines, fees };
     }
