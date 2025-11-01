@@ -63,10 +63,16 @@ async function saveOrderFromSession(sessionLike) {
       unitPrice: unit,
       gross: total,
       category: (meta.itemType || '').toLowerCase() || 'other',
-      notes: meta.notes || "",               // notes preserved
       attendeeId: meta.attendeeId || "",
-      attendeeName: meta.attendeeName || "", // attendee name preserved
       itemId: meta.itemId || "",
+      // NEW: carry through for emails/reporting (nested under .meta)
+      meta: {
+        attendeeName: meta.attendeeName || "",
+        attendeeNotes: meta.attendeeNotes || "",
+        itemNote: meta.itemNote || ""
+      },
+      // legacy field no longer used (kept for backwards compatibility)
+      notes: ""
     };
   });
 
@@ -172,100 +178,103 @@ function absoluteUrl(path = "/") {
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// Attendee-grouped receipt with a small logo
+// Attendee-grouped receipt with a small logo; shows attendeeNotes for banquets, itemNote otherwise
 function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
 
-  // Group lines by attendee bucket
-  const buckets = {};
+  // Group by attendee display name (prefer meta.attendeeName; else purchaser; else generic)
+  const groups = {};
   (order.lines || []).forEach(li => {
-    const key = (li.attendeeId || "").trim() || "__unassigned__";
-    if (!buckets[key]) buckets[key] = { name: "", id: "", list: [] };
-    // Best display label: prefer attendeeName; if both exist, show "Name (ID)"; else fallbacks
-    const nm = (li.attendeeName || "").trim();
-    const id = (li.attendeeId || "").trim();
-    const label = nm ? (id ? `${nm} (${id})` : nm) : (id ? `Attendee ${id}` : "Purchaser / Unassigned");
-    if (!buckets[key].name) { buckets[key].name = label; buckets[key].id = id; }
-    buckets[key].list.push(li);
+    const attName = (li.meta && li.meta.attendeeName)
+      || (order.purchaser?.name || "Purchaser");
+    (groups[attName] ||= []).push(li);
   });
 
-  const sections = Object.values(buckets).map(g => {
-    const rows = g.list.map(li => `
-      <tr>
-        <td style="padding:10px;border-bottom:1px solid #eee">
-          <div style="font-weight:600">${li.itemName || ""}</div>
-          ${li.notes ? `<div style="margin-top:4px;color:#374151;font-size:12px"><strong>Notes:</strong> ${String(li.notes)}</div>` : ""}
-        </td>
-        <td style="padding:10px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
-        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
-        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
-      </tr>
-    `).join("");
+  const groupHtml = Object.entries(groups).map(([attName, list]) => {
+    const rows = list.map(li => {
+      const isBanquet = (li.category === "banquet") || /banquet/i.test(li.itemName || "");
+      const notes = isBanquet ? (li.meta?.attendeeNotes || "") : (li.meta?.itemNote || "");
+      const notesRow = notes
+        ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
+        : "";
+      const lineTotal = (Number(li.unitPrice||0) * Number(li.qty||1));
+      return `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #eee">
+            ${li.itemName || ""}${notesRow}
+          </td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty||1)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice||0)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
+        </tr>`;
+    }).join("");
 
-    const groupTotal = g.list.reduce((s,li)=> s + (li.gross || 0), 0);
+    const subtotal = list.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
 
     return `
-      <h3 style="margin:16px 0 8px;font-size:15px">${g.name}</h3>
-      <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd">Item</th>
-            <th style="text-align:center;padding:10px;border-bottom:1px solid #ddd">Qty</th>
-            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Price</th>
-            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Line</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          <tr>
-            <td colspan="3" style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-            <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">${money(groupTotal)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    `;
+      <div style="margin-top:14px">
+        <div style="font-weight:700;margin:8px 0 6px">${attName}</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
+              <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
+              <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
   }).join("");
 
-  const grand = (order.amount_total || (order.lines||[]).reduce((s,li)=> s + (li.gross || 0), 0));
+  const subtotalAll = (order.lines||[]).reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
+  const total = Number(order.amount_total || subtotalAll);
 
-  return `<!doctype html><html>
-  <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0">
-    <div style="max-width:720px;margin:0 auto;padding:16px 20px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <img src="${logoUrl}" alt="Logo" style="height:20px;width:auto" />
-        <div>
-          <div style="font-size:16px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
-          <div style="font-size:13px;color:#555">Order #${order.id}</div>
-        </div>
+  return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
+  <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <img src="${logoUrl}" alt="Logo" style="height:28px;max-width:160px;object-fit:contain" />
+      <div>
+        <div style="font-size:18px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
+        <div style="font-size:14px;color:#555">Order #${order.id}</div>
       </div>
-
-      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
-        <div style="font-weight:700;margin-bottom:6px">Purchaser</div>
-        <div>${order.purchaser?.name || "—"}</div>
-        <div>${order.customer_email || "—"}</div>
-        <div>${order.purchaser?.phone || "—"}</div>
-      </div>
-
-      ${sections}
-
-      <table style="width:100%;border-collapse:collapse;margin-top:8px">
-        <tr>
-          <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:800">Grand Total</td>
-          <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:800">${money(grand)}</td>
-        </tr>
-      </table>
-
-      <p style="color:#6b7280;font-size:12px;margin-top:12px">
-        Thank you for your order! If you have questions, just reply to this email.
-      </p>
     </div>
+
+    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
+      <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
+      <div>${order.purchaser?.name || ""}</div>
+      <div>${order.customer_email || ""}</div>
+      <div>${order.purchaser?.phone || ""}</div>
+    </div>
+
+    <h2 style="margin:16px 0 8px">Order Summary</h2>
+    ${groupHtml}
+
+    <table style="width:100%;border-collapse:collapse;margin-top:12px">
+      <tfoot>
+        <tr>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <p style="color:#666;font-size:12px;margin-top:12px">Thank you for your order!</p>
+  </div>
   </body></html>`;
 }
 
-// Send two copies if applicable:
+// Send two separate emails:
 // 1) Purchaser copy (if customer email exists)
-// 2) Admin copy (to first admin, BCC rest) — sent regardless of purchaser match
+// 2) Admin copy (to ALL admins), even if addresses overlap
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
@@ -273,8 +282,9 @@ async function sendOrderReceipts(order) {
   const subject = `Grand Court of PA - order #${order.id}`;
 
   const purchaserEmail = (order.customer_email || "").trim();
-  const admins = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
-    .split(",").map(s=>s.trim()).filter(Boolean);
+  const adminList = (
+    process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
+  ).split(",").map(s=>s.trim()).filter(Boolean);
 
   // (1) Purchaser copy
   if (purchaserEmail) {
@@ -286,24 +296,19 @@ async function sendOrderReceipts(order) {
     });
   }
 
-  // (2) Admin copy (send even if purchaser is also an admin — so the same person sees two)
-  if (admins.length) {
-    const to = [admins[0]];
-    const bcc = admins.slice(1);
+  // (2) Admin copy (send even if purchaser is also an admin)
+  if (adminList.length) {
     await resend.emails.send({
       from: process.env.RESEND_FROM,
-      to,
-      bcc: bcc.length ? bcc : undefined,
-      subject,
+      to: adminList, // send to all admins explicitly
+      subject: `${subject} (admin copy)`,
       html
     });
   }
 
-  // If no purchaser and no admins: nothing to do
-  if (!purchaserEmail && !admins.length) {
+  if (!purchaserEmail && !adminList.length) {
     return { sent: false, reason: "no-recipients" };
   }
-
   return { sent: true };
 }
 
@@ -355,7 +360,12 @@ export default async function handler(req, res) {
         const effective = { ...env, ...overrides,
           MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
         };
-        return REQ_OK(res, { env, overrides, effective });
+        // Back-compat convenience fields (your order.html reads MAINTENANCE_ON at root)
+        return REQ_OK(res, {
+          env, overrides, effective,
+          MAINTENANCE_ON: effective.MAINTENANCE_ON,
+          MAINTENANCE_MESSAGE: effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE
+        });
       }
 
       // Publishable key (supports both names for safety)
@@ -409,7 +419,7 @@ export default async function handler(req, res) {
           const fees = body.fees || { pct: 0, flat: 0 };
           const purchaser = body.purchaser || {};
 
-          // pass attendeeName + notes into Stripe metadata
+          // pass attendee + notes metadata through to Stripe
           const line_items = lines.map(l => ({
             quantity: Math.max(1, Number(l.qty || 1)),
             price_data: {
@@ -421,8 +431,9 @@ export default async function handler(req, res) {
                   itemId: l.itemId || "",
                   itemType: l.itemType || "",
                   attendeeId: l.attendeeId || "",
-                  attendeeName: l.attendeeName || "", // NEW
-                  notes: l.notes || ""                 // NEW
+                  attendeeName: l.meta?.attendeeName || "",
+                  attendeeNotes: l.meta?.attendeeNotes || "",
+                  itemNote: l.meta?.itemNote || ""
                 }
               }
             }
