@@ -15,6 +15,10 @@ async function getStripe() {
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+// ---- Mail “From / Reply-To” (sanitized) ----
+const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
+const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
+
 const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
@@ -292,24 +296,68 @@ async function sendOrderReceipts(order) {
 
   // (1) Purchaser copy
   if (purchaserEmail) {
-    const sendResult = await resend.emails.send({
-      from: process.env.RESEND_FROM,
-      to: [purchaserEmail],
-      subject,
-      html
-    });
-    await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: [purchaserEmail], subject, orderId: order?.id || "", resultId: sendResult?.id || null });
+    try {
+      const sendResult = await resend.emails.send({
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        html,
+        reply_to: REPLY_TO || undefined
+      });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        orderId: order?.id || "",
+        resultId: sendResult?.id || null,
+        status: "queued"
+      });
+    } catch (err) {
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        orderId: order?.id || "",
+        resultId: null,
+        status: "error",
+        error: String(err?.message || err)
+      });
+    }
   }
 
   // (2) Admin copy
   if (adminList.length) {
-    const sendResult = await resend.emails.send({
-      from: process.env.RESEND_FROM,
-      to: adminList,
-      subject: `${subject} (admin copy)`,
-      html
-    });
-    await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: sendResult?.id || null });
+    try {
+      const sendResult = await resend.emails.send({
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        html,
+        reply_to: REPLY_TO || undefined
+      });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        orderId: order?.id || "",
+        resultId: sendResult?.id || null,
+        status: "queued"
+      });
+    } catch (err) {
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        orderId: order?.id || "",
+        resultId: null,
+        status: "error",
+        error: String(err?.message || err)
+      });
+    }
   }
 
   if (!purchaserEmail && !adminList.length) return { sent: false, reason: "no-recipients" };
@@ -337,6 +385,7 @@ export default async function handler(req, res) {
           hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
           hasResendEnv: !!process.env.RESEND_API_KEY,
           hasResendClient: !!resend,
+          fromTrimmed: RESEND_FROM, // show trimmed
           kvSetGetOk: false,
         };
         try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch (e) {}
@@ -359,7 +408,7 @@ export default async function handler(req, res) {
         const to = (url.searchParams.get("to") || "").trim();
         if (!to) return REQ_ERR(res, 400, "missing-to");
 
-        const from = process.env.RESEND_FROM || "onboarding@resend.dev";
+        const from = RESEND_FROM || "onboarding@resend.dev";
         const html = `
           <!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
             <h2>Resend test</h2>
@@ -368,10 +417,11 @@ export default async function handler(req, res) {
           </body></html>`;
 
         try {
-          const r = await resend.emails.send({ from, to: [to], subject: "Amaranth — Resend test (GET)", html });
-          await recordMailLog({ ts: Date.now(), from, to: [to], subject: "Amaranth — Resend test (GET)", resultId: r?.id || null, kind: "manual-test" });
+          const r = await resend.emails.send({ from, to: [to], subject: "Amaranth — Resend test (GET)", html, reply_to: REPLY_TO || undefined });
+          await recordMailLog({ ts: Date.now(), from, to: [to], subject: "Amaranth — Resend test (GET)", resultId: r?.id || null, kind: "manual-test", status: "queued" });
           return REQ_OK(res, { sent: true, via: "GET", to });
         } catch (e) {
+          await recordMailLog({ ts: Date.now(), from, to: [to], subject: "Amaranth — Resend test (GET)", resultId: null, kind: "manual-test", status: "error", error: String(e?.message || e) });
           return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
         }
       }
@@ -383,13 +433,14 @@ export default async function handler(req, res) {
       if (type === "settings") {
         const overrides = await kvHgetallSafe("settings:overrides");
         const env = {
-          RESEND_FROM: process.env.RESEND_FROM || "",
+          RESEND_FROM: RESEND_FROM,
           REPORTS_CC: process.env.REPORTS_CC || "",
           REPORTS_BCC: process.env.REPORTS_BCC || "",
           SITE_BASE_URL: process.env.SITE_BASE_URL || "",
           MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
           MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
-          REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true")
+          REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
+          REPLY_TO
         };
         const effective = { ...env, ...overrides,
           MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -450,18 +501,23 @@ export default async function handler(req, res) {
         const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
           <h2>Resend test OK</h2>
           <p>Time: ${new Date().toISOString()}</p>
-          <p>From: ${process.env.RESEND_FROM || ""}</p>
+          <p>From: ${RESEND_FROM || ""}</p>
         </div>`;
 
-        const sendResult = await resend.emails.send({
-          from: process.env.RESEND_FROM,
-          to: [to],
-          subject: "Amaranth test email",
-          html
-        });
-
-        await recordMailLog({ ts: Date.now(), from: process.env.RESEND_FROM || "", to: [to], subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test" });
-        return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+        try {
+          const sendResult = await resend.emails.send({
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: [to],
+            subject: "Amaranth test email",
+            html,
+            reply_to: REPLY_TO || undefined
+          });
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM || "onboarding@resend.dev", to: [to], subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test", status: "queued" });
+          return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+        } catch (e) {
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM || "onboarding@resend.dev", to: [to], subject: "Amaranth test email", resultId: null, kind: "manual-test", status: "error", error: String(e?.message || e) });
+          return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
+        }
       }
 
       // --- Fail-safe: finalize_checkout (save + email) if webhook is delayed/missing ---
@@ -651,7 +707,7 @@ export default async function handler(req, res) {
       }
       if (action === "save_settings") {
         const allow = {};
-        ["RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE","REPORTS_SEND_SEPARATE"]
+        ["RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON","MAINTENANCE_MESSAGE","REPORTS_SEND_SEPARATE","REPLY_TO"]
           .forEach(k => { if (k in body) allow[k] = body[k]; });
         if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
