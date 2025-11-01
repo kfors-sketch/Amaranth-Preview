@@ -63,9 +63,9 @@ async function saveOrderFromSession(sessionLike) {
       unitPrice: unit,
       gross: total,
       category: (meta.itemType || '').toLowerCase() || 'other',
-      notes: meta.notes || "",               // NEW
+      notes: meta.notes || "",               // notes preserved
       attendeeId: meta.attendeeId || "",
-      attendeeName: meta.attendeeName || "", // NEW
+      attendeeName: meta.attendeeName || "", // attendee name preserved
       itemId: meta.itemId || "",
     };
   });
@@ -165,95 +165,96 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-// -------- Email rendering + sending (group by attendee; no logo) --------
+// -------- Email rendering + sending (attendee-grouped; with small logo) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// Grouped, logo-free renderer
+// Attendee-grouped receipt with a small logo
 function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
+  const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
 
-  // Group lines by attendeeName (fallback attendeeId, then "Unassigned")
-  const groups = {};
-  for (const li of (order.lines || [])) {
-    const keyName = (li.attendeeName || "").trim();
-    const keyId   = (li.attendeeId || "").trim();
-    const key = keyName || keyId || "Unassigned";
-    if (!groups[key]) groups[key] = { name: keyName || (key === "Unassigned" ? "Unassigned" : keyId), id: keyId, items: [] };
-    groups[key].items.push(li);
-  }
+  // Group lines by attendee bucket
+  const buckets = {};
+  (order.lines || []).forEach(li => {
+    const key = (li.attendeeId || "").trim() || "__unassigned__";
+    if (!buckets[key]) buckets[key] = { name: "", id: "", list: [] };
+    // Best display label: prefer attendeeName; if both exist, show "Name (ID)"; else fallbacks
+    const nm = (li.attendeeName || "").trim();
+    const id = (li.attendeeId || "").trim();
+    const label = nm ? (id ? `${nm} (${id})` : nm) : (id ? `Attendee ${id}` : "Purchaser / Unassigned");
+    if (!buckets[key].name) { buckets[key].name = label; buckets[key].id = id; }
+    buckets[key].list.push(li);
+  });
 
-  const groupBlocks = Object.values(groups).map(g => {
-    const rows = g.items.map(li => `
+  const sections = Object.values(buckets).map(g => {
+    const rows = g.list.map(li => `
       <tr>
-        <td style="padding:8px;border-bottom:1px solid #eee">
+        <td style="padding:10px;border-bottom:1px solid #eee">
           <div style="font-weight:600">${li.itemName || ""}</div>
-          ${li.notes ? `<div style="color:#374151;font-size:12px;white-space:pre-wrap">${String(li.notes)}</div>` : ""}
+          ${li.notes ? `<div style="margin-top:4px;color:#374151;font-size:12px"><strong>Notes:</strong> ${String(li.notes)}</div>` : ""}
         </td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${li.qty || 1}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:center">${li.qty||1}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice)}</td>
+        <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${money(li.gross)}</td>
       </tr>
     `).join("");
 
-    const groupTotal = g.items.reduce((s,li)=> s + (li.gross||0), 0);
+    const groupTotal = g.list.reduce((s,li)=> s + (li.gross || 0), 0);
 
     return `
-      <div style="margin-top:16px">
-        <div style="font-weight:700;margin:8px 0">
-          Attendee: ${g.name}${g.id && g.name !== g.id ? ` <span style="color:#6b7280;font-size:12px">(${g.id})</span>` : ""}
-        </div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
-              <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
-              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
-              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" style="text-align:right;padding:10px;border-top:2px solid #ddd;font-weight:700">Attendee Subtotal</td>
-              <td style="text-align:right;padding:10px;border-top:2px solid #ddd;font-weight:700">${money(groupTotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <h3 style="margin:16px 0 8px;font-size:15px">${g.name}</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd">Item</th>
+            <th style="text-align:center;padding:10px;border-bottom:1px solid #ddd">Qty</th>
+            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Price</th>
+            <th style="text-align:right;padding:10px;border-bottom:1px solid #ddd">Line</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
+            <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:700">${money(groupTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
     `;
   }).join("");
 
-  const subtotal = (order.lines||[]).reduce((s,li)=>s+(li.gross||0),0);
-  const total = order.amount_total || subtotal;
+  const grand = (order.amount_total || (order.lines||[]).reduce((s,li)=> s + (li.gross || 0), 0));
 
   return `<!doctype html><html>
   <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0">
     <div style="max-width:720px;margin:0 auto;padding:16px 20px">
-      <div style="margin-bottom:6px;font-size:18px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
-      <div style="font-size:13px;color:#555;margin-bottom:12px">Order #${order.id}</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <img src="${logoUrl}" alt="Logo" style="height:20px;width:auto" />
+        <div>
+          <div style="font-size:16px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
+          <div style="font-size:13px;color:#555">Order #${order.id}</div>
+        </div>
+      </div>
 
       <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
         <div style="font-weight:700;margin-bottom:6px">Purchaser</div>
         <div>${order.purchaser?.name || "—"}</div>
         <div>${order.customer_email || "—"}</div>
         <div>${order.purchaser?.phone || "—"}</div>
-        <div style="color:#6b7280;font-size:12px;margin-top:6px">
-          Date: ${new Date(order.created||Date.now()).toLocaleString()} · Currency: ${(order.currency||"USD").toUpperCase()} · Status: ${order.status || "paid"}
-        </div>
       </div>
 
-      ${groupBlocks || ""}
+      ${sections}
 
-      <div style="margin-top:16px;border-top:2px solid #ddd;padding-top:12px;font-weight:700;display:flex;justify-content:flex-end">
-        <div style="min-width:220px;display:flex;justify-content:space-between">
-          <span>Total</span>
-          <span>${money(total)}</span>
-        </div>
-      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:8px">
+        <tr>
+          <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:800">Grand Total</td>
+          <td style="text-align:right;padding:12px;border-top:2px solid #ddd;font-weight:800">${money(grand)}</td>
+        </tr>
+      </table>
 
       <p style="color:#6b7280;font-size:12px;margin-top:12px">
         Thank you for your order! If you have questions, just reply to this email.
@@ -262,32 +263,46 @@ function renderOrderEmailHTML(order) {
   </body></html>`;
 }
 
-// Single-email flow: To purchaser (or first admin if no purchaser) + BCC admins (identical content)
+// Send two copies if applicable:
+// 1) Purchaser copy (if customer email exists)
+// 2) Admin copy (to first admin, BCC rest) — sent regardless of purchaser match
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
-  const purchaserEmail = (order.customer_email || "").trim().toLowerCase();
-  const adminList = (
-    process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
-  ).split(",").map(s=>s.trim()).filter(Boolean);
-
-  let to = [];
-  if (purchaserEmail) to = [purchaserEmail];
-  else if (adminList.length) to = [adminList[0]];
-
-  if (!to.length && adminList.length === 0) return { sent: false, reason: "no-recipients" };
-
-  const bcc = adminList.filter(e => e.toLowerCase() !== (to[0] || "").toLowerCase());
-  const subject = `Grand Court of PA - Order #${order.id}`;
   const html = renderOrderEmailHTML(order);
+  const subject = `Grand Court of PA - order #${order.id}`;
 
-  await resend.emails.send({
-    from: process.env.RESEND_FROM,
-    to,
-    bcc: bcc.length ? bcc : undefined,
-    subject,
-    html
-  });
+  const purchaserEmail = (order.customer_email || "").trim();
+  const admins = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
+    .split(",").map(s=>s.trim()).filter(Boolean);
+
+  // (1) Purchaser copy
+  if (purchaserEmail) {
+    await resend.emails.send({
+      from: process.env.RESEND_FROM,
+      to: [purchaserEmail],
+      subject,
+      html
+    });
+  }
+
+  // (2) Admin copy (send even if purchaser is also an admin — so the same person sees two)
+  if (admins.length) {
+    const to = [admins[0]];
+    const bcc = admins.slice(1);
+    await resend.emails.send({
+      from: process.env.RESEND_FROM,
+      to,
+      bcc: bcc.length ? bcc : undefined,
+      subject,
+      html
+    });
+  }
+
+  // If no purchaser and no admins: nothing to do
+  if (!purchaserEmail && !admins.length) {
+    return { sent: false, reason: "no-recipients" };
+  }
 
   return { sent: true };
 }
@@ -394,7 +409,7 @@ export default async function handler(req, res) {
           const fees = body.fees || { pct: 0, flat: 0 };
           const purchaser = body.purchaser || {};
 
-          // --- REPLACED: pass attendeeName + notes into Stripe metadata ---
+          // pass attendeeName + notes into Stripe metadata
           const line_items = lines.map(l => ({
             quantity: Math.max(1, Number(l.qty || 1)),
             price_data: {
