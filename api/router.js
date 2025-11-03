@@ -25,7 +25,6 @@ const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: m
 // ---------- helpers ----------
 function cents(n) { return Math.round(Number(n || 0)); }
 function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
-// Auto dollars→cents if small integer
 function toCentsAuto(v){ const n = Number(v || 0); return n < 1000 ? Math.round(n * 100) : Math.round(n); }
 
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
@@ -49,43 +48,57 @@ function requireToken(req, res) {
   return true;
 }
 
+// --- Stripe helpers: always fetch the full line item list ---
+async function fetchSessionAndItems(stripe, sid) {
+  // 1) Retrieve session (with payment_intent, customer_details)
+  const s = await stripe.checkout.sessions.retrieve(sid, {
+    expand: ["payment_intent", "customer_details"]
+  });
+
+  // 2) Always fetch ALL line items (up to 100 per call; add pagination if you ever exceed 100)
+  const liResp = await stripe.checkout.sessions.listLineItems(sid, {
+    limit: 100,
+    expand: ["data.price.product"]
+  });
+
+  const lineItems = liResp?.data || [];
+  return { session: s, lineItems };
+}
+
 // ----- order persistence helpers -----
 async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
 
-  const s = await stripe.checkout.sessions.retrieve(sessionLike.id, {
-    expand: ["line_items.data.price.product", "payment_intent"],
-  });
+  const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
+  const { session: s, lineItems } = await fetchSessionAndItems(stripe, sid);
 
-  const lines = (s.line_items?.data || []).map(li => {
+  const lines = lineItems.map((li) => {
     const name  = li.description || li.price?.product?.name || "Item";
     const qty   = Number(li.quantity || 1);
     const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
     const total = unit * qty;
     const meta  = (li.price?.product?.metadata || {});
     return {
-      id: `${s.id}:${li.id}`,
+      id: `${sid}:${li.id}`,
       itemName: name,
       qty,
       unitPrice: unit,
       gross: total,
-      category: (meta.itemType || '').toLowerCase() || 'other',
+      category: (meta.itemType || "").toLowerCase() || "other",
       attendeeId: meta.attendeeId || "",
       itemId: meta.itemId || "",
-      // carry attendee + notes for emails/reporting
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
         itemNote: meta.itemNote || ""
       },
-      // legacy field
-      notes: ""
+      notes: "" // legacy
     };
   });
 
   const order = {
-    id: s.id,
+    id: sid,
     created: Date.now(),
     payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
     charge: null,
@@ -94,7 +107,7 @@ async function saveOrderFromSession(sessionLike) {
     customer_email: s.customer_details?.email || "",
     purchaser: {
       name: s.customer_details?.name || "",
-      phone: s.customer_details?.phone || "",
+      phone: s.customer_details?.phone || ""
     },
     lines,
     fees: { pct: 0, flat: 0 },
@@ -179,23 +192,25 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-// -------- Email rendering + sending (attendee-grouped; with small logo) --------
+// -------- Email rendering + sending (attendee-grouped; fees pulled to summary) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-// Attendee-grouped receipt with a small logo; shows attendeeNotes for banquets, itemNote otherwise
 function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
 
-  // Group by attendee display name (prefer meta.attendeeName; else purchaser; else generic)
   const groups = {};
+  let feesCents = 0;
+
   (order.lines || []).forEach(li => {
-    const attName = (li.meta && li.meta.attendeeName)
-      || (order.purchaser?.name || "Purchaser");
+    const isFee = /processing fee/i.test(li.itemName || "");
+    if (isFee) { feesCents += Number(li.unitPrice||0) * Number(li.qty||1); return; }
+
+    const attName = (li.meta && li.meta.attendeeName) || (order.purchaser?.name || "Purchaser");
     (groups[attName] ||= []).push(li);
   });
 
@@ -246,6 +261,14 @@ function renderOrderEmailHTML(order) {
   const subtotalAll = (order.lines||[]).reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
   const total = Number(order.amount_total || subtotalAll);
 
+  // Build summary footer with optional Fees row
+  const feesRow = feesCents > 0
+    ? `<tr>
+         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
+         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td>
+       </tr>`
+    : "";
+
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
   <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
@@ -264,10 +287,11 @@ function renderOrderEmailHTML(order) {
     </div>
 
     <h2 style="margin:16px 0 8px">Order Summary</h2>
-    ${groupHtml}
+    ${groupHtml || '<p>No items.</p>'}
 
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
+        ${feesRow}
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
           <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
@@ -385,7 +409,7 @@ export default async function handler(req, res) {
           hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
           hasResendEnv: !!process.env.RESEND_API_KEY,
           hasResendClient: !!resend,
-          fromTrimmed: RESEND_FROM, // show trimmed
+          fromTrimmed: RESEND_FROM,
           kvSetGetOk: false,
         };
         try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch (e) {}
@@ -452,7 +476,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // Publishable key (supports both names for safety)
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
@@ -520,7 +543,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- Fail-safe: finalize_checkout (save + email) if webhook is delayed/missing ---
+      // --- Fail-safe: finalize_checkout (save + email) ---
       // POST /api/router?action=finalize_checkout { sid: "cs_test_..." }
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
@@ -537,7 +560,6 @@ export default async function handler(req, res) {
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
-        // Redirect to /success.html now
         const successUrl = (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
         const cancelUrl  = body.cancel_url  || `${origin}/order.html`;
 
@@ -546,7 +568,6 @@ export default async function handler(req, res) {
           const fees = body.fees || { pct: 0, flat: 0 };
           const purchaser = body.purchaser || {};
 
-          // pass attendee + notes metadata through to Stripe
           const line_items = lines.map(l => ({
             quantity: Math.max(1, Number(l.qty || 1)),
             price_data: {
@@ -646,9 +667,7 @@ export default async function handler(req, res) {
         switch (event.type) {
           case "checkout.session.completed": {
             const session = event.data.object;
-            const order = await saveOrderFromSession(session);
-
-            // Fire-and-forget email — never block webhook
+            const order = await saveOrderFromSession(session.id || session);
             (async () => {
               try { await sendOrderReceipts(order); }
               catch (err) { console.error("email-failed", err?.message || err); }
@@ -665,7 +684,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { received: true });
       }
 
-      // --- PUBLIC: register an item config (used by pages calling AMARANTH_REGISTER_ENDPOINT) ---
+      // --- PUBLIC: register an item config ---
       if (action === "register_item") {
         const { id = "", name = "", chairEmails = [], publishStart = "", publishEnd = "" } = body || {};
         if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
