@@ -192,76 +192,100 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-// -------- Email rendering + sending (attendee-grouped; fees pulled to summary) --------
+// -------- Email rendering + sending (Catalog-first + Fees row) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+// Attendee-grouped receipt; puts catalog items (non-banquet) at top under purchaser;
+// shows Fees subtotal (if any) before Total.
 function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
 
-  const groups = {};
+  const purchaserName = order?.purchaser?.name || "Purchaser";
+
+  const topCatalog = [];        // non-banquet, non-fee
+  const attendeeGroups = {};    // banquet items grouped by attendee
   let feesCents = 0;
 
   (order.lines || []).forEach(li => {
-    const isFee = /processing fee/i.test(li.itemName || "");
-    if (isFee) { feesCents += Number(li.unitPrice||0) * Number(li.qty||1); return; }
+    const name = li.itemName || "";
+    const qty = Number(li.qty || 1);
+    const lineCents = Number(li.unitPrice || 0) * qty;
+    const cat = String(li.category || "").toLowerCase();
 
-    const attName = (li.meta && li.meta.attendeeName) || (order.purchaser?.name || "Purchaser");
-    (groups[attName] ||= []).push(li);
+    if (/processing\s*fee/i.test(name)) { feesCents += lineCents; return; }
+
+    const isBanquet = cat === "banquet" || /banquet/i.test(name);
+    if (isBanquet) {
+      const attName = (li.meta && li.meta.attendeeName) || purchaserName;
+      (attendeeGroups[attName] ||= []).push(li);
+    } else {
+      topCatalog.push(li);
+    }
   });
 
-  const groupHtml = Object.entries(groups).map(([attName, list]) => {
-    const rows = list.map(li => {
+  const renderTable = (rows) => {
+    const bodyRows = rows.map(li => {
       const isBanquet = (li.category === "banquet") || /banquet/i.test(li.itemName || "");
       const notes = isBanquet ? (li.meta?.attendeeNotes || "") : (li.meta?.itemNote || "");
       const notesRow = notes
         ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
         : "";
-      const lineTotal = (Number(li.unitPrice||0) * Number(li.qty||1));
+      const lineTotal = Number(li.unitPrice||0) * Number(li.qty||1);
       return `
         <tr>
-          <td style="padding:8px;border-bottom:1px solid #eee">
-            ${li.itemName || ""}${notesRow}
-          </td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${li.itemName || ""}${notesRow}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty||1)}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice||0)}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
         </tr>`;
     }).join("");
 
-    const subtotal = list.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
+    const subtotal = rows.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
 
     return `
-      <div style="margin-top:14px">
-        <div style="font-weight:700;margin:8px 0 6px">${attName}</div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
-              <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
-              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
-              <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-              <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>`;
-  }).join("");
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
+            <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
+            <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
+            <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
+            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
+          </tr>
+        </tfoot>
+      </table>`;
+  };
 
+  // Top: Catalog items
+  const topCatalogHtml = topCatalog.length
+    ? `
+      <div style="margin-top:14px">
+        <div style="font-weight:700;margin:8px 0 6px">${purchaserName} — Catalog Items</div>
+        ${renderTable(topCatalog)}
+      </div>`
+    : "";
+
+  // Then: Attendee banquet sections
+  const attendeeHtml = Object.entries(attendeeGroups).map(([attName, list]) => `
+    <div style="margin-top:14px">
+      <div style="font-weight:700;margin:8px 0 6px">${attName} — Banquets</div>
+      ${renderTable(list)}
+    </div>`).join("");
+
+  // Totals
   const subtotalAll = (order.lines||[]).reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
   const total = Number(order.amount_total || subtotalAll);
-
-  // Build summary footer with optional Fees row
   const feesRow = feesCents > 0
     ? `<tr>
          <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
@@ -281,13 +305,14 @@ function renderOrderEmailHTML(order) {
 
     <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
       <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
-      <div>${order.purchaser?.name || ""}</div>
+      <div>${purchaserName}</div>
       <div>${order.customer_email || ""}</div>
       <div>${order.purchaser?.phone || ""}</div>
     </div>
 
     <h2 style="margin:16px 0 8px">Order Summary</h2>
-    ${groupHtml || '<p>No items.</p>'}
+    ${topCatalogHtml}
+    ${attendeeHtml || '<p>No items.</p>'}
 
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
