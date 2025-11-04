@@ -67,25 +67,6 @@ window.CATALOG_ITEMS = [
     chairEmails: ["mrskfors@yahoo.com"],
     publishStart: "",
     publishEnd: ""
-  },
-
-  {
-    id: "lottery-ticket",
-    name: "Powerball Lottery Ticket",
-    // Single-price item
-    price: 650000000,                           // dollars
-    image: "/assets/shop/Powerball_thumb.jpg",
-    images: ["/assets/shop/Powerball_full.jpg"],
-    sku: "Lotto-001",
-    qtyTotal: 1,
-    qtySold: 0,
-    active: false,
-
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"],
-    publishStart: "",
-    publishEnd: ""
   }
 ];
 
