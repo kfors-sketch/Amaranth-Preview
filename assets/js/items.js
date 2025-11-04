@@ -79,7 +79,7 @@ window.CATALOG_ITEMS = [
     sku: "Lotto-001",
     qtyTotal: 1,
     qtySold: 0,
-    active: true,
+    active: false,
 
     // ===== reporting fields (new) =====
     chair: { name: "TBD", email: "tbd@example.com" },
