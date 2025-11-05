@@ -68,7 +68,7 @@ window.CATALOG_ITEMS = [
 
   {
     id: "nothing1",
-    name: "Raffle Ticket",
+    name: "nothing1",
     // Tiered pricing
     tiered: true,
     pricing: [
@@ -81,7 +81,7 @@ window.CATALOG_ITEMS = [
     sku: "RAFFLE-001",
     qtyTotal: 0, // unlimited (raffles rarely have a cap)
     qtySold: 0,
-    active: true,
+    active: false,
 
     // ===== reporting fields (new) =====
     chair: { name: "TBD", email: "mrskfors@yahoo.com" },
