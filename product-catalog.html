@@ -3,37 +3,423 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <title>Under Construction</title>
-  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <style>
-    :root { color-scheme: light dark; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      display: grid;
-      place-items: center;
-      background: #f7f7fb;
-      color: #111;
-    }
-    .card {
-      text-align: center;
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 28px 22px;
-      box-shadow: 0 1px 2px rgba(0,0,0,.05);
-      max-width: 520px;
-      width: calc(100% - 32px);
-    }
-    h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
-    p  { margin: .25rem 0 0; color: #6b7280; }
-  </style>
+  <meta name="description" content="Product Catalog – merchandise and extras." />
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v3" />
+  <title>Product Catalog</title>
 </head>
-<body>
-  <div class="card">
-    <h1>Under Construction</h1>
-    <p>This page will be available soon.</p>
-  </div>
+
+<body class="shop" data-page="shop">
+ <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <!-- Header / Logo + Nav -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="home.html">
+        <img src="assets/img/logo.svg" alt="Logo" />
+      </a>
+      <span class="site-title">Order of the Amaranth</span>
+      <nav class="site-nav nav">
+        <a href="home.html">Home</a>
+        <a href="banquet.html">Banquets</a>
+        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <span class="nav-current">Product Catalog</span>
+        <a href="order.html">Order</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container mt-lg">
+    <h1>Shop</h1>
+
+    <!-- Product grid -->
+    <section class="shop-grid" id="shopGrid"></section>
+
+    <!-- Lightbox -->
+    <div class="lightbox" id="lightbox" hidden>
+      <button class="lightbox-close" id="lbClose" aria-label="Close">×</button>
+      <img id="lbImg" class="lightbox-img" alt="">
+      <div id="lbCap" class="lightbox-caption"></div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container tiny">© 2025</div>
+  </footer>
+
+  <!-- Optional legacy scripts you keep elsewhere -->
+  <script src="assets/js/main.js" defer></script>
+
+  <script>
+  /* =======================
+     Helpers / Formatting
+     ======================= */
+  // $X,XXX.00 — always commas + 2 decimals; clamp to >= 0.01 for display
+  function money(n){
+    const v = Math.max(0.01, Math.round(Number(n) * 100) / 100);
+    return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+  }
+
+  // Treat 0 < n < 1 as cents accidentally stored; convert to dollars
+  function normalizePrice(p){
+    const n = Number(p);
+    if (!isFinite(n)) return 0;
+    return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+
+  // Simple lightbox
+  function setupLightbox(){
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lbImg');
+    const cap = document.getElementById('lbCap');
+    const close = document.getElementById('lbClose');
+
+    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
+    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
+
+    close.addEventListener('click', closeLb);
+    lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
+    return { open, close: closeLb };
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    Cart.load();
+
+    // One-time migration of any legacy cents in cart
+    (function migrateLegacyCents(){
+      const st = Cart.get();
+      let changed = false;
+      (st.lines||[]).forEach(l=>{
+        const n = Number(l.unitPrice);
+        if (isFinite(n) && n > 0 && n < 1){
+          l.unitPrice = Math.round(n*100);
+          changed = true;
+        }
+      });
+      if (changed){
+        st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
+      }
+    })();
+
+    const grid = document.getElementById('shopGrid');
+    const lb = setupLightbox();
+
+    // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
+    const items = (window.DataStore && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
+
+    const LOW_STOCK = 5;
+
+    function render(){
+      grid.innerHTML = (items||[]).map(item => {
+        const total = Number(item.qtyTotal || 0);
+        const sold  = Number(item.qtySold  || 0);
+        const remaining = Math.max(0, total - sold);
+        const soldOut = total > 0 && remaining <= 0;
+        const low = total > 0 && remaining > 0 && remaining <= LOW_STOCK;
+
+        const badge = soldOut
+          ? `<div class="item-badge badge-soldout">Sold out</div>`
+          : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
+
+        // ----- PRICE / CONTROLS VIEW -----
+        let controlsHtml = '';
+        let priceLine = '';
+
+        if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
+          // Sort tiers by qty ascending, normalize prices
+          const tiers = item.pricing
+            .map(t => ({ qty: Number(t.qty||1), price: normalizePrice(t.price||0) }))
+            .filter(t => t.qty > 0 && t.price >= 0)
+            .sort((a,b)=>a.qty-b.qty);
+
+          const fromEach = tiers.length ? (tiers[0].price / tiers[0].qty) : 0;
+          priceLine = `<p class="item-price">From ${money(fromEach)} each</p>`;
+
+          const opts = tiers.map(t =>
+            `<option value="${t.qty}" data-price="${t.price}">${t.qty} for ${money(t.price)} (${money(t.price/t.qty)} each)</option>`
+          ).join('');
+
+          controlsHtml = `
+            <div class="buy-row">
+              <label class="stack">
+                <span class="lbl">Bundle</span>
+                <select class="bundle" ${soldOut ? 'disabled' : ''}>
+                  ${opts}
+                </select>
+              </label>
+              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
+            </div>
+            <div class="bundle-total tiny" aria-live="polite"></div>
+          `;
+        } else {
+          // Single-price
+          const price = normalizePrice(item.price || 0);
+          priceLine = `<p class="item-price">${money(price)}</p>`;
+          controlsHtml = `
+            <div class="buy-row">
+              <label class="stack">
+                <span class="lbl">Qty</span>
+                <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
+              </label>
+              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
+            </div>
+          `;
+        }
+
+        return `
+          <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
+            ${badge}
+            <button class="thumb" ${soldOut ? 'disabled' : ''} aria-label="Preview image">
+              <img src="${item.image || 'assets/shop/placeholder.png'}" alt="${item.name || 'Item'}">
+            </button>
+            <div class="item-name">${item.name || ''}</div>
+            ${priceLine}
+            ${controlsHtml}
+          </article>
+        `;
+      }).join('') || '<p>No items found.</p>';
+
+      // Hook up behaviors
+      grid.querySelectorAll('.item').forEach(card=>{
+        const id = card.dataset.id;
+        const item = items.find(x=>String(x.id)===String(id));
+        const thumbBtn = card.querySelector('.thumb');
+        if (thumbBtn){
+          thumbBtn.addEventListener('click', ()=>{
+            if (thumbBtn.disabled) return;
+            lb.open(item.image || 'assets/shop/placeholder.png', item.name || '');
+          });
+        }
+
+        const addBtn = card.querySelector('.add');
+        if (!addBtn) return;
+
+        // Live "Total for selection" preview for bundles
+        const bundleSel = card.querySelector('.bundle');
+        const bundleTotalEl = card.querySelector('.bundle-total');
+        if (bundleSel && bundleTotalEl){
+          const updateBundleTotal = ()=>{
+            const selected = bundleSel.options[bundleSel.selectedIndex];
+            const price = normalizePrice(selected.dataset.price);
+            bundleTotalEl.textContent = `Total for selection: ${money(price)}`;
+          };
+          bundleSel.addEventListener('change', updateBundleTotal);
+          updateBundleTotal();
+        }
+
+        addBtn.addEventListener('click', ()=>{
+          const total = Number(item.qtyTotal || 0);
+          const sold  = Number(item.qtySold  || 0);
+          const remaining = Math.max(0, total - sold);
+
+          if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
+            // Tiered: read selected bundle
+            const bundleSel = card.querySelector('.bundle');
+            const bundleQty = Math.max(1, parseInt(bundleSel.value||'1',10));
+            const selected = bundleSel.options[bundleSel.selectedIndex];
+            const bundlePrice = normalizePrice(selected.dataset.price);
+
+            // Inventory enforcement if applicable (remaining counts items, not bundles)
+            if (total > 0){
+              if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
+              if (bundleQty > remaining){
+                alert(`Only ${remaining} left – cannot add a ${bundleQty}-pack.`);
+                return;
+              }
+            }
+
+            // Add as qty=bundleQty, unitPrice=(bundlePrice / bundleQty)
+            const perUnit = Math.round((bundlePrice / bundleQty) * 100) / 100;
+            Cart.addLine({
+              attendeeId: '(unassigned)',
+              itemType: 'catalog',
+              itemId: String(item.id),
+              itemName: `${item.name} (${bundleQty}-pack)`,
+              qty: bundleQty,
+              unitPrice: perUnit,
+              meta: { sku: item.sku || '', note: '', bundleQty, bundlePrice }
+            });
+
+            // Update inventory
+            if (total > 0){
+              item.qtySold = (Number(item.qtySold||0) + bundleQty);
+              if (window.DataStore && DataStore.saveItems){
+                const updated = items.map(x => x.id===item.id ? item : x);
+                DataStore.saveItems(updated);
+              }
+              render();
+            }
+            alert('Added to order.');
+          } else {
+            // Single-price item
+            const price = normalizePrice(item.price||0);
+            const qtyInput = card.querySelector('.qty');
+            let qty = Math.max(1, parseInt(qtyInput.value||'1',10));
+
+            if (total > 0){
+              if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
+              if (qty > remaining){
+                qty = remaining;
+                qtyInput.value = String(qty);
+                alert(`Only ${remaining} left – quantity adjusted.`);
+              }
+            }
+
+            Cart.addLine({
+              attendeeId: '(unassigned)',
+              itemType: 'catalog',
+              itemId: String(item.id),
+              itemName: item.name || 'Item',
+              qty,
+              unitPrice: price,
+              meta: { sku: item.sku || '', note: '' }
+            });
+
+            if (total > 0){
+              item.qtySold = (Number(item.qtySold||0) + qty);
+              if (window.DataStore && DataStore.saveItems){
+                const updated = items.map(x => x.id===item.id ? item : x);
+                DataStore.saveItems(updated);
+              }
+              render();
+            }
+            alert('Added to order.');
+          }
+        });
+      });
+    }
+
+    render();
+    window.addEventListener && window.addEventListener('items:updated', render);
+  });
+  </script>
+
+  <style>
+    /* Page-specific enhancements:
+       - Frosted cards (matching Banquets)
+       - Better layout for tiered bundles (wrap/stack gracefully)
+       - Roomier card width for long bundle labels
+    */
+    .shop-grid{
+      --card-gap: 16px;
+      --card-radius: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--card-gap);
+      padding: 10px 14px 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .item{
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(229,231,235,0.45);
+      border-radius: var(--card-radius);
+      padding: 14px;
+      text-align: center;
+      background: rgba(255,255,255,0.40);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .item:hover{
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+    }
+    .item.is-soldout { opacity: .65; }
+    .item-badge{
+      position:absolute; top:10px; left:10px;
+      padding: 4px 10px; border-radius: 9999px; font-weight:700; font-size:.8rem;
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+      border:1px solid rgba(0,0,0,0.12);
+    }
+    .badge-low { background: #fff7ed; color:#9a3412; }
+    .badge-soldout { background: #fee2e2; color:#991b1b; }
+
+    .thumb{ display:block; border:0; padding:0; background:none; cursor:zoom-in; width:100%; }
+    .thumb img{
+      width:100%;
+      height:180px;
+      object-fit:cover;
+      border-radius:10px;
+    }
+
+    .item-name{
+      font-weight:700;
+      margin-top:10px;
+      min-height: 1.3em;
+    }
+
+    .item-price{
+      margin:8px 0 4px;
+      font-weight:700;
+    }
+
+    .buy-row{
+      margin-top:10px;
+      display:flex;
+      gap:12px;
+      align-items:flex-end;
+      justify-content:center;
+      flex-wrap: wrap;                  /* allow wrapping on small cards */
+    }
+    .buy-row .stack{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:6px;
+      min-width: 180px;                 /* give select/qty room */
+    }
+    .buy-row .lbl{
+      font-size:.9rem;
+      font-weight:600;
+      opacity:.85;
+    }
+    .buy-row select.bundle,
+    .buy-row input.qty{
+      width:100%;
+      padding:.55rem .7rem;
+      border:1px solid #d1d5db;
+      border-radius:.5rem;
+      background: rgba(255,255,255,0.9);
+    }
+
+    .bundle-total{
+      text-align:center;
+      margin-top:6px;
+      font-weight:700;
+    }
+  </style>
+
+  <!-- Core site scripts (order matters) -->
+  <script src="assets/js/site-settings.js"></script>
+  <script src="assets/js/items.js"></script>
+  <script src="assets/js/banquets.js"></script>
+  <script src="assets/js/cart.js"></script>
+  <script src="assets/js/data-store.js"></script>
+  <script src="assets/js/site-boot.js"></script>
+  <script>
+(async () => {
+  try {
+    const resp = await fetch('/api/admin/settings.js');
+    const data = await resp.json();
+
+    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+      document.body.innerHTML = `
+        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+          <p style="font-size:1.2em;max-width:500px;">
+            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+          </p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    console.error('Maintenance check failed:', err);
+  }
+})();
+</script>
+
 </body>
 </html>
