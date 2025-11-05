@@ -93,7 +93,7 @@ window.CATALOG_ITEMS = [
   // === BLANKED OUT: Lottery item (kept for structure; fully inert) ===
   {
     id: "nothing2",
-    name: "",
+    name: "nothing2",
     // Single-price item (blanked)
     price: 0,
     image: "",
