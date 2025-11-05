@@ -1,4 +1,4 @@
-<!doctype html>
+<!doctype html> 
 <html lang="en">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -51,6 +51,13 @@
         <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
         <span id="listMsg" class="muted"></span>
       </div>
+
+      <!-- NEW: Quick Admin Catalog (KV + file merge) -->
+      <div class="card" style="margin-bottom:12px">
+        <h2 style="margin:0 0 8px">Product Catalog (Quick Toggles)</h2>
+        <div id="admin-catalog"></div>
+      </div>
+
       <div style="overflow:auto;max-height:65vh">
         <table><thead><tr>
           <th style="min-width:200px">Name</th>
@@ -100,9 +107,13 @@
   </div>
 </main>
 
+<!-- Ensure items.js is loaded before the admin-catalog script -->
+<script src="/assets/js/items.js"></script>
+
 <script src="/assets/js/lib/csv.js"></script>
 <script src="/assets/js/admin.js"></script>
 
+<!-- Existing page logic -->
 <script>
 const $ = s=>document.querySelector(s);
 let model=[], current=null, isNew=true;
@@ -267,6 +278,183 @@ $('#logoutBtn').onclick=()=>{localStorage.removeItem('amaranth_admin_pw_ok');loc
 
 // init
 (async()=>{await loadServer();loadFallbackFromWindow();renderList();startNew();})();
+</script>
+
+<!-- NEW: Admin-catalog (KV merge + quick toggles) -->
+<script>
+(function(){
+  // ===== Auth header (fallback if you don't want to use Admin.tokenHeader) =====
+  function getAuthHeader(){
+    const token = localStorage.getItem('amaranth_report_token') || '';
+    return token ? { Authorization: 'Bearer ' + token } : {};
+  }
+
+  // ===== Fetch products from KV =====
+  async function fetchKVProducts(){
+    try{
+      const r = await fetch('/api/router?type=products', { cache:'no-store' });
+      if (!r.ok) return [];
+      const j = await r.json();
+      return Array.isArray(j?.products) ? j.products : [];
+    }catch{ return []; }
+  }
+
+  // ===== Merge file items with KV (KV wins) =====
+  function mergeProducts(fileList, kvList){
+    const byId = new Map((fileList || []).map(p => [p.id, { ...p }]));
+    for (const kv of (kvList || [])) {
+      const prev = byId.get(kv.id) || {};
+      byId.set(kv.id, { ...prev, ...kv });
+    }
+    for (const kv of (kvList || [])) {
+      if (!byId.has(kv.id)) byId.set(kv.id, { ...kv });
+    }
+    return Array.from(byId.values());
+  }
+
+  // ===== Small helpers =====
+  function toLocalDatetimeValue(iso){
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function fromLocalDatetimeValue(v){
+    if (!v) return '';
+    const d = new Date(v);
+    return isNaN(d) ? '' : d.toISOString();
+  }
+  function isTiered(p){ return !!p.tiered || Array.isArray(p.pricing); }
+  function simplePrice(p){
+    const n = Number(p.price);
+    return Number.isFinite(n) ? n : '';
+  }
+
+  // ===== Render admin table =====
+  function renderAdminCatalog(list){
+    const root = document.getElementById('admin-catalog');
+    if (!root) return;
+
+    if (!list.length){
+      root.innerHTML = `<p>No catalog items found.</p>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="table-wrap" style="overflow:auto">
+        <table class="table" style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="width:30%">Name</th>
+              <th>ID</th>
+              <th>Active</th>
+              <th>Price</th>
+              <th style="width:18%">Publish Start</th>
+              <th style="width:18%">Publish End</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map(p => `
+              <tr data-id="${p.id}">
+                <td>
+                  <strong>${p.name || ''}</strong>
+                  <div class="tiny">${p.sku ? `SKU: ${p.sku}` : ''}</div>
+                  ${isTiered(p) ? `<div class="tiny" style="opacity:.8">Tiered pricing</div>` : ''}
+                </td>
+                <td class="tiny">${p.id}</td>
+                <td><input type="checkbox" class="p-active" ${p.active !== false ? 'checked' : ''}></td>
+                <td>
+                  ${isTiered(p)
+                    ? `<span class="tiny" title="Tiered items are edited on the file for now">(tiered)</span>`
+                    : `<input type="number" step="0.01" min="0" class="p-price" value="${simplePrice(p)}" style="width:110px">`
+                  }
+                </td>
+                <td><input type="datetime-local" class="p-start" value="${toLocalDatetimeValue(p.publishStart)}"></td>
+                <td><input type="datetime-local" class="p-end"   value="${toLocalDatetimeValue(p.publishEnd)}"></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <button id="save-products" class="btn btn-primary">Save</button>
+        <button id="import-from-file" class="btn">Sync from site files</button>
+        <span id="save-status" class="tiny"></span>
+      </div>
+    `;
+
+    document.getElementById('save-products').onclick = saveProductsFromUI;
+    document.getElementById('import-from-file').onclick = importFromFileToKV;
+  }
+
+  // ===== Save only overrides back to KV =====
+  async function saveProductsFromUI(){
+    const status = document.getElementById('save-status');
+    status.textContent = 'Saving…';
+
+    const rows = Array.from(document.querySelectorAll('#admin-catalog tbody tr'));
+    const overrides = rows.map(tr => {
+      const id = tr.getAttribute('data-id');
+      const active = tr.querySelector('.p-active')?.checked ?? true;
+      const priceEl = tr.querySelector('.p-price');
+      const price = priceEl ? Number(priceEl.value || 0) : undefined;
+      const publishStart = fromLocalDatetimeValue(tr.querySelector('.p-start')?.value || '');
+      const publishEnd   = fromLocalDatetimeValue(tr.querySelector('.p-end')?.value || '');
+      const out = { id, active, publishStart, publishEnd };
+      if (priceEl) out.price = Number.isFinite(price) ? price : 0;
+      return out;
+    });
+
+    try{
+      const r = await fetch('/api/router?action=save_products', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ products: overrides })
+      });
+      const j = await r.json().catch(()=> ({}));
+      if (!r.ok) throw new Error(j?.error || 'Save failed');
+      status.textContent = `Saved ${j?.count ?? overrides.length} item(s).`;
+    }catch(e){
+      status.textContent = 'Save failed: ' + (e.message || e);
+    }
+  }
+
+  // ===== Optional: one-click import of file items into KV (full objects) =====
+  async function importFromFileToKV(){
+    const status = document.getElementById('save-status');
+    const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+    if (!fileItems.length){
+      status.textContent = 'No items in /assets/js/items.js';
+      return;
+    }
+    status.textContent = 'Syncing from site files…';
+    try{
+      const r = await fetch('/api/router?action=save_products', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ products: fileItems })
+      });
+      const j = await r.json().catch(()=> ({}));
+      if (!r.ok) throw new Error(j?.error || 'Sync failed');
+      status.textContent = `Imported ${j?.count ?? fileItems.length} item(s) from file.`;
+      initAdminCatalog();
+    }catch(e){
+      status.textContent = 'Sync failed: ' + (e.message || e);
+    }
+  }
+
+  // ===== Init =====
+  async function initAdminCatalog(){
+    const fromFile = (window.CATALOG_ITEMS || []);
+    const fromKV   = await fetchKVProducts();
+    const merged   = mergeProducts(fromFile, fromKV);
+    renderAdminCatalog(merged);
+  }
+
+  initAdminCatalog();
+})();
 </script>
 
 <script>window.PRODUCTS=window.PRODUCTS||[];</script>
