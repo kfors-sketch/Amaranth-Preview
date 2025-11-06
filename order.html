@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v3" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -107,7 +107,7 @@
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
         <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="/product-catalog.html">Product Catalog</a>
+        <a href="/product-catalog.html" data-catalog-link>Product Catalog</a>
         <span class="nav-current">Order</span>
       </nav>
     </div>
@@ -125,7 +125,7 @@
       </div>
       <div class="grid-2">
         <label>Email<input id="p_email" type="email" placeholder="you@example.com" required></label>
-        <label>Phone<input id="p_phone" type="tel" placeholder="(555) 555-5555" required></label>
+        <label>Phone<input id="p_phone" type="tel" placeholder="555-555-5555" required></label>
       </div>
       <div class="grid-3">
         <label>Address line 1<input id="p_addr1" type="text" required></label>
@@ -143,7 +143,7 @@
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
-        <div><strong>Total: </strong><sn id="order-total">$0.00</sn></div>
+        <div><strong>Total: </strong><span id="order-total">$0.00</span></div>
       </div>
 
       <div id="order-list" class="mt"></div>
@@ -174,7 +174,7 @@
       return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6,10);
     }
     function formatPhoneLive(inputEl){
-      const raw = inputEl.value.trim();
+      const raw = (inputEl.value||'').trim();
       if (raw.startsWith('+')) return;             // keep international intact
       const d = digitsOnly(raw).slice(0,10);       // cap to 10 for US mask
       inputEl.value = formatUS(d);
@@ -436,7 +436,8 @@
               }
             });
           } catch(e) {}
-          render();
+          // re-render after cancel to refresh badges/notes
+          window._orderRender?.();
         };
       });
 
@@ -495,7 +496,7 @@
           } catch(e){}
 
           panel.style.display = 'none';
-          render();
+          window._orderRender?.();
         };
       });
 
@@ -513,23 +514,24 @@
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
       `;
-    }
+    } // end render()
+
+    // expose render for resync hooks below
+    window._orderRender = render;
 
     // initial + react to cart changes
     render();
     window.addEventListener('cart:updated', render);
 
     // Re-render purchaser header when they type their name (affects Purchaser group label)
-    ['p_name'].forEach(id=>{
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', render);
-    });
+    const pNameEl = document.getElementById('p_name');
+    if (pNameEl) pNameEl.addEventListener('input', render);
   });
  
-    // --- Auto-resync when returning to this tab or when storage changes (added from Banquets page) ---
+    // --- Auto-resync when returning to this tab or when storage changes ---
     function resyncFromStorage(){
       try { Cart.load(); } catch(e) {}
-      try { render(); } catch(e) {}
+      try { window._orderRender?.(); } catch(e) {}
     }
     document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
     window.addEventListener('focus', resyncFromStorage);
@@ -544,6 +546,37 @@
   <script src="/assets/js/cart.js"></script>
   <script src="/assets/js/data-store.js"></script>
   <script src="/assets/js/site-boot.js"></script>
+
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
+  (async function(){
+    async function fetchJson(url){
+      try { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); }
+      catch(e){ return null; }
+    }
+    let items = [];
+    let j = await fetchJson('/api/router?type=catalog');
+    if (Array.isArray(j?.items)) items = j.items;
+    if (!items.length) {
+      j = await fetchJson('/api/router?type=products');
+      if (Array.isArray(j?.products)) items = j.products;
+    }
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (i && i.active === false) return false;
+      const s = i?.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i?.publishEnd   ? Date.parse(i.publishEnd)   : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
+
+    if (!hasVisible) {
+      const link = document.querySelector('[data-catalog-link]');
+      if (link) link.style.display = 'none';
+    }
+  })();
+  </script>
 
   <!-- Checkout wiring -->
   <script>
@@ -581,7 +614,7 @@
       };
     }
 
-    // === UPDATED: enrich metadata (attendeeName, attendeeNotes, itemNote) ===
+    // === enrich metadata (attendeeName, attendeeNotes, itemNote) ===
     function buildPayloadFromCart() {
       const st = Cart.get();
 
@@ -619,7 +652,7 @@
           itemId: l.itemId,
           itemType: l.itemType,
           itemName: l.itemName,
-          unitPrice: Number(normalizePrice(l.unitPrice)), // cents integer expected server-side
+          unitPrice: Number(normalizePrice(l.unitPrice)),
           qty: Number(l.qty || 1),
           attendeeId: l.attendeeId || '',
           meta: {
@@ -653,9 +686,8 @@
         const payload = {
           purchaser,
           ...buildPayloadFromCart(),
-          // Let router default success to /success.html?sid=...
           cancel_url: location.href,  // snake_case for server
-          cancelUrl:  location.href   // bonus camelCase (no harm)
+          cancelUrl:  location.href   // camelCase also
         };
 
         // Create Checkout Session on your router
@@ -687,18 +719,22 @@
     document.getElementById('checkout').addEventListener('click', goToCheckout);
   </script>
 
+  <!-- Maintenance check -->
   <script>
   (async () => {
     try {
       const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
 
-      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
             <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
             <p style="font-size:1.2em;max-width:500px;">
-              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
             </p>
           </div>
         `;
