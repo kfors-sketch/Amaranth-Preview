@@ -323,7 +323,38 @@
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
-  <!-- Maintenance -->
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
+  (async function(){
+    async function fetchJson(url){
+      try { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); }
+      catch(e){ return null; }
+    }
+    let items = [];
+    let j = await fetchJson('/api/router?type=catalog');
+    if (Array.isArray(j?.items)) items = j.items;
+    if (!items.length) {
+      j = await fetchJson('/api/router?type=products');
+      if (Array.isArray(j?.products)) items = j.products;
+    }
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (i && i.active === false) return false;
+      const s = i?.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i?.publishEnd   ? Date.parse(i.publishEnd)   : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
+
+    if (!hasVisible) {
+      const link = document.querySelector('[data-catalog-link]');
+      if (link) link.style.display = 'none';
+    }
+  })();
+  </script>
+
+ <!-- Maintenance -->
   <script>
   (async () => {
     try {
