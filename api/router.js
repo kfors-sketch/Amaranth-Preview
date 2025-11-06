@@ -525,6 +525,31 @@ export default async function handler(req, res) {
        return REQ_OK(res, { rows: all });
      }
 
+     // --- (NEW) Finalize via success page (idempotent)
+     // GET /api/router?type=finalize_order&sid=cs_...
+     if (type === "finalize_order") {
+       const sid = String(url.searchParams.get("sid") || "").trim();
+       if (!sid) return REQ_ERR(res, 400, "missing-sid");
+       try {
+         const order = await saveOrderFromSession({ id: sid });
+         (async () => { try { await sendOrderReceipts(order); } catch (e) {} })();
+         return REQ_OK(res, { ok: true, orderId: order.id, status: order.status || "paid" });
+       } catch (err) {
+         console.error("finalize_order failed:", err);
+         return REQ_ERR(res, 500, "finalize-failed", { detail: String(err?.message || err) });
+       }
+     }
+
+     // --- (NEW) Fetch one saved order
+     // GET /api/router?type=order&oid=...
+     if (type === "order") {
+       const oid = String(url.searchParams.get("oid") || "").trim();
+       if (!oid) return REQ_ERR(res, 400, "missing-oid");
+       const order = await kvGetSafe(`order:${oid}`, null);
+       if (!order) return REQ_ERR(res, 404, "order-not-found");
+       return REQ_OK(res, { order });
+     }
+
      return REQ_ERR(res, 400, "unknown-type");
    }
 
@@ -821,5 +846,3 @@ export default async function handler(req, res) {
 
 // Vercel Node 22 runtime
 export const config = { runtime: "nodejs" };
-
-
