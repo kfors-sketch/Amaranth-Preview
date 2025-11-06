@@ -17,7 +17,7 @@
     .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
     .btn.ghost{background:#fff;color:#111}
     .btn.warn{background:#b91c1c;border-color:#991b1b}
-    .btn.success{background:#065f46;border-color:#064e3b}
+    .bin.success{background:#065f46;border-color:#064e3b}
     input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
     textarea{min-height:80px}
     label{font-weight:600;margin-top:8px;display:block}
@@ -37,6 +37,13 @@
   </style>
 </head>
 <body>
+
+  <!-- QUICK LINKS (added) -->
+  <div class="container" style="display:flex;gap:8px;align-items:center;justify-content:flex-start;margin-top:16px">
+    <a class="btn ghost" href="/index.html">← Site Home</a>
+    <a class="btn ghost" href="/admin/index.html">Admin Hub</a>
+  </div>
+
   <main class="container">
     <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div>
@@ -340,11 +347,9 @@
     $('#f_type').value = a.type || 'fixed';
     $('#f_active').value = String(a.active !== false);
 
-    // price (only for fixed/qty)
     const price = Number(a.price || 0);
     $('#f_price').value = price > 0 ? price.toFixed(2) : '';
 
-    // variants textarea for variantQty
     if (Array.isArray(a.variants) && a.variants.length){
       $('#f_variants').value = a.variants.map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`).join('\n');
     } else {
@@ -410,13 +415,13 @@
     if (limitPerAttendee > 0) base.limitPerAttendee = limitPerAttendee;
 
     if (type === 'variantQty'){
-      base.variants = variants;     // array of {id,label,price}
+      base.variants = variants;
       delete base.price;
     } else if (type === 'amount'){
-      delete base.price;            // open amount, UI sets at checkout
+      delete base.price;
       delete base.variants;
     } else {
-      base.price = Math.round(price * 100) / 100; // dollars in file
+      base.price = Math.round(price * 100) / 100;
       delete base.variants;
     }
 
@@ -466,7 +471,6 @@
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'addon') + '-copy';
     copy.id = uniqueId(baseId);
-    // reset dates on copy
     copy.publishStart = '';
     copy.publishEnd = '';
     startNew();
@@ -475,11 +479,9 @@
     $('#modeChip').textContent = 'New (from copy)';
   }
 
-  // Buttons wired
   $('#btnAddNew').addEventListener('click', startNew);
   $('#btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
 
-  // Export / Import
   $('#btnExport').addEventListener('click', ()=>{
     const blob = new Blob([JSON.stringify(model, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -507,7 +509,6 @@
     }
   });
 
-  // Save
   $('#btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
@@ -538,7 +539,6 @@
     }
   });
 
-  // Kick off
   loadInitial();
   </script>
 </body>
