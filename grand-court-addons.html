@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v5"><!-- bumped -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v6"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -23,7 +23,7 @@
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
         <span class="nav-current">Grand Court Add-Ons</span>
-        <a href="product-catalog.html">Product Catalog</a>
+        <a href="product-catalog.html" data-catalog-link>Product Catalog</a>
         <a href="order.html">Order</a>
       </nav>
     </div>
@@ -35,11 +35,11 @@
     <!-- Attendees (shared with Banquets/Order via Cart) -->
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);">
       <h2>Attendees</h2>
-      <form id="attForm" class="att-form">
+      <form id="attForm" class="att-form" autocomplete="off">
         <div class="grid-3">
           <input name="name"  placeholder="Name *" required>
           <input name="email" type="email" placeholder="Email *" required>
-          <input name="phone" type="tel" placeholder="Phone *" required>
+          <input name="phone" type="tel" inputmode="tel" placeholder="Phone *" required>
         </div>
         <div class="grid-3">
           <input name="title" placeholder="Title">
@@ -78,7 +78,7 @@
     .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   </style>
 
-  <!-- Core site scripts -->
+  <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
   <script src="assets/js/items.js"></script>
   <script src="assets/js/banquets.js"></script>
@@ -87,7 +87,7 @@
   <script src="assets/js/site-boot.js"></script>
   <script src="assets/js/grand-court-addons.js"></script>
 
-  <!-- ===== NEW: Phone helpers (US dashes; keep +international) ===== -->
+  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
   <script>
     function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
     function formatUS(d){
@@ -96,13 +96,14 @@
       return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6,10);
     }
     function formatPhoneLive(inputEl){
-      const raw = inputEl.value.trim();
-      if (raw.startsWith('+')) return;  // keep international
+      const raw = (inputEl.value||'').trim();
+      if (raw.startsWith('+')) return; // preserve international
       const d = digitsOnly(raw).slice(0,10);
       inputEl.value = formatUS(d);
     }
   </script>
 
+  <!-- Page logic: attendees list, validation, dedupe, live phone dashes -->
   <script>
   function looksLikeEmail(s){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim()); }
 
@@ -110,7 +111,7 @@
     const attForm = document.getElementById('attForm');
     const list = document.getElementById('attendees');
 
-    // Attach live formatting to phone field
+    // Phone live formatting (+international untouched)
     const phoneField = attForm?.querySelector('input[name="phone"]');
     if (phoneField){
       phoneField.addEventListener('input', ()=>formatPhoneLive(phoneField));
@@ -168,17 +169,23 @@
         if (!state) missing.push('State/Province');
         if (!postal) missing.push('Postal code');
         if (!country) missing.push('Country');
-
         if (missing.length){
           alert('Please complete the following fields:\n• ' + missing.join('\n• '));
           return;
         }
 
-        Cart.addAttendee({
-          name, email, phone, title, notes,
-          address1, address2, city, state, postal, country
-        });
+        // Duplicate prevention (by name + email)
+        const st = Cart.get();
+        const exists = (st.attendees||[]).some(a =>
+          String(a.name||'').trim().toLowerCase() === name.toLowerCase() &&
+          String(a.email||'').trim().toLowerCase() === email.toLowerCase()
+        );
+        if (exists){
+          alert('That attendee (same name & email) is already added.');
+          return;
+        }
 
+        Cart.addAttendee({ name, email, phone, title, notes, address1, address2, city, state, postal, country });
         attForm.reset();
         attForm.querySelector('input[name="country"]').value = 'US';
         renderAttendees();
@@ -207,6 +214,37 @@
   });
   </script>
 
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
+  (async function(){
+    async function fetchJson(url){
+      try { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); }
+      catch(e){ return null; }
+    }
+    let items = [];
+    let j = await fetchJson('/api/router?type=catalog');
+    if (Array.isArray(j?.items)) items = j.items;
+    if (!items.length) {
+      j = await fetchJson('/api/router?type=products');
+      if (Array.isArray(j?.products)) items = j.products;
+    }
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (i && i.active === false) return false;
+      const s = i?.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i?.publishEnd   ? Date.parse(i.publishEnd)   : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
+
+    if (!hasVisible) {
+      const link = document.querySelector('[data-catalog-link]');
+      if (link) link.style.display = 'none';
+    }
+  })();
+  </script>
+
   <!-- Maintenance check -->
   <script>
   (async () => {
@@ -214,7 +252,7 @@
       const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
 
-      const on = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
       const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
 
       if (on === 'true' || on === true) {
