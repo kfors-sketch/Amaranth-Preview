@@ -34,7 +34,7 @@
 
     <div id="banquet-list" class="grid-2"></div>
 
-    <!-- Attendees section: frosted card; Address + Phone included -->
+    <!-- Attendees section -->
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(229,231,235,0.45);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
@@ -78,18 +78,15 @@
   <script src="assets/js/main.js" defer></script>
 
   <script>
-  // Display as $X,XXX.00 (never show < $0.01 visually)
+  // Display as $X,XXX.00
   function money(n){
     const v = Math.max(0.01, Math.round(Number(n)*100)/100);
     return v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2});
   }
-  // Treat 0<n<1 as cents accidentally stored; convert to dollars
   function normalizePrice(p){
     const n = Number(p);
-    if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n*100) : n;
   }
-  // Basic email check
   function looksLikeEmail(s){
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
   }
@@ -97,18 +94,7 @@
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
 
-    // Migrate any legacy cents (0<n<1) to dollars in existing cart
-    (function migrateLegacyCents(){
-      const st = Cart.get();
-      let changed = false;
-      (st.lines || []).forEach(l => {
-        const n = Number(l.unitPrice);
-        if (isFinite(n) && n > 0 && n < 1) { l.unitPrice = Math.round(n * 100); changed = true; }
-      });
-      if (changed) st.lines.forEach(line => Cart.updateLine(line.id, { unitPrice: line.unitPrice }));
-    })();
-
-    // ===== Attendees UI =====
+    // Attendee UI render + add
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
@@ -132,29 +118,8 @@
         `;
       }).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = () => {
-          Cart.removeAttendee(btn.dataset.del);
-          renderAttendees();
-          refreshAllAttendeeSelects();
-        };
+        btn.onclick = () => { Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
       });
-    }
-
-    function populateSelectWithAttendees(sel){
-      const a = (Cart.get() || {}).attendees || [];
-      sel.innerHTML = '';
-      if (!a.length){
-        sel.disabled = true;
-        sel.innerHTML = '<option value="">Add attendee first</option>';
-      } else {
-        sel.disabled = false;
-        sel.innerHTML = '<option value="" disabled selected>Select attendee…</option>' +
-          a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
-      }
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    function refreshAllAttendeeSelects(){
-      document.querySelectorAll('.assign select').forEach(populateSelectWithAttendees);
     }
 
     form.onsubmit = (e)=>{
@@ -166,7 +131,6 @@
       const phone  = (fd.get('phone')||'').trim();
       const title  = (fd.get('title')||'').trim();
       const notes  = (fd.get('notes')||'').trim();
-
       const address1 = (fd.get('addr1')||'').trim();
       const address2 = (fd.get('addr2')||'').trim();
       const city     = (fd.get('city')||'').trim();
@@ -174,7 +138,6 @@
       const postal   = (fd.get('postal')||'').trim();
       const country  = (fd.get('country')||'US').trim() || 'US';
 
-      // Validate requireds
       const missing = [];
       if (!name) missing.push('Name');
       if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
@@ -198,7 +161,6 @@
       form.querySelector('input[name="country"]').value = 'US';
 
       renderAttendees();
-      refreshAllAttendeeSelects();
     };
     renderAttendees();
 
@@ -207,7 +169,16 @@
 
     function attendeeSelect(){
       const s = document.createElement('select');
-      populateSelectWithAttendees(s);
+      const a = (Cart.get() || {}).attendees || [];
+      s.innerHTML = '';
+      if (!a.length){
+        s.disabled = true;
+        s.innerHTML = '<option value="">Add attendee first</option>';
+      } else {
+        s.disabled = false;
+        s.innerHTML = '<option value="" disabled selected>Select attendee…</option>' +
+          a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
+      }
       return s;
     }
 
@@ -303,7 +274,6 @@
       wrap.appendChild(div);
     }
 
-    // Use server banquets first; fall back to static list
     async function loadBanquets() {
       function isWithinWindow(b, nowTs){
         const s = b.publishStart ? Date.parse(b.publishStart) : null;
@@ -345,7 +315,7 @@
     .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   </style>
 
-  <!-- Core site scripts (order matters) -->
+  <!-- Core site scripts -->
   <script src="assets/js/site-settings.js"></script>
   <script src="assets/js/items.js"></script>
   <script src="assets/js/banquets.js"></script>
@@ -353,16 +323,14 @@
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
-  <!-- Maintenance check via router -->
+  <!-- Maintenance -->
   <script>
   (async () => {
     try {
       const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
-
       const on = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
       const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
       if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
@@ -375,30 +343,6 @@
       }
     } catch (err) {
       console.error('Maintenance check failed:', err);
-    }
-  })();
-  </script>
-
-  <!-- ✅ ONLY ADDITION: Hide Product Catalog link if no active items -->
-  <script>
-  (async () => {
-    try {
-      const r = await fetch('/api/router?type=catalog', { cache: 'no-store' });
-      const j = await r.json();
-      const items = Array.isArray(j?.items) ? j.items : (Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : []);
-      const now = Date.now();
-      const active = items.filter(it => {
-        if (it.active === false) return false;
-        const s = it.publishStart ? Date.parse(it.publishStart) : null;
-        const e = it.publishEnd ? Date.parse(it.publishEnd) : null;
-        return (s == null || now >= s) && (e == null || now <= e);
-      });
-      if (active.length === 0) {
-        document.querySelectorAll('a[href="product-catalog.html"]')
-          .forEach(el => el.style.display = 'none');
-      }
-    } catch(err) {
-      console.warn('Catalog visibility check failed:', err);
     }
   })();
   </script>
