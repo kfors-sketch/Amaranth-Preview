@@ -31,8 +31,16 @@
   <main class="container mt-lg">
     <h1>Shop</h1>
 
+    <!-- Empty-state (hidden until needed) -->
+    <div id="emptyCatalog" class="card" style="display:none;max-width:780px;margin:0 auto 16px;">
+      <h2 style="margin:.25rem 0 .5rem;">No items available right now</h2>
+      <p class="muted" style="margin:0">
+        Please check back soon. Items appear here only when they are published and active.
+      </p>
+    </div>
+
     <!-- Product grid -->
-    <section class="shop-grid" id="shopGrid"></section>
+    <section class="shop-grid" id="shopGrid" aria-live="polite"></section>
 
     <!-- Lightbox -->
     <div class="lightbox" id="lightbox" hidden>
@@ -64,6 +72,33 @@
     const n = Number(p);
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+
+  // Parse flexible date strings: ISO, "YYYY-MM-DD", or empty => null
+  function parseDate(d){
+    if (!d) return null;
+    if (typeof d === 'number') return new Date(d);
+    const s = String(d).trim();
+    if (!s) return null;
+    // Ensure "YYYY-MM-DD" gains a time so it becomes local midnight
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00');
+    const t = Date.parse(s);
+    return isNaN(t) ? null : new Date(t);
+  }
+
+  // Publish window check (inclusive). Empty start/end = open.
+  function isWithinWindow(item, now){
+    const start = parseDate(item.publishStart);
+    const end   = parseDate(item.publishEnd);
+    if (start && now < start) return false;
+    if (end && now > end)     return false;
+    return true;
+  }
+
+  // Item visibility: active === true AND within publish window
+  function isVisibleItem(item, now){
+    if (!item || item.active !== true) return false;
+    return isWithinWindow(item, now);
   }
 
   // Simple lightbox
@@ -101,15 +136,27 @@
     })();
 
     const grid = document.getElementById('shopGrid');
+    const empty = document.getElementById('emptyCatalog');
     const lb = setupLightbox();
 
     // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
-    const items = (window.DataStore && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
+    const rawItems = (window.DataStore && DataStore.getItems && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
+    const now = new Date();
+
+    // === NEW: visibility gate ===
+    const items = (rawItems || []).filter(it => isVisibleItem(it, now));
 
     const LOW_STOCK = 5;
 
     function render(){
-      grid.innerHTML = (items||[]).map(item => {
+      if (!items.length){
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      grid.innerHTML = items.map(item => {
         const total = Number(item.qtyTotal || 0);
         const sold  = Number(item.qtySold  || 0);
         const remaining = Math.max(0, total - sold);
@@ -176,7 +223,7 @@
             ${controlsHtml}
           </article>
         `;
-      }).join('') || '<p>No items found.</p>';
+      }).join('');
 
       // Hook up behaviors
       grid.querySelectorAll('.item').forEach(card=>{
@@ -394,32 +441,34 @@
 
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
-  <script src="assets/js/items.js"></script>
+  <!-- cache-bust items.js so phones/Edge don’t use stale list -->
+  <script src="assets/js/items.js?v=nov-06-2025"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
-  <script>
-(async () => {
-  try {
-    const resp = await fetch('/api/admin/settings.js');
-    const data = await resp.json();
 
-    if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
-      document.body.innerHTML = `
-        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-          <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-          <p style="font-size:1.2em;max-width:500px;">
-            ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
-          </p>
-        </div>
-      `;
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/admin/settings.js');
+      const data = await resp.json();
+
+      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
     }
-  } catch (err) {
-    console.error('Maintenance check failed:', err);
-  }
-})();
-</script>
+  })();
+  </script>
 
 </body>
 </html>
