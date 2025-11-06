@@ -1,462 +1,597 @@
-<!doctype html> 
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Product Catalog — Amaranth</title>
-<meta name="robots" content="noindex, nofollow"/>
-<link rel="stylesheet" href="/assets/css/styles.css"/>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
-  .container{max-width:1200px;margin:24px auto;padding:0 16px}
-  .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-  .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
-  .col.left{flex:2 1 640px;min-width:520px}
-  .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
-  .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
-  .btn.ghost{background:#fff;color:#111}
-  input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
-  table{width:100%;border-collapse:separate;border-spacing:0}
-  thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
-  tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
-  .muted{color:#6b7280}
-  .ok{color:#065f46}.danger{color:#b91c1c}
-  .preview{width:96px;height:96px;object-fit:cover;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;margin-bottom:6px}
-</style>
-<script>
-  (function(){
-    if(localStorage.getItem('amaranth_admin_pw_ok')!=='1'){
-      location.replace('/admin/reporting_login.html');
-    }
-  })();
-</script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Product Catalog — Amaranth</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+    .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+    .col.left{flex:2 1 640px;min-width:520px}
+    .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
+    h1{margin:0 0 10px}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
+    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
+    .btn.ghost{background:#fff;color:#111}
+    .btn.warn{background:#b91c1c;border-color:#991b1b}
+    .btn.success{background:#065f46;border-color:#064e3b}
+    input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
+    textarea{min-height:80px}
+    label{font-weight:600;margin-top:8px;display:block}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
+    tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
+    .muted{color:#6b7280}
+    .rules{background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;padding:10px;margin:8px 0 12px}
+    .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .right .toolbar{margin-bottom:8px}
+    .hint{font-size:12px;color:#6b7280;margin-top:4px}
+    .danger{color:#b91c1c}
+    .ok{color:#065f46}
+    code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
+    /* summary caret match site style */
+    details summary{cursor:pointer;list-style:none}
+    details summary::-webkit-details-marker{display:none}
+    details summary .caret{display:inline-block;transform:rotate(0deg);transition:transform .2s ease}
+    details[open] summary .caret{transform:rotate(90deg)}
+  </style>
 </head>
 <body>
-<main class="container">
-  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div><h1 style="margin:0">Product Catalog</h1><div class="muted">Create, edit, retire products</div></div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
-      <button id="refreshBtn" class="btn ghost">Refresh</button>
-      <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
-    </div>
-  </header>
-
-  <div class="row">
-    <section class="col left">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <button id="btnNew" class="btn">+ New Product</button>
-        <button id="btnExport" class="btn ghost">Export JSON</button>
-        <button id="btnExportCsv" class="btn ghost">Export CSV</button>
-        <label class="btn ghost" for="fileImport" style="cursor:pointer">Import JSON</label>
-        <input id="fileImport" type="file" accept=".json,application/json" style="display:none"/>
-        <span id="listMsg" class="muted"></span>
+  <main class="container">
+    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div>
+        <h1>Product Catalog</h1>
+        <div class="muted">Create, edit, or retire catalog products</div>
       </div>
-
-      <!-- NEW: Quick Admin Catalog (KV + file merge) -->
-      <div class="card" style="margin-bottom:12px">
-        <h2 style="margin:0 0 8px">Product Catalog (Quick Toggles)</h2>
-        <div id="admin-catalog"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
+        <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
       </div>
+    </header>
 
-      <div style="overflow:auto;max-height:65vh">
-        <table><thead><tr>
-          <th style="min-width:200px">Name</th>
-          <th style="min-width:140px">ID</th>
-          <th>Price</th><th>Active</th>
-          <th>Publish Window</th><th style="min-width:160px">Actions</th>
-        </tr></thead><tbody id="tbody"></tbody></table>
-      </div>
+    <!-- Rules -->
+    <section class="col rules">
+      <strong>Rules & Tips</strong>
+      <ul class="muted" style="margin:8px 0 0 16px">
+        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>sunflower-pendant</code>).</li>
+        <li><b>Price</b>: use simple price here; tiered/variants can remain defined in your site file.</li>
+        <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
+        <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
+      </ul>
     </section>
 
-    <aside class="col right">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <strong id="modeChip">New</strong><span id="editMsg" class="muted"></span>
-      </div>
+    <div class="row">
+      <!-- List -->
+      <section class="col left">
+        <div class="toolbar">
+          <button id="btnAddNew" class="btn success">+ New Product</button>
+          <button id="btnExport" class="btn ghost">Export JSON</button>
+          <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
+          <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
+          <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
+          <span id="listMsg" class="muted"></span>
+        </div>
 
-      <label>Name</label><input id="f_name" type="text" placeholder="Product name"/>
-      <label>ID</label><input id="f_id" type="text" placeholder="product-id"/>
-      <label>Price (USD)</label><input id="f_price" type="number" step="0.01" min="0" placeholder="15.00"/>
+        <!-- NEW: Collapsible Quick Toggles -->
+        <details class="col" style="margin:12px 0" open>
+          <summary style="display:flex;align-items:center;gap:8px">
+            <span class="caret">▶</span>
+            <strong>Quick Toggles (KV + File Merge)</strong>
+            <span class="muted">— fast on/off, price, publish window</span>
+          </summary>
+          <div style="margin-top:10px">
+            <div id="admin-catalog"></div>
+          </div>
+        </details>
 
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1 1 120px"><label>Active</label><select id="f_active"><option>true</option><option>false</option></select></div>
-        <div style="flex:1 1 180px"><label>Publish Start</label><input id="f_start" type="datetime-local"/></div>
-        <div style="flex:1 1 180px"><label>Publish End</label><input id="f_end" type="datetime-local"/></div>
-      </div>
+        <div style="overflow:auto;max-height:65vh;margin-top:8px">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:160px">Name</th>
+                <th style="min-width:160px">ID</th>
+                <th>Price</th>
+                <th>Active</th>
+                <th>Publish Window</th>
+                <th>SKU</th>
+                <th style="min-width:160px">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
 
-      <label>Notes / Description</label><textarea id="f_notes" placeholder="Shown on product page"></textarea>
+      <!-- Editor -->
+      <aside class="col right">
+        <div class="toolbar">
+          <span class="chip" id="modeChip">New</span>
+          <span id="editMsg" class="muted"></span>
+        </div>
 
-      <h3 style="margin-top:14px">Images</h3>
-      <div>
-        <label>Thumbnail</label>
-        <img id="thumbPreview" class="preview" alt="thumbnail"/>
-        <input id="f_thumb" type="file" accept="image/*"/>
-        <input id="f_thumb_url" type="text" placeholder="Thumbnail URL (optional)"/>
-      </div>
-      <div style="margin-top:8px">
-        <label>Main Image</label>
-        <img id="img1Preview" class="preview" alt="main image"/>
-        <input id="f_img1" type="file" accept="image/*"/>
-        <input id="f_img1_url" type="text" placeholder="Main image URL (optional)"/>
-      </div>
+        <label for="f_name">Name</label>
+        <input id="f_name" type="text" placeholder="Sunflower Pendant" />
 
-      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-        <button id="btnSave" class="btn">Save</button>
-        <button id="btnReset" class="btn ghost">Reset</button>
-      </div>
-    </aside>
-  </div>
-</main>
+        <label for="f_id">ID</label>
+        <input id="f_id" type="text" placeholder="sunflower-pendant" />
+        <div class="hint">lowercase letters, numbers, dashes. Example: <code>coin-pa2026</code></div>
 
-<!-- Ensure items.js is loaded before the admin-catalog script -->
-<script src="/assets/js/items.js"></script>
+        <div class="row">
+          <div>
+            <label for="f_active">Active</label>
+            <select id="f_active">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div>
+            <label for="f_price">Price (USD)</label>
+            <input id="f_price" type="number" step="0.01" min="0" placeholder="25.00" />
+          </div>
+          <div>
+            <label for="f_sku">SKU</label>
+            <input id="f_sku" type="text" placeholder="SUN-001" />
+          </div>
+        </div>
 
-<script src="/assets/js/lib/csv.js"></script>
-<script src="/assets/js/admin.js"></script>
+        <div class="row">
+          <div>
+            <label for="f_start">Publish Start</label>
+            <input id="f_start" type="datetime-local" />
+          </div>
+          <div>
+            <label for="f_end">Publish End</label>
+            <input id="f_end" type="datetime-local" />
+          </div>
+        </div>
 
-<!-- Existing page logic -->
-<script>
-const $ = s=>document.querySelector(s);
-let model=[], current=null, isNew=true;
+        <label for="f_notes">Notes / Description</label>
+        <textarea id="f_notes" placeholder="Shown on product page"></textarea>
 
-// endpoints
-const READ_URL  = '/api/router?type=products';
-const WRITE_URL = '/api/router?action=save_products';
-const UPLOAD_URL = '/api/router?action=upload_product_image';
+        <label for="f_thumb_url">Thumbnail URL (optional)</label>
+        <input id="f_thumb_url" type="text" placeholder="/assets/shop/item-thumb.jpg" />
 
-// utils
-function toLocalDT(v){if(!v)return'';const d=new Date(v);if(isNaN(d))return'';const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,16);}
-function fromLocalDT(v){if(!v)return'';const d=new Date(v);return isNaN(d)?'':d.toISOString();}
-function esc(s){return(s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
-function setMsg(el,t,ok){el.textContent=t||'';el.className=ok?'ok':(t?'danger':'muted');}
+        <label for="f_img1_url">Main Image URL (optional)</label>
+        <input id="f_img1_url" type="text" placeholder="/assets/shop/item-main.jpg" />
 
-// image previews
-function setPreview(sel, url){
-  const img=$(sel); if(!img)return;
-  if(url){ img.src=url; img.style.opacity='1'; }
-  else{ img.removeAttribute('src'); img.style.opacity='0.35'; }
-}
-function previewLocalFile(inputSel, imgSel){
-  const inp=$(inputSel), img=$(imgSel);
-  if(!inp||!img)return;
-  const f=inp.files&&inp.files[0];
-  if(!f){setPreview(imgSel,null);return;}
-  const reader=new FileReader();
-  reader.onload=()=>{img.src=reader.result;img.style.opacity='1';};
-  reader.readAsDataURL(f);
-}
-$('#f_thumb').addEventListener('change',()=>previewLocalFile('#f_thumb','#thumbPreview'));
-$('#f_img1').addEventListener('change',()=>previewLocalFile('#f_img1','#img1Preview'));
+        <label for="f_chair_name">Chairperson Name (optional)</label>
+        <input id="f_chair_name" type="text" placeholder="Jane Smith" />
 
-// upload file -> router (base64 JSON)
-async function uploadIfChosen(fileInputId, productId, slot){
-  const inp=$(fileInputId);
-  if(!inp||!inp.files||!inp.files[0])return null;
-  const file=inp.files[0];
-  const dataUrl=await new Promise((res,rej)=>{
-    const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file);
-  });
-  const headers={"Content-Type":"application/json",...Admin.tokenHeader()};
-  const r=await fetch(UPLOAD_URL,{
-    method:'POST',
-    headers,
-    body:JSON.stringify({id:productId,slot,dataUrl})
-  });
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok||!j?.url)throw new Error(j?.error||'upload failed');
-  return j.url;
-}
+        <label for="f_chair_emails">Chair Emails (optional, comma-separated)</label>
+        <input id="f_chair_emails" type="text" placeholder="chair@example.com, cochair@example.com" />
 
-// load/save
-async function loadServer(){
-  try{const r=await fetch(READ_URL,{cache:'no-store'});if(!r.ok)throw 0;
-  const j=await r.json();if(Array.isArray(j.products))model=j.products;}catch{model=[];}
-}
-function loadFallbackFromWindow(){
-  if(!model.length&&Array.isArray(window.PRODUCTS))model=JSON.parse(JSON.stringify(window.PRODUCTS));
-}
-function renderList(){
-  const tb=$('#tbody');tb.innerHTML='';
-  if(!model.length){tb.innerHTML='<tr><td colspan="6" class="muted">No products yet</td></tr>';return;}
-  for(const a of model){
-    const tr=document.createElement('tr');
-    const start=a.publishStart?new Date(a.publishStart).toLocaleString():'—';
-    const end=a.publishEnd?new Date(a.publishEnd).toLocaleString():'—';
-    tr.innerHTML=`
-      <td><strong>${esc(a.name||'')}</strong></td>
-      <td><code>${esc(a.id||'')}</code></td>
-      <td>$${Number(a.price||0).toFixed(2)}</td>
-      <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
-      <td class="muted">${start} → ${end}</td>
-      <td><button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button></td>`;
-    tb.appendChild(tr);
-  }
-  tb.querySelectorAll('.btnEdit').forEach(b=>b.addEventListener('click',onEdit));
-}
-function startNew(){
-  isNew=true;
-  current={id:'',name:'',price:0,active:true,publishStart:'',publishEnd:'',notes:'',thumbnailUrl:'',imageUrl:''};
-  fillForm(current);
-  $('#modeChip').textContent='New';$('#editMsg').textContent='Create new product.';
-}
-function fillForm(p){
-  $('#f_name').value=p.name||'';$('#f_id').value=p.id||'';$('#f_price').value=p.price??'';
-  $('#f_active').value=String(p.active!==false);$('#f_start').value=toLocalDT(p.publishStart);$('#f_end').value=toLocalDT(p.publishEnd);
-  $('#f_notes').value=p.notes||'';$('#f_thumb_url').value=p.thumbnailUrl||'';$('#f_img1_url').value=p.imageUrl||'';
-  setPreview('#thumbPreview',p.thumbnailUrl);setPreview('#img1Preview',p.imageUrl);
-  $('#f_thumb').value='';$('#f_img1').value='';
-}
-function readForm(){
-  return{
-    name:$('#f_name').value.trim(),
-    id:$('#f_id').value.trim(),
-    price:Number($('#f_price').value||0),
-    active:$('#f_active').value==='true',
-    publishStart:fromLocalDT($('#f_start').value),
-    publishEnd:fromLocalDT($('#f_end').value),
-    notes:$('#f_notes').value.trim(),
-    thumbnailUrl:$('#f_thumb_url').value.trim(),
-    imageUrl:$('#f_img1_url').value.trim()
-  };
-}
-function validate(p){
-  if(!p.name)return'Name required';
-  if(!p.id||!/^[a-z0-9-]+$/.test(p.id))return'ID must be lowercase letters, numbers, dashes';
-  if(p.price<0||isNaN(p.price))return'Invalid price';
-  if(p.publishStart&&isNaN(new Date(p.publishStart)))return'Invalid start';
-  if(p.publishEnd&&isNaN(new Date(p.publishEnd)))return'Invalid end';
-  if(p.publishStart&&p.publishEnd&&new Date(p.publishStart)>new Date(p.publishEnd))return'Start must be before end';
-  return null;
-}
-function onEdit(e){
-  const id=e.currentTarget.dataset.id;
-  const p=model.find(x=>x.id===id);if(!p)return;
-  isNew=false;current=p;fillForm(p);
-  $('#modeChip').textContent='Edit';$('#editMsg').textContent=`Editing ${p.name}`;
-}
+        <div class="toolbar" style="margin-top:10px">
+          <button id="btnSave" class="btn">Save</button>
+          <button id="btnReset" class="btn ghost">Reset</button>
+        </div>
+      </aside>
+    </div>
+  </main>
 
-// buttons
-$('#btnNew').onclick=startNew;
-$('#btnReset').onclick=()=>fillForm(current||{});
-$('#refreshBtn').onclick=async()=>{await loadServer();loadFallbackFromWindow();renderList();startNew();};
+  <!-- Static fallback for products -->
+  <script src="/assets/js/items.js"></script>
 
-$('#btnExport').onclick=()=>{
-  const blob=new Blob([JSON.stringify({PRODUCTS:model},null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='products-export.json';a.click();
-};
+  <!-- Admin shared helpers -->
+  <script src="/assets/js/admin.js"></script>
 
-// Save
-$('#btnSave').onclick=async()=>{
-  const obj=readForm();const err=validate(obj);
-  if(err){setMsg($('#editMsg'),err,false);return;}
-  setMsg($('#editMsg'),'Saving…',true);
-  try{
-    if(obj.id){
-      const thumbUrl=await uploadIfChosen('#f_thumb',obj.id,'thumb');
-      if(thumbUrl)obj.thumbnailUrl=thumbUrl;
-      const mainUrl=await uploadIfChosen('#f_img1',obj.id,'image1');
-      if(mainUrl)obj.imageUrl=mainUrl;
-    }
-  }catch(e){console.warn('upload fail',e);}
+  <!-- Page logic (banquets-style) -->
+  <script>
+  Admin.ensureAuth();
+  Admin.attachLogout('#logoutBtn');
 
-  if(isNew)model.push(obj);else{
-    const i=model.findIndex(x=>x.id===current.id);
-    if(i>=0)model[i]=obj;else model.push(obj);
-  }
-  current=obj;renderList();
+  const $  = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const idOK = id => /^[a-z0-9-]+$/.test(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pad = n => String(n).padStart(2,'0');
+  const prettyDate = d => d instanceof Date && !isNaN(d)
+    ? d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
+    : '—';
 
-  try{
-    const headers={'Content-Type':'application/json',...Admin.tokenHeader()};
-    const r=await fetch(WRITE_URL,{method:'POST',headers,body:JSON.stringify({products:model})});
-    const j=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(j?.error||'server rejected');
-    setMsg($('#editMsg'),'Saved to server.',true);
-  }catch{setMsg($('#editMsg'),'Saved locally (server error).',false);}
-};
-
-// logout
-$('#logoutBtn').onclick=()=>{localStorage.removeItem('amaranth_admin_pw_ok');location.href='/admin/reporting_login.html';};
-
-// init
-(async()=>{await loadServer();loadFallbackFromWindow();renderList();startNew();})();
-</script>
-
-<!-- NEW: Admin-catalog (KV merge + quick toggles) -->
-<script>
-(function(){
-  // ===== Auth header (fallback if you don't want to use Admin.tokenHeader) =====
-  function getAuthHeader(){
-    const token = localStorage.getItem('amaranth_report_token') || '';
-    return token ? { Authorization: 'Bearer ' + token } : {};
-  }
-
-  // ===== Fetch products from KV =====
-  async function fetchKVProducts(){
-    try{
-      const r = await fetch('/api/router?type=products', { cache:'no-store' });
-      if (!r.ok) return [];
-      const j = await r.json();
-      return Array.isArray(j?.products) ? j.products : [];
-    }catch{ return []; }
-  }
-
-  // ===== Merge file items with KV (KV wins) =====
-  function mergeProducts(fileList, kvList){
-    const byId = new Map((fileList || []).map(p => [p.id, { ...p }]));
-    for (const kv of (kvList || [])) {
-      const prev = byId.get(kv.id) || {};
-      byId.set(kv.id, { ...prev, ...kv });
-    }
-    for (const kv of (kvList || [])) {
-      if (!byId.has(kv.id)) byId.set(kv.id, { ...kv });
-    }
-    return Array.from(byId.values());
-  }
-
-  // ===== Small helpers =====
-  function toLocalDatetimeValue(iso){
-    if (!iso) return '';
+  function toLocalDT(iso){
+    if(!iso) return '';
     const d = new Date(iso);
-    if (isNaN(d)) return '';
-    const pad = n => String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if(isNaN(d)) return '';
+    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
+    return `${y}-${m}-${day}T${hh}:${mm}`;
   }
-  function fromLocalDatetimeValue(v){
-    if (!v) return '';
-    const d = new Date(v);
+  function fromLocalDT(local){
+    if(!local) return '';
+    const d = new Date(local);
     return isNaN(d) ? '' : d.toISOString();
   }
-  function isTiered(p){ return !!p.tiered || Array.isArray(p.pricing); }
-  function simplePrice(p){
-    const n = Number(p.price);
-    return Number.isFinite(n) ? n : '';
-  }
 
-  // ===== Render admin table =====
-  function renderAdminCatalog(list){
-    const root = document.getElementById('admin-catalog');
-    if (!root) return;
+  let model = [];
+  let current = null;
+  let isNew = true;
 
-    if (!list.length){
-      root.innerHTML = `<p>No catalog items found.</p>`;
-      return;
+  // ---- Initial Load (server first, then file fallback) ----
+  async function loadInitial(){
+    let loaded = false;
+    try {
+      const r = await fetch('/api/router?type=products', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.products) && j.products.length > 0) {
+          model = j.products;
+          loaded = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Server products fetch failed:', e);
     }
 
-    root.innerHTML = `
-      <div class="table-wrap" style="overflow:auto">
-        <table class="table" style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr>
-              <th style="width:30%">Name</th>
-              <th>ID</th>
-              <th>Active</th>
-              <th>Price</th>
-              <th style="width:18%">Publish Start</th>
-              <th style="width:18%">Publish End</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${list.map(p => `
-              <tr data-id="${p.id}">
-                <td>
-                  <strong>${p.name || ''}</strong>
-                  <div class="tiny">${p.sku ? `SKU: ${p.sku}` : ''}</div>
-                  ${isTiered(p) ? `<div class="tiny" style="opacity:.8">Tiered pricing</div>` : ''}
-                </td>
-                <td class="tiny">${p.id}</td>
-                <td><input type="checkbox" class="p-active" ${p.active !== false ? 'checked' : ''}></td>
-                <td>
-                  ${isTiered(p)
-                    ? `<span class="tiny" title="Tiered items are edited on the file for now">(tiered)</span>`
-                    : `<input type="number" step="0.01" min="0" class="p-price" value="${simplePrice(p)}" style="width:110px">`
-                  }
-                </td>
-                <td><input type="datetime-local" class="p-start" value="${toLocalDatetimeValue(p.publishStart)}"></td>
-                <td><input type="datetime-local" class="p-end"   value="${toLocalDatetimeValue(p.publishEnd)}"></td>
+    if (!loaded) {
+      const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Using static list (fallback).';
+    } else {
+      $('#listMsg').textContent = 'Loaded from server.';
+    }
+
+    renderList();
+    startNew();
+
+    // Kick off quick toggles view once data exists (script below reads again anyway)
+    document.dispatchEvent(new CustomEvent('catalog-data-loaded'));
+  }
+
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    $('#listMsg').textContent = 'Refreshing…';
+    let loaded = false;
+    try{
+      const r = await fetch('/api/router?type=products', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.products) && j.products.length > 0){
+          model = j.products; loaded = true;
+          $('#listMsg').textContent = 'Loaded from server.';
+        }
+      }
+    }catch(err){ console.warn('Refresh server error:', err); }
+    if(!loaded){
+      const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+      model = JSON.parse(JSON.stringify(src));
+      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
+    }
+    renderList(); startNew();
+    document.dispatchEvent(new CustomEvent('catalog-data-loaded'));
+  });
+
+  // ---------- List Rendering ----------
+  function renderList(){
+    const tb = $('#tbody'); tb.innerHTML = '';
+    if(!model.length){
+      tb.innerHTML = '<tr><td colspan="7" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+    }
+    for(const p of model){
+      const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
+      const end   = p.publishEnd ? new Date(p.publishEnd).toLocaleString() : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${esc(p.name||'')}</strong></td>
+        <td><code>${esc(p.id||'')}</code></td>
+        <td>$${Number(p.price||0).toFixed(2)}</td>
+        <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><div class="muted">${start} → ${end}</div></td>
+        <td>${esc(p.sku||'—')}</td>
+        <td>
+          <button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button>
+          <button class="btn ghost btnCopy" data-id="${esc(p.id)}">Duplicate</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+    tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
+    tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+  }
+
+  // ---------- Form helpers ----------
+  function startNew(){
+    isNew = true;
+    current = null;
+    $('#modeChip').textContent = 'New';
+    $('#editMsg').textContent = '';
+
+    $('#f_name').value = '';
+    $('#f_id').value = '';
+    $('#f_active').value = 'true';
+    $('#f_price').value = '';
+    $('#f_sku').value = '';
+    $('#f_start').value = '';
+    $('#f_end').value = '';
+    $('#f_notes').value = '';
+    $('#f_thumb_url').value = '';
+    $('#f_img1_url').value = '';
+    $('#f_chair_name').value = '';
+    $('#f_chair_emails').value = '';
+  }
+
+  function fillForm(p){
+    isNew = false;
+    current = p;
+    $('#modeChip').textContent = 'Edit';
+    $('#editMsg').textContent = '';
+
+    $('#f_name').value = p.name || '';
+    $('#f_id').value = p.id || '';
+    $('#f_active').value = String(p.active !== false);
+    $('#f_price').value = (Number.isFinite(Number(p.price)) ? Number(p.price).toFixed(2) : '');
+    $('#f_sku').value = p.sku || '';
+    $('#f_start').value = toLocalDT(p.publishStart || '');
+    $('#f_end').value = toLocalDT(p.publishEnd || '');
+    $('#f_notes').value = p.notes || p.description || '';
+    $('#f_thumb_url').value = p.thumbnailUrl || p.image || p.imageThumb || '';
+    $('#f_img1_url').value = p.imageUrl || (Array.isArray(p.images) ? p.images[0] : (p.image || ''));
+    $('#f_chair_name').value = (p.chair && p.chair.name) ? p.chair.name : '';
+    $('#f_chair_emails').value = Array.isArray(p.chairEmails) ? p.chairEmails.join(', ') : (p.chair?.email || '');
+  }
+
+  function readForm(){
+    const name = $('#f_name').value.trim();
+    const id   = $('#f_id').value.trim();
+    const active = $('#f_active').value === 'true';
+    const price = parseFloat($('#f_price').value || '0') || 0;
+    const sku = $('#f_sku').value.trim();
+    const publishStart = fromLocalDT($('#f_start').value);
+    const publishEnd   = fromLocalDT($('#f_end').value);
+    const notes = $('#f_notes').value.trim();
+    const thumbnailUrl = $('#f_thumb_url').value.trim();
+    const imageUrl = $('#f_img1_url').value.trim();
+    const chairName = $('#f_chair_name').value.trim();
+    const chairEmailsRaw = $('#f_chair_emails').value.trim();
+    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const base = current ? { ...current } : {};
+    return {
+      ...base,
+      id, name, active,
+      price: Math.round(price * 100) / 100,
+      sku, publishStart, publishEnd,
+      notes, description: notes || base.description || '',
+      thumbnailUrl, imageUrl,
+      chair: { name: chairName, email: chairEmails[0] || '' },
+      chairEmails
+    };
+  }
+
+  function validate(o){
+    if (!o.name) return 'Name is required.';
+    if (!o.id) return 'ID is required.';
+    if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
+    if (Number(o.price) < 0) return 'Price cannot be negative.';
+    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
+      return 'Publish End must be after Publish Start.';
+    for (const em of (o.chairEmails || [])){
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+    }
+    return '';
+  }
+
+  function onEdit(e){
+    const id = e.currentTarget.dataset.id;
+    const p = model.find(x => x.id === id);
+    if (!p) { $('#editMsg').textContent = 'Item not found.'; return; }
+    fillForm(p);
+  }
+
+  function uniqueId(base){
+    let i = 1, candidate = base;
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
+    return candidate;
+  }
+
+  function onCopy(e){
+    const id = e.currentTarget.dataset.id;
+    const p = model.find(x => x.id === id);
+    if (!p) { $('#editMsg').textContent = 'Item not found.'; return; }
+    const copy = JSON.parse(JSON.stringify(p));
+    copy.name = (copy.name || '') + ' (copy)';
+    const baseId = (copy.id || 'item') + '-copy';
+    copy.id = uniqueId(baseId);
+    copy.publishStart = '';
+    copy.publishEnd = '';
+    startNew(); fillForm(copy);
+    isNew = true; $('#modeChip').textContent = 'New (from copy)';
+  }
+
+  // Export / Import
+  $('#btnExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(model, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'products-export.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  $('#fileImport').addEventListener('change', async (ev)=>{
+    const f = ev.target.files[0];
+    if (!f) return;
+    try{
+      const txt = await f.text();
+      const data = JSON.parse(txt);
+      if (!Array.isArray(data)) throw new Error('JSON must be an array');
+      model = data;
+      renderList();
+      startNew();
+      $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
+    }catch(err){
+      alert('Import failed: ' + (err?.message || String(err)));
+    }finally{
+      ev.target.value = '';
+    }
+  });
+
+  // Save
+  $('#btnSave').addEventListener('click', async ()=>{
+    const o = readForm();
+    const err = validate(o);
+    if(err){ $('#editMsg').textContent = err; return; }
+
+    const idx = model.findIndex(x => x.id === o.id);
+    if(idx >= 0){ model[idx] = {...model[idx], ...o}; }
+    else{ model.push(o); isNew = false; current = o; $('#modeChip').textContent = 'Edit'; }
+    renderList();
+
+    try{
+      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+      const res = await fetch("/api/router?action=save_products", { method: "POST", headers, body: JSON.stringify({ products: model }) });
+      if (!res.ok) throw new Error("server rejected");
+      $('#editMsg').textContent = 'Saved to server.';
+    }catch{
+      $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
+    }
+  });
+
+  // Kick off
+  loadInitial();
+  </script>
+
+  <!-- Quick Toggles (KV + file merge) — isolated IIFE -->
+  <script>
+  (function(){
+    const rootId = 'admin-catalog';
+    function root(){ return document.getElementById(rootId); }
+    function getAuthHeader(){
+      // Prefer Admin.tokenHeader if available
+      if (window.Admin && typeof Admin.tokenHeader === 'function') return Admin.tokenHeader();
+      const t = localStorage.getItem('amaranth_report_token') || '';
+      return t ? { Authorization: 'Bearer ' + t } : {};
+    }
+    function isTiered(p){ return !!p.tiered || Array.isArray(p.pricing); }
+    function toLocalDT(iso){
+      if(!iso) return '';
+      const d=new Date(iso); if(isNaN(d)) return '';
+      const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+      return z.toISOString().slice(0,16);
+    }
+    function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
+    async function fetchKV(){
+      try{
+        const r=await fetch('/api/router?type=products',{cache:'no-store'});
+        if(!r.ok) return [];
+        const j=await r.json();
+        return Array.isArray(j?.products)? j.products : [];
+      }catch{ return []; }
+    }
+    function merge(fileList, kvList){
+      const byId = new Map((fileList||[]).map(p=>[p.id,{...p}]));
+      for(const kv of (kvList||[])){ const prev = byId.get(kv.id)||{}; byId.set(kv.id,{...prev,...kv}); }
+      for(const kv of (kvList||[])){ if(!byId.has(kv.id)) byId.set(kv.id,{...kv}); }
+      return Array.from(byId.values());
+    }
+    function priceOf(p){
+      const n=Number(p.price);
+      return Number.isFinite(n) ? n : '';
+    }
+    function render(list){
+      const el = root(); if(!el) return;
+      if(!list.length){ el.innerHTML='<p class="muted">No catalog items found.</p>'; return; }
+      el.innerHTML = `
+        <div style="overflow:auto">
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr>
+                <th style="width:30%">Name</th>
+                <th>ID</th>
+                <th>Active</th>
+                <th>Price</th>
+                <th style="width:18%">Publish Start</th>
+                <th style="width:18%">Publish End</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-        <button id="save-products" class="btn btn-primary">Save</button>
-        <button id="import-from-file" class="btn">Sync from site files</button>
-        <span id="save-status" class="tiny"></span>
-      </div>
-    `;
-
-    document.getElementById('save-products').onclick = saveProductsFromUI;
-    document.getElementById('import-from-file').onclick = importFromFileToKV;
-  }
-
-  // ===== Save only overrides back to KV =====
-  async function saveProductsFromUI(){
-    const status = document.getElementById('save-status');
-    status.textContent = 'Saving…';
-
-    const rows = Array.from(document.querySelectorAll('#admin-catalog tbody tr'));
-    const overrides = rows.map(tr => {
-      const id = tr.getAttribute('data-id');
-      const active = tr.querySelector('.p-active')?.checked ?? true;
-      const priceEl = tr.querySelector('.p-price');
-      const price = priceEl ? Number(priceEl.value || 0) : undefined;
-      const publishStart = fromLocalDatetimeValue(tr.querySelector('.p-start')?.value || '');
-      const publishEnd   = fromLocalDatetimeValue(tr.querySelector('.p-end')?.value || '');
-      const out = { id, active, publishStart, publishEnd };
-      if (priceEl) out.price = Number.isFinite(price) ? price : 0;
-      return out;
-    });
-
-    try{
-      const r = await fetch('/api/router?action=save_products', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ products: overrides })
+            </thead>
+            <tbody>
+              ${list.map(p=>`
+                <tr data-id="${p.id}">
+                  <td>
+                    <strong>${p.name||''}</strong>
+                    ${isTiered(p)?'<div class="muted" style="font-size:12px">Tiered pricing</div>':''}
+                  </td>
+                  <td class="muted" style="font-size:12px">${p.id}</td>
+                  <td><input type="checkbox" class="q-active" ${p.active!==false?'checked':''}></td>
+                  <td>
+                    ${isTiered(p)
+                      ? '<span class="muted" style="font-size:12px">(tiered)</span>'
+                      : `<input type="number" step="0.01" min="0" class="q-price" value="${priceOf(p)}" style="width:110px">`
+                    }
+                  </td>
+                  <td><input type="datetime-local" class="q-start" value="${toLocalDT(p.publishStart)}"></td>
+                  <td><input type="datetime-local" class="q-end"   value="${toLocalDT(p.publishEnd)}"></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button id="qt-save" class="btn">Save</button>
+          <button id="qt-sync" class="btn ghost">Sync from site files</button>
+          <span id="qt-status" class="muted"></span>
+        </div>
+      `;
+      document.getElementById('qt-save').onclick = save;
+      document.getElementById('qt-sync').onclick = syncFromFiles;
+    }
+    async function save(){
+      const status = document.getElementById('qt-status');
+      status.textContent='Saving…';
+      const rows = Array.from(document.querySelectorAll('#'+rootId+' tbody tr'));
+      const overrides = rows.map(tr=>{
+        const id = tr.getAttribute('data-id');
+        const active = tr.querySelector('.q-active')?.checked ?? true;
+        const priceEl = tr.querySelector('.q-price');
+        const price = priceEl ? Number(priceEl.value||0) : undefined;
+        const publishStart = fromLocalDT(tr.querySelector('.q-start')?.value || '');
+        const publishEnd   = fromLocalDT(tr.querySelector('.q-end')?.value   || '');
+        const out = { id, active, publishStart, publishEnd };
+        if (priceEl) out.price = Number.isFinite(price) ? price : 0;
+        return out;
       });
-      const j = await r.json().catch(()=> ({}));
-      if (!r.ok) throw new Error(j?.error || 'Save failed');
-      status.textContent = `Saved ${j?.count ?? overrides.length} item(s).`;
-    }catch(e){
-      status.textContent = 'Save failed: ' + (e.message || e);
+      try{
+        const r = await fetch('/api/router?action=save_products',{
+          method:'POST',
+          headers:{'Content-Type':'application/json', ...getAuthHeader()},
+          body:JSON.stringify({products:overrides})
+        });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j?.error||'Save failed');
+        status.textContent = `Saved ${j?.count ?? overrides.length} item(s).`;
+      }catch(e){
+        status.textContent = 'Save failed: '+(e.message||e);
+      }
     }
-  }
-
-  // ===== Optional: one-click import of file items into KV (full objects) =====
-  async function importFromFileToKV(){
-    const status = document.getElementById('save-status');
-    const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-    if (!fileItems.length){
-      status.textContent = 'No items in /assets/js/items.js';
-      return;
+    async function syncFromFiles(){
+      const status = document.getElementById('qt-status');
+      const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+      if(!fileItems.length){ status.textContent='No items in /assets/js/items.js'; return; }
+      status.textContent='Syncing from site files…';
+      try{
+        const r = await fetch('/api/router?action=save_products',{
+          method:'POST',
+          headers:{'Content-Type':'application/json', ...getAuthHeader()},
+          body:JSON.stringify({products:fileItems})
+        });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j?.error||'Sync failed');
+        status.textContent=`Imported ${j?.count ?? fileItems.length} item(s) from file.`;
+        init(); // re-render after sync
+      }catch(e){
+        status.textContent='Sync failed: '+(e.message||e);
+      }
     }
-    status.textContent = 'Syncing from site files…';
-    try{
-      const r = await fetch('/api/router?action=save_products', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ products: fileItems })
-      });
-      const j = await r.json().catch(()=> ({}));
-      if (!r.ok) throw new Error(j?.error || 'Sync failed');
-      status.textContent = `Imported ${j?.count ?? fileItems.length} item(s) from file.`;
-      initAdminCatalog();
-    }catch(e){
-      status.textContent = 'Sync failed: ' + (e.message || e);
+    async function init(){
+      const fromFile = window.CATALOG_ITEMS || [];
+      const fromKV = await fetchKV();
+      const merged = merge(fromFile, fromKV);
+      render(merged);
     }
-  }
-
-  // ===== Init =====
-  async function initAdminCatalog(){
-    const fromFile = (window.CATALOG_ITEMS || []);
-    const fromKV   = await fetchKVProducts();
-    const merged   = mergeProducts(fromFile, fromKV);
-    renderAdminCatalog(merged);
-  }
-
-  initAdminCatalog();
-})();
-</script>
-
-<script>window.PRODUCTS=window.PRODUCTS||[];</script>
+    // render on load and whenever the main page refreshes data
+    init();
+    document.addEventListener('catalog-data-loaded', init);
+  })();
+  </script>
 </body>
 </html>
