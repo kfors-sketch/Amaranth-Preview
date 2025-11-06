@@ -15,9 +15,9 @@ window.CATALOG_ITEMS = [
     qtySold: 0,  // must be present; the page updates this as people buy
     active: true,
 
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"],
+    // ===== reporting fields =====
+    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
+    chairEmails: ["Pa_Sessions@Yahoo.com"],
     publishStart: "", // e.g. "2026-01-01T00:00:00-05:00"
     publishEnd: ""    // treat as "ordering closes" for FINAL if used
   },
@@ -30,26 +30,25 @@ window.CATALOG_ITEMS = [
     image: "/assets/shop/pendant_thumb.jpg",
     images: ["/assets/shop/pendant_full.jpg"],
     sku: "AM-001",
-    qtyTotal: 1, // 0 (or omit) = unlimited; set to a number to track inventory
-    qtySold: 0,  // must be present; the page updates this as people buy
+    qtyTotal: 1,  // set to a number to track inventory
+    qtySold: 0,   // must be present; the page updates this as people buy
     active: true,
 
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
-    chairEmails: ["mrskfors@yahoo.com"],
+    // ===== reporting fields =====
+    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
+    chairEmails: ["Pa_Sessions@Yahoo.com"],
     publishStart: "",
     publishEnd: ""
   },
 
-  // === NEW: Tiered Commemorative Coin (images will 404 until you upload) ===
+  // === Commemorative Coin (tiered). Images will 404 until you upload. ===
   {
     id: "session-coin",
     name: "Commemorative Coin",
-    // Tiered pricing
     tiered: true,
     pricing: [
-      { qty: 1,  price: 10  },
-      { qty: 3,  price: 25 },
+      { qty: 1, price: 10 },
+      { qty: 3, price: 25 },
       { qty: 6, price: 40 }
     ],
     image: "/assets/shop/coin_thumb.jpg",   // placeholder
@@ -59,53 +58,9 @@ window.CATALOG_ITEMS = [
     qtySold: 0,
     active: true,
 
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "tbd@example.com" },
-    chairEmails: ["tbd@example.com"],
-    publishStart: "",
-    publishEnd: ""
-  },
-
-  {
-    id: "nothing1",
-    name: "nothing1",
-    // Tiered pricing
-    tiered: true,
-    pricing: [
-      { qty: 1, price: 10 },
-      { qty: 3, price: 25 },
-      { qty: 6, price: 40 }
-    ],
-    image: "",
-    images: [          ],
-    sku: "RAFFLE-001",
-    qtyTotal: 0, // unlimited (raffles rarely have a cap)
-    qtySold: 0,
-    active: false,
-
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "mrskfors@yahoo.com" },
-    chairEmails: ["mrskfors@yahoo.com"],
-    publishStart: "",
-    publishEnd: ""
-  },
-
-  // === BLANKED OUT: Lottery item (kept for structure; fully inert) ===
-  {
-    id: "nothing2",
-    name: "nothing2",
-    // Single-price item (blanked)
-    price: 0,
-    image: "",
-    images: [],
-    sku: "",
-    qtyTotal: 0,
-    qtySold: 0,
-    active: false,
-
-    // ===== reporting fields (new) =====
-    chair: { name: "TBD", email: "" },
-    chairEmails: [],
+    // ===== reporting fields =====
+    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
+    chairEmails: ["Pa_Sessions@Yahoo.com"],
     publishStart: "",
     publishEnd: ""
   }
