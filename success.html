@@ -16,6 +16,9 @@
     table{width:100%;border-collapse:collapse;margin-top:16px}
     th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
     th{text-align:left;background:#f9fafb}
+    .ok{color:#065f46;font-weight:700}
+    .warn{color:#92400e}
+    .err{color:#b91c1c}
   </style>
 </head>
 <body>
@@ -31,7 +34,7 @@
 
         <table id="orderTable" style="display:none">
           <thead>
-            <tr><th>Item</th><th>Qty</th><th>Price</th><th>Line</th></tr>
+            <tr><th>Item</th><th>Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Line</th></tr>
           </thead>
           <tbody id="orderLines"></tbody>
           <tfoot>
@@ -43,17 +46,19 @@
         </table>
       </div>
 
-      <div style="margin-top:16px;display:flex;gap:10px">
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
         <a class="btn" href="/home.html">Back to Home</a>
-        <a class="btn" href="/order.html">New Order</a>
+        <a class="btn" href="/order.html" id="newOrderBtn">New Order</a>
       </div>
     </div>
   </main>
 
   <script>
-  (function(){
+  (async function(){
     const q = new URLSearchParams(location.search);
-    const sid = q.get('sid') || q.get('session_id');
+    const sid = q.get('sid') || q.get('session_id'); // Stripe appends either
+    const $ = (id)=>document.getElementById(id);
+    const money = (c)=> (Number(c||0)/100).toLocaleString(undefined,{style:'currency',currency:'USD'});
 
     // Clear cart and notify other tabs
     try {
@@ -62,46 +67,100 @@
       localStorage.setItem('amaranth_cart_ping', String(Date.now()));
     } catch(e){}
 
-    const status = document.getElementById('status');
-    const details = document.getElementById('details');
+    const statusEl = $('status');
+    const detailsEl = $('details');
+    const ordIdEl = $('ordId');
+    const paidEl = $('paid');
+    const emailEl = $('email');
+    const tableEl = $('orderTable');
+    const linesEl = $('orderLines');
+    const totalEl = $('orderTotal');
 
     if (!sid) {
-      status.textContent = 'Payment completed, but no session id was provided.';
+      statusEl.innerHTML = '<span class="warn">Payment completed, but no session id was provided.</span>';
       return;
     }
 
-    fetch('/api/router?type=checkout_session&id='+encodeURIComponent(sid))
-      .then(r => r.json())
-      .then(j => {
-        if (j && j.id) {
-          status.textContent = 'Payment confirmed.';
-          details.style.display = 'block';
-          document.getElementById('ordId').textContent = j.id;
-          const total = (j.amount_total||0)/100;
-          document.getElementById('paid').textContent = total.toLocaleString(undefined,{style:'currency',currency:'USD'});
-          document.getElementById('email').textContent = j.customer_details?.email || '—';
+    // 1) Ask server to save the order (idempotent). This covers "no webhook" cases.
+    try {
+      const fin = await fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid), { cache: 'no-store' });
+      if (fin.ok) {
+        const j = await fin.json();
+        if (j?.ok) statusEl.innerHTML = '<span class="ok">Payment confirmed. Receipt saved.</span>';
+        else statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize pending…</span>';
+      } else {
+        statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize skipped.</span>';
+      }
+    } catch {
+      statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize unavailable.</span>';
+    }
 
-          // Try to load full order details (if stored in KV)
-          fetch('/api/router?type=orders')
-            .then(r=>r.json())
-            .then(o=>{
-              const rows = o?.rows?.filter(r=>r.id===j.id) || [];
-              if (rows.length) {
-                const tbody = document.getElementById('orderLines');
-                tbody.innerHTML = rows.map(r=>
-                  `<tr><td>${r.item}</td><td>${r.qty}</td><td style="text-align:right">$${r.price.toFixed(2)}</td><td style="text-align:right">$${r.gross.toFixed(2)}</td></tr>`
-                ).join('');
-                document.getElementById('orderTotal').textContent = total.toLocaleString(undefined,{style:'currency',currency:'USD'});
-                document.getElementById('orderTable').style.display = 'table';
-              }
-            });
-        } else {
-          status.textContent = (j && j.error) ? j.error : 'Could not load receipt.';
-        }
-      })
-      .catch(()=>{
-        status.textContent = 'Could not load receipt.';
-      });
+    // Helper: render from a saved order object
+    function renderFromOrder(order) {
+      detailsEl.style.display = 'block';
+      ordIdEl.textContent = order.id || sid;
+      paidEl.textContent = money(order.amount_total || 0);
+      emailEl.textContent = (order.customer_email || '—');
+
+      const lines = Array.isArray(order.lines) ? order.lines : [];
+      if (lines.length) {
+        linesEl.innerHTML = lines.map(li => {
+          const lineTotal = Number(li.unitPrice||0) * Number(li.qty||1);
+          const notes = (li.category === 'banquet')
+            ? (li.meta?.attendeeNotes || '')
+            : (li.meta?.itemNote || '');
+          const notesHtml = notes ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,'&lt;')}</div>` : '';
+          return `<tr>
+            <td>${(li.itemName||'')}${notesHtml}</td>
+            <td>${Number(li.qty||1)}</td>
+            <td style="text-align:right">${money(li.unitPrice||0)}</td>
+            <td style="text-align:right">${money(lineTotal)}</td>
+          </tr>`;
+        }).join('');
+        totalEl.textContent = money(order.amount_total || lines.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0));
+        tableEl.style.display = 'table';
+      }
+    }
+
+    // 2) Try reading the saved order directly
+    let haveRendered = false;
+    try {
+      const o = await fetch('/api/router?type=order&oid=' + encodeURIComponent(sid), { cache: 'no-store' });
+      if (o.ok) {
+        const j = await o.json();
+        if (j?.order) { renderFromOrder(j.order); haveRendered = true; }
+      }
+    } catch {}
+
+    if (haveRendered) return;
+
+    // 3) Fallback: read session basics + flattened rows (legacy)
+    try {
+      const sessResp = await fetch('/api/router?type=checkout_session&id=' + encodeURIComponent(sid), { cache: 'no-store' });
+      const sess = await sessResp.json();
+      if (!sess?.id) throw new Error();
+
+      statusEl.innerHTML = '<span class="ok">Payment confirmed.</span>';
+      detailsEl.style.display = 'block';
+      ordIdEl.textContent = sess.id;
+      paidEl.textContent = ( (sess.amount_total||0) / 100 ).toLocaleString(undefined,{style:'currency',currency:'USD'});
+      emailEl.textContent = (sess.customer_details?.email || '—');
+
+      const rowsResp = await fetch('/api/router?type=orders', { cache: 'no-store' });
+      const rowsJ = await rowsResp.json();
+      const rows = (rowsJ?.rows || []).filter(r => r.id === sess.id);
+
+      if (rows.length) {
+        linesEl.innerHTML = rows.map(r =>
+          `<tr><td>${r.item}</td><td>${r.qty}</td><td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td><td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td></tr>`
+        ).join('');
+        totalEl.textContent = ( (sess.amount_total||0) / 100 ).toLocaleString(undefined,{style:'currency',currency:'USD'});
+        tableEl.style.display = 'table';
+      }
+    } catch {
+      // As a last resort just leave the top summary; user still sees Order # and Paid.
+      statusEl.innerHTML += '';
+    }
   })();
   </script>
 </body>
