@@ -33,11 +33,6 @@
     .danger{color:#b91c1c}
     .ok{color:#065f46}
     code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
-    /* summary caret match site style */
-    details summary{cursor:pointer;list-style:none}
-    details summary::-webkit-details-marker{display:none}
-    details summary .caret{display:inline-block;transform:rotate(0deg);transition:transform .2s ease}
-    details[open] summary .caret{transform:rotate(90deg)}
   </style>
 </head>
 <body>
@@ -53,7 +48,7 @@
       </div>
     </header>
 
-    <!-- Rules -->
+    <!-- 1) Rules (kept) -->
     <section class="col rules">
       <strong>Rules & Tips</strong>
       <ul class="muted" style="margin:8px 0 0 16px">
@@ -65,29 +60,25 @@
     </section>
 
     <div class="row">
-      <!-- List -->
+      <!-- Left side -->
       <section class="col left">
+        <!-- 3) List toolbar (now includes the moved button) -->
         <div class="toolbar">
           <button id="btnAddNew" class="btn success">+ New Product</button>
           <button id="btnExport" class="btn ghost">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
           <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
+
+          <!-- MOVED HERE from removed 2nd box -->
+          <button id="btnSyncFiles" class="btn ghost" title="Sync products from site file (/assets/js/items.js)">Sync from Site Files</button>
+
           <span id="listMsg" class="muted"></span>
         </div>
 
-        <!-- Quick Toggles -->
-        <details class="col" style="margin:12px 0" open>
-          <summary style="display:flex;align-items:center;gap:8px">
-            <span class="caret">▶</span>
-            <strong>Quick Toggles (KV + File Merge)</strong>
-            <span class="muted">— fast on/off, price, publish window</span>
-          </summary>
-          <div style="margin-top:10px">
-            <div id="admin-catalog"></div>
-          </div>
-        </details>
+        <!-- REMOVED 2) Quick Toggles box -->
 
+        <!-- 3) Table (kept) -->
         <div style="overflow:auto;max-height:65vh;margin-top:8px">
           <table>
             <thead>
@@ -106,7 +97,7 @@
         </div>
       </section>
 
-      <!-- Editor -->
+      <!-- 4) Editor (kept) -->
       <aside class="col right">
         <div class="toolbar">
           <span class="chip" id="modeChip">New</span>
@@ -233,9 +224,6 @@
 
     renderList();
     startNew();
-
-    // Kick off quick toggles view once data exists (script below reads again anyway)
-    document.dispatchEvent(new CustomEvent('catalog-data-loaded'));
   }
 
   $('#btnRefresh').addEventListener('click', async ()=>{
@@ -257,7 +245,6 @@
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
     renderList(); startNew();
-    document.dispatchEvent(new CustomEvent('catalog-data-loaded'));
   });
 
   // ---------- List Rendering ----------
@@ -423,7 +410,7 @@
     }
   });
 
-  // Save
+  // Save item(s)
   $('#btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
@@ -436,9 +423,7 @@
 
     try{
       const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-      const res = await fetch("/api/router?action=save_products", {
-        method: "POST", headers, body: JSON.stringify({ products: model })
-      });
+      const res = await fetch("/api/router?action=save_products", { method: "POST", headers, body: JSON.stringify({ products: model }) });
       if (!res.ok) throw new Error("server rejected");
       $('#editMsg').textContent = 'Saved to server.';
     }catch{
@@ -446,150 +431,34 @@
     }
   });
 
+  // NEW: Sync from site files (moved button functionality)
+  document.getElementById('btnSyncFiles').addEventListener('click', async ()=>{
+    const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+    if(!fileItems.length){ $('#listMsg').textContent = 'No items in /assets/js/items.js'; return; }
+    $('#listMsg').textContent = 'Syncing from site files…';
+    try{
+      const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
+      const r = await fetch('/api/router?action=save_products', {
+        method: 'POST', headers, body: JSON.stringify({ products: fileItems })
+      });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(j?.error || 'Sync failed');
+      $('#listMsg').textContent = `Imported ${j?.count ?? fileItems.length} item(s) from file.`;
+      // reload data from server so the table shows fresh values
+      await (async function refreshAfterSync(){
+        try{
+          const res = await fetch('/api/router?type=products', { cache:'no-store' });
+          const data = await res.json();
+          if(res.ok && Array.isArray(data?.products)){ model = data.products; renderList(); }
+        }catch{}
+      })();
+    }catch(e){
+      $('#listMsg').textContent = 'Sync failed: ' + (e.message || e);
+    }
+  });
+
   // Kick off
   loadInitial();
-  </script>
-
-  <!-- Quick Toggles (KV + file merge) -->
-  <script>
-  (function(){
-    const rootId = 'admin-catalog';
-    function root(){ return document.getElementById(rootId); }
-    function getAuthHeader(){
-      if (window.Admin && typeof Admin.tokenHeader === 'function') return Admin.tokenHeader();
-      const t = localStorage.getItem('amaranth_report_token') || '';
-      return t ? { Authorization: 'Bearer ' + t } : {};
-    }
-    function isTiered(p){ return !!p.tiered || Array.isArray(p.pricing); }
-    function toLocalDT(iso){
-      if(!iso) return '';
-      const d=new Date(iso); if(isNaN(d)) return '';
-      const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);
-      return z.toISOString().slice(0,16);
-    }
-    function fromLocalDT(v){ if(!v) return ''; const d=new Date(v); return isNaN(d)?'':d.toISOString(); }
-    async function fetchKV(){
-      try{
-        const r=await fetch('/api/router?type=products',{cache:'no-store'});
-        if(!r.ok) return [];
-        const j=await r.json();
-        return Array.isArray(j?.products)? j.products : [];
-      }catch{ return []; }
-    }
-    function merge(fileList, kvList){
-      const byId = new Map((fileList||[]).map(p=>[p.id,{...p}]));
-      for(const kv of (kvList||[])){ const prev = byId.get(kv.id)||{}; byId.set(kv.id,{...prev,...kv}); }
-      for(const kv of (kvList||[])){ if(!byId.has(kv.id)) byId.set(kv.id,{...kv}); }
-      return Array.from(byId.values());
-    }
-    function priceOf(p){
-      const n=Number(p.price);
-      return Number.isFinite(n) ? n : '';
-    }
-    function render(list){
-      const el = root(); if(!el) return;
-      if(!list.length){ el.innerHTML='<p class="muted">No catalog items found.</p>'; return; }
-      el.innerHTML = `
-        <div style="overflow:auto">
-          <table style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr>
-                <th style="width:30%">Name</th>
-                <th>ID</th>
-                <th>Active</th>
-                <th>Price</th>
-                <th style="width:18%">Publish Start</th>
-                <th style="width:18%">Publish End</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${list.map(p=>`
-                <tr data-id="${p.id}">
-                  <td>
-                    <strong>${p.name||''}</strong>
-                    ${isTiered(p)?'<div class="muted" style="font-size:12px">Tiered pricing</div>':''}
-                  </td>
-                  <td class="muted" style="font-size:12px">${p.id}</td>
-                  <td><input type="checkbox" class="q-active" ${p.active!==false?'checked':''}></td>
-                  <td>
-                    ${isTiered(p)
-                      ? '<span class="muted" style="font-size:12px">(tiered)</span>'
-                      : `<input type="number" step="0.01" min="0" class="q-price" value="${priceOf(p)}" style="width:110px">`
-                    }
-                  </td>
-                  <td><input type="datetime-local" class="q-start" value="${toLocalDT(p.publishStart)}"></td>
-                  <td><input type="datetime-local" class="q-end"   value="${toLocalDT(p.publishEnd)}"></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button id="qt-save" class="btn">Save</button>
-          <button id="qt-sync" class="btn ghost">Sync from site files</button>
-          <span id="qt-status" class="muted"></span>
-        </div>
-      `;
-      document.getElementById('qt-save').onclick = save;
-      document.getElementById('qt-sync').onclick = syncFromFiles;
-    }
-    async function save(){
-      const status = document.getElementById('qt-status');
-      status.textContent='Saving…';
-      const rows = Array.from(document.querySelectorAll('#'+rootId+' tbody tr'));
-      const overrides = rows.map(tr=>{
-        const id = tr.getAttribute('data-id');
-        const active = tr.querySelector('.q-active')?.checked ?? true;
-        const priceEl = tr.querySelector('.q-price');
-        const price = priceEl ? Number(priceEl.value||0) : undefined;
-        const publishStart = fromLocalDT(tr.querySelector('.q-start')?.value || '');
-        const publishEnd   = fromLocalDT(tr.querySelector('.q-end')?.value   || '');
-        const out = { id, active, publishStart, publishEnd };
-        if (priceEl) out.price = Number.isFinite(price) ? price : 0;
-        return out;
-      });
-      try{
-        const r = await fetch('/api/router?action=save_products',{
-          method:'POST',
-          headers:{'Content-Type':'application/json', ...getAuthHeader()},
-          body:JSON.stringify({products:overrides})
-        });
-        const j = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(j?.error||'Save failed');
-        status.textContent = `Saved ${j?.count ?? overrides.length} item(s).`;
-      }catch(e){
-        status.textContent = 'Save failed: '+(e.message||e);
-      }
-    }
-    async function syncFromFiles(){
-      const status = document.getElementById('qt-status');
-      const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-      if(!fileItems.length){ status.textContent='No items in /assets/js/items.js'; return; }
-      status.textContent='Syncing from site files…';
-      try{
-        const r = await fetch('/api/router?action=save_products',{
-          method:'POST',
-          headers:{'Content-Type':'application/json', ...getAuthHeader()},
-          body:JSON.stringify({products:fileItems})
-        });
-        const j = await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(j?.error||'Sync failed');
-        status.textContent=`Imported ${j?.count ?? fileItems.length} item(s) from file.`;
-        init(); // re-render after sync
-      }catch(e){
-        status.textContent='Sync failed: '+(e.message||e);
-      }
-    }
-    async function init(){
-      const fromFile = window.CATALOG_ITEMS || [];
-      const fromKV = await fetchKV();
-      const merged = merge(fromFile, fromKV);
-      render(merged);
-    }
-    // render on load and whenever the main page refreshes data
-    init();
-    document.addEventListener('catalog-data-loaded', init);
-  })();
   </script>
 </body>
 </html>
