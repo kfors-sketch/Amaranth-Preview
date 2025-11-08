@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v7"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v8"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -98,6 +98,32 @@
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
+    // --- NEW: keep banquet attendee <select>s in sync without reload ---
+    function getAttendees(){ return (Cart.get() || {}).attendees || []; }
+    function repopulateSelect(sel){
+      if (!sel) return;
+      const a = getAttendees();
+      const prev = sel.value;
+      sel.innerHTML = '';
+      if (!a.length){
+        sel.disabled = true;
+        sel.innerHTML = '<option value="">Add attendee first</option>';
+      } else {
+        sel.disabled = false;
+        sel.innerHTML =
+          '<option value="" disabled>Select attendee…</option>' +
+          a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
+        // restore selection if the same attendee still exists
+        if (a.some(x => String(x.id) === String(prev))) sel.value = prev;
+      }
+      // trigger change so "Add to Order" buttons re-evaluate disabled state
+      sel.dispatchEvent(new Event('change'));
+    }
+    function repopulateAllAttendeeSelects(){
+      document.querySelectorAll('.banquet-card .assign select').forEach(repopulateSelect);
+    }
+    // ---------------------------------------------------------------
+
     function renderAttendees(){
       const st = Cart.get();
       list.innerHTML = (st.attendees||[]).map(a=>{
@@ -118,7 +144,11 @@
         `;
       }).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = () => { Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
+        btn.onclick = () => {
+          Cart.removeAttendee(btn.dataset.del);
+          renderAttendees();
+          repopulateAllAttendeeSelects();   // NEW: keep selects in sync on remove
+        };
       });
     }
 
@@ -161,8 +191,10 @@
       form.querySelector('input[name="country"]').value = 'US';
 
       renderAttendees();
+      repopulateAllAttendeeSelects();       // NEW: keep selects in sync on add
     };
     renderAttendees();
+    repopulateAllAttendeeSelects();         // NEW: initial sync (in case attendees already exist)
 
     // ===== Banquets UI =====
     const wrap = document.getElementById('banquets');
@@ -326,7 +358,6 @@
   <!-- Hide Product Catalog link if no visible items -->
 <script>
 (async function(){
-  // quick exit if the link isn't on this page
   const link = document.querySelector('[data-catalog-link]');
   if (!link) return;
 
@@ -339,11 +370,9 @@
   }
 
   let items = [];
-  // start with products (this route exists in your router.js)
   let j = await fetchJson('/api/router?type=products');
   if (Array.isArray(j?.products)) items = j.products;
 
-  // fallback to static list if server has none
   if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
 
   const now = Date.now();
