@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v8"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v9"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -44,7 +44,7 @@
           <input name="phone" type="tel" placeholder="Phone *" required>
         </div>
         <div class="grid-3">
-          <!-- CHANGED: Title now required and placeholder shows * -->
+          <!-- Title required -->
           <input name="title" placeholder="Title *" required>
           <input name="notes" placeholder="Dietary notes">
           <input name="addr1" placeholder="Address line 1 *" required>
@@ -90,6 +90,26 @@
   }
   function looksLikeEmail(s){
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
+  }
+
+  // ===== NEW helpers for duplicate detection (name + full address) =====
+  function _norm(s){
+    return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+  }
+  function _addressKey(a){
+    // Build a consistent address signature
+    return [
+      _norm(a?.address1),
+      _norm(a?.address2),
+      _norm(a?.city),
+      _norm(a?.state),
+      _norm(a?.postal),
+      _norm(a?.country || 'US')
+    ].join('|');
+  }
+  function _sameNameAndAddress(a, b){
+    return _norm(a?.name) === _norm(b?.name) &&
+           _addressKey(a)  === _addressKey(b);
   }
 
   document.addEventListener('DOMContentLoaded', function(){
@@ -158,7 +178,7 @@
       const name   = (fd.get('name')||'').trim();
       const email  = (fd.get('email')||'').trim();
       const phone  = (fd.get('phone')||'').trim();
-      const title  = (fd.get('title')||'').trim(); // <-- read title
+      const title  = (fd.get('title')||'').trim();
       const notes  = (fd.get('notes')||'').trim();
       const address1 = (fd.get('addr1')||'').trim();
       const address2 = (fd.get('addr2')||'').trim();
@@ -171,7 +191,7 @@
       if (!name) missing.push('Name');
       if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
       if (!phone) missing.push('Phone');
-      if (!title) missing.push('Title'); // <-- CHANGED: require Title
+      if (!title) missing.push('Title');
       if (!address1) missing.push('Address line 1');
       if (!city) missing.push('City');
       if (!state) missing.push('State/Province');
@@ -182,6 +202,19 @@
         alert('Please complete the following fields:\n• ' + missing.join('\n• '));
         return;
       }
+
+      // ===== DUPLICATE CHECK: same Name + full Mailing Address =====
+      const incoming = {
+        name,
+        address1, address2, city, state, postal, country
+      };
+      const st = Cart.get();
+      const dup = (st.attendees||[]).some(a => _sameNameAndAddress(a, incoming));
+      if (dup){
+        alert('An attendee with the same name and mailing address already exists.');
+        return;
+      }
+      // =============================================================
 
       Cart.addAttendee({
         name, email, phone, title, notes,
