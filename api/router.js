@@ -32,9 +32,7 @@ async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); re
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
-// Proper reader for Redis sets
 async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
-// NEW: safe delete helper
 async function kvDelSafe(key)                { try { await kv.del(key); return true; } catch { return false; } }
 
 // --- Reporting / filtering helpers ---
@@ -45,7 +43,6 @@ function parseDateISO(s) {
 }
 function parseYMD(s) {
   if (!s) return NaN;
-  // allow "2025-11-05" or full ISO strings
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
 }
@@ -530,8 +527,8 @@ export default async function handler(req, res) {
         });
       }
 
+      // ----- Orders (JSON) -----
       if (type === "orders") {
-        // Read all saved order IDs from the Redis SET
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
@@ -539,12 +536,12 @@ export default async function handler(req, res) {
           if (o) all.push(...flattenOrderToRows(o));
         }
 
-        // --- Filters ---
-        // URL query params take priority; then settings; else no filter
+        // query params
         const daysParam  = url.searchParams.get("days");   // ?days=7
         const startParam = url.searchParams.get("start");  // ?start=2025-11-01
         const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
 
+        // settings fallback
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
@@ -555,7 +552,7 @@ export default async function handler(req, res) {
 
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
-          endMs = Date.now() + 1; // include "now"
+          endMs = Date.now() + 1;
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
@@ -578,7 +575,7 @@ export default async function handler(req, res) {
           });
         }
 
-        // Optional simple text search (?q=Linda or ?q=beef)
+        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
         const q = (url.searchParams.get("q") || "").trim().toLowerCase();
         if (q) {
           rows = rows.filter(r =>
@@ -590,7 +587,6 @@ export default async function handler(req, res) {
           );
         }
 
-        // Sort newest first (by ISO date string)
         rows.sort((a,b) => {
           const ta = parseDateISO(a.date);
           const tb = parseDateISO(b.date);
@@ -598,6 +594,90 @@ export default async function handler(req, res) {
         });
 
         return REQ_OK(res, { rows });
+      }
+
+      // ----- Orders (CSV) -----
+      if (type === "orders_csv") {
+        // Build the same filtered list as /orders
+        const ids = await kvSmembersSafe("orders:index");
+        const all = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) all.push(...flattenOrderToRows(o));
+        }
+
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
+
+        const { effective } = await getEffectiveSettings();
+        const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgStart = effective.EVENT_START || "";
+        const cfgEnd   = effective.EVENT_END || "";
+
+        let startMs = NaN;
+        let endMs   = NaN;
+
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        } else if (cfgStart || cfgEnd || cfgDays) {
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs   = parseYMD(cfgEnd);
+          }
+        }
+
+        let rows = all;
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs:   isNaN(endMs)   ? undefined : endMs
+          });
+        }
+
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (q) {
+          rows = rows.filter(r =>
+            String(r.purchaser||"").toLowerCase().includes(q) ||
+            String(r.attendee||"").toLowerCase().includes(q) ||
+            String(r.item||"").toLowerCase().includes(q) ||
+            String(r.category||"").toLowerCase().includes(q) ||
+            String(r.status||"").toLowerCase().includes(q)
+          );
+        }
+
+        rows.sort((a,b) => {
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
+          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
+        });
+
+        // Build CSV
+        const headers = Object.keys(rows[0] || {
+          id: "", date: "", purchaser: "", attendee: "", category: "", item: "",
+          qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
+          _pi: "", _charge: "", _session: ""
+        });
+        const esc = (v) => {
+          const s = String(v ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csv = [
+          headers.join(","),
+          ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+        ].join("\n");
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
+        return res.status(200).send(csv);
       }
 
       // Idempotent finalize via GET
@@ -863,13 +943,13 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
-      // NEW: clear orders index (useful to wipe test IDs from the set)
+      // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
         return REQ_OK(res, { ok: true, message: "orders index cleared" });
       }
 
-      // NEW: create_refund to match your UI
+      // create_refund
       if (action === "create_refund") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
