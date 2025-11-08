@@ -74,7 +74,7 @@
       return;
     }
 
-    // 1) Finalize (SAVES the order + sends emails) — THIS is the important call (unchanged)
+    // ---- 1) Finalize (SAVES the order + sends emails)
     fetch('/api/router?action=finalize_checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -87,51 +87,69 @@
         return;
       }
 
-      // 2) Show confirmation basics using Stripe session data (no-store + cache-buster)
-      const sessResp = await fetch(
-        '/api/router?type=checkout_session&id=' + encodeURIComponent(sid) + '&t=' + nowTs(),
-        { cache: 'no-store' }
-      );
-      const s = await sessResp.json().catch(()=>null);
+      // Belt & suspenders: idempotent GET finalize in case POST had any hiccup.
+      fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache: 'no-store' })
+        .catch(()=>{ /* safe to ignore */ });
 
-      if (s && s.id) {
-        status.textContent = 'Payment confirmed.';
-        details.style.display = 'block';
-        document.getElementById('ordId').textContent = s.id;
-        const total = (s.amount_total||0)/100;
-        document.getElementById('paid').textContent =
-          total.toLocaleString(undefined,{style:'currency',currency:'USD'});
-        document.getElementById('email').textContent = s.customer_details?.email || '—';
-      } else {
+      // ---- 2) Show confirmation basics using Stripe session data
+      try {
+        const sessResp = await fetch(
+          '/api/router?type=checkout_session&id=' + encodeURIComponent(sid) + '&t=' + nowTs(),
+          { cache: 'no-store' }
+        );
+        const s = await sessResp.json().catch(()=>null);
+
+        if (s && s.id) {
+          status.textContent = 'Payment confirmed.';
+          details.style.display = 'block';
+          document.getElementById('ordId').textContent = s.id;
+          const total = (s.amount_total||0)/100;
+          document.getElementById('paid').textContent =
+            total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+          document.getElementById('email').textContent = (s.customer_details && s.customer_details.email) || '—';
+          document.getElementById('orderTotal').textContent =
+            total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+        } else {
+          status.textContent = 'Payment confirmed.';
+        }
+      } catch(_) {
         status.textContent = 'Payment confirmed.';
       }
 
-      // 3) Try to load the single saved order (preferred; no-store + cache-buster)
-      const orderResp = await fetch(
-        '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
-        { cache: 'no-store' }
-      );
-      const order = await orderResp.json().catch(()=>null);
-
-      // Fallback: if single order isn’t available yet, try the rows list (optional; no-store + cache-buster)
+      // ---- 3) Try to load the single saved order (UNWRAP the { order } shape)
       let rows = [];
-      if (order && order.lines) {
-        // adapt order to rows-like for the table
-        rows = (order.lines || []).map(li => ({
-          item: li.itemName,
-          qty: li.qty,
-          price: (li.unitPrice || 0)/100,
-          gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
-        }));
-      } else {
+      try {
+        const orderResp = await fetch(
+          '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
+          { cache: 'no-store' }
+        );
+        const orderJson = await orderResp.json().catch(()=>null);
+        const ord = orderJson && orderJson.order ? orderJson.order : null;
+
+        if (ord && Array.isArray(ord.lines)) {
+          rows = ord.lines.map(li => ({
+            item: li.itemName,
+            qty: li.qty,
+            price: (li.unitPrice || 0)/100,
+            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+          }));
+          const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
+          document.getElementById('orderTotal').textContent =
+            orderTotal.toLocaleString(undefined,{style:'currency',currency:'USD'});
+        }
+      } catch(_) { /* fall through to list */ }
+
+      // Fallback: scan the rows list for this sid
+      if (!rows.length) {
         const listResp = await fetch(
           '/api/router?type=orders&t=' + nowTs(),
           { cache: 'no-store' }
         ).catch(()=>null);
         const all = listResp ? await listResp.json().catch(()=>null) : null;
-        rows = (all?.rows || []).filter(r => r.id === sid);
+        rows = (all && Array.isArray(all.rows) ? all.rows : []).filter(r => r.id === sid);
       }
 
+      // Render lines if present
       if (rows.length) {
         const tbody = document.getElementById('orderLines');
         tbody.innerHTML = rows.map(r =>
