@@ -11,6 +11,7 @@
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
     a{color:inherit;text-decoration:none}
     button{cursor:pointer}
+    .hide{display:none}
 
     /* --- Layout --- */
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
@@ -87,7 +88,6 @@
       <span id="adminPill" class="pill">Admin Mode</span>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="loadServerBtn" class="btn ghost">Load from Server</button>
-        <!-- NEW: Admin Hub button inserted between Load and Logout -->
         <a class="btn ghost" href="/admin/index.html" style="height:28px;padding:0 10px;font-size:13px;">← Admin Hub</a>
         <button id="logoutBtn" class="btn ghost" style="height:28px;padding:0 10px;font-size:13px;">Log Out</button>
       </div>
@@ -167,16 +167,16 @@
               <th class="num">Net</th>
               <th>Status</th>
               <th>Notes</th>
-              <th></th><!-- actions -->
+              <th></th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
         </table>
-        <div id="empty" class="empty hide">No records. Import JSON/CSV or load sample data.</div>
+        <div id="empty" class="empty hide">No records. Click “Load from Server” or import JSON/CSV.</div>
       </div>
     </div>
 
-    <!-- Send Report Now (unchanged from your version except ids kept) -->
+    <!-- Send Report Now -->
     <div class="card" id="sendNowCard" style="margin-top:12px">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button id="revealSendPanel" class="btn success">Send Report Now</button>
@@ -264,10 +264,11 @@ let rows = [];
 function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
 function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
 
-// NEW: load from server (webhook-persisted)
+// Load from server (persisted by webhook/success)
 async function loadFromServer(){
+  const qs = buildServerQuery(false); // JSON endpoint
   try{
-    const r = await fetch('/api/router?type=orders',{cache:'no-store'});
+    const r = await fetch('/api/router?type=orders' + qs,{cache:'no-store'});
     if(!r.ok) throw 0;
     const j = await r.json();
     if (Array.isArray(j.rows)) {
@@ -277,9 +278,22 @@ async function loadFromServer(){
       return;
     }
   }catch{}
-  alert('No server orders found yet (did the webhook save any orders?).');
+  alert('No server orders found yet (did the webhook or success page save any orders?).');
 }
 $('#loadServerBtn').addEventListener('click', loadFromServer);
+
+// Build query string for server (start/end/q). Category/status are client-only.
+function buildServerQuery(forCsv){
+  const from = $('#dateFrom').value;
+  const to = $('#dateTo').value;
+  const q = ($('#search').value || '').trim();
+  const u = new URLSearchParams();
+  if (from) u.set('start', from);
+  if (to)   u.set('end', to);
+  if (q)    u.set('q', q);
+  // If nothing set and this is CSV, you still get full report (all saved orders)
+  return (u.toString() ? '&' + u.toString() : '');
+}
 
 // ---- Render ----
 function render(){
@@ -337,8 +351,8 @@ function applyFilters(data){
   return data.filter(r=>{
     const d = r.date? new Date(r.date) : null;
     if(!inRange(d,f,t)) return false;
-    if(cat && r.category!==cat) return false;
-    if(st && (r.status||'')!==st) return false;
+    if(cat && r.category!==cat) return false;           // client-only filter
+    if(st && (r.status||'')!==st) return false;         // client-only filter
     if(q){
       const hay = `${r.id}|${r.purchaser}|${r.attendee}|${r.item}|${r.notes}`.toLowerCase();
       if(!hay.includes(q)) return false;
@@ -367,7 +381,7 @@ function tag(c){
   return `<span class="tag ${cls}">${c||'other'}</span>`
 }
 
-/** Import / Export (unchanged except ids) **/
+/** Import / Export **/
 document.getElementById('fileImport').addEventListener('change', async (e)=>{
   const file = e.target.files[0]; if(!file) return;
   const text = await file.text();
@@ -388,8 +402,26 @@ document.getElementById('fileImport').addEventListener('change', async (e)=>{
   e.target.value = '';
 });
 
-// Export CSV
-document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+// Export CSV — prefer server CSV (fixes previously empty files); fallback to client CSV
+document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
+  const qs = buildServerQuery(true);
+  const url = '/api/router?type=orders_csv' + qs;
+
+  try{
+    const r = await fetch(url, { cache: 'no-store' });
+    const okType = (r.headers.get('Content-Type')||'').includes('text/csv');
+    if (r.ok && okType) {
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
+    }
+    // fall through to client export if server didn't return CSV
+  }catch{}
+
+  // Client fallback (exports only the currently visible rows)
   const visible = applyFilters(rows);
   const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
   const exportRows = visible.map(r => ({
@@ -414,7 +446,7 @@ document.getElementById('btnExportCsv').addEventListener('click', ()=>{
     try { CSV.downloadCSV(filename, exportRows); return; } catch {}
   }
   const escCell = (v)=> `"${String(v??'').replace(/"/g,'""')}"`;
-  const lines = [headers.map(escCell).join(',')].concat(
+  const lines = [headers.join(',')].concat(
     exportRows.map(r => headers.map(h => escCell(r[h])).join(','))
   );
   const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
@@ -429,12 +461,46 @@ document.getElementById('btnSample').addEventListener('click', ()=>{ rows = samp
 document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('Clear locally stored report data?')){ localStorage.removeItem(LS_KEY); rows=[]; render(); }});
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
-/** (existing) CSV import helpers / normalization — unchanged from your version **/
-function csvToObjects(csv){ /* … keep your existing implementation … */ return []; }
-function splitCSVLine(line){ /* … keep your existing implementation … */ return []; }
+/** CSV helpers / normalization (placeholders if your project already has them) **/
+function csvToObjects(csv){ /* keep/replace with your implementation if needed */ return []; }
+function splitCSVLine(line){ /* keep/replace with your implementation if needed */ return []; }
 function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-function sampleRows(){ /* … keep your existing implementation … */ return []; }
-function ingest(d){ /* … keep your existing normalization … */ return d }
+function sampleRows(){ /* supply your own sample if you like */ return []; }
+function ingest(d){ /* normalize to rows[] shape if importing */ return Array.isArray(d)? d: [] }
+
+/** Send Now panel **/
+$('#revealSendPanel').addEventListener('click', ()=>{
+  $('#sendPanel').classList.toggle('hide');
+  $('#sendHint').textContent = '“Send Test Email” uses the fallback admin email (REPORTS_CC/BCC).';
+});
+
+// populate banquets if your banquets.js exposes window.BANQUETS
+(function fillBanquets(){
+  try{
+    const sel = $('#banquetSelect');
+    sel.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
+    (window.BANQUETS || []).forEach(b=>{
+      const opt = document.createElement('option');
+      opt.value = b.id || b.name || '';
+      opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
+      sel.appendChild(opt);
+    });
+  }catch{}
+})();
+
+$('#btnSendTest').addEventListener('click', async ()=>{
+  try{
+    const r = await fetch('/api/router?action=test_resend', { method:'POST' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j?.error || 'Send failed');
+    $('#sendMsg').textContent = 'Test email queued.';
+  }catch(e){
+    $('#sendMsg').textContent = 'Send failed: ' + e.message;
+  }
+});
+$('#btnSendNow').addEventListener('click', ()=>{
+  alert('Hook this up to your “chair-specific” export+email flow when ready.');
+});
 
 /** Refund modal logic **/
 const modal = $('#refundModal');
@@ -442,7 +508,7 @@ const rfType = $('#rfType');
 const rfAmtWrap = $('#rfAmtWrap');
 const rfAmount = $('#rfAmount');
 const rfInfo = $('#rfInfo');
-let currentRefundCtx = null; // {payment_intent, charge, total}
+let currentRefundCtx = null;
 
 rfType.addEventListener('change', ()=>{
   rfAmtWrap.style.display = rfType.value === 'partial' ? 'block' : 'none';
@@ -476,7 +542,6 @@ $('#rfSubmit').addEventListener('click', async ()=>{
     if(!r.ok) throw new Error(j?.error || 'Refund failed');
     alert('Refund created.');
     closeRefundModal();
-    // optional: reload from server to reflect updated status
     loadFromServer();
   }catch(e){
     alert('Refund failed: ' + e.message);
@@ -500,7 +565,6 @@ function closeRefundModal(){
 
 // ---- init ----
 (function init(){
-  // load from local first
   rows = loadFromLocal();
   render();
 })();
