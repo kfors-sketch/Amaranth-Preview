@@ -32,8 +32,54 @@ async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); re
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
 async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
-// NEW: proper reader for Redis sets
+// Proper reader for Redis sets
 async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
+// NEW: safe delete helper
+async function kvDelSafe(key)                { try { await kv.del(key); return true; } catch { return false; } }
+
+// --- Reporting / filtering helpers ---
+function parseDateISO(s) {
+  if (!s) return NaN;
+  const d = Date.parse(s);
+  return isNaN(d) ? NaN : d;
+}
+function parseYMD(s) {
+  if (!s) return NaN;
+  // allow "2025-11-05" or full ISO strings
+  const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
+  return isNaN(d) ? NaN : d;
+}
+async function getEffectiveSettings() {
+  const overrides = await kvHgetallSafe("settings:overrides");
+  const env = {
+    RESEND_FROM: RESEND_FROM,
+    REPORTS_CC: process.env.REPORTS_CC || "",
+    REPORTS_BCC: process.env.REPORTS_BCC || "",
+    SITE_BASE_URL: process.env.SITE_BASE_URL || "",
+    MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
+    MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
+    REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
+    REPLY_TO,
+    // Optional reporting window
+    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
+    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
+  };
+  const effective = { ...env, ...overrides,
+    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
+  };
+  return { env, overrides, effective };
+}
+function filterRowsByWindow(rows, { startMs, endMs }) {
+  if (!rows?.length) return rows || [];
+  return rows.filter(r => {
+    const t = parseDateISO(r.date);
+    if (isNaN(t)) return false;
+    if (startMs && t < startMs) return false;
+    if (endMs   && t >= endMs)  return false;
+    return true;
+  });
+}
 
 // --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
@@ -129,7 +175,6 @@ async function saveOrderFromSession(sessionLike) {
 }
 
 async function applyRefundToOrder(chargeId, refund) {
-  // FIX: read set members correctly
   const ids = await kvSmembersSafe("orders:index");
   for (const sid of ids) {
     const key = `order:${sid}`;
@@ -457,20 +502,7 @@ export default async function handler(req, res) {
       if (type === "products")  return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
 
       if (type === "settings") {
-        const overrides = await kvHgetallSafe("settings:overrides");
-        const env = {
-          RESEND_FROM: RESEND_FROM,
-          REPORTS_CC: process.env.REPORTS_CC || "",
-          REPORTS_BCC: process.env.REPORTS_BCC || "",
-          SITE_BASE_URL: process.env.SITE_BASE_URL || "",
-          MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-          MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
-          REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
-          REPLY_TO
-        };
-        const effective = { ...env, ...overrides,
-          MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
-        };
+        const { env, overrides, effective } = await getEffectiveSettings();
         return REQ_OK(res, {
           env, overrides, effective,
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
@@ -499,14 +531,73 @@ export default async function handler(req, res) {
       }
 
       if (type === "orders") {
-        // FIX: read members from the Redis set correctly
+        // Read all saved order IDs from the Redis SET
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
           const o = await kvGetSafe(`order:${sid}`, null);
           if (o) all.push(...flattenOrderToRows(o));
         }
-        return REQ_OK(res, { rows: all });
+
+        // --- Filters ---
+        // URL query params take priority; then settings; else no filter
+        const daysParam  = url.searchParams.get("days");   // ?days=7
+        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
+        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
+
+        const { effective } = await getEffectiveSettings();
+        const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgStart = effective.EVENT_START || "";
+        const cfgEnd   = effective.EVENT_END || "";
+
+        let startMs = NaN;
+        let endMs   = NaN;
+
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1; // include "now"
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        } else if (cfgStart || cfgEnd || cfgDays) {
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs   = parseYMD(cfgEnd);
+          }
+        }
+
+        let rows = all;
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs:   isNaN(endMs)   ? undefined : endMs
+          });
+        }
+
+        // Optional simple text search (?q=Linda or ?q=beef)
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (q) {
+          rows = rows.filter(r =>
+            String(r.purchaser||"").toLowerCase().includes(q) ||
+            String(r.attendee||"").toLowerCase().includes(q) ||
+            String(r.item||"").toLowerCase().includes(q) ||
+            String(r.category||"").toLowerCase().includes(q) ||
+            String(r.status||"").toLowerCase().includes(q)
+          );
+        }
+
+        // Sort newest first (by ISO date string)
+        rows.sort((a,b) => {
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
+          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
+        });
+
+        return REQ_OK(res, { rows });
       }
 
       // Idempotent finalize via GET
@@ -772,6 +863,12 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
+      // NEW: clear orders index (useful to wipe test IDs from the set)
+      if (action === "clear_orders") {
+        await kvDelSafe("orders:index");
+        return REQ_OK(res, { ok: true, message: "orders index cleared" });
+      }
+
       // NEW: create_refund to match your UI
       if (action === "create_refund") {
         const stripe = await getStripe();
@@ -818,7 +915,11 @@ export default async function handler(req, res) {
           "MAINTENANCE_ON",
           "MAINTENANCE_MESSAGE",
           "REPORTS_SEND_SEPARATE",
-          "REPLY_TO"
+          "REPLY_TO",
+          // NEW reporting window fields:
+          "EVENT_START",
+          "EVENT_END",
+          "REPORT_ORDER_DAYS"
         ].forEach(k => { if (k in body) allow[k] = body[k]; });
 
         if ("MAINTENANCE_ON" in allow) {
