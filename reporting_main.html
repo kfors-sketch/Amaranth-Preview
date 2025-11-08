@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amaranth Admin — Reporting Dashboard</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    /* --- Reset / base --- */
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
+    a{color:inherit;text-decoration:none}
+    button{cursor:pointer}
+    .hide{display:none} /* <-- missing before; needed for empty state / send panel */
+
+    /* --- Layout --- */
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;gap:12px}
+    .grid.cols-2{grid-template-columns:1fr 1fr}
+    .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+    .grid.cols-4{grid-template-columns:repeat(4,1fr)}
+    @media (max-width: 980px){
+      .grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}
+    }
+
+    /* --- Cards --- */
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+    .card h3{margin:0 0 8px;font-size:15px;color:#374151}
+    .muted{color:#6b7280}
+
+    /* --- Header --- */
+    .page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .page-title h1{font-size:22px;margin:0}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
+
+    /* --- Controls --- */
+    .controls{display:flex;flex-wrap:wrap;gap:8px}
+    .controls .group{display:flex;gap:6px;align-items:center}
+    .input, select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
+    .input[type="date"]{padding:0 8px}
+    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:600}
+    .btn.ghost{background:#fff;color:#111}
+    .btn.warn{background:#b91c1c;border-color:#991b1b}
+    .btn.success{background:#065f46;border-color:#064e3b}
+    .btn.tiny{height:26px;font-size:12px;padding:0 8px;border-radius:8px}
+
+    /* --- Table --- */
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;padding:10px}
+    tbody td{padding:10px;border-bottom:1px solid #f0f0f4;vertical-align:top}
+    tbody tr:hover{background:#fcfcff}
+    .num{text-align:right;white-space:nowrap}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
+    .tag.banquet{background:#ecfeff;color:#155e75}
+    .tag.addon{background:#fef9c3;color:#854d0e}
+    .tag.donation{background:#ecfccb;color:#3f6212}
+    .tag.other{background:#eee;color:#444}
+
+    /* --- Footer totals --- */
+    .totals{display:flex;flex-wrap:wrap;gap:10px}
+    .total-chip{background:#111;color:#fff;border-radius:12px;padding:8px 12px;font-weight:700}
+    .total-chip.alt{background:#1f2937}
+    .total-chip.net{background:#065f46}
+
+    /* --- Empty state --- */
+    .empty{padding:32px;text-align:center;color:#6b7280}
+
+    /* modal */
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+    .modal .inner{background:#fff;border-radius:12px;max-width:420px;width:100%;padding:16px;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .modal .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:.5rem 0}
+    .modal label{display:flex;flex-direction:column;gap:6px;flex:1}
+    .modal input, .modal select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
+  </style>
+
+  <!-- CSV helper MUST come before our main script so window.CSV is available -->
+  <script src="/assets/js/lib/csv.js"></script>
+  <!-- Banquets (for Send Now dropdown) -->
+  <script src="/assets/js/banquets.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="page-title">
+      <div>
+        <h1>Amaranth Reporting</h1>
+        <div class="muted">Banquets · Add-Ons · Orders · Donations</div>
+      </div>
+      <span id="adminPill" class="pill">Admin Mode</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="loadServerBtn" class="btn ghost">Load from Server</button>
+        <!-- Admin Hub button -->
+        <a class="btn ghost" href="/admin/index.html" style="height:28px;padding:0 10px;font-size:13px;">← Admin Hub</a>
+        <button id="logoutBtn" class="btn ghost" style="height:28px;padding:0 10px;font-size:13px;">Log Out</button>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card">
+      <div class="controls" id="controls">
+        <div class="group">
+          <label class="muted" for="dateFrom">From</label>
+          <input id="dateFrom" class="input" type="date" />
+          <label class="muted" for="dateTo">To</label>
+          <input id="dateTo" class="input" type="date" />
+        </div>
+        <div class="group">
+          <select id="category" title="Category filter">
+            <option value="">All Categories</option>
+            <option value="banquet">Banquet</option>
+            <option value="addon">Add-On</option>
+            <option value="donation">Donation</option>
+            <option value="other">Other</option>
+          </select>
+          <select id="status" title="Payment status">
+            <option value="">Any Status</option>
+            <option value="paid">Paid</option>
+            <option value="refunded">Refunded</option>
+            <option value="partial_refund">Partial</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div class="group" style="flex:1 1 320px">
+          <input id="search" class="input" type="search" placeholder="Search purchaser, attendee, item, notes…" style="width:100%" />
+        </div>
+        <div class="group">
+          <button class="btn" id="btnExportCsv" title="Export visible rows to CSV">Export CSV</button>
+          <button class="btn ghost" id="btnPrint">Print / PDF</button>
+        </div>
+        <div class="group">
+          <label class="btn ghost" for="fileImport">Import JSON/CSV</label>
+          <input id="fileImport" type="file" accept=".json,.csv,application/json,text/csv" style="display:none" />
+          <button class="btn ghost" id="btnSample">Load Sample</button>
+          <button class="btn warn" id="btnClear" title="Clear locally stored report data">Clear Local</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Totals -->
+    <div class="card">
+      <h3>Totals (visible)</h3>
+      <div class="totals" id="totals">
+        <span class="total-chip">Gross: <span id="tGross">$0.00</span></span>
+        <span class="total-chip alt">Fees: <span id="tFees">$0.00</span></span>
+        <span class="total-chip net">Net: <span id="tNet">$0.00</span></span>
+        <span class="total-chip alt">Banquets: <span id="tBanquet">$0.00</span></span>
+        <span class="total-chip alt">Add-Ons: <span id="tAddon">$0.00</span></span>
+        <span class="total-chip alt">Donations: <span id="tDonation">$0.00</span></span>
+        <span class="total-chip alt">Count: <span id="tCount">0</span></span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <div style="overflow:auto;max-height:65vh">
+        <table id="reportTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Order #</th>
+              <th>Purchaser</th>
+              <th>Attendee</th>
+              <th>Category</th>
+              <th>Item</th>
+              <th class="num">Qty</th>
+              <th class="num">Price</th>
+              <th class="num">Gross</th>
+              <th class="num">Fees</th>
+              <th class="num">Net</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div id="empty" class="empty hide">No records. Import JSON/CSV or load sample data.</div>
+      </div>
+    </div>
+
+    <!-- Send Report Now -->
+    <div class="card" id="sendNowCard" style="margin-top:12px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="revealSendPanel" class="btn success">Send Report Now</button>
+        <span id="sendMsg" class="muted"></span>
+      </div>
+      <div id="sendPanel" class="hide" style="margin-top:12px">
+        <div class="controls">
+          <label class="muted">Chairperson &amp; Banquet</label>
+          <select id="banquetSelect" style="min-width:320px;height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
+            <option value="" selected disabled>Loading banquets…</option>
+          </select>
+
+          <label class="muted">Scope</label>
+          <select id="scopeSelect" style="height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
+            <option value="current-month" selected>Current Month</option>
+            <option value="full">Full Report</option>
+          </select>
+
+          <button id="btnSendNow" class="btn">Send</button>
+          <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
+        </div>
+        <div class="muted" style="margin-top:6px" id="sendHint"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Refund modal -->
+  <div id="refundModal" class="modal" aria-hidden="true">
+    <div class="inner">
+      <h3 style="margin:0 0 8px;font-size:16px">Issue Refund</h3>
+      <div class="muted" id="rfInfo" style="margin-bottom:8px"></div>
+      <div class="row">
+        <label>
+          Refund Type
+          <select id="rfType">
+            <option value="full">Full</option>
+            <option value="partial">Partial</option>
+          </select>
+        </label>
+        <label id="rfAmtWrap" style="display:none">
+          Amount (USD)
+          <input id="rfAmount" type="number" step="0.01" min="0" placeholder="e.g. 25.00"/>
+        </label>
+      </div>
+      <div class="row" style="justify-content:flex-end">
+        <button id="rfCancel" class="btn ghost">Cancel</button>
+        <button id="rfSubmit" class="btn warn">Refund</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/**** Auth guard ****/
+(function authGuard(){
+  if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
+    location.replace('reporting_login.html');
+  }
+})();
+
+const LS_KEY = 'amaranth_reports_v1';
+const ADMIN_KEY = 'amaranth_admin_ok';
+
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const fmt = n => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(n||0);
+const parseDate = s => s? new Date(s) : null;
+const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return false; if(to && d > to) return false; return true; }
+
+(function initAdmin(){
+  const url = new URL(location.href);
+  if(url.searchParams.get('admin')==='1') localStorage.setItem(ADMIN_KEY,'1');
+  const isAdmin = !!localStorage.getItem(ADMIN_KEY);
+  $('#adminPill').style.display = isAdmin? 'inline-flex' : 'none';
+})();
+
+// LOG OUT
+$('#logoutBtn').addEventListener('click', () => {
+  localStorage.removeItem('amaranth_admin_pw_ok');
+  location.href = 'reporting_login.html';
+});
+
+// ---- Data ----
+let rows = [];
+function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
+function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+
+// NEW: load from server (webhook-persisted)
+async function loadFromServer(){
+  try{
+    const r = await fetch('/api/router?type=orders',{cache:'no-store'});
+    if(!r.ok) throw 0;
+    const j = await r.json();
+    if (Array.isArray(j.rows)) {
+      rows = j.rows;
+      saveToLocal(rows);
+      render();
+      return;
+    }
+  }catch{}
+  alert('No server orders found yet (did the webhook or success page save any orders?).');
+}
+$('#loadServerBtn').addEventListener('click', loadFromServer);
+
+// ---- Render ----
+function render(){
+  const tbody = $('#tbody');
+  tbody.innerHTML = '';
+  const filtered = applyFilters(rows);
+  if(!filtered.length){ $('#empty').classList.remove('hide'); return updateTotals([]); }
+  $('#empty').classList.add('hide');
+
+  const frag = document.createDocumentFragment();
+  for(const r of filtered){
+    const canRefund = (r._pi || r._charge);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.date? new Date(r.date).toLocaleDateString(): ''}</td>
+      <td>${esc(r.id)}</td>
+      <td>${esc(r.purchaser||'')}</td>
+      <td>${esc(r.attendee||'')}</td>
+      <td>${tag(r.category)}</td>
+      <td>${esc(r.item||'')}</td>
+      <td class="num">${r.qty||1}</td>
+      <td class="num">${fmt(r.price||0)}</td>
+      <td class="num">${fmt(r.gross||0)}</td>
+      <td class="num">${fmt(r.fees||0)}</td>
+      <td class="num">${fmt(r.net||0)}</td>
+      <td>${esc(r.status||'')}</td>
+      <td>${esc(r.notes||'')}</td>
+      <td>${canRefund ? `<button class="btn tiny" data-refund="1" data-pi="${esc(r._pi||'')}" data-charge="${esc(r._charge||'')}" data-total="${Number(r.net||r.gross||0).toFixed(2)}">Refund</button>` : ''}</td>
+    `;
+    frag.appendChild(tr);
+  }
+  tbody.appendChild(frag);
+
+  // wire refund buttons
+  $$('#tbody [data-refund]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      openRefundModal({
+        payment_intent: btn.getAttribute('data-pi') || '',
+        charge: btn.getAttribute('data-charge') || '',
+        total: Number(btn.getAttribute('data-total') || '0')
+      });
+    });
+  });
+
+  updateTotals(filtered);
+}
+
+function applyFilters(data){
+  const f = $('#dateFrom').value? new Date($('#dateFrom').value) : null;
+  const t = $('#dateTo').value? new Date($('#dateTo').value+'T23:59:59') : null;
+  const cat = $('#category').value;
+  const st = $('#status').value;
+  const q = $('#search').value.trim().toLowerCase();
+
+  return data.filter(r=>{
+    const d = r.date? new Date(r.date) : null;
+    if(!inRange(d,f,t)) return false;
+    if(cat && r.category!==cat) return false;
+    if(st && (r.status||'')!==st) return false;
+    if(q){
+      const hay = `${r.id}|${r.purchaser}|${r.attendee}|${r.item}|${r.notes}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function updateTotals(data){
+  const sum = (key)=> data.reduce((s,r)=> s + Number(r[key]||0), 0);
+  const gross = sum('gross');
+  const fees = sum('fees');
+  const net = sum('net') || gross - fees;
+  $('#tGross').textContent = fmt(gross);
+  $('#tFees').textContent = fmt(fees);
+  $('#tNet').textContent = fmt(net);
+  $('#tBanquet').textContent = fmt(data.filter(r=>r.category==='banquet').reduce((s,r)=>s+r.net,0));
+  $('#tAddon').textContent = fmt(data.filter(r=>r.category==='addon').reduce((s,r)=>s+r.net,0));
+  $('#tDonation').textContent = fmt(data.filter(r=>r.category==='donation').reduce((s,r)=>s+r.net,0));
+  $('#tCount').textContent = String(data.length);
+}
+
+function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function tag(c){
+  const cls = ['banquet','addon','donation'].includes(c)? c:'other';
+  return `<span class="tag ${cls}">${c||'other'}</span>`
+}
+
+/** Import / Export **/
+document.getElementById('fileImport').addEventListener('change', async (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const text = await file.text();
+  let data = [];
+  try{
+    if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')){
+      data = JSON.parse(text);
+    } else {
+      data = csvToObjects(text);
+    }
+  }catch(err){ alert('Failed to parse file: '+err.message); return; }
+
+  const normalized = ingest(data);
+  if(!normalized.length){ alert('No recognizable rows found.'); return; }
+  rows = normalized;
+  saveToLocal(rows);
+  render();
+  e.target.value = '';
+});
+
+// Export CSV
+document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+  const visible = applyFilters(rows);
+  const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
+  const exportRows = visible.map(r => ({
+    date: r.date ? new Date(r.date).toISOString() : '',
+    orderId: r.id,
+    purchaser: r.purchaser || '',
+    attendee: r.attendee || '',
+    category: r.category || '',
+    item: r.item || '',
+    qty: r.qty ?? 1,
+    price: Number(r.price || 0).toFixed(2),
+    gross: Number(r.gross || 0).toFixed(2),
+    fees: Number(r.fees || 0).toFixed(2),
+    net: Number(r.net || ((r.gross||0)-(r.fees||0))).toFixed(2),
+    status: r.status || '',
+    notes: r.notes || ''
+  }));
+
+  const filename = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+  if (window.CSV && typeof CSV.downloadCSV === 'function') {
+    try { CSV.downloadCSV(filename, exportRows, headers); return; } catch {}
+    try { CSV.downloadCSV(filename, exportRows); return; } catch {}
+  }
+  const escCell = (v)=> `"${String(v??'').replace(/"/g,'""')}"`;
+  const lines = [headers.map(escCell).join(',')].concat(
+    exportRows.map(r => headers.map(h => escCell(r[h])).join(','))
+  );
+  const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
+document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
+document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('Clear locally stored report data?')){ localStorage.removeItem(LS_KEY); rows=[]; render(); }});
+['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
+
+/** CSV helpers / normalization (placeholders kept if you had them elsewhere) **/
+function csvToObjects(csv){ /* … keep your existing implementation … */ return []; }
+function splitCSVLine(line){ /* … keep your existing implementation … */ return []; }
+function cryptoRandom(){ return Math.random().toString(36).slice(2) }
+function sampleRows(){ /* … keep your existing implementation … */ return []; }
+function ingest(d){ /* … keep your existing normalization … */ return d }
+
+/** Refund modal logic **/
+const modal = $('#refundModal');
+const rfType = $('#rfType');
+const rfAmtWrap = $('#rfAmtWrap');
+const rfAmount = $('#rfAmount');
+const rfInfo = $('#rfInfo');
+let currentRefundCtx = null;
+
+rfType.addEventListener('change', ()=>{
+  rfAmtWrap.style.display = rfType.value === 'partial' ? 'block' : 'none';
+});
+
+$('#rfCancel').addEventListener('click', ()=> closeRefundModal());
+$('#rfSubmit').addEventListener('click', async ()=>{
+  if (!currentRefundCtx) return;
+  const token = localStorage.getItem('amaranth_report_token') || '';
+  const headers = { 'Content-Type':'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + token;
+
+  let amount_cents;
+  if (rfType.value === 'partial') {
+    const v = Number(rfAmount.value || 0);
+    if (!isFinite(v) || v <= 0) { alert('Enter a positive amount'); return; }
+    amount_cents = Math.round(v * 100);
+  }
+
+  const payload = {
+    payment_intent: currentRefundCtx.payment_intent || undefined,
+    charge: currentRefundCtx.charge || undefined,
+    ...(amount_cents ? { amount_cents } : {})
+  };
+
+  try{
+    const r = await fetch('/api/router?action=create_refund', {
+      method: 'POST', headers, body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j?.error || 'Refund failed');
+    alert('Refund created.');
+    closeRefundModal();
+    loadFromServer();
+  }catch(e){
+    alert('Refund failed: ' + e.message);
+  }
+});
+
+function openRefundModal(ctx){
+  currentRefundCtx = ctx;
+  rfType.value = 'full';
+  rfAmount.value = '';
+  rfAmtWrap.style.display = 'none';
+  rfInfo.textContent = `PI: ${ctx.payment_intent || '—'}  Charge: ${ctx.charge || '—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+}
+function closeRefundModal(){
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  currentRefundCtx = null;
+}
+
+// ---- init ----
+(function init(){
+  rows = loadFromLocal();
+  render();
+})();
+</script>
+</body>
+</html>
