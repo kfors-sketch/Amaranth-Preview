@@ -60,6 +60,52 @@
     const $ = (id)=>document.getElementById(id);
     const money = (c)=> (Number(c||0)/100).toLocaleString(undefined,{style:'currency',currency:'USD'});
 
+    // ===== REPORTING DROP-IN (place immediately after reading SID) =====
+    // Fires a lightweight, idempotent "success" ping so reporting dashboards
+    // don't miss completed orders if webhooks are delayed or blocked.
+    (function sendSuccessPing(){
+      if (!sid) return;
+      const payload = {
+        sid,
+        page: 'success',
+        href: location.href,
+        ref: document.referrer || '',
+        ts: Date.now()
+      };
+      const url = '/api/router?type=success_ping';
+      try {
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        if (navigator.sendBeacon && navigator.sendBeacon(url, blob)) return;
+      } catch(e){}
+      // Fallback with keepalive so it still sends on page close
+      try {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true,
+          cache: 'no-store'
+        }).catch(()=>{});
+      } catch(e){}
+      // Extra safety: retry once on visibility restore (mobile back/forward)
+      let retried = false;
+      document.addEventListener('visibilitychange', () => {
+        if (!retried && document.visibilityState === 'visible') {
+          retried = true;
+          try {
+            fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, retry: true }),
+              keepalive: true,
+              cache: 'no-store'
+            }).catch(()=>{});
+          } catch(e){}
+        }
+      }, { once: true });
+    })();
+    // ===== END REPORTING DROP-IN =====
+
     // Clear cart and notify other tabs
     try {
       if (window.Cart && Cart.clear) Cart.clear();
