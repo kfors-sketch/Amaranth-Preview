@@ -1,4 +1,3 @@
-
 // /api/router.js
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
@@ -31,8 +30,10 @@ function toCentsAuto(v){ const n = Number(v || 0); return n < 1000 ? Math.round(
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
 async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
 async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
-async function kvSetSafe(key, val)          { try { await kv.set(key, val);  return true; } catch { return false; } }
+async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
 async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
+// NEW: proper reader for Redis sets
+async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
 
 // --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
@@ -72,7 +73,7 @@ async function saveOrderFromSession(sessionLike) {
 
   const lines = lineItems.map((li) => {
     const name  = li.description || li.price?.product?.name || "Item";
-    const qty  = Number(li.quantity || 1);
+    const qty   = Number(li.quantity || 1);
     const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
     const total = unit * qty;
     const meta  = (li.price?.product?.metadata || {});
@@ -123,12 +124,13 @@ async function saveOrderFromSession(sessionLike) {
   }
 
   await kvSetSafe(`order:${order.id}`, order);
-  await kvSaddSafe("orders:index", order.id);
+  await kvSaddSafe("orders:index", order.id); // stored in a Redis SET
   return order;
 }
 
 async function applyRefundToOrder(chargeId, refund) {
-  const ids = await kvGetSafe("orders:index", []);
+  // FIX: read set members correctly
+  const ids = await kvSmembersSafe("orders:index");
   for (const sid of ids) {
     const key = `order:${sid}`;
     const o = await kvGetSafe(key, null);
@@ -176,6 +178,7 @@ function flattenOrderToRows(o) {
     });
   });
 
+  // Include a distinct fee row (if present)
   const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
     rows.push({
@@ -220,7 +223,7 @@ function renderOrderEmailHTML(order) {
     if (/processing\s*fee/i.test(name)) { feesCents += lineCents; return; }
 
     const isBanquet = (cat === "banquet") || /banquet/i.test(name);
-    const isAddon  = (cat === "addon")  || /addon/i.test(li.meta?.itemType || "") || /addon/i.test(name);
+    const isAddon   = (cat === "addon")   || /addon/i.test(li.meta?.itemType || "") || /addon/i.test(name);
 
     if (isBanquet || isAddon) {
       const attName = (li.meta && li.meta.attendeeName) || purchaserName;
@@ -234,6 +237,7 @@ function renderOrderEmailHTML(order) {
     const bodyRows = rows.map(li => {
       const cat = String(li.category || "").toLowerCase();
       const isBanquet = (cat === "banquet") || /banquet/i.test(li.itemName || "");
+      const isAddon   = (cat === "addon")   || /addon/i.test(li.itemName || "");
       const notes = (isBanquet ? (li.meta?.attendeeNotes || "") : (li.meta?.itemNote || ""));
       const notesRow = notes
         ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
@@ -290,9 +294,9 @@ function renderOrderEmailHTML(order) {
   const total = Number(order.amount_total || subtotalAll);
   const feesRow = feesCents > 0
     ? `<tr>
-        <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td>
-      </tr>`
+         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
+         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td>
+       </tr>`
     : "";
 
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
@@ -331,7 +335,6 @@ function renderOrderEmailHTML(order) {
   </body></html>`;
 }
 
-// Send two separate emails
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
 
@@ -421,6 +424,7 @@ export default async function handler(req, res) {
     // ---------- GET ----------
     if (req.method === "GET") {
 
+      // --- Smoketest ---
       if (type === "smoketest") {
         const out = {
           ok: true,
@@ -442,6 +446,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, out);
       }
 
+      // --- Last sent mail visibility
       if (type === "lastmail") {
         const data = await kvGetSafe(MAIL_LOG_KEY, { note: "no recent email log" });
         return REQ_OK(res, data);
@@ -473,6 +478,7 @@ export default async function handler(req, res) {
         });
       }
 
+      // Publishable key
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
@@ -493,7 +499,8 @@ export default async function handler(req, res) {
       }
 
       if (type === "orders") {
-        const ids = await kvGetSafe("orders:index", []);
+        // FIX: read members from the Redis set correctly
+        const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
           const o = await kvGetSafe(`order:${sid}`, null);
@@ -502,7 +509,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { rows: all });
       }
 
-      // Idempotent save from success page
+      // Idempotent finalize via GET
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
@@ -516,6 +523,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // Fetch one saved order
       if (type === "order") {
         const oid = String(url.searchParams.get("oid") || "").trim();
         if (!oid) return REQ_ERR(res, 400, "missing-oid");
@@ -573,7 +581,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
-      // ---- CREATE CHECKOUT (bundle-aware) ----
+      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -620,13 +628,16 @@ export default async function handler(req, res) {
             };
           });
 
-          const pct      = Number(fees.pct || 0);
+          const pct       = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
           const subtotalCents = lines.reduce((s,l)=>{
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle  = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
-            if (isBundle) return s + cents(l.bundleTotalCents || 0);
-            return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
+            if (isBundle) {
+              return s + cents(l.bundleTotalCents || 0);
+            } else {
+              return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
+            }
           }, 0);
 
           const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
@@ -641,43 +652,48 @@ export default async function handler(req, res) {
             });
           }
 
-          const session = await stripe.checkout.sessions.create({
-            mode: "payment",
-            line_items,
-            customer_email: purchaser.email || undefined,
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            metadata: {
-              purchaser_name: purchaser.name || "",
-              purchaser_phone: purchaser.phone || "",
-              purchaser_title: purchaser.title || "",
-              purchaser_city: purchaser.city || "",
-              purchaser_state: purchaser.state || "",
-              purchaser_postal: purchaser.postal || "",
-              cart_count: String(lines.length || 0)
-            }
-          });
+          const session = await getStripe().then(stripe =>
+            stripe.checkout.sessions.create({
+              mode: "payment",
+              line_items,
+              customer_email: purchaser.email || undefined,
+              success_url: successUrl,
+              cancel_url: cancelUrl,
+              metadata: {
+                purchaser_name: purchaser.name || "",
+                purchaser_phone: purchaser.phone || "",
+                purchaser_title: purchaser.title || "",
+                purchaser_city: purchaser.city || "",
+                purchaser_state: purchaser.state || "",
+                purchaser_postal: purchaser.postal || "",
+                cart_count: String(lines.length || 0)
+              }
+            })
+          );
 
           return REQ_OK(res, { url: session.url, id: session.id });
         }
 
+        // Legacy branch (simple items)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) return REQ_ERR(res, 400, "no-items");
 
-        const session = await stripe.checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: items.map(it => ({
-            quantity: Math.max(1, Number(it.quantity || 1)),
-            price_data: {
-              currency: "usd",
-              unit_amount: dollarsToCents(it.price || 0),
-              product_data: { name: String(it.name || "Item") }
-            }
-          })),
-          success_url: successUrl,
-          cancel_url: cancelUrl
-        });
+        const session = await getStripe().then(stripe =>
+          stripe.checkout.sessions.create({
+            mode: "payment",
+            payment_method_types: ["card"],
+            line_items: items.map(it => ({
+              quantity: Math.max(1, Number(it.quantity || 1)),
+              price_data: {
+                currency: "usd",
+                unit_amount: dollarsToCents(it.price || 0),
+                product_data: { name: String(it.name || "Item") }
+              }
+            })),
+            success_url: successUrl,
+            cancel_url: cancelUrl
+          })
+        );
         return REQ_OK(res, { url: session.url, id: session.id });
       }
 
@@ -691,8 +707,6 @@ export default async function handler(req, res) {
         const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
 
         try {
-          // NOTE: For strict verification on Vercel/Next, you typically disable the JSON body parser
-          // so you can access the raw body. We include safe fallbacks for dev/test.
           if (whsec && typeof req.body === "string") {
             event = stripe.webhooks.constructEvent(req.body, sig, whsec);
           } else if (whsec && req.rawBody) {
@@ -727,7 +741,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { received: true });
       }
 
-      // --- PUBLIC: register an item config ---
+      // --- PUBLIC: register an item config (chairs/addons/products/banquets) ---
       if (action === "register_item") {
         const {
           id = "",
@@ -756,38 +770,25 @@ export default async function handler(req, res) {
       }
 
       // -------- ADMIN (auth required below) --------
-      // create_refund is admin-only
+      if (!requireToken(req, res)) return;
+
+      // NEW: create_refund to match your UI
       if (action === "create_refund") {
-        if (!requireToken(req, res)) return;
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        const payment_intent = String(body.payment_intent || "").trim();
+        const charge = String(body.charge || "").trim();
+        const amount_cents_raw = body.amount_cents;
+        const args = {};
+        if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
+        if (payment_intent) args.payment_intent = payment_intent;
+        else if (charge) args.charge = charge;
+        else return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
 
-        const payment_intent = (body.payment_intent || "").trim();
-        const charge        = (body.charge || "").trim();
-        const amount_cents  = body.amount_cents != null ? Math.round(Number(body.amount_cents)) : null;
-
-        if (!payment_intent && !charge) {
-          return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
-        }
-        const createPayload = {};
-        if (payment_intent) createPayload.payment_intent = payment_intent;
-        if (charge) createPayload.charge = charge;
-        if (amount_cents && amount_cents > 0) createPayload.amount = amount_cents;
-
-        try {
-          const rf = await stripe.refunds.create(createPayload);
-          await applyRefundToOrder(rf.charge, rf);
-          return REQ_OK(res, {
-            ok: true,
-            refund: { id: rf.id, amount: rf.amount, status: rf.status, charge: rf.charge }
-          });
-        } catch (e) {
-          return REQ_ERR(res, 500, "refund-failed", { message: e?.message || String(e) });
-        }
+        const rf = await stripe.refunds.create(args);
+        try { await applyRefundToOrder(rf.charge, rf); } catch {}
+        return REQ_OK(res, { ok: true, id: rf.id, status: rf.status });
       }
-
-      // Require token for the rest of admin writes
-      if (!requireToken(req, res)) return;
 
       if (action === "save_banquets") {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
