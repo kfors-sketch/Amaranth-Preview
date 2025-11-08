@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="2026 Grand Court of Pennsylvania - Order of the Amaranth">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=home-v2" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=home-v3" />
   <title>Home</title>
 
   <style>
@@ -109,7 +109,7 @@
       </a>
       <nav class="site-nav nav">
         <span class="nav-current">Home</span>
-        <a href="banquet.html">Banquets</a>
+        <a href="banquets.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="product-catalog.html" data-catalog-link>Product Catalog</a>
         <a href="order.html">Order</a>
@@ -148,6 +148,9 @@
   <!-- Hide Product Catalog link if no visible items -->
   <script>
   (async function(){
+    const link = document.querySelector('[data-catalog-link]');
+    if (!link) return;
+
     async function fetchJson(url){
       try {
         const r = await fetch(url, { cache: 'no-store' });
@@ -157,26 +160,22 @@
     }
 
     let items = [];
-    let j = await fetchJson('/api/router?type=catalog');
-    if (Array.isArray(j?.items)) items = j.items;
-    if (!items.length) {
-      j = await fetchJson('/api/router?type=products');
-      if (Array.isArray(j?.products)) items = j.products;
-    }
+    // Only use the supported endpoint; your router exposes ?type=products
+    let j = await fetchJson('/api/router?type=products');
+    if (Array.isArray(j?.products)) items = j.products;
+
+    // Fallback to embedded list if present
     if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
 
     const now = Date.now();
     const hasVisible = (items || []).some(i => {
-      if (i && i.active === false) return false;
-      const s = i?.publishStart ? Date.parse(i.publishStart) : null;
-      const e = i?.publishEnd   ? Date.parse(i.publishEnd)   : null;
+      if (!i || i.active === false) return false;
+      const s = i.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i.publishEnd   ? Date.parse(i.publishEnd)   : null;
       return (s == null || now >= s) && (e == null || now <= e);
     });
 
-    if (!hasVisible) {
-      const link = document.querySelector('[data-catalog-link]');
-      if (link) link.style.display = 'none';
-    }
+    if (!hasVisible) link.style.display = 'none';
   })();
   </script>
 
@@ -184,15 +183,20 @@
   <script>
   (async () => {
     try {
-      const resp = await fetch('/api/admin/settings.js');
+      // Use your router's settings endpoint (JSON)
+      const resp = await fetch('/api/router?type=settings', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('settings not available');
       const data = await resp.json();
 
-      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
             <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
             <p style="font-size:1.2em;max-width:500px;">
-              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
             </p>
           </div>
         `;
