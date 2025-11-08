@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v3" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v4" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -120,22 +120,22 @@
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
-        <label>Full name<input id="p_name" type="text" placeholder="Your name" required></label>
-        <label>Title (optional)<input id="p_title" type="text" placeholder="Optional title"></label>
+        <label>Full name<input id="p_name" type="text" placeholder="Your name *" required></label>
+        <label>Title<input id="p_title" type="text" placeholder="Title *" required></label>
       </div>
       <div class="grid-2">
-        <label>Email<input id="p_email" type="email" placeholder="you@example.com" required></label>
-        <label>Phone<input id="p_phone" type="tel" placeholder="555-555-5555" required></label>
+        <label>Email<input id="p_email" type="email" placeholder="you@example.com *" required></label>
+        <label>Phone<input id="p_phone" type="tel" placeholder="555-555-5555 *" required></label>
       </div>
       <div class="grid-3">
-        <label>Address line 1<input id="p_addr1" type="text" required></label>
-        <label>Address line 2<input id="p_addr2" type="text"></label>
-        <label>City<input id="p_city" type="text" required></label>
+        <label>Address line 1<input id="p_addr1" type="text" placeholder="Address line 1 *" required></label>
+        <label>Address line 2<input id="p_addr2" type="text" placeholder="Address line 2"></label>
+        <label>City<input id="p_city" type="text" placeholder="City *" required></label>
       </div>
       <div class="grid-3">
-        <label>State/Province<input id="p_state" type="text" required></label>
-        <label>Postal code<input id="p_zip" type="text" required></label>
-        <label>Country<input id="p_country" type="text" value="US" required></label>
+        <label>State/Province<input id="p_state" type="text" placeholder="State/Province *" required></label>
+        <label>Postal code<input id="p_zip" type="text" placeholder="Postal code *" required></label>
+        <label>Country<input id="p_country" type="text" value="US" placeholder="Country *" required></label>
       </div>
     </section>
 
@@ -313,18 +313,18 @@
             ${showEdit ? `
             <div class="edit-panel" id="${editPanelId}">
               <div class="row">
-                <label>Name*<input type="text" class="ed-name" placeholder="Name" required></label>
-                <label>Email*<input type="email" class="ed-email" placeholder="Email" required></label>
-                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone" required></label>
-                <label>Title<input type="text" class="ed-title" placeholder="Title"></label>
+                <label>Name*<input type="text" class="ed-name" placeholder="Name *" required></label>
+                <label>Email*<input type="email" class="ed-email" placeholder="Email *" required></label>
+                <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone *" required></label>
+                <label>Title*<input type="text" class="ed-title" placeholder="Title *" required></label>
 
                 <!-- Mailing address (required to be considered 'attached') -->
-                <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1" required></label>
+                <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1 *" required></label>
                 <label>Address line 2<input type="text" class="ed-addr2" placeholder="Address line 2"></label>
-                <label>City*<input type="text" class="ed-city" placeholder="City" required></label>
-                <label>State/Province*<input type="text" class="ed-state" placeholder="State/Province" required></label>
-                <label>Postal code*<input type="text" class="ed-postal" placeholder="Postal code" required></label>
-                <label>Country*<input type="text" class="ed-country" placeholder="Country" value="US" required></label>
+                <label>City*<input type="text" class="ed-city" placeholder="City *" required></label>
+                <label>State/Province*<input type="text" class="ed-state" placeholder="State/Province *" required></label>
+                <label>Postal code*<input type="text" class="ed-postal" placeholder="Postal code *" required></label>
+                <label>Country*<input type="text" class="ed-country" placeholder="Country *" value="US" required></label>
 
                 <label style="flex:1 1 100%">Notes<textarea class="ed-notes" rows="2" placeholder="Dietary needs, allergies, seating, etc."></textarea></label>
               </div>
@@ -377,374 +377,4 @@
 
       // 3) Edge case: stray attendeeIds not in st.attendees
       Object.entries(byA).forEach(([aid, lines]) => {
-        if (aid === '(unassigned)') return;
-        if (!(st.attendees || []).some(a => a.id === aid)) {
-          blocks.push(buildBlock(aid, lines));
-        }
-      });
-
-      list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
-
-      // wire remove
-      list.querySelectorAll('button[data-remove]').forEach(b=>{
-        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
-      });
-
-      // wire edit show/hide + populate
-      list.querySelectorAll('button[data-edit]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const aid = btn.dataset.edit;
-          const panel = document.getElementById(`edit-${aid}`);
-          if (!panel) return;
-          const st2 = Cart.get();
-          const a = st2.attendees.find(x=>x.id===aid);
-          panel.style.display = 'block';
-          panel.querySelector('.ed-name').value   = a?.name || '';
-          panel.querySelector('.ed-email').value  = a?.email || '';
-          panel.querySelector('.ed-phone').value  = a?.phone || '';
-          // live US formatting while typing (respects +international)
-          const edPhone = panel.querySelector('.ed-phone');
-          if (edPhone){
-            edPhone.addEventListener('input', ()=>formatPhoneLive(edPhone));
-            edPhone.addEventListener('blur',  ()=>formatPhoneLive(edPhone));
-          }
-
-          panel.querySelector('.ed-title').value  = a?.title || '';
-          panel.querySelector('.ed-addr1').value  = a?.address1 || '';
-          panel.querySelector('.ed-addr2').value  = a?.address2 || '';
-          panel.querySelector('.ed-city').value   = a?.city || '';
-          panel.querySelector('.ed-state').value  = a?.state || '';
-          panel.querySelector('.ed-postal').value = a?.postal || '';
-          panel.querySelector('.ed-country').value= a?.country || 'US';
-          if (panel.querySelector('.ed-notes')) panel.querySelector('.ed-notes').value = a?.notes || '';
-        };
-      });
-
-      list.querySelectorAll('.cancel-ed').forEach(btn=>{
-        btn.onclick = ()=>{
-          const aid = btn.dataset.cancel;
-          const panel = document.getElementById(`edit-${aid}`);
-          if (panel) panel.style.display = 'none';
-          try {
-            const st3 = Cart.get();
-            const notes = panel?.querySelector?.('.ed-notes')?.value?.trim?.() || '';
-            (st3.lines || []).forEach(l => {
-              if (l.attendeeId === aid && l.itemType === 'banquet'){
-                l.meta = l.meta || {};
-                l.meta.attendeeNotes = notes;
-                Cart.updateLine(l.id, { meta: l.meta });
-              }
-            });
-          } catch(e) {}
-          // re-render after cancel to refresh badges/notes
-          window._orderRender?.();
-        };
-      });
-
-      list.querySelectorAll('.save-ed').forEach(btn=>{
-        btn.onclick = ()=>{
-          const aid = btn.dataset.save;
-          const panel = document.getElementById(`edit-${aid}`);
-          if (!panel) return;
-
-          // Read fields
-          const name    = panel.querySelector('.ed-name').value.trim();
-          const email   = panel.querySelector('.ed-email').value.trim();
-          const phone   = panel.querySelector('.ed-phone').value.trim();
-          const title   = panel.querySelector('.ed-title').value.trim();
-          const addr1   = panel.querySelector('.ed-addr1').value.trim();
-          const addr2   = panel.querySelector('.ed-addr2').value.trim();
-          const city    = panel.querySelector('.ed-city').value.trim();
-          const state   = panel.querySelector('.ed-state').value.trim();
-          const postal  = panel.querySelector('.ed-postal').value.trim();
-          const country = panel.querySelector('.ed-country').value.trim() || 'US';
-          const notes   = panel.querySelector('.ed-notes') ? panel.querySelector('.ed-notes').value.trim() : '';
-
-          // Validate requireds
-          const missing = [];
-          if (!name) missing.push('Name');
-          if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
-          if (!phone) missing.push('Phone');
-          if (!addr1) missing.push('Address line 1');
-          if (!city) missing.push('City');
-          if (!state) missing.push('State/Province');
-          if (!postal) missing.push('Postal code');
-          if (!country) missing.push('Country');
-
-          if (missing.length){
-            alert('Please complete the following fields:\n• ' + missing.join('\n• '));
-            return;
-          }
-
-          // Save attendee (Cart must persist these fields)
-          Cart.updateAttendee(aid, {
-            name, email, phone, title,
-            address1: addr1, address2: addr2, city, state, postal, country,
-            notes
-          });
-
-          // Optionally propagate notes to banquet lines for this attendee
-          try {
-            const st4 = Cart.get();
-            (st4.lines || []).forEach(l => {
-              if (l.attendeeId === aid && l.itemType === 'banquet'){
-                l.meta = l.meta || {};
-                l.meta.attendeeNotes = notes;
-                Cart.updateLine(l.id, { meta: l.meta });
-              }
-            });
-          } catch(e){}
-
-          panel.style.display = 'none';
-          window._orderRender?.();
-        };
-      });
-
-      // totals (normalized)
-      const subtotal = (st.lines || []).reduce((s,l)=> s + normalizePrice(l.unitPrice) * Number(l.qty||0), 0);
-      const t = Cart.totals();
-      const fee = subtotal > 0 ? (subtotal * ((t.pct||0)/100) + (t.flat||0)) : 0;
-      const total = subtotal + fee;
-
-      orderTotal.textContent = money(total);
-      summaryBox.innerHTML = `
-        <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
-        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
-        <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
-        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
-      `;
-    } // end render()
-
-    // expose render for resync hooks below
-    window._orderRender = render;
-
-    // initial + react to cart changes
-    render();
-    window.addEventListener('cart:updated', render);
-
-    // Re-render purchaser header when they type their name (affects Purchaser group label)
-    const pNameEl = document.getElementById('p_name');
-    if (pNameEl) pNameEl.addEventListener('input', render);
-  });
- 
-    // --- Auto-resync when returning to this tab or when storage changes ---
-    function resyncFromStorage(){
-      try { Cart.load(); } catch(e) {}
-      try { window._orderRender?.(); } catch(e) {}
-    }
-    document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
-    window.addEventListener('focus', resyncFromStorage);
-    window.addEventListener('storage', function(){ resyncFromStorage(); });
-
-  </script>
-
-  <!-- Core site scripts (order matters) -->
-  <script src="/assets/js/site-settings.js"></script>
-  <script src="/assets/js/items.js"></script>
-  <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/cart.js"></script>
-  <script src="/assets/js/data-store.js"></script>
-  <script src="/assets/js/site-boot.js"></script>
-
- <!-- Hide Product Catalog link if no visible items -->
-<script>
-(async function(){
-  const link = document.querySelector('[data-catalog-link]');
-  if (!link) return;
-
-  async function fetchJson(url){
-    try {
-      const r = await fetch(url, { cache: 'no-store' });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch(e){ return null; }
-  }
-
-  let items = [];
-  let j = await fetchJson('/api/router?type=products');
-  if (Array.isArray(j?.products)) items = j.products;
-
-  if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
-
-  const now = Date.now();
-  const hasVisible = (items || []).some(i => {
-    if (!i || i.active === false) return false;
-    const s = i.publishStart ? Date.parse(i.publishStart) : null;
-    const e = i.publishEnd   ? Date.parse(i.publishEnd)   : null;
-    return (s == null || now >= s) && (e == null || now <= e);
-  });
-
-  if (!hasVisible) link.style.display = 'none';
-})();
-</script>
-
-  <!-- Checkout wiring -->
-  <script>
-    async function getStripeInstance() {
-      // Ask router for publishable key (correct endpoint name)
-      try {
-        const r = await fetch('/api/router?type=stripe_pubkey', { cache:'no-store' });
-        if (r.ok) {
-          const j = await r.json();
-          if (j && j.publishableKey) {
-            return Stripe(j.publishableKey);
-          }
-        }
-      } catch {}
-
-      // Fallback (safe to expose)
-      if (window.STRIPE_PUBLISHABLE_KEY) return Stripe(window.STRIPE_PUBLISHABLE_KEY);
-
-      throw new Error('Stripe publishable key not available.');
-    }
-
-    function readPurchaser() {
-      const g = id => (document.getElementById(id)?.value || '').trim();
-      return {
-        name:    g('p_name'),
-        title:   g('p_title'),
-        email:   g('p_email'),
-        phone:   g('p_phone'),
-        address1:g('p_addr1'),
-        address2:g('p_addr2'),
-        city:    g('p_city'),
-        state:   g('p_state'),
-        postal:  g('p_zip'),
-        country: g('p_country') || 'US'
-      };
-    }
-
-    // === enrich metadata (attendeeName, attendeeNotes, itemNote) ===
-    function buildPayloadFromCart() {
-      const st = Cart.get();
-
-      // quick attendee lookup
-      const aMap = {};
-      (st.attendees || []).forEach(a => { aMap[a.id] = a; });
-
-      // purchaser (fallback for unassigned lines)
-      const purchaser = {
-        name:  (document.getElementById('p_name')?.value || '').trim(),
-        email: (document.getElementById('p_email')?.value || '').trim(),
-        phone: (document.getElementById('p_phone')?.value || '').trim(),
-      };
-
-      const lines = (st.lines || []).map(l => {
-        const att = l.attendeeId ? aMap[l.attendeeId] : null;
-
-        // Resolve attendee display name for this line
-        const attendeeName =
-          (l.meta && l.meta.attendeeName) ||
-          (att && att.name) ||
-          (!l.attendeeId ? (purchaser.name || 'Purchaser') : 'Attendee');
-
-        // Banquet vs non-banquet notes
-        const isBanquet = (l.itemType === 'banquet');
-        const banquetNotes = isBanquet
-          ? (l.meta?.attendeeNotes || att?.notes || '')
-          : '';
-        const itemNote = !isBanquet
-          ? (l.meta?.itemNote || l.meta?.note || l.meta?.notes || l.meta?.message || '')
-          : '';
-
-        return {
-          id: l.id,
-          itemId: l.itemId,
-          itemType: l.itemType,
-          itemName: l.itemName,
-          unitPrice: Number(normalizePrice(l.unitPrice)),
-          qty: Number(l.qty || 1),
-          attendeeId: l.attendeeId || '',
-          meta: {
-            ...l.meta,
-            attendeeName,
-            attendeeNotes: banquetNotes,
-            itemNote
-          }
-        };
-      });
-
-      const fees = Cart.totals(); // { pct, flat }
-      return { lines, fees };
-    }
-
-    async function goToCheckout() {
-      const btn = document.getElementById('checkout');
-      const status = document.getElementById('checkoutStatus');
-      const setStatus = (msg, ok) => { status.textContent = msg || ''; status.className = ok ? 'ok' : (msg ? 'err' : ''); };
-
-      try {
-        setStatus('', false);
-        btn.disabled = true; setStatus('Contacting payment server…', false);
-
-        const purchaser = readPurchaser();
-        // basic client-side validation for purchaser
-        if (!purchaser.name || !looksLikeEmail(purchaser.email) || !purchaser.phone) {
-          throw new Error('Please complete your name, valid email, and phone.');
-        }
-
-        const payload = {
-          purchaser,
-          ...buildPayloadFromCart(),
-          cancel_url: location.href,  // snake_case for server
-          cancelUrl:  location.href   // camelCase also
-        };
-
-        // Create Checkout Session on your router
-        const r = await fetch('/api/router?action=create_checkout_session', {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const j = await r.json().catch(()=> ({}));
-        if (!r.ok) throw new Error(j?.error || 'Payment server error');
-
-        const stripe = await getStripeInstance();
-
-        // Accept session id
-        const sessionId = j.sessionId || j.id;
-        if (!sessionId) throw new Error('Missing session id.');
-
-        setStatus('Redirecting to Stripe…', true);
-        const { error } = await stripe.redirectToCheckout({ sessionId });
-        if (error) throw error;
-
-      } catch (e) {
-        console.error(e);
-        setStatus(e.message || 'Checkout failed. Please try again.', false);
-        document.getElementById('checkout').disabled = false;
-      }
-    }
-
-    document.getElementById('checkout').addEventListener('click', goToCheckout);
-  </script>
-
-  <!-- Maintenance check -->
-  <script>
-  (async () => {
-    try {
-      const resp = await fetch('/api/router?type=settings');
-      const data = await resp.json();
-
-      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
-      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
-      if (on === 'true' || on === true) {
-        document.body.innerHTML = `
-          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-            <p style="font-size:1.2em;max-width:500px;">
-              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
-            </p>
-          </div>
-        `;
-      }
-    } catch (err) {
-      console.error('Maintenance check failed:', err);
-    }
-  })();
-  </script>
-
-</body>
-</html>
+        if (a

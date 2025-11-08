@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v6"><!-- bumped -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v7"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -42,7 +42,8 @@
           <input name="phone" type="tel" inputmode="tel" placeholder="Phone *" required>
         </div>
         <div class="grid-3">
-          <input name="title" placeholder="Title">
+          <!-- CHANGED: Title now required and placeholder shows * -->
+          <input name="title" placeholder="Title *" required>
           <input name="notes" placeholder="Notes (e.g., dietary)">
           <input name="addr1" placeholder="Address line 1 *" required>
         </div>
@@ -150,7 +151,7 @@
         const name   = (fd.get('name')||'').trim();
         const email  = (fd.get('email')||'').trim();
         const phone  = (fd.get('phone')||'').trim();
-        const title  = (fd.get('title')||'').trim();
+        const title  = (fd.get('title')||'').trim(); // <-- CHANGED: read title (required)
         const notes  = (fd.get('notes')||'').trim();
 
         const address1 = (fd.get('addr1')||'').trim();
@@ -164,6 +165,7 @@
         if (!name) missing.push('Name');
         if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
         if (!phone) missing.push('Phone');
+        if (!title) missing.push('Title'); // <-- CHANGED: require Title
         if (!address1) missing.push('Address line 1');
         if (!city) missing.push('City');
         if (!state) missing.push('State/Province');
@@ -238,14 +240,13 @@
   const hasVisible = (items || []).some(i => {
     if (!i || i.active === false) return false;
     const s = i.publishStart ? Date.parse(i.publishStart) : null;
-    const e = i.publishEnd   ? Date.parse(i.publishEnd)   : null;
+    const e = i.publishEnd   ? Date.parse(i.publishEnd) : null;
     return (s == null || now >= s) && (e == null || now <= e);
   });
 
   if (!hasVisible) link.style.display = 'none';
 })();
 </script>
-
 
   <!-- Maintenance check -->
   <script>
