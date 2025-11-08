@@ -54,57 +54,9 @@
   </main>
 
   <script>
-  (async function(){
+  (function(){
     const q = new URLSearchParams(location.search);
-    const sid = q.get('sid') || q.get('session_id'); // Stripe appends either
-    const $ = (id)=>document.getElementById(id);
-    const money = (c)=> (Number(c||0)/100).toLocaleString(undefined,{style:'currency',currency:'USD'});
-
-    // ===== REPORTING DROP-IN (place immediately after reading SID) =====
-    // Fires a lightweight, idempotent "success" ping so reporting dashboards
-    // don't miss completed orders if webhooks are delayed or blocked.
-    (function sendSuccessPing(){
-      if (!sid) return;
-      const payload = {
-        sid,
-        page: 'success',
-        href: location.href,
-        ref: document.referrer || '',
-        ts: Date.now()
-      };
-      const url = '/api/router?type=success_ping';
-      try {
-        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        if (navigator.sendBeacon && navigator.sendBeacon(url, blob)) return;
-      } catch(e){}
-      // Fallback with keepalive so it still sends on page close
-      try {
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          keepalive: true,
-          cache: 'no-store'
-        }).catch(()=>{});
-      } catch(e){}
-      // Extra safety: retry once on visibility restore (mobile back/forward)
-      let retried = false;
-      document.addEventListener('visibilitychange', () => {
-        if (!retried && document.visibilityState === 'visible') {
-          retried = true;
-          try {
-            fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...payload, retry: true }),
-              keepalive: true,
-              cache: 'no-store'
-            }).catch(()=>{});
-          } catch(e){}
-        }
-      }, { once: true });
-    })();
-    // ===== END REPORTING DROP-IN =====
+    const sid = q.get('sid') || q.get('session_id');
 
     // Clear cart and notify other tabs
     try {
@@ -113,100 +65,78 @@
       localStorage.setItem('amaranth_cart_ping', String(Date.now()));
     } catch(e){}
 
-    const statusEl = $('status');
-    const detailsEl = $('details');
-    const ordIdEl = $('ordId');
-    const paidEl = $('paid');
-    const emailEl = $('email');
-    const tableEl = $('orderTable');
-    const linesEl = $('orderLines');
-    const totalEl = $('orderTotal');
+    const status  = document.getElementById('status');
+    const details = document.getElementById('details');
 
     if (!sid) {
-      statusEl.innerHTML = '<span class="warn">Payment completed, but no session id was provided.</span>';
+      status.textContent = 'Payment completed, but no session id was provided.';
       return;
     }
 
-    // 1) Ask server to save the order (idempotent). This covers "no webhook" cases.
-    try {
-      const fin = await fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid), { cache: 'no-store' });
-      if (fin.ok) {
-        const j = await fin.json();
-        if (j?.ok) statusEl.innerHTML = '<span class="ok">Payment confirmed. Receipt saved.</span>';
-        else statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize pending…</span>';
+    // 1) Finalize (SAVES the order + sends emails) — THIS is the important call
+    fetch('/api/router?action=finalize_checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid })
+    })
+    .then(r => r.json())
+    .then(async (j) => {
+      if (!j || j.error) {
+        status.textContent = (j && j.error) ? j.error : 'Could not finalize order.';
+        return;
+      }
+
+      // 2) Show confirmation basics using Stripe session data
+      const sessResp = await fetch('/api/router?type=checkout_session&id=' + encodeURIComponent(sid));
+      const s = await sessResp.json().catch(()=>null);
+
+      if (s && s.id) {
+        status.textContent = 'Payment confirmed.';
+        details.style.display = 'block';
+        document.getElementById('ordId').textContent = s.id;
+        const total = (s.amount_total||0)/100;
+        document.getElementById('paid').textContent =
+          total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+        document.getElementById('email').textContent = s.customer_details?.email || '—';
       } else {
-        statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize skipped.</span>';
+        status.textContent = 'Payment confirmed.';
       }
-    } catch {
-      statusEl.innerHTML = '<span class="warn">Payment confirmed. Finalize unavailable.</span>';
-    }
 
-    // Helper: render from a saved order object
-    function renderFromOrder(order) {
-      detailsEl.style.display = 'block';
-      ordIdEl.textContent = order.id || sid;
-      paidEl.textContent = money(order.amount_total || 0);
-      emailEl.textContent = (order.customer_email || '—');
+      // 3) Try to load the single saved order (more reliable than pulling the whole list)
+      const orderResp = await fetch('/api/router?type=order&oid=' + encodeURIComponent(sid));
+      const order = await orderResp.json().catch(()=>null);
 
-      const lines = Array.isArray(order.lines) ? order.lines : [];
-      if (lines.length) {
-        linesEl.innerHTML = lines.map(li => {
-          const lineTotal = Number(li.unitPrice||0) * Number(li.qty||1);
-          const notes = (li.category === 'banquet')
-            ? (li.meta?.attendeeNotes || '')
-            : (li.meta?.itemNote || '');
-          const notesHtml = notes ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,'&lt;')}</div>` : '';
-          return `<tr>
-            <td>${(li.itemName||'')}${notesHtml}</td>
-            <td>${Number(li.qty||1)}</td>
-            <td style="text-align:right">${money(li.unitPrice||0)}</td>
-            <td style="text-align:right">${money(lineTotal)}</td>
-          </tr>`;
-        }).join('');
-        totalEl.textContent = money(order.amount_total || lines.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0));
-        tableEl.style.display = 'table';
+      // Fallback: if single order isn’t available yet, try the rows list (optional)
+      let rows = [];
+      if (order && order.lines) {
+        // adapt order to rows-like for the table
+        rows = (order.lines || []).map(li => ({
+          item: li.itemName,
+          qty: li.qty,
+          price: (li.unitPrice || 0)/100,
+          gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+        }));
+      } else {
+        const all = await fetch('/api/router?type=orders').then(r=>r.json()).catch(()=>null);
+        rows = (all?.rows || []).filter(r => r.id === sid);
       }
-    }
-
-    // 2) Try reading the saved order directly
-    let haveRendered = false;
-    try {
-      const o = await fetch('/api/router?type=order&oid=' + encodeURIComponent(sid), { cache: 'no-store' });
-      if (o.ok) {
-        const j = await o.json();
-        if (j?.order) { renderFromOrder(j.order); haveRendered = true; }
-      }
-    } catch {}
-
-    if (haveRendered) return;
-
-    // 3) Fallback: read session basics + flattened rows (legacy)
-    try {
-      const sessResp = await fetch('/api/router?type=checkout_session&id=' + encodeURIComponent(sid), { cache: 'no-store' });
-      const sess = await sessResp.json();
-      if (!sess?.id) throw new Error();
-
-      statusEl.innerHTML = '<span class="ok">Payment confirmed.</span>';
-      detailsEl.style.display = 'block';
-      ordIdEl.textContent = sess.id;
-      paidEl.textContent = ( (sess.amount_total||0) / 100 ).toLocaleString(undefined,{style:'currency',currency:'USD'});
-      emailEl.textContent = (sess.customer_details?.email || '—');
-
-      const rowsResp = await fetch('/api/router?type=orders', { cache: 'no-store' });
-      const rowsJ = await rowsResp.json();
-      const rows = (rowsJ?.rows || []).filter(r => r.id === sess.id);
 
       if (rows.length) {
-        linesEl.innerHTML = rows.map(r =>
-          `<tr><td>${r.item}</td><td>${r.qty}</td><td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td><td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td></tr>`
+        const tbody = document.getElementById('orderLines');
+        tbody.innerHTML = rows.map(r =>
+          `<tr>
+            <td>${r.item}</td>
+            <td>${r.qty}</td>
+            <td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td>
+            <td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td>
+          </tr>`
         ).join('');
-        totalEl.textContent = ( (sess.amount_total||0) / 100 ).toLocaleString(undefined,{style:'currency',currency:'USD'});
-        tableEl.style.display = 'table';
+        document.getElementById('orderTable').style.display = 'table';
       }
-    } catch {
-      // As a last resort just leave the top summary; user still sees Order # and Paid.
-      statusEl.innerHTML += '';
-    }
+    })
+    .catch(()=>{
+      status.textContent = 'Could not finalize order.';
+    });
   })();
   </script>
 </body>
