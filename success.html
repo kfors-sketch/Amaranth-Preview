@@ -57,6 +57,7 @@
   (function(){
     const q = new URLSearchParams(location.search);
     const sid = q.get('sid') || q.get('session_id');
+    const nowTs = () => Date.now();
 
     // Clear cart and notify other tabs
     try {
@@ -73,7 +74,7 @@
       return;
     }
 
-    // 1) Finalize (SAVES the order + sends emails) — THIS is the important call
+    // 1) Finalize (SAVES the order + sends emails) — THIS is the important call (unchanged)
     fetch('/api/router?action=finalize_checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -86,8 +87,11 @@
         return;
       }
 
-      // 2) Show confirmation basics using Stripe session data
-      const sessResp = await fetch('/api/router?type=checkout_session&id=' + encodeURIComponent(sid));
+      // 2) Show confirmation basics using Stripe session data (no-store + cache-buster)
+      const sessResp = await fetch(
+        '/api/router?type=checkout_session&id=' + encodeURIComponent(sid) + '&t=' + nowTs(),
+        { cache: 'no-store' }
+      );
       const s = await sessResp.json().catch(()=>null);
 
       if (s && s.id) {
@@ -102,11 +106,14 @@
         status.textContent = 'Payment confirmed.';
       }
 
-      // 3) Try to load the single saved order (more reliable than pulling the whole list)
-      const orderResp = await fetch('/api/router?type=order&oid=' + encodeURIComponent(sid));
+      // 3) Try to load the single saved order (preferred; no-store + cache-buster)
+      const orderResp = await fetch(
+        '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
+        { cache: 'no-store' }
+      );
       const order = await orderResp.json().catch(()=>null);
 
-      // Fallback: if single order isn’t available yet, try the rows list (optional)
+      // Fallback: if single order isn’t available yet, try the rows list (optional; no-store + cache-buster)
       let rows = [];
       if (order && order.lines) {
         // adapt order to rows-like for the table
@@ -117,7 +124,11 @@
           gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
         }));
       } else {
-        const all = await fetch('/api/router?type=orders').then(r=>r.json()).catch(()=>null);
+        const listResp = await fetch(
+          '/api/router?type=orders&t=' + nowTs(),
+          { cache: 'no-store' }
+        ).catch(()=>null);
+        const all = listResp ? await listResp.json().catch(()=>null) : null;
         rows = (all?.rows || []).filter(r => r.id === sid);
       }
 
