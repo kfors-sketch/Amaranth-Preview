@@ -75,6 +75,8 @@
 
   <!-- CSV helper MUST come before our main script so window.CSV is available -->
   <script src="/assets/js/lib/csv.js"></script>
+  <!-- Optional static banquets (still supported) -->
+  <script src="/assets/js/banquets.js"></script>
 </head>
 <body>
   <div class="container">
@@ -152,10 +154,26 @@
 
         <div class="group">
           <label class="muted">Per Banquet</label>
-          <select id="dlBanquet" class="input" style="min-width:280px">
+          <select id="dlBanquet" class="input" style="min-width:260px">
             <option value="" selected disabled>Loading banquets…</option>
           </select>
           <button id="btnDownloadBanquet" class="btn">Download</button>
+        </div>
+
+        <div class="group">
+          <label class="muted">Per Add-On</label>
+          <select id="dlAddon" class="input" style="min-width:260px">
+            <option value="" selected disabled>Loading add-ons…</option>
+          </select>
+          <button id="btnDownloadAddon" class="btn">Download</button>
+        </div>
+
+        <div class="group">
+          <label class="muted">Per Catalog Item</label>
+          <select id="dlProduct" class="input" style="min-width:260px">
+            <option value="" selected disabled>Loading catalog…</option>
+          </select>
+          <button id="btnDownloadProduct" class="btn">Download</button>
         </div>
 
         <div class="muted">Note: Date range & search apply to all CSV downloads.</div>
@@ -221,28 +239,39 @@
         </div>
         <div id="sendPanel" class="hide" style="margin-top:12px">
           <div class="controls">
-            <label class="muted">Type</label>
-            <select id="chairKind" class="input">
-              <option value="banquet" selected>Banquet</option>
-              <option value="addon">Add-On</option>
-              <option value="catalog">Catalog</option>
+            <!-- Banquet -->
+            <label class="muted">Banquet</label>
+            <select id="banquetSelect" class="input" style="min-width:260px">
+              <option value="" selected disabled>Loading banquets…</option>
             </select>
+            <button id="btnSendBanquet" class="btn">Email Chair</button>
 
-            <label class="muted">Item</label>
-            <select id="chairItem" class="input" style="min-width:320px">
-              <option value="" selected disabled>Loading…</option>
+            <!-- Add-On -->
+            <label class="muted">Add-On</label>
+            <select id="addonSelect" class="input" style="min-width:260px">
+              <option value="" selected disabled>Loading add-ons…</option>
             </select>
+            <button id="btnSendAddon" class="btn">Email Chair</button>
 
+            <!-- Catalog -->
+            <label class="muted">Catalog Item</label>
+            <select id="productSelect" class="input" style="min-width:260px">
+              <option value="" selected disabled>Loading catalog…</option>
+            </select>
+            <button id="btnSendProduct" class="btn">Email Chair</button>
+
+            <!-- Scope -->
             <label class="muted">Scope</label>
             <select id="scopeSelect" class="input">
               <option value="current-month" selected>Current Month</option>
               <option value="full">Full Report</option>
             </select>
 
-            <button id="btnSendNow" class="btn">Email Chair Now</button>
             <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
           </div>
-          <div class="muted" style="margin-top:6px" id="sendHint">Uses your admin token (REPORT_TOKEN). “Test Email” uses REPORTS_CC/BCC as a fallback.</div>
+          <div class="muted" style="margin-top:6px" id="sendHint">
+            “Send Test Email” uses REPORTS_CC/BCC as a fallback if no “to” is provided.
+          </div>
         </div>
       </div>
     </div>
@@ -327,8 +356,8 @@ async function loadFromServer(){
 }
 $('#loadServerBtn').addEventListener('click', loadFromServer);
 
-// Build query string for server (start/end/q)
-function buildServerQuery(_forCsv, extraQ){
+// Build query string for server (start/end/q). Category/status are client-only.
+function buildServerQuery(forCsv, extraQ){
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
   const qSearch = ($('#search').value || '').trim();
@@ -452,7 +481,7 @@ document.getElementById('fileImport').addEventListener('change', async (e)=>{
 
 // Export CSV — prefer server CSV; fallback to client CSV
 document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-  await downloadServerCsv();
+  await downloadServerCsv(); // entire / visible via start/end/q
 });
 
 async function downloadServerCsv(extraQ){
@@ -470,7 +499,7 @@ async function downloadServerCsv(extraQ){
       return true;
     }
   }catch{}
-  // Client fallback
+  // Client fallback (exports only currently visible rows)
   const visible = applyFilters(rows);
   const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
   const exportRows = visible.map(r => ({
@@ -508,7 +537,7 @@ async function downloadServerCsv(extraQ){
 
 document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
 
-// Safer clear: require typing CLEAR (local only)
+// Safer clear: require typing CLEAR
 document.getElementById('btnClear').addEventListener('click', ()=>{
   const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
   if(conf === 'CLEAR'){
@@ -521,47 +550,92 @@ document.getElementById('btnClear').addEventListener('click', ()=>{
 document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
-/** Fetch data lists (banquets/addons/products) and populate selects **/
-async function ensureListsLoaded(){
-  // Only fetch if missing or empty
-  if (!Array.isArray(window.BANQUETS) || !window.BANQUETS.length) {
-    try {
-      const r = await fetch('/api/router?type=banquets', { cache:'no-store' });
-      const j = await r.json();
-      window.BANQUETS = Array.isArray(j.banquets) ? j.banquets : [];
-    } catch { window.BANQUETS = []; }
-  }
-  if (!Array.isArray(window.ADDONS) || !window.ADDONS.length) {
-    try {
-      const r = await fetch('/api/router?type=addons', { cache:'no-store' });
-      const j = await r.json();
-      window.ADDONS = Array.isArray(j.addons) ? j.addons : [];
-    } catch { window.ADDONS = []; }
-  }
-  if (!Array.isArray(window.PRODUCTS) || !window.PRODUCTS.length) {
-    try {
-      const r = await fetch('/api/router?type=products', { cache:'no-store' });
-      const j = await r.json();
-      window.PRODUCTS = Array.isArray(j.products) ? j.products : [];
-    } catch { window.PRODUCTS = []; }
-  }
+/** Populate selects (banquets/addons/products) **/
+async function fetchJSON(path, fallback){
+  try{
+    const r = await fetch(path, {cache:'no-store'});
+    if(!r.ok) throw 0;
+    return await r.json();
+  }catch{ return fallback; }
 }
 
-async function populateBanquetSelects(){
-  await ensureListsLoaded();
-  const data = (window.BANQUETS || []);
-  const dl = $('#dlBanquet');
-  if (dl) {
-    dl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
-    data.forEach(b=>{
+async function populateAllSelects(){
+  // Banquets (prefer API; fallback to window.BANQUETS)
+  const bj = await fetchJSON('/api/router?type=banquets', {banquets:[]});
+  const banquets = (bj && Array.isArray(bj.banquets) ? bj.banquets : (window.BANQUETS||[])) || [];
+
+  const bs = $('#banquetSelect');
+  const dbl = $('#dlBanquet');
+  if (bs) {
+    bs.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
+    banquets.forEach(b=>{
+      const opt = document.createElement('option');
+      opt.value = (b.id || b.name || '').toLowerCase();
+      opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
+      bs.appendChild(opt);
+    });
+  }
+  if (dbl) {
+    dbl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
+    banquets.forEach(b=>{
       const opt = document.createElement('option');
       opt.value = (b.id || b.name || '').toLowerCase();
       opt.textContent = b.name || b.id || 'Banquet';
-      dl.appendChild(opt);
+      dbl.appendChild(opt);
+    });
+  }
+
+  // Add-Ons
+  const aj = await fetchJSON('/api/router?type=addons', {addons:[]});
+  const addons = Array.isArray(aj.addons) ? aj.addons : [];
+  const as = $('#addonSelect');
+  const dal = $('#dlAddon');
+  if (as) {
+    as.innerHTML = '<option value="" selected disabled>Select an add-on…</option>';
+    addons.forEach(a=>{
+      const opt = document.createElement('option');
+      opt.value = (a.id || a.name || '').toLowerCase();
+      opt.textContent = `${a.name || a.id || 'Add-On'}${a.chairEmails?.length ? ' — ' + a.chairEmails.join(', ') : ''}`;
+      as.appendChild(opt);
+    });
+  }
+  if (dal) {
+    dal.innerHTML = '<option value="" selected disabled>Select an add-on…</option>';
+    addons.forEach(a=>{
+      const opt = document.createElement('option');
+      opt.value = (a.id || a.name || '').toLowerCase();
+      opt.textContent = a.name || a.id || 'Add-On';
+      dal.appendChild(opt);
+    });
+  }
+
+  // Products (Catalog)
+  const pj = await fetchJSON('/api/router?type=products', {products:[]});
+  const products = Array.isArray(pj.products) ? pj.products : [];
+  const ps = $('#productSelect');
+  const dpl = $('#dlProduct');
+  if (ps) {
+    ps.innerHTML = '<option value="" selected disabled>Select a catalog item…</option>';
+    products.forEach(p=>{
+      const opt = document.createElement('option');
+      opt.value = (p.id || p.name || '').toLowerCase();
+      opt.textContent = `${p.name || p.id || 'Item'}${p.chairEmails?.length ? ' — ' + p.chairEmails.join(', ') : ''}`;
+      ps.appendChild(opt);
+    });
+  }
+  if (dpl) {
+    dpl.innerHTML = '<option value="" selected disabled>Select a catalog item…</option>';
+    products.forEach(p=>{
+      const opt = document.createElement('option');
+      opt.value = (p.id || p.name || '').toLowerCase();
+      opt.textContent = p.name || p.id || 'Item';
+      dpl.appendChild(opt);
     });
   }
 }
+populateAllSelects();
 
+/** Download buttons for the new selects **/
 $('#btnDownloadCategory').addEventListener('click', async ()=>{
   const cat = $('#dlCategory').value; // '', banquet, addon, other
   const extraQ = cat ? cat : '';
@@ -574,20 +648,31 @@ $('#btnDownloadBanquet').addEventListener('click', async ()=>{
   await downloadServerCsv(`banquet ${val}`);
 });
 
-/** CSV helpers / normalization (placeholders) **/
-function csvToObjects(csv){ return []; }
-function splitCSVLine(line){ return []; }
-function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-function sampleRows(){ return []; }
-function ingest(d){ return Array.isArray(d)? d: [] }
-
-/** Send Now / Email automation **/
-$('#revealSendPanel').addEventListener('click', async ()=>{
-  $('#sendPanel').classList.toggle('hide');
-  await ensureListsLoaded();
-  refreshChairItems();
+$('#btnDownloadAddon').addEventListener('click', async ()=>{
+  const val = $('#dlAddon').value;
+  if (!val) { alert('Select an add-on'); return; }
+  await downloadServerCsv(`addon ${val}`);
 });
 
+$('#btnDownloadProduct').addEventListener('click', async ()=>{
+  const val = $('#dlProduct').value;
+  if (!val) { alert('Select a catalog item'); return; }
+  await downloadServerCsv(`other ${val}`);
+});
+
+/** CSV helpers / normalization (placeholders if your project already has them) **/
+function csvToObjects(csv){ /* keep/replace with your implementation if needed */ return []; }
+function splitCSVLine(line){ /* keep/replace with your implementation if needed */ return []; }
+function cryptoRandom(){ return Math.random().toString(36).slice(2) }
+function sampleRows(){ /* supply your own sample if you like */ return []; }
+function ingest(d){ /* normalize to rows[] shape if importing */ return Array.isArray(d)? d: [] }
+
+/** Send Now / Email automation **/
+$('#revealSendPanel').addEventListener('click', ()=>{
+  $('#sendPanel').classList.toggle('hide');
+});
+
+// Manual send to verify email pipeline
 $('#btnSendTest').addEventListener('click', async ()=>{
   try{
     const r = await fetch('/api/router?action=test_resend', { method:'POST' });
@@ -599,88 +684,25 @@ $('#btnSendTest').addEventListener('click', async ()=>{
   }
 });
 
-// Chair-specific EMAIL to banquet/addon/catalog chair(s)
-$('#btnSendNow').addEventListener('click', async ()=>{
-  const kind = $('#chairKind').value || 'banquet';
-  const itemSel = $('#chairItem');
-  const itemId = itemSel?.selectedOptions?.[0]?.getAttribute('data-id') || '';
-  const itemName = itemSel?.selectedOptions?.[0]?.textContent || '';
-  if (!itemId && !itemName) { alert('Pick an item.'); return; }
-
-  // scope
-  const scope = $('#scopeSelect').value || 'current-month';
-  let start = '', end = '';
-  const now = new Date();
-  if (scope === 'current-month') {
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    start = `${y}-${String(m+1).padStart(2,'0')}-01`;
-    const last = new Date(y, m+1, 0).getDate();
-    end = `${y}-${String(m+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
-  }
-
-  // auth
-  const token = localStorage.getItem('amaranth_report_token') || '';
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = 'Bearer ' + token;
-
-  try{
-    const r = await fetch('/api/router?action=send_item_report', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ kind, itemId, itemName, start, end })
-    });
-    const j = await r.json();
-    if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
-    $('#sendMsg').textContent = `Chair email queued (${j.rows} rows).`;
-  }catch(e){
-    $('#sendMsg').textContent = 'Send failed: ' + e.message + ' (Check admin token / REPORT_TOKEN)';
-  }
+// Placeholders to wire up chair-specific sends later (server endpoint TBD)
+function scopeHint(){ return ($('#scopeSelect').value || 'current-month').replace('-',' '); }
+$('#btnSendBanquet').addEventListener('click', ()=>{
+  const v = $('#banquetSelect').value || '';
+  if(!v) return alert('Pick a banquet first.');
+  alert(`Would email banquet chair(s) a ${scopeHint()} report for: ${v}`);
+});
+$('#btnSendAddon').addEventListener('click', ()=>{
+  const v = $('#addonSelect').value || '';
+  if(!v) return alert('Pick an add-on first.');
+  alert(`Would email add-on chair(s) a ${scopeHint()} report for: ${v}`);
+});
+$('#btnSendProduct').addEventListener('click', ()=>{
+  const v = $('#productSelect').value || '';
+  if(!v) return alert('Pick a catalog item first.');
+  alert(`Would email catalog item chair(s) a ${scopeHint()} report for: ${v}`);
 });
 
-// Keep item list in sync with chosen kind
-$('#chairKind').addEventListener('change', refreshChairItems);
-
-function normalizeItemRecord(item){
-  // Accept various shapes (id/name/title/itemId/slug/code; chairEmails optional)
-  const id = (item.id || item.itemId || item.slug || item.code || item.name || '').toString();
-  const name = (item.name || item.title || id || 'Item').toString();
-  const chairs = Array.isArray(item.chairEmails) ? item.chairEmails : [];
-  return { id, name, chairEmails: chairs };
-}
-
-function refreshChairItems(){
-  const kind = $('#chairKind').value || 'banquet';
-  const sel = $('#chairItem');
-  sel.innerHTML = '<option value="" selected disabled>Loading…</option>';
-
-  let list = [];
-  if (kind === 'banquet') list = (window.BANQUETS || []);
-  else if (kind === 'addon') list = (window.ADDONS || []);
-  else list = (window.PRODUCTS || []);
-
-  if (!Array.isArray(list)) list = [];
-
-  sel.innerHTML = '';
-  list.map(normalizeItemRecord).forEach(item=>{
-    const opt = document.createElement('option');
-    opt.value = item.id;
-    opt.setAttribute('data-id', item.id);
-    opt.textContent = item.name + (item.chairEmails?.length ? ` — ${item.chairEmails.join(', ')}` : '');
-    sel.appendChild(opt);
-  });
-
-  if (!list.length) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.disabled = true;
-    opt.selected = true;
-    opt.textContent = 'No items found';
-    sel.appendChild(opt);
-  }
-}
-
-/** Admin bulk sends **/
+// Month-to-date / Full email sends (admin)
 async function adminSend(path){
   const token = localStorage.getItem('amaranth_report_token') || '';
   const headers = { 'Content-Type':'application/json' };
@@ -759,10 +781,7 @@ function closeRefundModal(){
 }
 
 // ---- init ----
-(async function init(){
-  await ensureListsLoaded();
-  await populateBanquetSelects();
-  refreshChairItems(); // default "Banquet" list fills immediately
+(function init(){
   rows = loadFromLocal();
   render();
 })();
