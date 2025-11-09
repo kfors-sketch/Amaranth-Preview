@@ -41,7 +41,7 @@
     <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div>
         <h1>Banquet Manager</h1>
-        <div class="muted">Create, edit, or retire banquets and add-ons</div>
+        <div class="muted">Create, edit, or retire banquets</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
@@ -53,7 +53,7 @@
     <section class="col rules">
       <strong>Rules & Tips</strong>
       <ul class="muted" style="margin:8px 0 0 16px">
-        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>pa2026-banquet-chicken</code>).</li>
+        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>trails-feast</code>).</li>
         <li><b>Chair Emails</b>: comma-separated list; leave blank if unknown.</li>
         <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
         <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
@@ -65,7 +65,7 @@
       <!-- List -->
       <section class="col left">
         <div class="toolbar">
-          <button id="btnAddNew" class="btn success">+ New Banquet/Add-On</button>
+          <button id="btnAddNew" class="btn success">+ New Banquet</button>
           <button id="btnExport" class="btn ghost">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
@@ -78,7 +78,7 @@
             <thead>
               <tr>
                 <th style="min-width:160px">Name</th>
-                <th style="min-width:160px">ID</th>
+                <th style="min-width:120px">ID</th>
                 <th>Event Date</th>
                 <th>Active</th>
                 <th>Publish Window</th>
@@ -99,11 +99,11 @@
         </div>
 
         <label for="f_name">Name</label>
-        <input id="f_name" type="text" placeholder="PA 2026 — Banquet (Chicken)" />
+        <input id="f_name" type="text" placeholder="Trails & Treasures Feast" />
 
         <label for="f_id">ID</label>
-        <input id="f_id" type="text" placeholder="pa2026-banquet-chicken" />
-        <div class="hint">lowercase letters, numbers, dashes. Example: <code>pa2026-banquet-chicken</code></div>
+        <input id="f_id" type="text" placeholder="trails-feast" />
+        <div class="hint">lowercase letters, numbers, dashes. Example: <code>trails-feast</code></div>
 
         <label for="f_chair_name">Chairperson Name</label>
         <input id="f_chair_name" type="text" placeholder="Jane Smith" />
@@ -124,7 +124,7 @@
           </div>
           <div>
             <label for="f_price">Ticket Price (USD)</label>
-            <input id="f_price" type="number" step="0.01" min="0" placeholder="35.00" />
+            <input id="f_price" type="number" step="0.01" min="0" placeholder="60.00" />
           </div>
         </div>
 
@@ -195,19 +195,66 @@
     return isNaN(d) ? '' : d.toISOString();
   }
 
+  // ---- Normalization helpers (migrate legacy -> new) ----
+  function normalizeBanquet(b){
+    const out = {...b};
+
+    // price: prefer top-level price; else derive from options[0].price (options might be cents or dollars depending on legacy — assume dollars here)
+    if (out.price == null) {
+      const opt0 = Array.isArray(out.options) && out.options[0] ? out.options[0] : null;
+      if (opt0 && opt0.price != null) out.price = Number(opt0.price) || 0;
+      else out.price = 0;
+    } else {
+      out.price = Number(out.price) || 0;
+    }
+
+    // coerce booleans / arrays
+    out.active = (out.active !== false);
+    if (!Array.isArray(out.mealChoices)) {
+      if (typeof out.mealChoices === 'string' && out.mealChoices.trim()) {
+        out.mealChoices = out.mealChoices.split(',').map(s=>s.trim()).filter(Boolean);
+      } else {
+        out.mealChoices = [];
+      }
+    }
+    if (!Array.isArray(out.chairEmails)) {
+      const e = out.chairEmails || (out.chair && out.chair.email) || '';
+      out.chairEmails = e ? String(e).split(',').map(s=>s.trim()).filter(Boolean) : [];
+    }
+
+    // keep chair object in sync with first email (if present)
+    out.chair = out.chair || {};
+    if (!out.chair.name) out.chair.name = '';
+    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
+
+    // ensure ISO fields are strings or empty
+    out.eventAt = out.eventAt || '';
+    out.publishStart = out.publishStart || '';
+    out.publishEnd = out.publishEnd || '';
+
+    // remove legacy options to avoid writing them back out
+    delete out.options;
+
+    return out;
+  }
+
+  function normalizeAll(list){
+    return (Array.isArray(list) ? list : []).map(normalizeBanquet);
+  }
+
   let model = [];
   let current = null;
   let isNew = true;
 
-  // ---- Initial Load (with empty-array fallback fix) ----
+  // ---- Initial Load (server first, fallback to static) ----
   async function loadInitial(){
     let loaded = false;
     try {
       const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.banquets) && j.banquets.length > 0) {
-          model = j.banquets;
+        if (Array.isArray(j?.banquets)) {
+          model = normalizeAll(j.banquets);
           loaded = true;
         }
       }
@@ -217,7 +264,7 @@
 
     if (!loaded) {
       const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      model = JSON.parse(JSON.stringify(src));
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Using static list (fallback).';
     } else {
       $('#listMsg').textContent = 'Loaded from server.';
@@ -234,15 +281,15 @@
       const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.banquets) && j.banquets.length > 0){
-          model = j.banquets; loaded = true;
+        if (Array.isArray(j?.banquets)){
+          model = normalizeAll(j.banquets); loaded = true;
           $('#listMsg').textContent = 'Loaded from server.';
         }
       }
     }catch(err){ console.warn('Refresh server error:', err); }
     if(!loaded){
       const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      model = JSON.parse(JSON.stringify(src));
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
     renderList(); startNew();
@@ -299,27 +346,26 @@
   }
 
   function fillForm(b){
+    const n = normalizeBanquet(b); // ensure current is normalized
     isNew = false;
-    current = b;
+    current = n;
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = '';
 
-    $('#f_name').value = b.name || '';
-    $('#f_id').value = b.id || '';
-    $('#f_chair_name').value = (b.chair && b.chair.name) ? b.chair.name : '';
-    $('#f_chair_emails').value = Array.isArray(b.chairEmails) ? b.chairEmails.join(', ') : (b.chair?.email || '');
-    $('#f_meals').value = Array.isArray(b.mealChoices) ? b.mealChoices.join(',') : (b.mealChoices || '');
+    $('#f_name').value = n.name || '';
+    $('#f_id').value = n.id || '';
+    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
+    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
+    $('#f_meals').value = Array.isArray(n.mealChoices) ? n.mealChoices.join(',') : (n.mealChoices || '');
 
-    $('#f_active').value = String(b.active !== false);
-    // Prefer a single “Ticket” option; fallback if structure differs
-    const basePrice = Array.isArray(b.options) && b.options.length ? (b.options[0].price || 0) : (b.price || 0);
-    $('#f_price').value = basePrice ? Number(basePrice).toFixed(2) : '';
+    $('#f_active').value = String(n.active !== false);
+    $('#f_price').value = n.price ? Number(n.price).toFixed(2) : '';
 
-    $('#f_location').value = b.location || '';
-    $('#f_eventAt').value = toLocalDT(b.eventAt || '');
-    $('#f_start').value = toLocalDT(b.publishStart || '');
-    $('#f_end').value = toLocalDT(b.publishEnd || '');
-    $('#f_notes').value = b.description || b.notes || '';
+    $('#f_location').value = n.location || '';
+    $('#f_eventAt').value = toLocalDT(n.eventAt || '');
+    $('#f_start').value = toLocalDT(n.publishStart || '');
+    $('#f_end').value = toLocalDT(n.publishEnd || '');
+    $('#f_notes').value = n.description || n.notes || '';
   }
 
   function readForm(){
@@ -345,15 +391,14 @@
       ? mealsRaw.split(',').map(s=>s.trim()).filter(Boolean)
       : [];
 
-    // Legacy-friendly: also provide a human-readable datetime for frontends that display it
     const datetimePretty = eventAtISO ? new Date(eventAtISO).toLocaleString() : '';
 
-    // Frontend expects { options:[{id,label,price}], mealChoices[], active, publishStart/End, chair, chairEmails, location, id, name, description }
+    // New schema with top-level price (no options)
     return {
       id,
       name,
       active,
-      options: [{ id: "ticket", label: "Ticket", price: Math.round(price * 100) / 100 }], // keep dollars in file; UI pages normalize
+      price: Math.round(price * 100) / 100, // keep as dollars in data file
       mealChoices,
       eventAt: eventAtISO,
       datetime: datetimePretty,
@@ -370,11 +415,9 @@
     if (!o.name) return 'Name is required.';
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-    const p = (o.options && o.options[0] && Number(o.options[0].price)) || 0;
-    if (p < 0) return 'Price cannot be negative.';
+    if (Number(o.price) < 0) return 'Price cannot be negative.';
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
-    // basic email sanity
     for (const em of (o.chairEmails || [])){
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
@@ -401,7 +444,7 @@
     const id = e.currentTarget.dataset.id;
     const b = model.find(x => x.id === id);
     if (!b) { $('#editMsg').textContent = 'Item not found.'; return; }
-    const copy = JSON.parse(JSON.stringify(b));
+    const copy = normalizeBanquet(JSON.parse(JSON.stringify(b)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'item') + '-copy';
     copy.id = uniqueId(baseId);
@@ -412,7 +455,7 @@
     copy.datetime = '';
     startNew();
     fillForm(copy);
-    isNew = true; // indicate this will add, not update-in-place
+    isNew = true; // will add, not update-in-place
     $('#modeChip').textContent = 'New (from copy)';
   }
 
@@ -422,7 +465,8 @@
 
   // Export / Import
   $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(model, null, 2)], {type:'application/json'});
+    // Always export normalized new schema
+    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'banquets-export.json';
@@ -437,7 +481,7 @@
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = data;
+      model = normalizeAll(data);
       renderList();
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
@@ -469,8 +513,13 @@
       const headers = { "Content-Type": "application/json" };
       const t = localStorage.getItem("amaranth_report_token");
       if (t) headers.Authorization = "Bearer " + t;
+      // Always write new schema (price), never legacy options
+      const payload = normalizeAll(model).map(it => {
+        const { options, ...rest } = it;
+        return rest;
+      });
       const res = await fetch("/api/router?action=save_banquets", {
-        method: "POST", headers, body: JSON.stringify({ banquets: model })
+        method: "POST", headers, body: JSON.stringify({ banquets: payload })
       });
       if (!res.ok) throw new Error("server rejected");
       $('#editMsg').textContent = 'Saved to server.';
