@@ -815,6 +815,83 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
+      // ---- PUBLIC: send chair-specific CSV by category+item (no auth) ----
+      if (action === "send_item_report") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+
+        const kind  = String((body?.kind || body?.category || "")).toLowerCase();
+        const id    = String(body?.id || "").trim();
+        const label = String(body?.label || "").trim();
+        const scope = String(body?.scope || "current-month");
+
+        if (!kind || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
+
+        // Collect all rows, then filter the same way /orders_csv does
+        const ids = await kvSmembersSafe("orders:index");
+        let all = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) all.push(...flattenOrderToRows(o));
+        }
+
+        // Optional scope: current month vs full
+        let startMs, endMs;
+        if (scope === "current-month") {
+          const now = new Date();
+          const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+          startMs = start.getTime();
+          endMs = Date.now() + 1;
+        }
+
+        let rows = all;
+        if (startMs || endMs) {
+          rows = filterRowsByWindow(rows, { startMs, endMs });
+        }
+        rows = applyItemFilters(rows, { category: kind, item_id: id, item: label });
+
+        // Build CSV
+        const csv = buildCSV(rows);
+
+        // Find recipients from itemcfg:<id>
+        const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+        const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
+          ? cfg.chairEmails
+          : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
+
+        const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const toList = (chairEmails.length ? chairEmails : fallback);
+        if (!toList.length) return REQ_ERR(res, 400, "no-recipient");
+
+        const prettyKind = kind === "other" ? "catalog" : kind;
+        const subject = `Report — ${prettyKind}: ${label || id}`;
+        const tablePreview = `
+          <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+            <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
+            <p>Rows: <b>${rows.length}</b></p>
+            <div style="font-size:12px;color:#555">Scope: ${scope}</div>
+          </div>`;
+
+        try {
+          // Resend attachments want base64
+          const csvB64 = Buffer.from(csv, "utf8").toString("base64");
+          const sendResult = await resend.emails.send({
+            from: RESEND_FROM,
+            to: toList,
+            subject,
+            html: tablePreview,
+            reply_to: REPLY_TO || undefined,
+            attachments: [{ filename: "report.csv", content: csvB64 }]
+          });
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
+          return REQ_OK(res, { ok: true, count: rows.length, to: toList });
+        } catch (e) {
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
+          return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
+        }
+      }
+
       // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
@@ -1096,84 +1173,6 @@ export default async function handler(req, res) {
       }
 
       return REQ_ERR(res, 400, "unknown-action");
-    }
-
-    // ---------- PUBLIC (no auth) actions ----------
-    if (req.method === "POST" && action === "send_item_report") {
-      // Expected body: { kind: 'banquet'|'addon'|'other', id: 'item-id', label: 'Human Name', scope: 'current-month'|'full' }
-      if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-
-      const kind  = String((req.body?.kind || req.body?.category || "")).toLowerCase();
-      const id    = String(req.body?.id || "").trim();
-      const label = String(req.body?.label || "").trim();
-      const scope = String(req.body?.scope || "current-month");
-
-      if (!kind || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
-
-      // Collect all rows, then filter the same way /orders_csv does
-      const ids = await kvSmembersSafe("orders:index");
-      let all = [];
-      for (const sid of ids) {
-        const o = await kvGetSafe(`order:${sid}`, null);
-        if (o) all.push(...flattenOrderToRows(o));
-      }
-
-      // Optional scope: current month vs full
-      let startMs, endMs;
-      if (scope === "current-month") {
-        const now = new Date();
-        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-        startMs = start.getTime();
-        endMs = Date.now() + 1;
-      }
-
-      let rows = all;
-      if (startMs || endMs) {
-        rows = filterRowsByWindow(rows, { startMs, endMs });
-      }
-      rows = applyItemFilters(rows, { category: kind, item_id: id, item: label });
-
-      // Build CSV
-      const csv = buildCSV(rows);
-
-      // Find recipients from itemcfg:<id>
-      const cfg = await kvHgetallSafe(`itemcfg:${id}`);
-      const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
-        ? cfg.chairEmails
-        : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
-
-      const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-        .split(",").map(s=>s.trim()).filter(Boolean);
-
-      const toList = (chairEmails.length ? chairEmails : fallback);
-      if (!toList.length) return REQ_ERR(res, 400, "no-recipient");
-
-      const prettyKind = kind === "other" ? "catalog" : kind;
-      const subject = `Report — ${prettyKind}: ${label || id}`;
-      const tablePreview = `
-        <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-          <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
-          <p>Rows: <b>${rows.length}</b></p>
-          <div style="font-size:12px;color:#555">Scope: ${scope}</div>
-        </div>`;
-
-      try {
-        // Resend attachments want base64
-        const csvB64 = Buffer.from(csv, "utf8").toString("base64");
-        const sendResult = await resend.emails.send({
-          from: RESEND_FROM,
-          to: toList,
-          subject,
-          html: tablePreview,
-          reply_to: REPLY_TO || undefined,
-          attachments: [{ filename: "report.csv", content: csvB64 }]
-        });
-        await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
-        return REQ_OK(res, { ok: true, count: rows.length, to: toList });
-      } catch (e) {
-        await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
-        return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
-      }
     }
 
     return REQ_ERR(res, 405, "method-not-allowed");
