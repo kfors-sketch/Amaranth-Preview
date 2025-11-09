@@ -307,19 +307,37 @@ async function buildFilteredRows(url) {
     );
   }
 
-  // NEW: exact filters
-  const categoryParam = (url.searchParams.get("category") || "").toLowerCase();
-  const itemIdParam   = (url.searchParams.get("item_id") || "").toLowerCase();
-  const itemParam     = (url.searchParams.get("item") || "").toLowerCase();
+  // NEW: exact & forgiving filters
+  const categoryParamRaw = (url.searchParams.get("category") || "").toLowerCase();
+  // Treat "catalog" as "other" internally
+  const categoryParam = categoryParamRaw === "catalog" ? "other" : categoryParamRaw;
+
+  const itemIdParam = (url.searchParams.get("item_id") || "").toLowerCase();
+  const itemParam   = (url.searchParams.get("item") || "").toLowerCase();
 
   if (categoryParam) {
-    rows = rows.filter(r => (r._category || r.category || "").toLowerCase() === categoryParam);
+    rows = rows.filter(r => {
+      const rc = (r._category || r.category || "").toLowerCase();
+      if (categoryParam === "other") {
+        // Accept "other" and "catalog" rows
+        return rc === "other" || rc === "catalog";
+      }
+      return rc === categoryParam;
+    });
   }
+
   if (itemIdParam) {
-    rows = rows.filter(r => (r._itemId || "").toLowerCase() === itemIdParam);
+    // 1) try strict id match
+    let filtered = rows.filter(r => (r._itemId || "").toLowerCase() === itemIdParam);
+    // 2) fallback: item name contains the id (common when metadata itemId is missing)
+    if (!filtered.length) {
+      filtered = rows.filter(r => String(r.item || "").toLowerCase().includes(itemIdParam));
+    }
+    rows = filtered;
   }
+
   if (itemParam) {
-    rows = rows.filter(r => String(r.item||"").toLowerCase().includes(itemParam));
+    rows = rows.filter(r => String(r.item || "").toLowerCase().includes(itemParam));
   }
 
   rows.sort((a,b) => {
@@ -913,6 +931,83 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true });
       }
 
+      // -------- Per-item email (chair) — PUBLIC (no token) --------
+      if (action === "send_item_report") { 
+        // NOTE: no admin token required; this is used from the reporting UI
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+
+        const { kind = "", id = "", label = "", scope = "current-month" } = body || {};
+        const kindKey = String(kind || "").toLowerCase(); // banquet | addon | other
+        if (!kindKey || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
+
+        // Resolve chairs + human label
+        const map = { banquet: "banquets", addon: "addons", other: "products" };
+        const list = (await kvGetSafe(map[kindKey])) || [];
+        const found = list.find(x => (String(x.id||x.name||"").toLowerCase() === String(id).toLowerCase()));
+        const chairEmails = (found?.chairEmails || []).map(s=>String(s||"").trim()).filter(Boolean);
+        const displayName = label || found?.name || id;
+
+        // Time window from scope
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1);
+        const buildUrl = new URL("http://x/orders");
+        if (scope === "current-month") {
+          buildUrl.searchParams.set("start", start.toISOString().slice(0,10));
+          buildUrl.searchParams.set("end", new Date(now.getFullYear(), now.getMonth()+1, 1).toISOString().slice(0,10));
+        }
+        buildUrl.searchParams.set("category", kindKey);
+        buildUrl.searchParams.set("item_id", String(id).toLowerCase());
+
+        const rows = await buildFilteredRows(buildUrl);
+
+        // Build CSV with BOM
+        const headers = [
+          "date","id","purchaser","attendee","category","item","qty","price","gross","fees","net","status","notes"
+        ];
+        const esc = (v) => {
+          const s = String(v ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csvBody = [
+          headers.join(","),
+          ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+        ].join("\n");
+        const csv = "\uFEFF" + csvBody; // BOM
+        const b64 = Buffer.from(csv, "utf8").toString("base64");
+
+        const toList = chairEmails.length
+          ? chairEmails
+          : (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+              .split(",").map(s=>s.trim()).filter(Boolean);
+
+        if (!toList.length) return REQ_ERR(res, 400, "no-recipients");
+
+        const subject = `Amaranth ${kindKey} report — ${displayName} — ${scope === "current-month" ? "Month-to-date" : "Full"}`;
+        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+          <p>Hello,</p>
+          <p>Attached is the ${kindKey} report for <strong>${displayName}</strong> (${scope.replace('-',' ')})</p>
+          <p>Rows: ${rows.length}</p>
+        </div>`;
+
+        try{
+          const sendResult = await resend.emails.send({
+            from: RESEND_FROM,
+            to: toList,
+            subject,
+            html,
+            reply_to: REPLY_TO || undefined,
+            attachments: [{
+              filename: `${kindKey}-${displayName.replace(/[^\w.-]+/g,'_')}.csv`,
+              content: b64
+            }]
+          });
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, status: "queued", kind: "item-report", meta: { kind: kindKey, id } });
+          return REQ_OK(res, { ok: true, queued: true, to: toList, count: rows.length });
+        }catch(e){
+          return REQ_ERR(res, 500, "send-item-failed", { message: e?.message || String(e) });
+        }
+      }
+
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
@@ -1002,82 +1097,6 @@ export default async function handler(req, res) {
           await kvHsetSafe("settings:overrides", allow);
         }
         return REQ_OK(res, { ok: true, overrides: allow });
-      }
-
-      // -------- Per-item email (chair) --------
-      if (action === "send_item_report") {
-        if (!requireToken(req, res)) return;
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-
-        const { kind = "", id = "", label = "", scope = "current-month" } = body || {};
-        const kindKey = String(kind || "").toLowerCase(); // banquet | addon | other
-        if (!kindKey || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
-
-        // Resolve chairs + human label
-        const map = { banquet: "banquets", addon: "addons", other: "products" };
-        const list = (await kvGetSafe(map[kindKey])) || [];
-        const found = list.find(x => (String(x.id||x.name||"").toLowerCase() === String(id).toLowerCase()));
-        const chairEmails = (found?.chairEmails || []).map(s=>String(s||"").trim()).filter(Boolean);
-        const displayName = label || found?.name || id;
-
-        // Time window from scope
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        const url = new URL("http://x/orders");
-        if (scope === "current-month") {
-          url.searchParams.set("start", start.toISOString().slice(0,10));
-          url.searchParams.set("end", new Date(now.getFullYear(), now.getMonth()+1, 1).toISOString().slice(0,10));
-        }
-        url.searchParams.set("category", kindKey);
-        url.searchParams.set("item_id", String(id).toLowerCase());
-
-        const rows = await buildFilteredRows(url);
-        // Build CSV with BOM
-        const headers = [
-          "date","id","purchaser","attendee","category","item","qty","price","gross","fees","net","status","notes"
-        ];
-        const esc = (v) => {
-          const s = String(v ?? "");
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-        const csvBody = [
-          headers.join(","),
-          ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-        ].join("\n");
-        const csv = "\uFEFF" + csvBody; // BOM
-        const b64 = Buffer.from(csv, "utf8").toString("base64");
-
-        const toList = chairEmails.length
-          ? chairEmails
-          : (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-              .split(",").map(s=>s.trim()).filter(Boolean);
-
-        if (!toList.length) return REQ_ERR(res, 400, "no-recipients");
-
-        const subject = `Amaranth ${kindKey} report — ${displayName} — ${scope === "current-month" ? "Month-to-date" : "Full"}`;
-        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-          <p>Hello,</p>
-          <p>Attached is the ${kindKey} report for <strong>${displayName}</strong> (${scope.replace('-',' ')})</p>
-          <p>Rows: ${rows.length}</p>
-        </div>`;
-
-        try{
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM,
-            to: toList,
-            subject,
-            html,
-            reply_to: REPLY_TO || undefined,
-            attachments: [{
-              filename: `${kindKey}-${displayName.replace(/[^\w.-]+/g,'_')}.csv`,
-              content: b64
-            }]
-          });
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, status: "queued", kind: "item-report", meta: { kind: kindKey, id } });
-          return REQ_OK(res, { ok: true, queued: true, to: toList, count: rows.length });
-        }catch(e){
-          return REQ_ERR(res, 500, "send-item-failed", { message: e?.message || String(e) });
-        }
       }
 
       return REQ_ERR(res, 400, "unknown-action");
