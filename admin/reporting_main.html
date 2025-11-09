@@ -75,7 +75,7 @@
 
   <!-- CSV helper MUST come before our main script so window.CSV is available -->
   <script src="/assets/js/lib/csv.js"></script>
-  <!-- Optional static banquets (still supported) -->
+  <!-- Optional static banquets (still supported as fallback) -->
   <script src="/assets/js/banquets.js"></script>
 </head>
 <body>
@@ -137,49 +137,6 @@
       </div>
     </div>
 
-    <!-- Server-side CSV shortcuts -->
-    <div class="card">
-      <h3>Download CSV</h3>
-      <div class="controls">
-        <div class="group">
-          <label class="muted">By Category</label>
-          <select id="dlCategory" class="input">
-            <option value="">Entire Report</option>
-            <option value="banquet">Banquet Only</option>
-            <option value="addon">Add-On Only</option>
-            <option value="other">Catalog Only</option>
-          </select>
-          <button id="btnDownloadCategory" class="btn">Download</button>
-        </div>
-
-        <div class="group">
-          <label class="muted">Per Banquet</label>
-          <select id="dlBanquet" class="input" style="min-width:260px">
-            <option value="" selected disabled>Loading banquets…</option>
-          </select>
-          <button id="btnDownloadBanquet" class="btn">Download</button>
-        </div>
-
-        <div class="group">
-          <label class="muted">Per Add-On</label>
-          <select id="dlAddon" class="input" style="min-width:260px">
-            <option value="" selected disabled>Loading add-ons…</option>
-          </select>
-          <button id="btnDownloadAddon" class="btn">Download</button>
-        </div>
-
-        <div class="group">
-          <label class="muted">Per Catalog Item</label>
-          <select id="dlProduct" class="input" style="min-width:260px">
-            <option value="" selected disabled>Loading catalog…</option>
-          </select>
-          <button id="btnDownloadProduct" class="btn">Download</button>
-        </div>
-
-        <div class="muted">Note: Date range & search apply to all CSV downloads.</div>
-      </div>
-    </div>
-
     <!-- Totals -->
     <div class="card">
       <h3>Totals (visible)</h3>
@@ -222,58 +179,39 @@
       </div>
     </div>
 
-    <!-- Send Reports -->
-    <div class="card" id="sendNowCard" style="margin-top:12px">
-      <h3>Email Reports</h3>
-      <div class="controls" style="margin-bottom:6px">
+    <!-- Unified Report Actions (category -> item -> action) -->
+    <div class="card" style="margin-top:12px">
+      <h3>Report Actions</h3>
+      <div class="controls">
         <div class="group">
-          <button id="btnSendMTD" class="btn success" title="Email month-to-date reports to chairs + admin">Send Month-to-Date</button>
-          <button id="btnSendFull" class="btn ghost"  title="Email full-history reports to chairs + admin">Send Full</button>
+          <label class="muted">Category</label>
+          <select id="actCategory" class="input">
+            <option value="" selected disabled>Select…</option>
+            <option value="banquet">Banquet</option>
+            <option value="addon">Add-On</option>
+            <option value="other">Catalog</option>
+          </select>
         </div>
-        <span id="sendMsg" class="muted"></span>
-      </div>
-
-      <div style="border-top:1px solid #eee;margin-top:8px;padding-top:8px">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button id="revealSendPanel" class="btn">Chair-Specific Actions</button>
+        <div class="group" style="min-width:320px;flex:1">
+          <label class="muted">Choice</label>
+          <select id="actChoice" class="input" style="min-width:280px">
+            <option value="" selected disabled>Select a category first…</option>
+          </select>
         </div>
-        <div id="sendPanel" class="hide" style="margin-top:12px">
-          <div class="controls">
-            <!-- Banquet -->
-            <label class="muted">Banquet</label>
-            <select id="banquetSelect" class="input" style="min-width:260px">
-              <option value="" selected disabled>Loading banquets…</option>
-            </select>
-            <button id="btnSendBanquet" class="btn">Email Chair</button>
-
-            <!-- Add-On -->
-            <label class="muted">Add-On</label>
-            <select id="addonSelect" class="input" style="min-width:260px">
-              <option value="" selected disabled>Loading add-ons…</option>
-            </select>
-            <button id="btnSendAddon" class="btn">Email Chair</button>
-
-            <!-- Catalog -->
-            <label class="muted">Catalog Item</label>
-            <select id="productSelect" class="input" style="min-width:260px">
-              <option value="" selected disabled>Loading catalog…</option>
-            </select>
-            <button id="btnSendProduct" class="btn">Email Chair</button>
-
-            <!-- Scope -->
-            <label class="muted">Scope</label>
-            <select id="scopeSelect" class="input">
-              <option value="current-month" selected>Current Month</option>
-              <option value="full">Full Report</option>
-            </select>
-
-            <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
-          </div>
-          <div class="muted" style="margin-top:6px" id="sendHint">
-            “Send Test Email” uses REPORTS_CC/BCC as a fallback if no “to” is provided.
-          </div>
+        <div class="group">
+          <label class="muted">Scope</label>
+          <select id="scopeSelect" class="input">
+            <option value="current-month" selected>Current Month</option>
+            <option value="full">Full Report</option>
+          </select>
+        </div>
+        <div class="group">
+          <button id="btnActDownload" class="btn">Download CSV</button>
+          <button id="btnActEmail" class="btn success">Email Chair</button>
+          <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
         </div>
       </div>
+      <div class="muted" id="sendMsg" style="margin-top:6px"></div>
     </div>
 
   </div>
@@ -550,7 +488,7 @@ document.getElementById('btnClear').addEventListener('click', ()=>{
 document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
-/** Populate selects (banquets/addons/products) **/
+/** Fetch config lists **/
 async function fetchJSON(path, fallback){
   try{
     const r = await fetch(path, {cache:'no-store'});
@@ -559,120 +497,69 @@ async function fetchJSON(path, fallback){
   }catch{ return fallback; }
 }
 
-async function populateAllSelects(){
-  // Banquets (prefer API; fallback to window.BANQUETS)
+let LISTS = { banquets: [], addons: [], products: [] };
+
+async function loadLists(){
   const bj = await fetchJSON('/api/router?type=banquets', {banquets:[]});
-  const banquets = (bj && Array.isArray(bj.banquets) ? bj.banquets : (window.BANQUETS||[])) || [];
+  LISTS.banquets = Array.isArray(bj.banquets) ? bj.banquets : (window.BANQUETS || []);
 
-  const bs = $('#banquetSelect');
-  const dbl = $('#dlBanquet');
-  if (bs) {
-    bs.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
-    banquets.forEach(b=>{
-      const opt = document.createElement('option');
-      opt.value = (b.id || b.name || '').toLowerCase();
-      opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
-      bs.appendChild(opt);
-    });
-  }
-  if (dbl) {
-    dbl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
-    banquets.forEach(b=>{
-      const opt = document.createElement('option');
-      opt.value = (b.id || b.name || '').toLowerCase();
-      opt.textContent = b.name || b.id || 'Banquet';
-      dbl.appendChild(opt);
-    });
-  }
-
-  // Add-Ons
   const aj = await fetchJSON('/api/router?type=addons', {addons:[]});
-  const addons = Array.isArray(aj.addons) ? aj.addons : [];
-  const as = $('#addonSelect');
-  const dal = $('#dlAddon');
-  if (as) {
-    as.innerHTML = '<option value="" selected disabled>Select an add-on…</option>';
-    addons.forEach(a=>{
-      const opt = document.createElement('option');
-      opt.value = (a.id || a.name || '').toLowerCase();
-      opt.textContent = `${a.name || a.id || 'Add-On'}${a.chairEmails?.length ? ' — ' + a.chairEmails.join(', ') : ''}`;
-      as.appendChild(opt);
-    });
-  }
-  if (dal) {
-    dal.innerHTML = '<option value="" selected disabled>Select an add-on…</option>';
-    addons.forEach(a=>{
-      const opt = document.createElement('option');
-      opt.value = (a.id || a.name || '').toLowerCase();
-      opt.textContent = a.name || a.id || 'Add-On';
-      dal.appendChild(opt);
-    });
-  }
+  LISTS.addons = Array.isArray(aj.addons) ? aj.addons : [];
 
-  // Products (Catalog)
   const pj = await fetchJSON('/api/router?type=products', {products:[]});
-  const products = Array.isArray(pj.products) ? pj.products : [];
-  const ps = $('#productSelect');
-  const dpl = $('#dlProduct');
-  if (ps) {
-    ps.innerHTML = '<option value="" selected disabled>Select a catalog item…</option>';
-    products.forEach(p=>{
-      const opt = document.createElement('option');
-      opt.value = (p.id || p.name || '').toLowerCase();
-      opt.textContent = `${p.name || p.id || 'Item'}${p.chairEmails?.length ? ' — ' + p.chairEmails.join(', ') : ''}`;
-      ps.appendChild(opt);
-    });
-  }
-  if (dpl) {
-    dpl.innerHTML = '<option value="" selected disabled>Select a catalog item…</option>';
-    products.forEach(p=>{
-      const opt = document.createElement('option');
-      opt.value = (p.id || p.name || '').toLowerCase();
-      opt.textContent = p.name || p.id || 'Item';
-      dpl.appendChild(opt);
-    });
-  }
+  LISTS.products = Array.isArray(pj.products) ? pj.products : [];
 }
-populateAllSelects();
 
-/** Download buttons for the new selects **/
-$('#btnDownloadCategory').addEventListener('click', async ()=>{
-  const cat = $('#dlCategory').value; // '', banquet, addon, other
-  const extraQ = cat ? cat : '';
-  await downloadServerCsv(extraQ);
+/** Unified Actions UI wiring **/
+const actCategory = $('#actCategory');
+const actChoice = $('#actChoice');
+
+function fillChoices(){
+  const cat = actCategory.value;
+  const items =
+    cat === 'banquet' ? LISTS.banquets :
+    cat === 'addon'   ? LISTS.addons   :
+    cat === 'other'   ? LISTS.products : [];
+
+  actChoice.innerHTML = items.length
+    ? '<option value="" selected disabled>Select…</option>'
+    : '<option value="" selected disabled>No items.</option>';
+
+  items.forEach(it=>{
+    const id = (it.id || it.name || '').toLowerCase();
+    const label = (it.name || it.id || (cat==='other'?'Item':'Choice'));
+    const chairs = Array.isArray(it.chairEmails) && it.chairEmails.length ? ` — ${it.chairEmails.join(', ')}` : '';
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label + chairs;
+    actChoice.appendChild(opt);
+  });
+}
+
+actCategory.addEventListener('change', fillChoices);
+
+/** Download for the current selection **/
+$('#btnActDownload').addEventListener('click', async ()=>{
+  const cat = actCategory.value;
+  const id = actChoice.value;
+  if(!cat){ alert('Choose a category.'); return; }
+  if(!id){ alert('Choose an item.'); return; }
+  // Category keyword: banquet | addon | other (catalog)
+  await downloadServerCsv(`${cat} ${id}`);
 });
 
-$('#btnDownloadBanquet').addEventListener('click', async ()=>{
-  const val = $('#dlBanquet').value;
-  if (!val) { alert('Select a banquet'); return; }
-  await downloadServerCsv(`banquet ${val}`);
+/** Email chair for the current selection (placeholder) **/
+function scopeHint(){ return ($('#scopeSelect').value || 'current-month').replace('-',' '); }
+$('#btnActEmail').addEventListener('click', ()=>{
+  const cat = actCategory.value;
+  const id = actChoice.value;
+  if(!cat){ alert('Choose a category.'); return; }
+  if(!id){ alert('Choose an item.'); return; }
+  const catLabel = cat==='other' ? 'catalog item' : cat;
+  alert(`Would email the ${catLabel} chair(s) a ${scopeHint()} report for: ${id}\n(When ready, point this to a per-chair email endpoint.)`);
 });
 
-$('#btnDownloadAddon').addEventListener('click', async ()=>{
-  const val = $('#dlAddon').value;
-  if (!val) { alert('Select an add-on'); return; }
-  await downloadServerCsv(`addon ${val}`);
-});
-
-$('#btnDownloadProduct').addEventListener('click', async ()=>{
-  const val = $('#dlProduct').value;
-  if (!val) { alert('Select a catalog item'); return; }
-  await downloadServerCsv(`other ${val}`);
-});
-
-/** CSV helpers / normalization (placeholders if your project already has them) **/
-function csvToObjects(csv){ /* keep/replace with your implementation if needed */ return []; }
-function splitCSVLine(line){ /* keep/replace with your implementation if needed */ return []; }
-function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-function sampleRows(){ /* supply your own sample if you like */ return []; }
-function ingest(d){ /* normalize to rows[] shape if importing */ return Array.isArray(d)? d: [] }
-
-/** Send Now / Email automation **/
-$('#revealSendPanel').addEventListener('click', ()=>{
-  $('#sendPanel').classList.toggle('hide');
-});
-
-// Manual send to verify email pipeline
+/** Manual test email **/
 $('#btnSendTest').addEventListener('click', async ()=>{
   try{
     const r = await fetch('/api/router?action=test_resend', { method:'POST' });
@@ -684,25 +571,7 @@ $('#btnSendTest').addEventListener('click', async ()=>{
   }
 });
 
-// Placeholders to wire up chair-specific sends later (server endpoint TBD)
-function scopeHint(){ return ($('#scopeSelect').value || 'current-month').replace('-',' '); }
-$('#btnSendBanquet').addEventListener('click', ()=>{
-  const v = $('#banquetSelect').value || '';
-  if(!v) return alert('Pick a banquet first.');
-  alert(`Would email banquet chair(s) a ${scopeHint()} report for: ${v}`);
-});
-$('#btnSendAddon').addEventListener('click', ()=>{
-  const v = $('#addonSelect').value || '';
-  if(!v) return alert('Pick an add-on first.');
-  alert(`Would email add-on chair(s) a ${scopeHint()} report for: ${v}`);
-});
-$('#btnSendProduct').addEventListener('click', ()=>{
-  const v = $('#productSelect').value || '';
-  if(!v) return alert('Pick a catalog item first.');
-  alert(`Would email catalog item chair(s) a ${scopeHint()} report for: ${v}`);
-});
-
-// Month-to-date / Full email sends (admin)
+/** Admin MTD / Full sends (kept) **/
 async function adminSend(path){
   const token = localStorage.getItem('amaranth_report_token') || '';
   const headers = { 'Content-Type':'application/json' };
@@ -716,8 +585,15 @@ async function adminSend(path){
     $('#sendMsg').textContent = 'Send failed: ' + e.message + ' (Check admin token / REPORT_TOKEN)';
   }
 }
-$('#btnSendMTD').addEventListener('click', ()=> adminSend('send_month_to_date'));
-$('#btnSendFull').addEventListener('click', ()=> adminSend('send_full_report'));
+// You can add buttons back if you want this visible elsewhere:
+// document.getElementById('btnSendMTD')... document.getElementById('btnSendFull')...
+
+/** CSV helpers / normalization (stubs) **/
+function csvToObjects(csv){ return []; }
+function splitCSVLine(line){ return []; }
+function cryptoRandom(){ return Math.random().toString(36).slice(2) }
+function sampleRows(){ return []; }
+function ingest(d){ return Array.isArray(d)? d: [] }
 
 /** Refund modal logic **/
 const modal = $('#refundModal');
@@ -781,8 +657,10 @@ function closeRefundModal(){
 }
 
 // ---- init ----
-(function init(){
-  rows = loadFromLocal();
+(async function init(){
+  await loadLists();      // load banquets/addons/products for the unified action flow
+  fillChoices();          // initialize choice box (empty until category picked)
+  rows = loadFromLocal(); // draw any cached data
   render();
 })();
 </script>
