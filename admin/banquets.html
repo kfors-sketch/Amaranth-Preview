@@ -242,6 +242,33 @@
     return (Array.isArray(list) ? list : []).map(normalizeBanquet);
   }
 
+  // NEW: sync each banquet's chair emails to backend register_item, so reports use latest routing
+  async function syncChairEmailConfigs(list){
+    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+
+    const payloads = (list || []).map(b => ({
+      id: b.id || "",
+      name: b.name || "",
+      chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : (b.chair?.email ? [b.chair.email] : []),
+      publishStart: b.publishStart || "",
+      publishEnd: b.publishEnd || ""
+    })).filter(x => x.id && x.name);
+
+    const results = await Promise.all(payloads.map(async p => {
+      try {
+        const r = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(p)
+        });
+        return r.ok;
+      } catch { return false; }
+    }));
+
+    const ok = results.filter(Boolean).length;
+    return { attempted: payloads.length, ok };
+  }
+
   let model = [];
   let current = null;
   let isNew = true;
@@ -492,7 +519,7 @@
     }
   });
 
-  // Save
+  // Save (updated: also syncs chair emails for report routing)
   $('#btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
@@ -518,11 +545,19 @@
         const { options, ...rest } = it;
         return rest;
       });
+
+      // 1) Save banquets list
+      $('#editMsg').textContent = 'Saving…';
       const res = await fetch("/api/router?action=save_banquets", {
         method: "POST", headers, body: JSON.stringify({ banquets: payload })
       });
       if (!res.ok) throw new Error("server rejected");
-      $('#editMsg').textContent = 'Saved to server.';
+
+      // 2) Sync chair emails → itemcfg:<id> (affects report routing)
+      $('#editMsg').textContent = 'Saved. Syncing report routing…';
+      const { attempted, ok } = await syncChairEmailConfigs(payload);
+
+      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
     }catch{
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
