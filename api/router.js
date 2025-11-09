@@ -46,6 +46,8 @@ function parseYMD(s) {
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
 }
+const normalizeKey = s => String(s || "").toLowerCase().replace(/:(adult|child|youth)$/i, "");
+
 async function getEffectiveSettings() {
   const overrides = await kvHgetallSafe("settings:overrides");
   const env = {
@@ -78,24 +80,28 @@ function filterRowsByWindow(rows, { startMs, endMs }) {
   });
 }
 
-// Apply category / item filters (for /orders + /orders_csv)
+// Apply category / item filters (used by /orders, /orders_csv, and send_item_report)
 function applyItemFilters(rows, { category, item_id, item }) {
-  let out = rows;
+  let out = rows || [];
+
   if (category) {
     const cat = String(category).toLowerCase();
     out = out.filter(r => String(r.category || "").toLowerCase() === cat);
   }
+
   if (item_id) {
-    const iid = String(item_id).toLowerCase();
-    out = out.filter(r => String(r.item_id || "").toLowerCase() === iid);
-  } else if (item) {
-    const label = String(item).toLowerCase().trim();
-    // exact match first, otherwise substring on item label
+    const wantNorm = normalizeKey(item_id);
     out = out.filter(r => {
-      const name = String(r.item || "").toLowerCase();
-      return name === label || name.includes(label);
+      const raw = String(r._itemId || r.item_id || "").toLowerCase();
+      const rawNorm = normalizeKey(raw);
+      const keyNorm = normalizeKey(r._itemKey || "");
+      return raw === String(item_id).toLowerCase() || rawNorm === wantNorm || keyNorm === wantNorm;
     });
+  } else if (item) {
+    const want = String(item).toLowerCase();
+    out = out.filter(r => String(r.item || "").toLowerCase().includes(want));
   }
+
   return out;
 }
 
@@ -229,17 +235,20 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || 'other',
       item: li.itemName || '',
-      item_id: li.itemId || '', // <-- NEW for precise per-item filtering
+      item_id: li.itemId || '', // public field (kept for backward-compat)
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      // merge banquet notes + dietary notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
+
+      // NEW hidden keys used for filtering
+      _itemId: li.itemId || "",
+      _itemKey: String(li.itemId || "").replace(/:(adult|child|youth)$/i, ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
@@ -250,17 +259,26 @@ function flattenOrderToRows(o) {
   const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
     rows.push({
-      id: o.id, date: new Date(o.created || Date.now()).toISOString(),
+      id: o.id,
+      date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: "", category: 'other',
+      attendee: "",
+      category: 'other',
       item: feeLine.itemName || 'Processing Fee',
-      item_id: '', // no id
+      item_id: '',
       qty: feeLine.qty || 1,
       price: (feeLine.unitPrice || 0) / 100,
       gross: (feeLine.gross || 0) / 100,
-      fees: 0, net: (feeLine.gross || 0) / 100,
+      fees: 0,
+      net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
-      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
+      notes: "",
+      // hidden keys present but empty for fees
+      _itemId: "",
+      _itemKey: "",
+      _pi: o.payment_intent || "",
+      _charge: o.charge || "",
+      _session: o.id
     });
   }
   return rows;
@@ -393,7 +411,7 @@ function renderOrderEmailHTML(order) {
       <tfoot>
         ${feesRow}
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${feesRow ? "#ddd" : "#ddd"};font-weight:700">Total</td>
           <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
         </tr>
       </tfoot>
@@ -454,7 +472,7 @@ function buildCSV(rows) {
   const headers = Object.keys(rows[0] || {
     id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
     qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-    _pi: "", _charge: "", _session: ""
+    _itemId: "", _itemKey: "", _pi: "", _charge: "", _session: ""
   });
   const esc = (v) => {
     const s = String(v ?? "");
@@ -600,12 +618,26 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW: precise filters for per-item reports
-        const category = url.searchParams.get("category") || "";
-        const item_id  = url.searchParams.get("item_id")  || "";
-        const item     = url.searchParams.get("item")     || "";
-        if (category || item_id || item) {
-          rows = applyItemFilters(rows, { category, item_id, item });
+        // NEW precise filters (normalized)
+        const catParam    = (url.searchParams.get("category") || "").toLowerCase();
+        const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
+        const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
+
+        if (catParam) {
+          rows = rows.filter(r => String(r.category || "").toLowerCase() === catParam);
+        }
+
+        if (itemIdParam) {
+          const want = normalizeKey(itemIdParam);
+          rows = rows.filter(r => {
+            const raw   = String(r._itemId || r.item_id || "").toLowerCase();
+            const rawNorm = normalizeKey(raw);
+            const keyNorm = normalizeKey(r._itemKey || "");
+            return raw === itemIdParam || rawNorm === want || keyNorm === want;
+          });
+        } else if (itemParam) {
+          const want = itemParam;
+          rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
         rows.sort((a,b) => {
@@ -676,12 +708,26 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW: precise filters
-        const category = url.searchParams.get("category") || "";
-        const item_id  = url.searchParams.get("item_id")  || "";
-        const item     = url.searchParams.get("item")     || "";
-        if (category || item_id || item) {
-          rows = applyItemFilters(rows, { category, item_id, item });
+        // NEW precise filters (normalized)
+        const catParam    = (url.searchParams.get("category") || "").toLowerCase();
+        const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
+        const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
+
+        if (catParam) {
+          rows = rows.filter(r => String(r.category || "").toLowerCase() === catParam);
+        }
+
+        if (itemIdParam) {
+          const want = normalizeKey(itemIdParam);
+          rows = rows.filter(r => {
+            const raw   = String(r._itemId || r.item_id || "").toLowerCase();
+            const rawNorm = normalizeKey(raw);
+            const keyNorm = normalizeKey(r._itemKey || "");
+            return raw === itemIdParam || rawNorm === want || keyNorm === want;
+          });
+        } else if (itemParam) {
+          const want = itemParam;
+          rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
         rows.sort((a,b) => {
