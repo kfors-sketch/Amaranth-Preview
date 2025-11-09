@@ -132,6 +132,7 @@ async function saveOrderFromSession(sessionLike) {
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
+        dietaryNote: meta.dietaryNote || "",          // <-- NEW
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -213,7 +214,10 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      notes: li.category === "banquet" ? (li.meta?.attendeeNotes || "") : (li.meta?.itemNote || ""),
+      // <-- NEW: merge banquet notes + dietary notes
+      notes: li.category === "banquet"
+        ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
+        : (li.meta?.itemNote || ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
@@ -279,8 +283,9 @@ function renderOrderEmailHTML(order) {
     const bodyRows = rows.map(li => {
       const cat = String(li.category || "").toLowerCase();
       const isBanquet = (cat === "banquet") || /banquet/i.test(li.itemName || "");
-      const isAddon   = (cat === "addon")   || /addon/i.test(li.itemName || "");
-      const notes = (isBanquet ? (li.meta?.attendeeNotes || "") : (li.meta?.itemNote || ""));
+      const notes = isBanquet
+        ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
+        : (li.meta?.itemNote || "");
       const notesRow = notes
         ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
         : "";
@@ -789,6 +794,7 @@ export default async function handler(req, res) {
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
+                    dietaryNote: l.meta?.dietaryNote || "", // <-- NEW: capture dietary metadata
                     itemNote: l.meta?.itemNote || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
@@ -942,6 +948,26 @@ export default async function handler(req, res) {
 
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
+
+      // Manual report sends (hook to existing scripts)
+      if (action === "send_full_report") {
+        try {
+          const mod = await import("./admin/send-full.js");
+          const result = await mod.default();
+          return REQ_OK(res, result || { ok: true });
+        } catch (e) {
+          return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
+        }
+      }
+      if (action === "send_month_to_date") {
+        try {
+          const mod = await import("./admin/send-month-to-date.js");
+          const result = await mod.default();
+          return REQ_OK(res, result || { ok: true });
+        } catch (e) {
+          return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
+        }
+      }
 
       // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
