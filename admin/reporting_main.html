@@ -75,10 +75,6 @@
 
   <!-- CSV helper MUST come before our main script so window.CSV is available -->
   <script src="/assets/js/lib/csv.js"></script>
-  <!-- Data lists for selectors (load whatever you have) -->
-  <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/addons.js"></script>
-  <script src="/assets/js/products.js"></script>
 </head>
 <body>
   <div class="container">
@@ -331,7 +327,7 @@ async function loadFromServer(){
 }
 $('#loadServerBtn').addEventListener('click', loadFromServer);
 
-// Build query string for server (start/end/q). Category/status are client-only.
+// Build query string for server (start/end/q)
 function buildServerQuery(_forCsv, extraQ){
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
@@ -403,8 +399,8 @@ function applyFilters(data){
   return data.filter(r=>{
     const d = r.date? new Date(r.date) : null;
     if(!inRange(d,f,t)) return false;
-    if(cat && r.category!==cat) return false;           // client-only filter
-    if(st && (r.status||'')!==st) return false;         // client-only filter
+    if(cat && r.category!==cat) return false;
+    if(st && (r.status||'')!==st) return false;
     if(q){
       const hay = `${r.id}|${r.purchaser}|${r.attendee}|${r.item}|${r.notes}|${r.category}`.toLowerCase();
       if(!hay.includes(q)) return false;
@@ -456,7 +452,7 @@ document.getElementById('fileImport').addEventListener('change', async (e)=>{
 
 // Export CSV — prefer server CSV; fallback to client CSV
 document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-  await downloadServerCsv(); // entire / visible via start/end/q
+  await downloadServerCsv();
 });
 
 async function downloadServerCsv(extraQ){
@@ -474,7 +470,7 @@ async function downloadServerCsv(extraQ){
       return true;
     }
   }catch{}
-  // Client fallback (exports only currently visible rows)
+  // Client fallback
   const visible = applyFilters(rows);
   const headers = ['date','orderId','purchaser','attendee','category','item','qty','price','gross','fees','net','status','notes'];
   const exportRows = visible.map(r => ({
@@ -512,7 +508,7 @@ async function downloadServerCsv(extraQ){
 
 document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
 
-// Safer clear: require typing CLEAR (local only; server safe)
+// Safer clear: require typing CLEAR (local only)
 document.getElementById('btnClear').addEventListener('click', ()=>{
   const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
   if(conf === 'CLEAR'){
@@ -525,10 +521,35 @@ document.getElementById('btnClear').addEventListener('click', ()=>{
 document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
-/** Category & Per-banquet downloads **/
-function populateBanquetSelects(){
+/** Fetch data lists (banquets/addons/products) and populate selects **/
+async function ensureListsLoaded(){
+  // Only fetch if missing or empty
+  if (!Array.isArray(window.BANQUETS) || !window.BANQUETS.length) {
+    try {
+      const r = await fetch('/api/router?type=banquets', { cache:'no-store' });
+      const j = await r.json();
+      window.BANQUETS = Array.isArray(j.banquets) ? j.banquets : [];
+    } catch { window.BANQUETS = []; }
+  }
+  if (!Array.isArray(window.ADDONS) || !window.ADDONS.length) {
+    try {
+      const r = await fetch('/api/router?type=addons', { cache:'no-store' });
+      const j = await r.json();
+      window.ADDONS = Array.isArray(j.addons) ? j.addons : [];
+    } catch { window.ADDONS = []; }
+  }
+  if (!Array.isArray(window.PRODUCTS) || !window.PRODUCTS.length) {
+    try {
+      const r = await fetch('/api/router?type=products', { cache:'no-store' });
+      const j = await r.json();
+      window.PRODUCTS = Array.isArray(j.products) ? j.products : [];
+    } catch { window.PRODUCTS = []; }
+  }
+}
+
+async function populateBanquetSelects(){
+  await ensureListsLoaded();
   const data = (window.BANQUETS || []);
-  // Download per-banquet select
   const dl = $('#dlBanquet');
   if (dl) {
     dl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
@@ -540,7 +561,6 @@ function populateBanquetSelects(){
     });
   }
 }
-populateBanquetSelects();
 
 $('#btnDownloadCategory').addEventListener('click', async ()=>{
   const cat = $('#dlCategory').value; // '', banquet, addon, other
@@ -554,7 +574,7 @@ $('#btnDownloadBanquet').addEventListener('click', async ()=>{
   await downloadServerCsv(`banquet ${val}`);
 });
 
-/** CSV helpers / normalization (placeholders if your project already has them) **/
+/** CSV helpers / normalization (placeholders) **/
 function csvToObjects(csv){ return []; }
 function splitCSVLine(line){ return []; }
 function cryptoRandom(){ return Math.random().toString(36).slice(2) }
@@ -562,8 +582,9 @@ function sampleRows(){ return []; }
 function ingest(d){ return Array.isArray(d)? d: [] }
 
 /** Send Now / Email automation **/
-$('#revealSendPanel').addEventListener('click', ()=>{
+$('#revealSendPanel').addEventListener('click', async ()=>{
   $('#sendPanel').classList.toggle('hide');
+  await ensureListsLoaded();
   refreshChairItems();
 });
 
@@ -596,7 +617,7 @@ $('#btnSendNow').addEventListener('click', async ()=>{
     start = `${y}-${String(m+1).padStart(2,'0')}-01`;
     const last = new Date(y, m+1, 0).getDate();
     end = `${y}-${String(m+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
-  } // else full = no dates (server will include all)
+  }
 
   // auth
   const token = localStorage.getItem('amaranth_report_token') || '';
@@ -620,6 +641,14 @@ $('#btnSendNow').addEventListener('click', async ()=>{
 // Keep item list in sync with chosen kind
 $('#chairKind').addEventListener('change', refreshChairItems);
 
+function normalizeItemRecord(item){
+  // Accept various shapes (id/name/title/itemId/slug/code; chairEmails optional)
+  const id = (item.id || item.itemId || item.slug || item.code || item.name || '').toString();
+  const name = (item.name || item.title || id || 'Item').toString();
+  const chairs = Array.isArray(item.chairEmails) ? item.chairEmails : [];
+  return { id, name, chairEmails: chairs };
+}
+
 function refreshChairItems(){
   const kind = $('#chairKind').value || 'banquet';
   const sel = $('#chairItem');
@@ -633,14 +662,11 @@ function refreshChairItems(){
   if (!Array.isArray(list)) list = [];
 
   sel.innerHTML = '';
-  list.forEach(item=>{
-    // Cross-file shapes may differ: support id/name/title and chairEmails[]
-    const id = (item.id || item.itemId || item.slug || item.code || item.name || '').toString();
-    const name = (item.name || item.title || id || 'Item').toString();
+  list.map(normalizeItemRecord).forEach(item=>{
     const opt = document.createElement('option');
-    opt.value = id;
-    opt.setAttribute('data-id', id);
-    opt.textContent = name + (item.chairEmails?.length ? ` — ${item.chairEmails.join(', ')}` : '');
+    opt.value = item.id;
+    opt.setAttribute('data-id', item.id);
+    opt.textContent = item.name + (item.chairEmails?.length ? ` — ${item.chairEmails.join(', ')}` : '');
     sel.appendChild(opt);
   });
 
@@ -733,7 +759,10 @@ function closeRefundModal(){
 }
 
 // ---- init ----
-(function init(){
+(async function init(){
+  await ensureListsLoaded();
+  await populateBanquetSelects();
+  refreshChairItems(); // default "Banquet" list fills immediately
   rows = loadFromLocal();
   render();
 })();
