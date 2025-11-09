@@ -2,7 +2,7 @@
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 
-// ---- Lazy Stripe loader ----
+// ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
 async function getStripe() {
   if (_stripe) return _stripe;
@@ -15,7 +15,7 @@ async function getStripe() {
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// ---- Mail “From / Reply-To” ----
+// ---- Mail “From / Reply-To” (sanitized) ----
 const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
 const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
 
@@ -23,9 +23,9 @@ const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
 // ---------- helpers ----------
-const cents = (n) => Math.round(Number(n || 0));
-const dollarsToCents = (n) => Math.round(Number(n || 0) * 100);
-const toCentsAuto = (v) => { const n = Number(v || 0); return n < 1000 ? Math.round(n * 100) : Math.round(n); };
+function cents(n) { return Math.round(Number(n || 0)); }
+function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
+function toCentsAuto(v){ const n = Number(v || 0); return n < 1000 ? Math.round(n * 100) : Math.round(n); }
 
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
 async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
@@ -35,14 +35,37 @@ async function kvHgetallSafe(key)            { try { return (await kv.hgetall(ke
 async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
 async function kvDelSafe(key)                { try { await kv.del(key); return true; } catch { return false; } }
 
-const MAIL_LOG_KEY = "mail:lastlog";
-async function recordMailLog(payload) { try { await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 }); } catch {} }
-
-function parseDateISO(s) { if (!s) return NaN; const d = Date.parse(s); return isNaN(d) ? NaN : d; }
+// --- Reporting / filtering helpers ---
+function parseDateISO(s) {
+  if (!s) return NaN;
+  const d = Date.parse(s);
+  return isNaN(d) ? NaN : d;
+}
 function parseYMD(s) {
   if (!s) return NaN;
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
+}
+async function getEffectiveSettings() {
+  const overrides = await kvHgetallSafe("settings:overrides");
+  const env = {
+    RESEND_FROM: RESEND_FROM,
+    REPORTS_CC: process.env.REPORTS_CC || "",
+    REPORTS_BCC: process.env.REPORTS_BCC || "",
+    SITE_BASE_URL: process.env.SITE_BASE_URL || "",
+    MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
+    MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
+    REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
+    REPLY_TO,
+    // Optional reporting window
+    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
+    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
+  };
+  const effective = { ...env, ...overrides,
+    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
+  };
+  return { env, overrides, effective };
 }
 function filterRowsByWindow(rows, { startMs, endMs }) {
   if (!rows?.length) return rows || [];
@@ -55,31 +78,51 @@ function filterRowsByWindow(rows, { startMs, endMs }) {
   });
 }
 
-async function getEffectiveSettings() {
-  const overrides = await kvHgetallSafe("settings:overrides");
-  const env = {
-    RESEND_FROM: RESEND_FROM,
-    REPORTS_CC: process.env.REPORTS_CC || "",
-    REPORTS_BCC: process.env.REPORTS_BCC || "",
-    SITE_BASE_URL: process.env.SITE_BASE_URL || "",
-    MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-    MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
-    REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
-    REPLY_TO,
-    EVENT_START: process.env.EVENT_START || "",
-    EVENT_END: process.env.EVENT_END || "",
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || ""
-  };
-  const effective = { ...env, ...overrides,
-    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
-  };
-  return { env, overrides, effective };
+// Apply category / item filters (for /orders + /orders_csv)
+function applyItemFilters(rows, { category, item_id, item }) {
+  let out = rows;
+  if (category) {
+    const cat = String(category).toLowerCase();
+    out = out.filter(r => String(r.category || "").toLowerCase() === cat);
+  }
+  if (item_id) {
+    const iid = String(item_id).toLowerCase();
+    out = out.filter(r => String(r.item_id || "").toLowerCase() === iid);
+  } else if (item) {
+    const label = String(item).toLowerCase().trim();
+    // exact match first, otherwise substring on item label
+    out = out.filter(r => {
+      const name = String(r.item || "").toLowerCase();
+      return name === label || name.includes(label);
+    });
+  }
+  return out;
 }
 
-// --- Stripe helpers (read session + line items) ---
+// --- Mail visibility helpers ---
+const MAIL_LOG_KEY = "mail:lastlog";
+async function recordMailLog(payload) { try { await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 }); } catch {} }
+
+// Simple bearer auth for admin writes
+function requireToken(req, res) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token || token !== (process.env.REPORT_TOKEN || "")) {
+    REQ_ERR(res, 401, "unauthorized");
+    return false;
+  }
+  return true;
+}
+
+// --- Stripe helpers: always fetch the full line item list ---
 async function fetchSessionAndItems(stripe, sid) {
-  const s = await stripe.checkout.sessions.retrieve(sid, { expand: ["payment_intent", "customer_details"] });
-  const liResp = await stripe.checkout.sessions.listLineItems(sid, { limit: 100, expand: ["data.price.product"] });
+  const s = await stripe.checkout.sessions.retrieve(sid, {
+    expand: ["payment_intent", "customer_details"]
+  });
+  const liResp = await stripe.checkout.sessions.listLineItems(sid, {
+    limit: 100,
+    expand: ["data.price.product"]
+  });
   const lineItems = liResp?.data || [];
   return { session: s, lineItems };
 }
@@ -88,29 +131,29 @@ async function fetchSessionAndItems(stripe, sid) {
 async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
+
   const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
   const { session: s, lineItems } = await fetchSessionAndItems(stripe, sid);
 
-  const lines = lineItems.map(li => {
+  const lines = lineItems.map((li) => {
     const name  = li.description || li.price?.product?.name || "Item";
     const qty   = Number(li.quantity || 1);
-    const unit  = cents(li.price?.unit_amount || 0);
+    const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
     const total = unit * qty;
     const meta  = (li.price?.product?.metadata || {});
-    const itemType = (meta.itemType || "").toLowerCase() || "other";
     return {
       id: `${sid}:${li.id}`,
       itemName: name,
       qty,
       unitPrice: unit,
       gross: total,
-      category: itemType,
+      category: (meta.itemType || "").toLowerCase() || "other",
       attendeeId: meta.attendeeId || "",
-      itemId: meta.itemId || "",
+      itemId: meta.itemId || "", // <-- important
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",     // NEW
+        dietaryNote: meta.dietaryNote || "",
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -128,7 +171,10 @@ async function saveOrderFromSession(sessionLike) {
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
     customer_email: s.customer_details?.email || "",
-    purchaser: { name: s.customer_details?.name || "", phone: s.customer_details?.phone || "" },
+    purchaser: {
+      name: s.customer_details?.name || "",
+      phone: s.customer_details?.phone || ""
+    },
     lines,
     fees: { pct: 0, flat: 0 },
     refunds: [],
@@ -143,7 +189,7 @@ async function saveOrderFromSession(sessionLike) {
   }
 
   await kvSetSafe(`order:${order.id}`, order);
-  await kvSaddSafe("orders:index", order.id);
+  await kvSaddSafe("orders:index", order.id); // stored in a Redis SET
   return order;
 }
 
@@ -171,63 +217,56 @@ async function applyRefundToOrder(chargeId, refund) {
   return false;
 }
 
-// --- Flatten an order into report rows (add raw meta for filtering) ---
+// --- Flatten an order into report rows (CSV-like) ---
 function flattenOrderToRows(o) {
-  const out = [];
+  const rows = [];
   (o.lines || []).forEach(li => {
     const net = li.gross;
-    out.push({
+    rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: li.meta?.attendeeName || "",
-      category: li.category || "other",
-      item: li.itemName || "",
+      category: li.category || 'other',
+      item: li.itemName || '',
+      item_id: li.itemId || '', // <-- NEW for precise per-item filtering
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
+      // merge banquet notes + dietary notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id,
-      // helpers for server filtering:
-      _itemId: li.itemId || "",
-      _category: (li.category || "").toLowerCase()
+      _session: o.id
     });
   });
 
+  // Include a distinct fee row (if present)
   const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
-    out.push({
-      id: o.id,
-      date: new Date(o.created || Date.now()).toISOString(),
+    rows.push({
+      id: o.id, date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: "",
-      category: "other",
-      item: feeLine.itemName || "Processing Fee",
+      attendee: "", category: 'other',
+      item: feeLine.itemName || 'Processing Fee',
+      item_id: '', // no id
       qty: feeLine.qty || 1,
       price: (feeLine.unitPrice || 0) / 100,
       gross: (feeLine.gross || 0) / 100,
-      fees: 0,
-      net: (feeLine.gross || 0) / 100,
+      fees: 0, net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
-      notes: "",
-      _pi: o.payment_intent || "",
-      _charge: o.charge || "",
-      _session: o.id,
-      _itemId: "",
-      _category: "other"
+      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
     });
   }
-  return out;
+  return rows;
 }
 
-// -------- Email rendering (customer) --------
+// -------- Email rendering + sending (receipts) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
   if (!base) return path;
@@ -238,16 +277,22 @@ function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
   const purchaserName = order?.purchaser?.name || "Purchaser";
-  const topCatalog = []; const attendeeGroups = {}; let feesCents = 0;
+
+  const topCatalog = [];
+  const attendeeGroups = {};
+  let feesCents = 0;
 
   (order.lines || []).forEach(li => {
     const name = li.itemName || "";
     const qty = Number(li.qty || 1);
     const lineCents = Number(li.unitPrice || 0) * qty;
     const cat = String(li.category || "").toLowerCase();
+
     if (/processing\s*fee/i.test(name)) { feesCents += lineCents; return; }
+
     const isBanquet = (cat === "banquet") || /banquet/i.test(name);
-    const isAddon   = (cat === "addon")   || /addon/i.test(name);
+    const isAddon   = (cat === "addon")   || /addon/i.test(li.meta?.itemType || "") || /addon/i.test(name);
+
     if (isBanquet || isAddon) {
       const attName = (li.meta && li.meta.attendeeName) || purchaserName;
       (attendeeGroups[attName] ||= []).push(li);
@@ -257,76 +302,114 @@ function renderOrderEmailHTML(order) {
   });
 
   const renderTable = (rows) => {
-    const body = rows.map(li => {
+    const bodyRows = rows.map(li => {
       const cat = String(li.category || "").toLowerCase();
       const isBanquet = (cat === "banquet") || /banquet/i.test(li.itemName || "");
       const notes = isBanquet
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || "");
-      const notesRow = notes ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>` : "";
+      const notesRow = notes
+        ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
+        : "";
       const lineTotal = Number(li.unitPrice||0) * Number(li.qty||1);
-      return `<tr>
-        <td style="padding:8px;border-bottom:1px solid #eee">${li.itemName || ""}${notesRow}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty||1)}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice||0)}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
-      </tr>`;
+      return `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #eee">
+            ${li.itemName || ""}${notesRow}
+          </td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty||1)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice||0)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
+        </tr>`;
     }).join("");
+
     const subtotal = rows.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
-    return `<table style="width:100%;border-collapse:collapse">
-      <thead><tr>
-        <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
-        <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
-        <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
-        <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
-      </tr></thead>
-      <tbody>${body}</tbody>
-      <tfoot>
-        <tr><td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-        <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td></tr>
-      </tfoot>
-    </table>`;
+
+    return `
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Item</th>
+            <th style="text-align:center;padding:8px;border-bottom:1px solid #ddd">Qty</th>
+            <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Price</th>
+            <th style="text-align:right;padding:8px;border-bottom:1px solid #ddd">Line</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
+            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
+          </tr>
+        </tfoot>
+      </table>`;
   };
 
   const topCatalogHtml = topCatalog.length
-    ? `<div style="margin-top:14px"><div style="font-weight:700;margin:8px 0 6px">${purchaserName} — Catalog Items</div>${renderTable(topCatalog)}</div>`
+    ? `
+      <div style="margin-top:14px">
+        <div style="font-weight:700;margin:8px 0 6px">${purchaserName} — Catalog Items</div>
+        ${renderTable(topCatalog)}
+      </div>`
     : "";
 
-  const attendeeHtml = Object.entries(attendeeGroups).map(([attName, list]) =>
-    `<div style="margin-top:14px"><div style="font-weight:700;margin:8px 0 6px">${attName} — Banquets & Addons</div>${renderTable(list)}</div>`
-  ).join("");
+  const attendeeHtml = Object.entries(attendeeGroups).map(([attName, list]) => `
+    <div style="margin-top:14px">
+      <div style="font-weight:700;margin:8px 0 6px">${attName} — Banquets & Addons</div>
+      ${renderTable(list)}
+    </div>`).join("");
 
   const subtotalAll = (order.lines||[]).reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
   const total = Number(order.amount_total || subtotalAll);
   const feesRow = feesCents > 0
-    ? `<tr><td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td></tr>` : "";
+    ? `<tr>
+         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
+         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td>
+       </tr>`
+    : "";
 
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
   <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <img src="${absoluteUrl("/assets/img/receipt_logo.svg")}" alt="Logo" style="height:28px;max-width:160px;object-fit:contain" />
-      <div><div style="font-size:18px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
-      <div style="font-size:14px;color:#555">Order #${order.id}</div></div>
+      <img src="${logoUrl}" alt="Logo" style="height:28px;max-width:160px;object-fit:contain" />
+      <div>
+        <div style="font-size:18px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
+        <div style="font-size:14px;color:#555">Order #${order.id}</div>
+      </div>
     </div>
+
     <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
       <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
-      <div>${purchaserName}</div><div>${order.customer_email || ""}</div><div>${order.purchaser?.phone || ""}</div>
+      <div>${purchaserName}</div>
+      <div>${order.customer_email || ""}</div>
+      <div>${order.purchaser?.phone || ""}</div>
     </div>
+
     <h2 style="margin:16px 0 8px">Order Summary</h2>
-    ${topCatalogHtml}${attendeeHtml || "<p>No items.</p>"}
-    <table style="width:100%;border-collapse:collapse;margin-top:12px"><tfoot>${feesRow}
-      <tr><td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
-      <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td></tr>
-    </tfoot></table>
+    ${topCatalogHtml}
+    ${attendeeHtml || '<p>No items.</p>'}
+
+    <table style="width:100%;border-collapse:collapse;margin-top:12px">
+      <tfoot>
+        ${feesRow}
+        <tr>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
     <p style="color:#666;font-size:12px;margin-top:12px">Thank you for your order!</p>
-  </div></body></html>`;
+  </div>
+  </body></html>`;
 }
 
 async function sendOrderReceipts(order) {
   if (!resend) return { sent: false, reason: "resend-not-configured" };
+
   const html = renderOrderEmailHTML(order);
   const subject = `Grand Court of PA - order #${order.id}`;
+
   const purchaserEmail = (order.customer_email || "").trim();
   const adminList = (
     process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
@@ -335,7 +418,10 @@ async function sendOrderReceipts(order) {
   if (purchaserEmail) {
     try {
       const sendResult = await resend.emails.send({
-        from: RESEND_FROM, to: [purchaserEmail], subject, html,
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        html,
         reply_to: REPLY_TO || undefined
       });
       await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: [purchaserEmail], subject, orderId: order?.id || "", resultId: sendResult?.id || null, status: "queued" });
@@ -343,10 +429,14 @@ async function sendOrderReceipts(order) {
       await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: [purchaserEmail], subject, orderId: order?.id || "", resultId: null, status: "error", error: String(err?.message || err) });
     }
   }
+
   if (adminList.length) {
     try {
       const sendResult = await resend.emails.send({
-        from: RESEND_FROM, to: adminList, subject: `${subject} (admin copy)`, html,
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        html,
         reply_to: REPLY_TO || undefined
       });
       await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: sendResult?.id || null, status: "queued" });
@@ -354,80 +444,41 @@ async function sendOrderReceipts(order) {
       await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: null, status: "error", error: String(err?.message || err) });
     }
   }
+
   if (!purchaserEmail && !adminList.length) return { sent: false, reason: "no-recipients" };
   return { sent: true };
 }
 
-// ---- helpers for server-side item filtering & chair emails ----
-function normalizeCategory(catRaw) {
-  const c = (catRaw || "").toLowerCase();
-  return c === "catalog" ? "other" : c;
-}
-function filterByCategoryAndItem(rows, url) {
-  const categoryParam = normalizeCategory(url.searchParams.get("category") || "");
-  const itemIdParam   = (url.searchParams.get("item_id") || "").toLowerCase();
-  const itemParam     = (url.searchParams.get("item") || "").toLowerCase();
-
-  if (categoryParam) {
-    rows = rows.filter(r => {
-      const rc = (r._category || r.category || "").toLowerCase();
-      return categoryParam === "other" ? (rc === "other" || rc === "catalog") : (rc === categoryParam);
-    });
-  }
-
-  if (itemIdParam) {
-    let filtered = rows.filter(r => (r._itemId || "").toLowerCase() === itemIdParam);
-    if (!filtered.length) filtered = rows.filter(r => String(r.item || "").toLowerCase().includes(itemIdParam));
-    rows = filtered;
-  }
-
-  if (itemParam) {
-    rows = rows.filter(r => String(r.item || "").toLowerCase().includes(itemParam));
-  }
-
-  return rows;
-}
-
+// --------- Helpers to build CSV for exports/emails ----------
 function buildCSV(rows) {
   const headers = Object.keys(rows[0] || {
-    id:"",date:"",purchaser:"",attendee:"",category:"",item:"",
-    qty:0,price:0,gross:0,fees:0,net:0,status:"",notes:"",
-    _pi:"",_charge:"",_session:"",_itemId:"",_category:""
+    id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
+    qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
+    _pi: "", _charge: "", _session: ""
   });
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = [headers.join(",")].concat(rows.map(r => headers.map(h => esc(r[h])).join(",")));
-  // UTF-8 BOM so Excel shows characters like “Entrée” correctly
-  return "\uFEFF" + lines.join("\n");
+  const csv = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+  ].join("\n");
+  // Prepend BOM so Excel reads UTF-8 (fixes Entrée)
+  return "\uFEFF" + csv;
 }
 
-async function findChairs(kind, idOrLabel) {
-  const map = { banquet: "banquets", addon: "addons", other: "products", catalog: "products" };
-  const key = map[kind] || "products";
-  const list = await kvGetSafe(key, []) || [];
-  const target = (list || []).find(x => {
-    const xid = (x.id || x.itemId || x.slug || x.code || x.name || "").toString().toLowerCase();
-    const xnm = (x.name || x.title || x.label || x.slug || x.id || "").toString().toLowerCase();
-    const q   = (idOrLabel || "").toLowerCase();
-    return xid === q || xnm === q;
-  });
-  const val = target?.chairEmails || target?.chairs || "";
-  const arr = Array.isArray(val) ? val : String(val).split(",").map(s=>s.trim()).filter(Boolean);
-  return arr;
-}
-
-// -------------- main handler --------------
+// -------------- (start of main handler) --------------
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const action = url.searchParams.get("action");
-    const type   = url.searchParams.get("type");
+    const type  = url.searchParams.get("type");
 
     // ---------- GET ----------
     if (req.method === "GET") {
 
+      // --- Smoketest ---
       if (type === "smoketest") {
         const out = {
           ok: true,
@@ -441,19 +492,23 @@ export default async function handler(req, res) {
           fromTrimmed: RESEND_FROM,
           kvSetGetOk: false,
         };
-        try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch {}
-        try { const v = await kv.get("smoketest:key"); out.kvSetGetOk = (v === "ok"); } catch (e) { out.kvError = String(e?.message || e); }
+        try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch (e) {}
+        try {
+          const v = await kv.get("smoketest:key");
+          out.kvSetGetOk = (v === "ok");
+        } catch (e) { out.kvError = String(e?.message || e); }
         return REQ_OK(res, out);
       }
 
+      // --- Last sent mail visibility
       if (type === "lastmail") {
         const data = await kvGetSafe(MAIL_LOG_KEY, { note: "no recent email log" });
         return REQ_OK(res, data);
       }
 
-      if (type === "banquets") return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
-      if (type === "addons")   return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
-      if (type === "products") return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
+      if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
+      if (type === "addons")    return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
+      if (type === "products")  return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
 
       if (type === "settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
@@ -464,6 +519,7 @@ export default async function handler(req, res) {
         });
       }
 
+      // Publishable key
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
@@ -492,23 +548,35 @@ export default async function handler(req, res) {
           if (o) all.push(...flattenOrderToRows(o));
         }
 
-        const daysParam  = url.searchParams.get("days");
-        const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
+        // query params
+        const daysParam  = url.searchParams.get("days");   // ?days=7
+        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
+        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
+
+        // settings fallback
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
         const cfgEnd   = effective.EVENT_END || "";
 
-        let startMs = NaN, endMs = NaN;
+        let startMs = NaN;
+        let endMs   = NaN;
+
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
-          endMs = Date.now() + 1; startMs = endMs - n * 86400000;
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
-          startMs = parseYMD(startParam); endMs = parseYMD(endParam);
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
         } else if (cfgStart || cfgEnd || cfgDays) {
-          if (cfgDays) { endMs = Date.now() + 1; startMs = endMs - Math.max(1, Number(cfgDays)) * 86400000; }
-          else { startMs = parseYMD(cfgStart); endMs = parseYMD(cfgEnd); }
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs   = parseYMD(cfgEnd);
+          }
         }
 
         let rows = all;
@@ -519,7 +587,7 @@ export default async function handler(req, res) {
           });
         }
 
-        // Text search (?q=)
+        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
         const q = (url.searchParams.get("q") || "").trim().toLowerCase();
         if (q) {
           rows = rows.filter(r =>
@@ -532,11 +600,17 @@ export default async function handler(req, res) {
           );
         }
 
-        // Category / Item filters
-        rows = filterByCategoryAndItem(rows, url);
+        // NEW: precise filters for per-item reports
+        const category = url.searchParams.get("category") || "";
+        const item_id  = url.searchParams.get("item_id")  || "";
+        const item     = url.searchParams.get("item")     || "";
+        if (category || item_id || item) {
+          rows = applyItemFilters(rows, { category, item_id, item });
+        }
 
         rows.sort((a,b) => {
-          const ta = parseDateISO(a.date); const tb = parseDateISO(b.date);
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
           return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
         });
 
@@ -545,6 +619,7 @@ export default async function handler(req, res) {
 
       // ----- Orders (CSV) -----
       if (type === "orders_csv") {
+        // Build the same filtered list as /orders
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
@@ -555,17 +630,30 @@ export default async function handler(req, res) {
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
+
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
         const cfgEnd   = effective.EVENT_END || "";
 
-        let startMs = NaN, endMs = NaN;
-        if (daysParam) { const n = Math.max(1, Number(daysParam) || 0); endMs = Date.now() + 1; startMs = endMs - n * 86400000; }
-        else if (startParam || endParam) { startMs = parseYMD(startParam); endMs = parseYMD(endParam); }
-        else if (cfgStart || cfgEnd || cfgDays) {
-          if (cfgDays) { endMs = Date.now() + 1; startMs = endMs - Math.max(1, Number(cfgDays)) * 86400000; }
-          else { startMs = parseYMD(cfgStart); endMs = parseYMD(cfgEnd); }
+        let startMs = NaN;
+        let endMs   = NaN;
+
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        } else if (cfgStart || cfgEnd || cfgDays) {
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs   = parseYMD(cfgEnd);
+          }
         }
 
         let rows = all;
@@ -588,28 +676,37 @@ export default async function handler(req, res) {
           );
         }
 
-        rows = filterByCategoryAndItem(rows, url);
+        // NEW: precise filters
+        const category = url.searchParams.get("category") || "";
+        const item_id  = url.searchParams.get("item_id")  || "";
+        const item     = url.searchParams.get("item")     || "";
+        if (category || item_id || item) {
+          rows = applyItemFilters(rows, { category, item_id, item });
+        }
 
         rows.sort((a,b) => {
-          const ta = parseDateISO(a.date); const tb = parseDateISO(b.date);
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
           return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
         });
 
         const csv = buildCSV(rows);
+
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
         return res.status(200).send(csv);
       }
 
-      // Finalize via GET
+      // Idempotent finalize via GET
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         try {
           const order = await saveOrderFromSession({ id: sid });
-          (async () => { try { await sendOrderReceipts(order); } catch {} })();
+          (async () => { try { await sendOrderReceipts(order); } catch (e) {} })();
           return REQ_OK(res, { ok: true, orderId: order.id, status: order.status || "paid" });
         } catch (err) {
+          console.error("finalize_order failed:", err);
           return REQ_ERR(res, 500, "finalize-failed", { detail: String(err?.message || err) });
         }
       }
@@ -628,18 +725,23 @@ export default async function handler(req, res) {
 
     // ---------- POST ----------
     if (req.method === "POST") {
-      const body = req.body || {};
-      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const body = (typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}));
 
-      // Quick Resend test (no auth)
+      // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
         if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const bodyTo = (req.body && req.body.to) || urlObj.searchParams.get("to") || "";
+        const urlObj = new URL(req.url, `http://${req.headers.host}`);
+        const bodyTo = (body && body.to) || urlObj.searchParams.get("to") || "";
         const fallbackAdmin = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean)[0] || "";
         const to = (bodyTo || fallbackAdmin).trim();
         if (!to) return REQ_ERR(res, 400, "missing-to");
+
         const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-          <h2>Resend test OK</h2><p>Time: ${new Date().toISOString()}</p><p>From: ${RESEND_FROM || ""}</p></div>`;
+          <h2>Resend test OK</h2>
+          <p>Time: ${new Date().toISOString()}</p>
+          <p>From: ${RESEND_FROM || ""}</p>
+        </div>`;
+
         try {
           const sendResult = await resend.emails.send({
             from: RESEND_FROM || "onboarding@resend.dev",
@@ -656,7 +758,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // Finalize (save + email) from success page
+      // --- Finalize (save + email) from success page ---
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -667,7 +769,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
-      // CREATE CHECKOUT
+      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -684,8 +786,13 @@ export default async function handler(req, res) {
           const line_items = lines.map(l => {
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle  = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
-            const unit_amount = isBundle ? cents(l.bundleTotalCents) : toCentsAuto(l.unitPrice || 0);
+
+            const unit_amount = isBundle
+              ? cents(l.bundleTotalCents)
+              : toCentsAuto(l.unitPrice || 0);
+
             const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
+
             return {
               quantity,
               price_data: {
@@ -715,7 +822,11 @@ export default async function handler(req, res) {
           const subtotalCents = lines.reduce((s,l)=>{
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle  = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
-            return s + (isBundle ? cents(l.bundleTotalCents || 0) : toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0));
+            if (isBundle) {
+              return s + cents(l.bundleTotalCents || 0);
+            } else {
+              return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
+            }
           }, 0);
 
           const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
@@ -752,9 +863,10 @@ export default async function handler(req, res) {
           return REQ_OK(res, { url: session.url, id: session.id });
         }
 
-        // Legacy
+        // Legacy branch (simple items)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) return REQ_ERR(res, 400, "no-items");
+
         const session = await getStripe().then(stripe =>
           stripe.checkout.sessions.create({
             mode: "payment",
@@ -767,14 +879,14 @@ export default async function handler(req, res) {
                 product_data: { name: String(it.name || "Item") }
               }
             })),
-            success_url: (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`,
-            cancel_url: body.cancel_url  || `${origin}/order.html`
+            success_url: successUrl,
+            cancel_url: cancelUrl
           })
         );
         return REQ_OK(res, { url: session.url, id: session.id });
       }
 
-      // Stripe webhook
+      // ---- Stripe webhook ----
       if (action === "stripe_webhook") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -782,6 +894,7 @@ export default async function handler(req, res) {
         let event;
         const sig = req.headers["stripe-signature"];
         const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
+
         try {
           if (whsec && typeof req.body === "string") {
             event = stripe.webhooks.constructEvent(req.body, sig, whsec);
@@ -791,6 +904,7 @@ export default async function handler(req, res) {
             event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
           }
         } catch (err) {
+          console.error("Webhook signature verification failed:", err?.message);
           return REQ_ERR(res, 400, "invalid-signature");
         }
 
@@ -798,7 +912,10 @@ export default async function handler(req, res) {
           case "checkout.session.completed": {
             const session = event.data.object;
             const order = await saveOrderFromSession(session.id || session);
-            (async () => { try { await sendOrderReceipts(order); } catch {} })();
+            (async () => {
+              try { await sendOrderReceipts(order); }
+              catch (err) { console.error("email-failed", err?.message || err); }
+            })();
             break;
           }
           case "charge.refunded": {
@@ -806,16 +923,21 @@ export default async function handler(req, res) {
             await applyRefundToOrder(refund.charge, refund);
             break;
           }
-          default: break;
+          default:
+            break;
         }
 
         return REQ_OK(res, { received: true });
       }
 
-      // PUBLIC: register an item config (optional helper)
+      // --- PUBLIC: register an item config (chairs/addons/products/banquets) ---
       if (action === "register_item") {
         const {
-          id = "", name = "", chairEmails = [], publishStart = "", publishEnd = ""
+          id = "",
+          name = "",
+          chairEmails = [],
+          publishStart = "",
+          publishEnd = ""
         } = body || {};
         if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
 
@@ -824,109 +946,22 @@ export default async function handler(req, res) {
           name,
           chairEmails: (Array.isArray(chairEmails) ? chairEmails : String(chairEmails).split(","))
             .map(s => String(s||"").trim()).filter(Boolean),
-          publishStart, publishEnd, updatedAt: new Date().toISOString()
+          publishStart,
+          publishEnd,
+          updatedAt: new Date().toISOString()
         };
 
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
         if (!ok1 || !ok2) return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
+
         return REQ_OK(res, { ok: true });
       }
 
-      return REQ_ERR(res, 400, "unknown-type");
-    }
+      // -------- ADMIN (auth required below) --------
+      if (!requireToken(req, res)) return;
 
-    // ---------- POST (continued) ----------
-    // NOTE: admin-only endpoints guarded below; chair email is NOT guarded.
-    if (req.method === "POST") {
-      const body = req.body || {};
-
-      // Chair-specific email with CSV attachment (NO AUTH)
-      if (action === "send_item_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const kindRaw = String(body.kind || "").toLowerCase();
-        const kind = normalizeCategory(kindRaw === "catalog" ? "other" : kindRaw);
-        const id    = (body.id || "").toString();
-        const label = (body.label || "").toString();
-        const scope = String(body.scope || "current-month");
-
-        // Build filtered rows (use same logic as /orders_csv)
-        const ids = await kvSmembersSafe("orders:index");
-        let all = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
-        }
-
-        // month-to-date window if requested
-        let startMs, endMs;
-        if (scope === "current-month") {
-          const now = new Date();
-          const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-          startMs = +first; endMs = Date.now() + 1;
-          all = filterRowsByWindow(all, { startMs, endMs });
-        }
-
-        // apply category + item filters
-        const fakeUrl = new URL("http://x/orders?category="+kind+"&item_id="+encodeURIComponent(id)+"&item="+encodeURIComponent(label));
-        let rows = filterByCategoryAndItem(all, fakeUrl);
-
-        // If still empty and user asked 'catalog', try kind 'other' fallback already covered.
-
-        const csv = buildCSV(rows);
-        const filename = `report-${kind}-${(label||id||'item').toString().replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase()}.csv`;
-
-        // recipients: chairs (by id or label) + optional admin copies
-        const chairs = await findChairs(kind, id || label);
-        const adminCC = (process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean);
-        const adminBCC = (process.env.REPORTS_BCC || "").split(",").map(s=>s.trim()).filter(Boolean);
-        const to = chairs.length ? chairs : (adminCC.length ? [adminCC[0]] : adminBCC.slice(0,1));
-        if (!to.length) return REQ_ERR(res, 400, "no-recipients");
-
-        const subject = `Amaranth ${kind === "other" ? "Catalog" : kind.charAt(0).toUpperCase()+kind.slice(1)} — ${label || id}`;
-        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-          <p>Attached is the ${scope.replace("-"," ")} report for <b>${label || id}</b> (${kind}).</p>
-          <p>Generated: ${new Date().toLocaleString()}</p>
-        </div>`;
-
-        try {
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM,
-            to,
-            cc: adminCC.length ? adminCC : undefined,
-            bcc: adminBCC.length ? adminBCC : undefined,
-            subject,
-            html,
-            reply_to: REPLY_TO || undefined,
-            attachments: [{
-              filename,
-              content: Buffer.from(csv, "utf8").toString("base64"),
-              path: undefined,
-              contentType: "text/csv; charset=utf-8"
-            }]
-          });
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to, subject, resultId: sendResult?.id || null, status: "queued", kind: "chair-item" });
-          return REQ_OK(res, { ok: true, id: sendResult?.id || null, count: rows.length });
-        } catch (e) {
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to, subject, resultId: null, status: "error", kind: "chair-item", error: String(e?.message || e) });
-          return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
-        }
-      }
-
-      // -------- ADMIN (auth required) --------
-      function requireToken(req, res) {
-        const auth = req.headers.authorization || "";
-        const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-        if (!token || token !== (process.env.REPORT_TOKEN || "")) {
-          REQ_ERR(res, 401, "unauthorized");
-          return false;
-        }
-        return true;
-      }
-      if (["send_full_report","send_month_to_date","clear_orders","save_banquets","save_addons","save_products","save_settings","create_refund"].includes(action)) {
-        if (!requireToken(req, res)) return;
-      }
-
+      // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
         try {
           const mod = await import("./admin/send-full.js");
@@ -946,11 +981,13 @@ export default async function handler(req, res) {
         }
       }
 
+      // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
         return REQ_OK(res, { ok: true, message: "orders index cleared" });
       }
 
+      // create_refund
       if (action === "create_refund") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -962,6 +999,7 @@ export default async function handler(req, res) {
         if (payment_intent) args.payment_intent = payment_intent;
         else if (charge) args.charge = charge;
         else return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
+
         const rf = await stripe.refunds.create(args);
         try { await applyRefundToOrder(rf.charge, rf); } catch {}
         return REQ_OK(res, { ok: true, id: rf.id, status: rf.status });
@@ -972,28 +1010,124 @@ export default async function handler(req, res) {
         await kvSetSafe("banquets", list);
         return REQ_OK(res, { ok: true, count: list.length });
       }
+
       if (action === "save_addons") {
         const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
         return REQ_OK(res, { ok: true, count: list.length });
       }
+
       if (action === "save_products") {
         const list = Array.isArray(body.products) ? body.products : [];
         await kvSetSafe("products", list);
         return REQ_OK(res, { ok: true, count: list.length });
       }
+
       if (action === "save_settings") {
         const allow = {};
         [
-          "RESEND_FROM","REPORTS_CC","REPORTS_BCC","SITE_BASE_URL","MAINTENANCE_ON",
-          "MAINTENANCE_MESSAGE","REPORTS_SEND_SEPARATE","REPLY_TO","EVENT_START","EVENT_END","REPORT_ORDER_DAYS"
+          "RESEND_FROM",
+          "REPORTS_CC",
+          "REPORTS_BCC",
+          "SITE_BASE_URL",
+          "MAINTENANCE_ON",
+          "MAINTENANCE_MESSAGE",
+          "REPORTS_SEND_SEPARATE",
+          "REPLY_TO",
+          "EVENT_START",
+          "EVENT_END",
+          "REPORT_ORDER_DAYS"
         ].forEach(k => { if (k in body) allow[k] = body[k]; });
-        if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
-        if (Object.keys(allow).length) await kvHsetSafe("settings:overrides", allow);
+
+        if ("MAINTENANCE_ON" in allow) {
+          allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
+        }
+
+        if (Object.keys(allow).length) {
+          await kvHsetSafe("settings:overrides", allow);
+        }
         return REQ_OK(res, { ok: true, overrides: allow });
       }
 
       return REQ_ERR(res, 400, "unknown-action");
+    }
+
+    // ---------- PUBLIC (no auth) actions ----------
+    if (req.method === "POST" && action === "send_item_report") {
+      // Expected body: { kind: 'banquet'|'addon'|'other', id: 'item-id', label: 'Human Name', scope: 'current-month'|'full' }
+      if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+
+      const kind  = String((req.body?.kind || req.body?.category || "")).toLowerCase();
+      const id    = String(req.body?.id || "").trim();
+      const label = String(req.body?.label || "").trim();
+      const scope = String(req.body?.scope || "current-month");
+
+      if (!kind || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
+
+      // Collect all rows, then filter the same way /orders_csv does
+      const ids = await kvSmembersSafe("orders:index");
+      let all = [];
+      for (const sid of ids) {
+        const o = await kvGetSafe(`order:${sid}`, null);
+        if (o) all.push(...flattenOrderToRows(o));
+      }
+
+      // Optional scope: current month vs full
+      let startMs, endMs;
+      if (scope === "current-month") {
+        const now = new Date();
+        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        startMs = start.getTime();
+        endMs = Date.now() + 1;
+      }
+
+      let rows = all;
+      if (startMs || endMs) {
+        rows = filterRowsByWindow(rows, { startMs, endMs });
+      }
+      rows = applyItemFilters(rows, { category: kind, item_id: id, item: label });
+
+      // Build CSV
+      const csv = buildCSV(rows);
+
+      // Find recipients from itemcfg:<id>
+      const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+      const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
+        ? cfg.chairEmails
+        : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
+
+      const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+        .split(",").map(s=>s.trim()).filter(Boolean);
+
+      const toList = (chairEmails.length ? chairEmails : fallback);
+      if (!toList.length) return REQ_ERR(res, 400, "no-recipient");
+
+      const prettyKind = kind === "other" ? "catalog" : kind;
+      const subject = `Report — ${prettyKind}: ${label || id}`;
+      const tablePreview = `
+        <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+          <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
+          <p>Rows: <b>${rows.length}</b></p>
+          <div style="font-size:12px;color:#555">Scope: ${scope}</div>
+        </div>`;
+
+      try {
+        // Resend attachments want base64
+        const csvB64 = Buffer.from(csv, "utf8").toString("base64");
+        const sendResult = await resend.emails.send({
+          from: RESEND_FROM,
+          to: toList,
+          subject,
+          html: tablePreview,
+          reply_to: REPLY_TO || undefined,
+          attachments: [{ filename: "report.csv", content: csvB64 }]
+        });
+        await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
+        return REQ_OK(res, { ok: true, count: rows.length, to: toList });
+      } catch (e) {
+        await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
+        return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
+      }
     }
 
     return REQ_ERR(res, 405, "method-not-allowed");
@@ -1003,4 +1137,5 @@ export default async function handler(req, res) {
   }
 }
 
+// Vercel Node 22 runtime
 export const config = { runtime: "nodejs" };
