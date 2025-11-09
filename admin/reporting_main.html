@@ -51,10 +51,19 @@
 
   <!-- CSV helper -->
   <script src="/assets/js/lib/csv.js"></script>
-  <!-- Optional local fallbacks if you still ship static lists -->
+
+  <!-- Static lists (fallbacks). Banquets + Products are as before -->
   <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/addons.js"></script>
   <script src="/assets/js/products.js"></script>
+
+  <!-- IMPORTANT: real Add-Ons file + shim to expose window.ADDONS -->
+  <script src="/assets/js/grand-court-addons.js"></script>
+  <script>
+    // If your real file defines GRAND_COURT_ADDONS, map it to ADDONS for this page.
+    if (!window.ADDONS && window.GRAND_COURT_ADDONS) {
+      window.ADDONS = window.GRAND_COURT_ADDONS;
+    }
+  </script>
 </head>
 <body>
   <div class="container">
@@ -446,13 +455,18 @@ async function fetchList(kind){
       list = normalizeList(kind, j[t]);
     }
   } catch {}
+  // Fall back to static global lists if API isn’t populated
   if (!list.length) {
     if (kind === 'banquet' && Array.isArray(window.BANQUETS)) list = normalizeList(kind, window.BANQUETS);
     if (kind === 'addon'   && Array.isArray(window.ADDONS))   list = normalizeList(kind, window.ADDONS);
     if (kind === 'other'   && Array.isArray(window.PRODUCTS)) list = normalizeList(kind, window.PRODUCTS);
   }
+  // Dedupe by id/name (case-insensitive)
   const seen = new Set(); const deduped = [];
-  for (const it of list) { const key = (it.id || it.name).toLowerCase(); if (!seen.has(key)) { seen.add(key); deduped.push(it); } }
+  for (const it of list) {
+    const key = (it.id || it.name).toLowerCase();
+    if (!seen.has(key)) { seen.add(key); deduped.push(it); }
+  }
   caches[kind] = deduped;
   return deduped;
 }
