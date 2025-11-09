@@ -863,7 +863,6 @@ export default async function handler(req, res) {
 
         const kind  = String((body?.kind || body?.category || "")).toLowerCase();
         const id    = String(body?.id || "").trim();
-        thelabel:
         const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
 
