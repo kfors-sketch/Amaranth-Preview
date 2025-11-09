@@ -891,8 +891,33 @@ export default async function handler(req, res) {
         }
         rows = applyItemFilters(rows, { category: kind, item_id: id, item: label });
 
-        // Build CSV
-        const csv = buildCSV(rows);
+        // ===== EMAIL-ONLY CSV SHAPE (keep downloads unchanged) =====
+        const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "item", "qty", "notes"];
+        const EMAIL_HEADER_LABELS = {
+          date: "Date",
+          purchaser: "Purchaser",
+          attendee: "Attendee",
+          item: "Item",
+          qty: "Qty",
+          notes: "Notes"
+        };
+
+        const projected = rows.map(r => ({
+          date: r.date || "",
+          purchaser: r.purchaser || "",
+          attendee: r.attendee || "",
+          item: r.item || "",
+          qty: r.qty ?? "",
+          notes: r.notes || ""
+        }));
+
+        const esc = (v) => {
+          const s = String(v ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
+        const bodyLines = projected.map(r => EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
+        const emailCsv = "\uFEFF" + [headerLine, ...bodyLines].join("\n");
 
         // Find recipients from itemcfg:<id>
         const cfg = await kvHgetallSafe(`itemcfg:${id}`);
@@ -916,8 +941,7 @@ export default async function handler(req, res) {
           </div>`;
 
         try {
-          // Resend attachments want base64
-          const csvB64 = Buffer.from(csv, "utf8").toString("base64");
+          const csvB64 = Buffer.from(emailCsv, "utf8").toString("base64");
           const sendResult = await resend.emails.send({
             from: RESEND_FROM,
             to: toList,
@@ -1131,7 +1155,7 @@ export default async function handler(req, res) {
         try {
           const mod = await import("./admin/send-full.js");
           const result = await mod.default();
-          return REQ_OK(res, result || { ok: true });
+        return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
         }
