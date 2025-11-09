@@ -132,7 +132,7 @@ async function saveOrderFromSession(sessionLike) {
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",          // dietary notes captured
+        dietaryNote: meta.dietaryNote || "",          // NEW
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -163,7 +163,7 @@ async function saveOrderFromSession(sessionLike) {
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await getStripe().then(stripe => stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] })).catch(()=>null);
+    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
     if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
@@ -214,14 +214,13 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      // include banquet notes + dietary notes in Notes
+      // Merge banquet + dietary notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id,
-      _itemId: li.itemId || ""   // helps precise per-item filtering
+      _session: o.id
     });
   });
 
@@ -238,7 +237,7 @@ function flattenOrderToRows(o) {
       gross: (feeLine.gross || 0) / 100,
       fees: 0, net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
-      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id, _itemId: ""
+      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
     });
   }
   return rows;
@@ -462,60 +461,6 @@ async function sendOrderReceipts(order) {
   return { sent: true };
 }
 
-// ---------- CSV builder (with UTF-8 BOM for Excel) ----------
-function buildCsv(rows) {
-  const headers = Object.keys(rows[0] || {
-    id:"",date:"",purchaser:"",attendee:"",category:"",item:"",
-    qty:0,price:0,gross:0,fees:0,net:0,status:"",notes:"",
-    _pi:"",_charge:"",_session:"",_itemId:""
-  });
-  const esc = (v)=> {
-    const s = String(v ?? "");
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
-  };
-  const lines = [headers.join(",")].concat(
-    rows.map(r => headers.map(h => esc(r[h])).join(","))
-  );
-  const csv = lines.join("\n");
-  // Excel-safe BOM:
-  const bom = "\uFEFF";
-  return bom + csv;
-}
-
-// ---------- Helpers to collect & filter all flattened rows ----------
-async function collectAllRowsFiltered({ startMs, endMs, q }) {
-  const ids = await kvSmembersSafe("orders:index");
-  let all = [];
-  for (const sid of ids) {
-    const o = await kvGetSafe(`order:${sid}`, null);
-    if (o) all.push(...flattenOrderToRows(o));
-  }
-
-  if (!isNaN(startMs) || !isNaN(endMs)) {
-    all = filterRowsByWindow(all, {
-      startMs: isNaN(startMs) ? undefined : startMs,
-      endMs:   isNaN(endMs)   ? undefined : endMs
-    });
-  }
-  if (q) {
-    const needle = q.trim().toLowerCase();
-    all = all.filter(r =>
-      String(r.purchaser||"").toLowerCase().includes(needle) ||
-      String(r.attendee||"").toLowerCase().includes(needle) ||
-      String(r.item||"").toLowerCase().includes(needle) ||
-      String(r.category||"").toLowerCase().includes(needle) ||
-      String(r.status||"").toLowerCase().includes(needle) ||
-      String(r.notes||"").toLowerCase().includes(needle)
-    );
-  }
-  all.sort((a,b)=>{
-    const ta = parseDateISO(a.date);
-    const tb = parseDateISO(b.date);
-    return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
-  });
-  return all;
-}
-
 // -------------- (start of main handler) --------------
 export default async function handler(req, res) {
   try {
@@ -555,7 +500,18 @@ export default async function handler(req, res) {
       }
 
       if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
-      if (type === "addons")    return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
+
+      // ADDONS: tolerant to legacy keys (addons, addOns, extras, extras:addons)
+      if (type === "addons") {
+        const keys = ["addons", "addOns", "extras", "extras:addons"];
+        let data = [];
+        for (const k of keys) {
+          const v = await kvGetSafe(k, null);
+          if (Array.isArray(v) && v.length) { data = v; break; }
+        }
+        return REQ_OK(res, { addons: data });
+      }
+
       if (type === "products")  return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
 
       if (type === "settings") {
@@ -589,11 +545,17 @@ export default async function handler(req, res) {
 
       // ----- Orders (JSON) -----
       if (type === "orders") {
+        const ids = await kvSmembersSafe("orders:index");
+        const all = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) all.push(...flattenOrderToRows(o));
+        }
+
         // query params
         const daysParam  = url.searchParams.get("days");   // ?days=7
         const startParam = url.searchParams.get("start");  // ?start=2025-11-01
         const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
-        const q          = (url.searchParams.get("q") || "").trim().toLowerCase();
 
         // settings fallback
         const { effective } = await getEffectiveSettings();
@@ -621,16 +583,48 @@ export default async function handler(req, res) {
           }
         }
 
-        let rows = await collectAllRowsFiltered({ startMs, endMs, q });
+        let rows = all;
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs:   isNaN(endMs)   ? undefined : endMs
+          });
+        }
+
+        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (q) {
+          rows = rows.filter(r =>
+            String(r.purchaser||"").toLowerCase().includes(q) ||
+            String(r.attendee||"").toLowerCase().includes(q) ||
+            String(r.item||"").toLowerCase().includes(q) ||
+            String(r.category||"").toLowerCase().includes(q) ||
+            String(r.status||"").toLowerCase().includes(q)
+          );
+        }
+
+        rows.sort((a,b) => {
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
+          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
+        });
+
         return REQ_OK(res, { rows });
       }
 
       // ----- Orders (CSV) -----
       if (type === "orders_csv") {
+        // Build the same filtered list as /orders
+        const ids = await kvSmembersSafe("orders:index");
+        const all = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) all.push(...flattenOrderToRows(o));
+        }
+
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
-        const q          = (url.searchParams.get("q") || "").trim().toLowerCase();
 
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
@@ -657,8 +651,45 @@ export default async function handler(req, res) {
           }
         }
 
-        const rows = await collectAllRowsFiltered({ startMs, endMs, q });
-        const csv = buildCsv(rows);
+        let rows = all;
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs:   isNaN(endMs)   ? undefined : endMs
+          });
+        }
+
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (q) {
+          rows = rows.filter(r =>
+            String(r.purchaser||"").toLowerCase().includes(q) ||
+            String(r.attendee||"").toLowerCase().includes(q) ||
+            String(r.item||"").toLowerCase().includes(q) ||
+            String(r.category||"").toLowerCase().includes(q) ||
+            String(r.status||"").toLowerCase().includes(q)
+          );
+        }
+
+        rows.sort((a,b) => {
+          const ta = parseDateISO(a.date);
+          const tb = parseDateISO(b.date);
+          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
+        });
+
+        // Build CSV
+        const headers = Object.keys(rows[0] || {
+          id: "", date: "", purchaser: "", attendee: "", category: "", item: "",
+          qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
+          _pi: "", _charge: "", _session: ""
+        });
+        const esc = (v) => {
+          const s = String(v ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csv = [
+          headers.join(","),
+          ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+        ].join("\n");
 
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
@@ -774,7 +805,7 @@ export default async function handler(req, res) {
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
-                    dietaryNote: l.meta?.dietaryNote || "",
+                    dietaryNote: l.meta?.dietaryNote || "", // NEW
                     itemNote: l.meta?.itemNote || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
@@ -949,110 +980,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // NEW: email a CSV subset to chair(s) for a single item (banquet / addon / catalog)
-      if (action === "send_item_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-
-        // Expected body: { kind: 'banquet'|'addon'|'catalog', itemId?:string, itemName?:string, start?:'YYYY-MM-DD', end?:'YYYY-MM-DD', to?:string[] }
-        const {
-          kind = "",
-          itemId = "",
-          itemName = "",
-          start = "",
-          end = "",
-          to = []
-        } = body || {};
-
-        const kindNorm = String(kind || "").toLowerCase();
-        const validKind = ["banquet","addon","catalog"].includes(kindNorm);
-        if (!validKind) return REQ_ERR(res, 400, "invalid-kind");
-
-        // date window
-        let startMs = parseYMD(start);
-        let endMs   = parseYMD(end);
-
-        // collect rows (already filtered by date)
-        let all = await collectAllRowsFiltered({
-          startMs: isNaN(startMs) ? undefined : startMs,
-          endMs:   isNaN(endMs)   ? undefined : endMs,
-          q: "" // free-text filter handled below
-        });
-
-        // category filter
-        const category = (kindNorm === "catalog") ? "other" : kindNorm;
-        all = all.filter(r => (r.category||"") === category);
-
-        // item filter
-        const idNeedle = String(itemId || "").trim().toLowerCase();
-        const nameNeedle = String(itemName || "").trim().toLowerCase();
-        if (idNeedle) {
-          all = all.filter(r => String(r._itemId||"").toLowerCase() === idNeedle);
-        } else if (nameNeedle) {
-          all = all.filter(r => String(r.item||"").toLowerCase().includes(nameNeedle));
-        }
-
-        if (!all.length) return REQ_ERR(res, 404, "no-rows-for-item");
-
-        // resolve recipients: explicit "to" overrides; else itemcfg:<itemId> if present; else admin fallbacks
-        let recipients = Array.isArray(to) ? to : String(to||"").split(",");
-        recipients = recipients.map(s => String(s||"").trim()).filter(Boolean);
-
-        if (!recipients.length && itemId) {
-          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
-          if (cfg?.chairEmails?.length) {
-            recipients = cfg.chairEmails.map(String).map(s=>s.trim()).filter(Boolean);
-          }
-        }
-
-        const adminExtras = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-          .split(",").map(s=>s.trim()).filter(Boolean);
-
-        if (!recipients.length && adminExtras.length) {
-          recipients = adminExtras.slice(0,1); // at least one recipient
-        }
-        if (!recipients.length) return REQ_ERR(res, 400, "no-recipients");
-
-        const csv = buildCsv(all);
-        const base64 = Buffer.from(csv, "utf8").toString("base64");
-
-        const title = (itemName || itemId || "Item").toString();
-        const subject = `Report — ${kindNorm.toUpperCase()} — ${title}`;
-
-        try {
-          const result = await resend.emails.send({
-            from: RESEND_FROM,
-            to: recipients,
-            subject,
-            html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-              <p>Attached is the CSV for <b>${title}</b> (${kindNorm}).</p>
-              <p>Rows: ${all.length.toLocaleString()}</p>
-            </div>`,
-            attachments: [
-              {
-                filename: `${kindNorm}-${(itemId||itemName||"item").toString().replace(/\s+/g,'_')}.csv`,
-                content: base64
-              }
-            ],
-            reply_to: REPLY_TO || undefined
-          });
-
-          await recordMailLog({
-            ts: Date.now(),
-            from: RESEND_FROM,
-            to: recipients,
-            subject,
-            status: "queued",
-            resultId: result?.id || null,
-            kind: "send_item_report",
-            meta: { kind: kindNorm, itemId, itemName, rows: all.length }
-          });
-
-          return REQ_OK(res, { ok: true, to: recipients, rows: all.length });
-        } catch (e) {
-          return REQ_ERR(res, 500, "send-item-failed", { message: e?.message || String(e) });
-        }
-      }
-
       // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
@@ -1083,9 +1010,11 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, count: list.length });
       }
 
+      // SAVE_ADDONS writes to canonical + legacy keys
       if (action === "save_addons") {
         const list = Array.isArray(body.addons) ? body.addons : [];
-        await kvSetSafe("addons", list);
+        await kvSetSafe("addons", list);  // canonical
+        await kvSetSafe("addOns", list);  // legacy
         return REQ_OK(res, { ok: true, count: list.length });
       }
 
