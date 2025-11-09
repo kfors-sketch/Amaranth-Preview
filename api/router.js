@@ -58,9 +58,9 @@ async function getEffectiveSettings() {
     REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
     REPLY_TO,
     // Optional reporting window
-    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
-    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
+    EVENT_START: process.env.EVENT_START || "",
+    EVENT_END: process.env.EVENT_END || "",
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || ""
   };
   const effective = { ...env, ...overrides,
     MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -78,27 +78,6 @@ function filterRowsByWindow(rows, { startMs, endMs }) {
   });
 }
 
-// Allow cat/contains query filtering (server-side)
-function filterRowsByQuery(rows, { cat, contains }) {
-  let out = rows || [];
-  if (cat) {
-    const want = String(cat).toLowerCase();
-    out = out.filter(r => String(r.category || "").toLowerCase() === want);
-  }
-  if (contains) {
-    const needle = String(contains).toLowerCase();
-    out = out.filter(r => (
-      String(r.purchaser||"").toLowerCase().includes(needle) ||
-      String(r.attendee||"").toLowerCase().includes(needle) ||
-      String(r.item||"").toLowerCase().includes(needle) ||
-      String(r.notes||"").toLowerCase().includes(needle) ||
-      String(r.category||"").toLowerCase().includes(needle) ||
-      String(r._itemId||"").toLowerCase().includes(needle)
-    ));
-  }
-  return out;
-}
-
 // --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
 async function recordMailLog(payload) { try { await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 }); } catch {} }
@@ -112,6 +91,18 @@ function requireToken(req, res) {
     return false;
   }
   return true;
+}
+
+// --- convenience filters for server-side queries ---
+function includesI(hay, needle){
+  if(!needle) return true;
+  const n = String(needle).toLowerCase();
+  return String(hay||"").toLowerCase().includes(n);
+}
+function rowContains(r, needle){
+  if(!needle) return true;
+  const blob = `${r.purchaser}|${r.attendee}|${r.item}|${r.category}|${r.status}|${r.notes}`;
+  return includesI(blob, needle);
 }
 
 // --- Stripe helpers: always fetch the full line item list ---
@@ -153,7 +144,7 @@ async function saveOrderFromSession(sessionLike) {
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",          // NEW
+        dietaryNote: meta.dietaryNote || "",          // capture dietary note
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -235,14 +226,13 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      // NEW: banquet notes + dietary notes combined
+      // banquet notes + dietary notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id,
-      _itemId: li.itemId || ""           // NEW: keep original item id for precise filtering
+      _session: o.id
     });
   });
 
@@ -259,10 +249,33 @@ function flattenOrderToRows(o) {
       gross: (feeLine.gross || 0) / 100,
       fees: 0, net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
-      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id, _itemId: ""
+      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
     });
   }
   return rows;
+}
+
+// -------- CSV builder (shared by endpoints & email attachments) --------
+function buildCSV(rows){
+  const headers = ["date","orderId","purchaser","attendee","category","item","qty","price","gross","fees","net","status","notes"];
+  const esc = v => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const lines = [
+    headers.join(","),
+    ...rows.map(r => [
+      r.date, r.id, r.purchaser||"", r.attendee||"", r.category||"", r.item||"",
+      r.qty ?? 1,
+      Number(r.price||0).toFixed(2),
+      Number(r.gross||0).toFixed(2),
+      Number(r.fees||0).toFixed(2),
+      Number(r.net || ((r.gross||0)-(r.fees||0))).toFixed(2),
+      r.status||"",
+      r.notes||""
+    ].map(esc).join(","))
+  ];
+  return lines.join("\n");
 }
 
 // -------- Email rendering + sending --------
@@ -275,6 +288,7 @@ function absoluteUrl(path = "/") {
 function renderOrderEmailHTML(order) {
   const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
+
   const purchaserName = order?.purchaser?.name || "Purchaser";
 
   const topCatalog = [];
@@ -286,6 +300,7 @@ function renderOrderEmailHTML(order) {
     const qty = Number(li.qty || 1);
     const lineCents = Number(li.unitPrice || 0) * qty;
     const cat = String(li.category || "").toLowerCase();
+
     if (/processing\s*fee/i.test(name)) { feesCents += lineCents; return; }
 
     const isBanquet = (cat === "banquet") || /banquet/i.test(name);
@@ -481,62 +496,6 @@ async function sendOrderReceipts(order) {
   return { sent: true };
 }
 
-// ---- CSV builder (shared) ----
-function makeCsv(rows) {
-  const headers = Object.keys(rows[0] || {
-    id: "", date: "", purchaser: "", attendee: "", category: "", item: "",
-    qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-    _pi: "", _charge: "", _session: "", _itemId: ""
-  });
-  const esc = (v) => {
-    const s = String(v ?? "");
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const csv = [
-    headers.join(","),
-    ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-  ].join("\n");
-  return csv;
-}
-
-// ---- Chair email helpers ----
-async function findChairEmailsByConfig(category, itemIdOrName) {
-  const needle = String(itemIdOrName || "").toLowerCase();
-
-  // Try consolidated itemcfg:<id> first
-  const cfgObj = await kvHgetallSafe(`itemcfg:${itemIdOrName}`);
-  if (cfgObj && (cfgObj.id || cfgObj.name)) {
-    const list = (cfgObj.chairEmails || []);
-    if (Array.isArray(list) && list.length) return list;
-  }
-
-  // Fallback to legacy arrays
-  const map = {
-    banquet: "banquets",
-    addon: "addons",
-    other: "products"
-  };
-  const key = map[category] || "products";
-  const list = await kvGetSafe(key, []);
-  if (Array.isArray(list)) {
-    for (const it of list) {
-      const id = String(it.id || "").toLowerCase();
-      const nm = String(it.name || "").toLowerCase();
-      if ((id && id === needle) || (nm && nm === needle)) {
-        const arr = Array.isArray(it.chairEmails) ? it.chairEmails : String(it.chairEmails||"")
-          .split(",").map(s=>s.trim()).filter(Boolean);
-        if (arr.length) return arr;
-      }
-    }
-  }
-  return [];
-}
-
-function csvAttachment(filename, csvString) {
-  const content = Buffer.from(csvString, "utf8").toString("base64");
-  return [{ filename, content, contentType: "text/csv" }];
-}
-
 // -------------- (start of main handler) --------------
 export default async function handler(req, res) {
   try {
@@ -618,13 +577,9 @@ export default async function handler(req, res) {
         }
 
         // query params
-        const daysParam  = url.searchParams.get("days");   // ?days=7
-        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
-        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
-
-        // NEW: cat/contains (server-side filtering)
-        const catParam = url.searchParams.get("cat") || "";
-        const containsParam = url.searchParams.get("contains") || "";
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
 
         // settings fallback
         const { effective } = await getEffectiveSettings();
@@ -660,21 +615,14 @@ export default async function handler(req, res) {
           });
         }
 
-        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-        if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q) ||
-            String(r.notes||"").toLowerCase().includes(q)
-          );
-        }
+        // Extra server-side filters
+        const catParam = (url.searchParams.get("cat") || "").toLowerCase();   // banquet|addon|other|donation
+        const containsParam = (url.searchParams.get("contains") || "").trim();
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();     // legacy text search
 
-        // NEW: category & contains filters
-        rows = filterRowsByQuery(rows, { cat: catParam, contains: containsParam });
+        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
+        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
+        if (q) rows = rows.filter(r => rowContains(r, q));
 
         rows.sort((a,b) => {
           const ta = parseDateISO(a.date);
@@ -698,8 +646,6 @@ export default async function handler(req, res) {
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
-        const catParam   = url.searchParams.get("cat") || "";
-        const containsParam = url.searchParams.get("contains") || "";
 
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
@@ -734,20 +680,14 @@ export default async function handler(req, res) {
           });
         }
 
+        // Extra server-side filters (same as JSON)
+        const catParam = (url.searchParams.get("cat") || "").toLowerCase();
+        const containsParam = (url.searchParams.get("contains") || "").trim();
         const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-        if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q) ||
-            String(r.notes||"").toLowerCase().includes(q)
-          );
-        }
 
-        // NEW: category & contains filters
-        rows = filterRowsByQuery(rows, { cat: catParam, contains: containsParam });
+        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
+        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
+        if (q) rows = rows.filter(r => rowContains(r, q));
 
         rows.sort((a,b) => {
           const ta = parseDateISO(a.date);
@@ -755,7 +695,7 @@ export default async function handler(req, res) {
           return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
         });
 
-        const csv = makeCsv(rows);
+        const csv = buildCSV(rows);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
         return res.status(200).send(csv);
@@ -870,7 +810,7 @@ export default async function handler(req, res) {
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
-                    dietaryNote: l.meta?.dietaryNote || "", // NEW
+                    dietaryNote: l.meta?.dietaryNote || "", // capture dietary metadata
                     itemNote: l.meta?.itemNote || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
@@ -1025,6 +965,82 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
+      // NEW: Email a specific banquet/addon/catalog chair now (CSV attached)
+      if (action === "send_banquet_report") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        const { banquet_id = "", scope = "current-month", category = "banquet" } = body || {};
+        if (!banquet_id) return REQ_ERR(res, 400, "missing-banquet_id");
+
+        // Look up item config (name + chairEmails)
+        const cfg = await kvHgetallSafe(`itemcfg:${banquet_id}`);
+        const name = cfg?.name || banquet_id;
+        const chairEmails = (cfg?.chairEmails || []).filter(Boolean);
+
+        // Load & flatten all rows
+        const ids = await kvSmembersSafe("orders:index");
+        let rows = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) rows.push(...flattenOrderToRows(o));
+        }
+
+        // Date window from scope
+        let startMs, endMs;
+        if (scope === "current-month") {
+          const now = new Date();
+          const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+          startMs = +first;
+          endMs = Date.now() + 1;
+        }
+
+        // Apply filters: scope, category, contains=name
+        if (startMs || endMs) {
+          rows = filterRowsByWindow(rows, {
+            startMs: startMs || undefined,
+            endMs: endMs || undefined
+          });
+        }
+        if (category) rows = rows.filter(r => (r.category||"") === String(category).toLowerCase());
+        if (name) rows = rows.filter(r => rowContains(r, name));
+
+        if (!rows.length) return REQ_ERR(res, 404, "no-matching-rows");
+
+        const csv = buildCSV(rows);
+        const filename = `report-${name.replace(/\s+/g,'-').toLowerCase()}-${scope}.csv`;
+
+        const adminList = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const toList = [...chairEmails, ...adminList];
+        if (!toList.length) return REQ_ERR(res, 400, "no-recipients");
+
+        const subject = `Amaranth — ${name} ${scope.replace('-', ' ')} report`;
+        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+          <h2>${name} — ${scope.replace('-', ' ')}</h2>
+          <p>Attached is the CSV report. Dietary notes are included in the “Notes” column.</p>
+        </div>`;
+
+        try {
+          await resend.emails.send({
+            from: RESEND_FROM,
+            to: toList,
+            subject,
+            html,
+            reply_to: REPLY_TO || undefined,
+            attachments: [{
+              filename,
+              content: Buffer.from(csv).toString('base64'),
+              contentType: "text/csv"
+            }]
+          });
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "queued" });
+          return REQ_OK(res, { ok: true, sent: true, count: rows.length, filename });
+        } catch (e) {
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "error", error: String(e?.message || e) });
+          return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
+        }
+      }
+
       // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
         try {
@@ -1042,118 +1058,6 @@ export default async function handler(req, res) {
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
-        }
-      }
-
-      // NEW: Chair-specific item report email (banquet/addon/product)
-      if (action === "send_item_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-
-        const category = String(body.category || "").toLowerCase(); // banquet | addon | other
-        const item_id  = String(body.item_id || "").trim();
-        const item_name = String(body.item_name || item_id).trim();
-        const scope    = String(body.scope || "current-month");
-
-        if (!category || !item_id) return REQ_ERR(res, 400, "missing-category-or-item");
-
-        // Compute date window from scope
-        let startMs, endMs;
-        const now = new Date();
-        if (scope === "current-month") {
-          const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-          startMs = first.getTime();
-          const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-          endMs = nextMonth.getTime();
-        } else {
-          startMs = undefined; endMs = undefined; // full history
-        }
-
-        // Gather and filter rows
-        const ids = await kvSmembersSafe("orders:index");
-        let allRows = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) allRows.push(...flattenOrderToRows(o));
-        }
-
-        // Filter by time range
-        if (startMs || endMs) {
-          allRows = filterRowsByWindow(allRows, {
-            startMs: startMs, endMs: endMs
-          });
-        }
-
-        // Filter by category + item match (by id OR by name occurrence)
-        let rows = allRows.filter(r => String(r.category||"").toLowerCase() === category);
-        const needle = item_name.toLowerCase();
-        rows = rows.filter(r =>
-          String(r._itemId||"").toLowerCase() === item_id.toLowerCase() ||
-          String(r.item||"").toLowerCase().includes(needle) ||
-          String(r.notes||"").toLowerCase().includes(needle)
-        );
-
-        // Sort newest first
-        rows.sort((a,b)=> (parseDateISO(b.date)||0) - (parseDateISO(a.date)||0));
-
-        const csv = makeCsv(rows);
-
-        // Resolve recipients from config
-        let toList = await findChairEmailsByConfig(category, item_id);
-        // Fallback: try again by friendly name if id lookup failed
-        if (!toList.length) toList = await findChairEmailsByConfig(category, item_name);
-
-        const ccList = (process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean);
-        const bccList = (process.env.REPORTS_BCC || "").split(",").map(s=>s.trim()).filter(Boolean);
-
-        const recipients = toList.length ? toList : (ccList.length ? [ccList[0]] : bccList.slice(0,1));
-        if (!recipients.length) return REQ_ERR(res, 400, "no-recipients");
-
-        const subject = `Report: ${category.toUpperCase()} — ${item_name} (${scope.replace("-"," ")})`;
-        const html = `
-          <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-            <h2>${subject}</h2>
-            <p>Attached is a CSV for ${category} “${item_name}”.</p>
-            <p>Rows: ${rows.length.toLocaleString()}</p>
-          </div>`;
-
-        const attachments = csvAttachment(
-          `amaranth-${category}-${item_id || item_name}-${new Date().toISOString().slice(0,10)}.csv`,
-          csv
-        );
-
-        try {
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM,
-            to: recipients,
-            cc: ccList.length ? ccList : undefined,
-            bcc: bccList.length ? bccList : undefined,
-            subject,
-            html,
-            reply_to: REPLY_TO || undefined,
-            attachments
-          });
-
-          await recordMailLog({
-            ts: Date.now(),
-            from: RESEND_FROM,
-            to: recipients, cc: ccList, bcc: bccList,
-            subject, resultId: sendResult?.id || null,
-            status: "queued",
-            meta: { category, item_id, item_name, scope, rows: rows.length }
-          });
-
-          return REQ_OK(res, { ok: true, id: sendResult?.id || null, to: recipients, rows: rows.length });
-        } catch (e) {
-          await recordMailLog({
-            ts: Date.now(),
-            from: RESEND_FROM,
-            to: recipients,
-            subject,
-            resultId: null, status: "error",
-            error: String(e?.message || e),
-            meta: { category, item_id, item_name, scope }
-          });
-          return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
         }
       }
 
