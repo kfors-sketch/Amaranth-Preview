@@ -212,8 +212,6 @@
       <div class="controls" style="margin-bottom:6px">
         <div class="group">
           <button id="btnSendMTD" class="btn success" title="Email month-to-date reports to chairs + admin">Send Month-to-Date</button>
-        </div>
-        <div class="group">
           <button id="btnSendFull" class="btn ghost"  title="Email full-history reports to chairs + admin">Send Full</button>
         </div>
         <span id="sendMsg" class="muted"></span>
@@ -225,16 +223,9 @@
         </div>
         <div id="sendPanel" class="hide" style="margin-top:12px">
           <div class="controls">
-            <label class="muted">Category</label>
-            <select id="chairCategory" style="height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
-              <option value="banquet" selected>Banquet</option>
-              <option value="addon">Add-On</option>
-              <option value="other">Catalog (Product)</option>
-            </select>
-
-            <label class="muted">Chair &amp; Item</label>
-            <select id="chairItemSelect" style="min-width:340px;height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
-              <option value="" selected disabled>Loading…</option>
+            <label class="muted">Chairperson &amp; Banquet</label>
+            <select id="banquetSelect" style="min-width:320px;height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
+              <option value="" selected disabled>Loading banquets…</option>
             </select>
 
             <label class="muted">Scope</label>
@@ -246,7 +237,7 @@
             <button id="btnSendNow" class="btn">Send</button>
             <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
           </div>
-          <div class="muted" style="margin-top:6px" id="sendHint">“Send” emails the selected item’s chair(s) with a CSV attachment. “Test” uses REPORTS_CC/BCC if no recipient is set.</div>
+          <div class="muted" style="margin-top:6px" id="sendHint">“Send Test Email” uses REPORTS_CC/BCC as a fallback if no “to” is provided.</div>
         </div>
       </div>
     </div>
@@ -530,7 +521,19 @@ document.getElementById('btnSample').addEventListener('click', ()=>{ rows = samp
 /** Category & Per-banquet downloads **/
 function populateBanquetSelects(){
   const data = (window.BANQUETS || []);
-  // Per-banquet download
+  // Chair actions select
+  const sel = $('#banquetSelect');
+  if (sel) {
+    sel.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
+    data.forEach(b=>{
+      const opt = document.createElement('option');
+      opt.value = b.id || b.name || '';
+      opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
+      opt.dataset.name = b.name || b.id || '';
+      sel.appendChild(opt);
+    });
+  }
+  // Download per-banquet select
   const dl = $('#dlBanquet');
   if (dl) {
     dl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
@@ -566,80 +569,6 @@ function cryptoRandom(){ return Math.random().toString(36).slice(2) }
 function sampleRows(){ /* supply your own sample if you like */ return []; }
 function ingest(d){ /* normalize to rows[] shape if importing */ return Array.isArray(d)? d: [] }
 
-/** Chair-Specific email: load items (banquets, addons, products) **/
-const chairCategory = $('#chairCategory');
-const chairItemSelect = $('#chairItemSelect');
-let ADDONS_CACHE = [];
-let PRODUCTS_CACHE = [];
-
-async function loadChairItems(){
-  const cat = chairCategory.value;
-  chairItemSelect.innerHTML = `<option value="" selected disabled>Loading ${cat}…</option>`;
-
-  if (cat === 'banquet') {
-    const list = (window.BANQUETS || []);
-    if (!list.length) chairItemSelect.innerHTML = '<option value="" selected disabled>No banquets found</option>';
-    else {
-      chairItemSelect.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
-      list.forEach(b=>{
-        const opt = document.createElement('option');
-        opt.value = b.id || b.name || '';
-        opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
-        opt.dataset.name = b.name || b.id || '';
-        opt.dataset.id = b.id || b.name || '';
-        chairItemSelect.appendChild(opt);
-      });
-    }
-    return;
-  }
-
-  try{
-    if (cat === 'addon') {
-      if (!ADDONS_CACHE.length) {
-        const r = await fetch('/api/router?type=addons', { cache:'no-store' });
-        const j = await r.json();
-        ADDONS_CACHE = Array.isArray(j.addons) ? j.addons : [];
-      }
-      const list = ADDONS_CACHE;
-      if (!list.length) chairItemSelect.innerHTML = '<option value="" selected disabled>No add-ons found</option>';
-      else {
-        chairItemSelect.innerHTML = '<option value="" selected disabled>Select an add-on…</option>';
-        list.forEach(a=>{
-          const opt = document.createElement('option');
-          opt.value = a.id || a.name || '';
-          opt.textContent = `${a.name || a.id || 'Add-On'}${a.chairEmails?.length ? ' — ' + a.chairEmails.join(', ') : ''}`;
-          opt.dataset.name = a.name || a.id || '';
-          opt.dataset.id = a.id || a.name || '';
-          chairItemSelect.appendChild(opt);
-        });
-      }
-    } else if (cat === 'other') {
-      if (!PRODUCTS_CACHE.length) {
-        const r = await fetch('/api/router?type=products', { cache:'no-store' });
-        const j = await r.json();
-        PRODUCTS_CACHE = Array.isArray(j.products) ? j.products : [];
-      }
-      const list = PRODUCTS_CACHE;
-      if (!list.length) chairItemSelect.innerHTML = '<option value="" selected disabled>No products found</option>';
-      else {
-        chairItemSelect.innerHTML = '<option value="" selected disabled>Select a product…</option>';
-        list.forEach(p=>{
-          const opt = document.createElement('option');
-          opt.value = p.id || p.name || '';
-          opt.textContent = `${p.name || p.id || 'Product'}${p.chairEmails?.length ? ' — ' + p.chairEmails.join(', ') : ''}`;
-          opt.dataset.name = p.name || p.id || '';
-          opt.dataset.id = p.id || p.name || '';
-          chairItemSelect.appendChild(opt);
-        });
-      }
-    }
-  }catch{
-    chairItemSelect.innerHTML = '<option value="" selected disabled>Failed to load items</option>';
-  }
-}
-chairCategory.addEventListener('change', loadChairItems);
-loadChairItems();
-
 /** Send Now / Email automation **/
 $('#revealSendPanel').addEventListener('click', ()=>{
   $('#sendPanel').classList.toggle('hide');
@@ -657,37 +586,28 @@ $('#btnSendTest').addEventListener('click', async ()=>{
   }
 });
 
-// Chair-specific Send (Banquet/Add-On/Catalog)
+// Chair-specific “Send” -> server action send_banquet_report
 $('#btnSendNow').addEventListener('click', async ()=>{
-  const cat = chairCategory.value;                      // banquet | addon | other
-  const sel = chairItemSelect;
-  const item_id = sel.value || '';
-  const item_name = sel.options[sel.selectedIndex]?.dataset?.name || item_id;
+  const sel = $('#banquetSelect');
+  const banquet_id = sel.value || '';
   const scope = $('#scopeSelect').value || 'current-month';
-  if (!item_id) { alert('Please choose an item.'); return; }
+  if (!banquet_id) { alert('Please choose a banquet.'); return; }
 
   const token = localStorage.getItem('amaranth_report_token') || '';
   const headers = { 'Content-Type':'application/json' };
   if (token) headers.Authorization = 'Bearer ' + token;
 
-  // Preferred unified endpoint:
-  const payload = { category: cat, item_id, item_name, scope };
-
   try{
-    let r = await fetch('/api/router?action=send_item_report', {
-      method:'POST', headers, body: JSON.stringify(payload)
+    const r = await fetch('/api/router?action=send_banquet_report', {
+      method:'POST',
+      headers,
+      body: JSON.stringify({ banquet_id, scope, category: 'banquet' })
     });
-    if (cat === 'banquet' && r.status === 400) {
-      // Backward-compat: older servers may only have send_banquet_report
-      r = await fetch('/api/router?action=send_banquet_report', {
-        method:'POST', headers, body: JSON.stringify({ banquet_id: item_id, scope, category: 'banquet' })
-      });
-    }
     const j = await r.json();
     if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
-    $('#sendMsg').textContent = `Chair report queued for ${item_name} (${cat}).`;
+    $('#sendMsg').textContent = `Chair report queued (${j.filename || 'CSV attached'}).`;
   }catch(e){
-    $('#sendMsg').textContent = 'Send failed: ' + e.message + ' (Check admin token / ensure server action exists)';
+    $('#sendMsg').textContent = 'Send failed: ' + e.message + ' (Check admin token / REPORT_TOKEN)';
   }
 });
 
@@ -713,7 +633,7 @@ const modal = $('#refundModal');
 const rfType = $('#rfType');
 const rfAmtWrap = $('#rfAmtWrap');
 const rfAmount = $('#rfAmount');
-const rfInfo = $('#rfInfo']);
+const rfInfo = $('#rfInfo');
 let currentRefundCtx = null;
 
 rfType.addEventListener('change', ()=>{
