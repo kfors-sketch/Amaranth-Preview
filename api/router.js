@@ -58,9 +58,9 @@ async function getEffectiveSettings() {
     REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
     REPLY_TO,
     // Optional reporting window
-    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
-    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
+    EVENT_START: process.env.EVENT_START || "",
+    EVENT_END: process.env.EVENT_END || "",
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || ""
   };
   const effective = { ...env, ...overrides,
     MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -91,6 +91,18 @@ function requireToken(req, res) {
     return false;
   }
   return true;
+}
+
+// --- convenience filters for server-side queries ---
+function includesI(hay, needle){
+  if(!needle) return true;
+  const n = String(needle).toLowerCase();
+  return String(hay||"").toLowerCase().includes(n);
+}
+function rowContains(r, needle){
+  if(!needle) return true;
+  const blob = `${r.purchaser}|${r.attendee}|${r.item}|${r.category}|${r.status}|${r.notes}`;
+  return includesI(blob, needle);
 }
 
 // --- Stripe helpers: always fetch the full line item list ---
@@ -132,7 +144,7 @@ async function saveOrderFromSession(sessionLike) {
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",          // <-- NEW
+        dietaryNote: meta.dietaryNote || "",          // capture dietary note
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -214,7 +226,7 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      // <-- NEW: merge banquet notes + dietary notes
+      // banquet notes + dietary notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
@@ -241,6 +253,29 @@ function flattenOrderToRows(o) {
     });
   }
   return rows;
+}
+
+// -------- CSV builder (shared by endpoints & email attachments) --------
+function buildCSV(rows){
+  const headers = ["date","orderId","purchaser","attendee","category","item","qty","price","gross","fees","net","status","notes"];
+  const esc = v => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const lines = [
+    headers.join(","),
+    ...rows.map(r => [
+      r.date, r.id, r.purchaser||"", r.attendee||"", r.category||"", r.item||"",
+      r.qty ?? 1,
+      Number(r.price||0).toFixed(2),
+      Number(r.gross||0).toFixed(2),
+      Number(r.fees||0).toFixed(2),
+      Number(r.net || ((r.gross||0)-(r.fees||0))).toFixed(2),
+      r.status||"",
+      r.notes||""
+    ].map(esc).join(","))
+  ];
+  return lines.join("\n");
 }
 
 // -------- Email rendering + sending --------
@@ -542,9 +577,9 @@ export default async function handler(req, res) {
         }
 
         // query params
-        const daysParam  = url.searchParams.get("days");   // ?days=7
-        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
-        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
 
         // settings fallback
         const { effective } = await getEffectiveSettings();
@@ -580,17 +615,14 @@ export default async function handler(req, res) {
           });
         }
 
-        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-        if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q)
-          );
-        }
+        // Extra server-side filters
+        const catParam = (url.searchParams.get("cat") || "").toLowerCase();   // banquet|addon|other|donation
+        const containsParam = (url.searchParams.get("contains") || "").trim();
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();     // legacy text search
+
+        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
+        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
+        if (q) rows = rows.filter(r => rowContains(r, q));
 
         rows.sort((a,b) => {
           const ta = parseDateISO(a.date);
@@ -648,16 +680,14 @@ export default async function handler(req, res) {
           });
         }
 
+        // Extra server-side filters (same as JSON)
+        const catParam = (url.searchParams.get("cat") || "").toLowerCase();
+        const containsParam = (url.searchParams.get("contains") || "").trim();
         const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-        if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q)
-          );
-        }
+
+        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
+        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
+        if (q) rows = rows.filter(r => rowContains(r, q));
 
         rows.sort((a,b) => {
           const ta = parseDateISO(a.date);
@@ -665,21 +695,7 @@ export default async function handler(req, res) {
           return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
         });
 
-        // Build CSV
-        const headers = Object.keys(rows[0] || {
-          id: "", date: "", purchaser: "", attendee: "", category: "", item: "",
-          qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-          _pi: "", _charge: "", _session: ""
-        });
-        const esc = (v) => {
-          const s = String(v ?? "");
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-        const csv = [
-          headers.join(","),
-          ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-        ].join("\n");
-
+        const csv = buildCSV(rows);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
         return res.status(200).send(csv);
@@ -794,7 +810,7 @@ export default async function handler(req, res) {
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
-                    dietaryNote: l.meta?.dietaryNote || "", // <-- NEW: capture dietary metadata
+                    dietaryNote: l.meta?.dietaryNote || "", // capture dietary metadata
                     itemNote: l.meta?.itemNote || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
@@ -948,6 +964,82 @@ export default async function handler(req, res) {
 
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
+
+      // NEW: Email a specific banquet/addon/catalog chair now (CSV attached)
+      if (action === "send_banquet_report") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        const { banquet_id = "", scope = "current-month", category = "banquet" } = body || {};
+        if (!banquet_id) return REQ_ERR(res, 400, "missing-banquet_id");
+
+        // Look up item config (name + chairEmails)
+        const cfg = await kvHgetallSafe(`itemcfg:${banquet_id}`);
+        const name = cfg?.name || banquet_id;
+        const chairEmails = (cfg?.chairEmails || []).filter(Boolean);
+
+        // Load & flatten all rows
+        const ids = await kvSmembersSafe("orders:index");
+        let rows = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) rows.push(...flattenOrderToRows(o));
+        }
+
+        // Date window from scope
+        let startMs, endMs;
+        if (scope === "current-month") {
+          const now = new Date();
+          const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+          startMs = +first;
+          endMs = Date.now() + 1;
+        }
+
+        // Apply filters: scope, category, contains=name
+        if (startMs || endMs) {
+          rows = filterRowsByWindow(rows, {
+            startMs: startMs || undefined,
+            endMs: endMs || undefined
+          });
+        }
+        if (category) rows = rows.filter(r => (r.category||"") === String(category).toLowerCase());
+        if (name) rows = rows.filter(r => rowContains(r, name));
+
+        if (!rows.length) return REQ_ERR(res, 404, "no-matching-rows");
+
+        const csv = buildCSV(rows);
+        const filename = `report-${name.replace(/\s+/g,'-').toLowerCase()}-${scope}.csv`;
+
+        const adminList = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const toList = [...chairEmails, ...adminList];
+        if (!toList.length) return REQ_ERR(res, 400, "no-recipients");
+
+        const subject = `Amaranth — ${name} ${scope.replace('-', ' ')} report`;
+        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+          <h2>${name} — ${scope.replace('-', ' ')}</h2>
+          <p>Attached is the CSV report. Dietary notes are included in the “Notes” column.</p>
+        </div>`;
+
+        try {
+          await resend.emails.send({
+            from: RESEND_FROM,
+            to: toList,
+            subject,
+            html,
+            reply_to: REPLY_TO || undefined,
+            attachments: [{
+              filename,
+              content: Buffer.from(csv).toString('base64'),
+              contentType: "text/csv"
+            }]
+          });
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "queued" });
+          return REQ_OK(res, { ok: true, sent: true, count: rows.length, filename });
+        } catch (e) {
+          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "error", error: String(e?.message || e) });
+          return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
+        }
+      }
 
       // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
