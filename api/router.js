@@ -58,9 +58,9 @@ async function getEffectiveSettings() {
     REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
     REPLY_TO,
     // Optional reporting window
-    EVENT_START: process.env.EVENT_START || "",
-    EVENT_END: process.env.EVENT_END || "",
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || ""
+    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
+    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
   };
   const effective = { ...env, ...overrides,
     MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -91,18 +91,6 @@ function requireToken(req, res) {
     return false;
   }
   return true;
-}
-
-// --- convenience filters for server-side queries ---
-function includesI(hay, needle){
-  if(!needle) return true;
-  const n = String(needle).toLowerCase();
-  return String(hay||"").toLowerCase().includes(n);
-}
-function rowContains(r, needle){
-  if(!needle) return true;
-  const blob = `${r.purchaser}|${r.attendee}|${r.item}|${r.category}|${r.status}|${r.notes}`;
-  return includesI(blob, needle);
 }
 
 // --- Stripe helpers: always fetch the full line item list ---
@@ -144,7 +132,7 @@ async function saveOrderFromSession(sessionLike) {
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",          // capture dietary note
+        dietaryNote: meta.dietaryNote || "",          // dietary notes captured
         itemNote: meta.itemNote || "",
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
@@ -175,7 +163,7 @@ async function saveOrderFromSession(sessionLike) {
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
+    const pi = await getStripe().then(stripe => stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] })).catch(()=>null);
     if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
@@ -226,13 +214,14 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      // banquet notes + dietary notes
+      // include banquet notes + dietary notes in Notes
       notes: li.category === "banquet"
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id
+      _session: o.id,
+      _itemId: li.itemId || ""   // helps precise per-item filtering
     });
   });
 
@@ -249,33 +238,10 @@ function flattenOrderToRows(o) {
       gross: (feeLine.gross || 0) / 100,
       fees: 0, net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
-      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id
+      notes: "", _pi: o.payment_intent || "", _charge: o.charge || "", _session: o.id, _itemId: ""
     });
   }
   return rows;
-}
-
-// -------- CSV builder (shared by endpoints & email attachments) --------
-function buildCSV(rows){
-  const headers = ["date","orderId","purchaser","attendee","category","item","qty","price","gross","fees","net","status","notes"];
-  const esc = v => {
-    const s = String(v ?? "");
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
-  };
-  const lines = [
-    headers.join(","),
-    ...rows.map(r => [
-      r.date, r.id, r.purchaser||"", r.attendee||"", r.category||"", r.item||"",
-      r.qty ?? 1,
-      Number(r.price||0).toFixed(2),
-      Number(r.gross||0).toFixed(2),
-      Number(r.fees||0).toFixed(2),
-      Number(r.net || ((r.gross||0)-(r.fees||0))).toFixed(2),
-      r.status||"",
-      r.notes||""
-    ].map(esc).join(","))
-  ];
-  return lines.join("\n");
 }
 
 // -------- Email rendering + sending --------
@@ -496,6 +462,60 @@ async function sendOrderReceipts(order) {
   return { sent: true };
 }
 
+// ---------- CSV builder (with UTF-8 BOM for Excel) ----------
+function buildCsv(rows) {
+  const headers = Object.keys(rows[0] || {
+    id:"",date:"",purchaser:"",attendee:"",category:"",item:"",
+    qty:0,price:0,gross:0,fees:0,net:0,status:"",notes:"",
+    _pi:"",_charge:"",_session:"",_itemId:""
+  });
+  const esc = (v)=> {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const lines = [headers.join(",")].concat(
+    rows.map(r => headers.map(h => esc(r[h])).join(","))
+  );
+  const csv = lines.join("\n");
+  // Excel-safe BOM:
+  const bom = "\uFEFF";
+  return bom + csv;
+}
+
+// ---------- Helpers to collect & filter all flattened rows ----------
+async function collectAllRowsFiltered({ startMs, endMs, q }) {
+  const ids = await kvSmembersSafe("orders:index");
+  let all = [];
+  for (const sid of ids) {
+    const o = await kvGetSafe(`order:${sid}`, null);
+    if (o) all.push(...flattenOrderToRows(o));
+  }
+
+  if (!isNaN(startMs) || !isNaN(endMs)) {
+    all = filterRowsByWindow(all, {
+      startMs: isNaN(startMs) ? undefined : startMs,
+      endMs:   isNaN(endMs)   ? undefined : endMs
+    });
+  }
+  if (q) {
+    const needle = q.trim().toLowerCase();
+    all = all.filter(r =>
+      String(r.purchaser||"").toLowerCase().includes(needle) ||
+      String(r.attendee||"").toLowerCase().includes(needle) ||
+      String(r.item||"").toLowerCase().includes(needle) ||
+      String(r.category||"").toLowerCase().includes(needle) ||
+      String(r.status||"").toLowerCase().includes(needle) ||
+      String(r.notes||"").toLowerCase().includes(needle)
+    );
+  }
+  all.sort((a,b)=>{
+    const ta = parseDateISO(a.date);
+    const tb = parseDateISO(b.date);
+    return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
+  });
+  return all;
+}
+
 // -------------- (start of main handler) --------------
 export default async function handler(req, res) {
   try {
@@ -569,17 +589,11 @@ export default async function handler(req, res) {
 
       // ----- Orders (JSON) -----
       if (type === "orders") {
-        const ids = await kvSmembersSafe("orders:index");
-        const all = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
-        }
-
         // query params
-        const daysParam  = url.searchParams.get("days");
-        const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
+        const daysParam  = url.searchParams.get("days");   // ?days=7
+        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
+        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
+        const q          = (url.searchParams.get("q") || "").trim().toLowerCase();
 
         // settings fallback
         const { effective } = await getEffectiveSettings();
@@ -607,45 +621,16 @@ export default async function handler(req, res) {
           }
         }
 
-        let rows = all;
-        if (!isNaN(startMs) || !isNaN(endMs)) {
-          rows = filterRowsByWindow(rows, {
-            startMs: isNaN(startMs) ? undefined : startMs,
-            endMs:   isNaN(endMs)   ? undefined : endMs
-          });
-        }
-
-        // Extra server-side filters
-        const catParam = (url.searchParams.get("cat") || "").toLowerCase();   // banquet|addon|other|donation
-        const containsParam = (url.searchParams.get("contains") || "").trim();
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();     // legacy text search
-
-        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
-        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
-        if (q) rows = rows.filter(r => rowContains(r, q));
-
-        rows.sort((a,b) => {
-          const ta = parseDateISO(a.date);
-          const tb = parseDateISO(b.date);
-          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
-        });
-
+        let rows = await collectAllRowsFiltered({ startMs, endMs, q });
         return REQ_OK(res, { rows });
       }
 
       // ----- Orders (CSV) -----
       if (type === "orders_csv") {
-        // Build the same filtered list as /orders
-        const ids = await kvSmembersSafe("orders:index");
-        const all = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
-        }
-
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
+        const q          = (url.searchParams.get("q") || "").trim().toLowerCase();
 
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
@@ -672,30 +657,9 @@ export default async function handler(req, res) {
           }
         }
 
-        let rows = all;
-        if (!isNaN(startMs) || !isNaN(endMs)) {
-          rows = filterRowsByWindow(rows, {
-            startMs: isNaN(startMs) ? undefined : startMs,
-            endMs:   isNaN(endMs)   ? undefined : endMs
-          });
-        }
+        const rows = await collectAllRowsFiltered({ startMs, endMs, q });
+        const csv = buildCsv(rows);
 
-        // Extra server-side filters (same as JSON)
-        const catParam = (url.searchParams.get("cat") || "").toLowerCase();
-        const containsParam = (url.searchParams.get("contains") || "").trim();
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-
-        if (catParam) rows = rows.filter(r => (r.category || "") === catParam);
-        if (containsParam) rows = rows.filter(r => rowContains(r, containsParam));
-        if (q) rows = rows.filter(r => rowContains(r, q));
-
-        rows.sort((a,b) => {
-          const ta = parseDateISO(a.date);
-          const tb = parseDateISO(b.date);
-          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
-        });
-
-        const csv = buildCSV(rows);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
         return res.status(200).send(csv);
@@ -810,7 +774,7 @@ export default async function handler(req, res) {
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
-                    dietaryNote: l.meta?.dietaryNote || "", // capture dietary metadata
+                    dietaryNote: l.meta?.dietaryNote || "",
                     itemNote: l.meta?.itemNote || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
@@ -965,82 +929,6 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
-      // NEW: Email a specific banquet/addon/catalog chair now (CSV attached)
-      if (action === "send_banquet_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const { banquet_id = "", scope = "current-month", category = "banquet" } = body || {};
-        if (!banquet_id) return REQ_ERR(res, 400, "missing-banquet_id");
-
-        // Look up item config (name + chairEmails)
-        const cfg = await kvHgetallSafe(`itemcfg:${banquet_id}`);
-        const name = cfg?.name || banquet_id;
-        const chairEmails = (cfg?.chairEmails || []).filter(Boolean);
-
-        // Load & flatten all rows
-        const ids = await kvSmembersSafe("orders:index");
-        let rows = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) rows.push(...flattenOrderToRows(o));
-        }
-
-        // Date window from scope
-        let startMs, endMs;
-        if (scope === "current-month") {
-          const now = new Date();
-          const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-          startMs = +first;
-          endMs = Date.now() + 1;
-        }
-
-        // Apply filters: scope, category, contains=name
-        if (startMs || endMs) {
-          rows = filterRowsByWindow(rows, {
-            startMs: startMs || undefined,
-            endMs: endMs || undefined
-          });
-        }
-        if (category) rows = rows.filter(r => (r.category||"") === String(category).toLowerCase());
-        if (name) rows = rows.filter(r => rowContains(r, name));
-
-        if (!rows.length) return REQ_ERR(res, 404, "no-matching-rows");
-
-        const csv = buildCSV(rows);
-        const filename = `report-${name.replace(/\s+/g,'-').toLowerCase()}-${scope}.csv`;
-
-        const adminList = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
-          .split(",").map(s=>s.trim()).filter(Boolean);
-
-        const toList = [...chairEmails, ...adminList];
-        if (!toList.length) return REQ_ERR(res, 400, "no-recipients");
-
-        const subject = `Amaranth — ${name} ${scope.replace('-', ' ')} report`;
-        const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-          <h2>${name} — ${scope.replace('-', ' ')}</h2>
-          <p>Attached is the CSV report. Dietary notes are included in the “Notes” column.</p>
-        </div>`;
-
-        try {
-          await resend.emails.send({
-            from: RESEND_FROM,
-            to: toList,
-            subject,
-            html,
-            reply_to: REPLY_TO || undefined,
-            attachments: [{
-              filename,
-              content: Buffer.from(csv).toString('base64'),
-              contentType: "text/csv"
-            }]
-          });
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "queued" });
-          return REQ_OK(res, { ok: true, sent: true, count: rows.length, filename });
-        } catch (e) {
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, kind: "chair-report", status: "error", error: String(e?.message || e) });
-          return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
-        }
-      }
-
       // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
         try {
@@ -1058,6 +946,110 @@ export default async function handler(req, res) {
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
+        }
+      }
+
+      // NEW: email a CSV subset to chair(s) for a single item (banquet / addon / catalog)
+      if (action === "send_item_report") {
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+
+        // Expected body: { kind: 'banquet'|'addon'|'catalog', itemId?:string, itemName?:string, start?:'YYYY-MM-DD', end?:'YYYY-MM-DD', to?:string[] }
+        const {
+          kind = "",
+          itemId = "",
+          itemName = "",
+          start = "",
+          end = "",
+          to = []
+        } = body || {};
+
+        const kindNorm = String(kind || "").toLowerCase();
+        const validKind = ["banquet","addon","catalog"].includes(kindNorm);
+        if (!validKind) return REQ_ERR(res, 400, "invalid-kind");
+
+        // date window
+        let startMs = parseYMD(start);
+        let endMs   = parseYMD(end);
+
+        // collect rows (already filtered by date)
+        let all = await collectAllRowsFiltered({
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs:   isNaN(endMs)   ? undefined : endMs,
+          q: "" // free-text filter handled below
+        });
+
+        // category filter
+        const category = (kindNorm === "catalog") ? "other" : kindNorm;
+        all = all.filter(r => (r.category||"") === category);
+
+        // item filter
+        const idNeedle = String(itemId || "").trim().toLowerCase();
+        const nameNeedle = String(itemName || "").trim().toLowerCase();
+        if (idNeedle) {
+          all = all.filter(r => String(r._itemId||"").toLowerCase() === idNeedle);
+        } else if (nameNeedle) {
+          all = all.filter(r => String(r.item||"").toLowerCase().includes(nameNeedle));
+        }
+
+        if (!all.length) return REQ_ERR(res, 404, "no-rows-for-item");
+
+        // resolve recipients: explicit "to" overrides; else itemcfg:<itemId> if present; else admin fallbacks
+        let recipients = Array.isArray(to) ? to : String(to||"").split(",");
+        recipients = recipients.map(s => String(s||"").trim()).filter(Boolean);
+
+        if (!recipients.length && itemId) {
+          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+          if (cfg?.chairEmails?.length) {
+            recipients = cfg.chairEmails.map(String).map(s=>s.trim()).filter(Boolean);
+          }
+        }
+
+        const adminExtras = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        if (!recipients.length && adminExtras.length) {
+          recipients = adminExtras.slice(0,1); // at least one recipient
+        }
+        if (!recipients.length) return REQ_ERR(res, 400, "no-recipients");
+
+        const csv = buildCsv(all);
+        const base64 = Buffer.from(csv, "utf8").toString("base64");
+
+        const title = (itemName || itemId || "Item").toString();
+        const subject = `Report — ${kindNorm.toUpperCase()} — ${title}`;
+
+        try {
+          const result = await resend.emails.send({
+            from: RESEND_FROM,
+            to: recipients,
+            subject,
+            html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+              <p>Attached is the CSV for <b>${title}</b> (${kindNorm}).</p>
+              <p>Rows: ${all.length.toLocaleString()}</p>
+            </div>`,
+            attachments: [
+              {
+                filename: `${kindNorm}-${(itemId||itemName||"item").toString().replace(/\s+/g,'_')}.csv`,
+                content: base64
+              }
+            ],
+            reply_to: REPLY_TO || undefined
+          });
+
+          await recordMailLog({
+            ts: Date.now(),
+            from: RESEND_FROM,
+            to: recipients,
+            subject,
+            status: "queued",
+            resultId: result?.id || null,
+            kind: "send_item_report",
+            meta: { kind: kindNorm, itemId, itemName, rows: all.length }
+          });
+
+          return REQ_OK(res, { ok: true, to: recipients, rows: all.length });
+        } catch (e) {
+          return REQ_ERR(res, 500, "send-item-failed", { message: e?.message || String(e) });
         }
       }
 
@@ -1114,7 +1106,7 @@ export default async function handler(req, res) {
           "MAINTENANCE_MESSAGE",
           "REPORTS_SEND_SEPARATE",
           "REPLY_TO",
-          // NEW reporting window fields:
+          // reporting window fields:
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS"
