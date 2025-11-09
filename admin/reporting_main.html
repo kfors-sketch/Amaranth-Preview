@@ -55,6 +55,10 @@
   </style>
 
   <script src="/assets/js/lib/csv.js"></script>
+  <!-- Optional local fallbacks (if you still ship static lists) -->
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/addons.js"></script>
+  <script src="/assets/js/products.js"></script>
 </head>
 <body>
   <div class="container">
@@ -445,59 +449,94 @@ document.getElementById('btnSample').addEventListener('click', ()=>{ rows = []; 
 ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
 
 /** Populate “Item” dropdown based on selected category (fetches live lists) **/
+// ---- Item picker (Category -> Item) ----
 const caches = { banquet: null, addon: null, other: null };
+
+function normalizeList(kind, rawList) {
+  // Accept many shapes: {id,name,chairEmails} or {slug,title,chairs} etc.
+  return (rawList || []).map(x => ([
+    (x.id || x.itemId || x.slug || x.code || x.name || "").toString(),
+    (x.name || x.title || x.label || x.slug || x.id || "(unnamed)").toString(),
+    Array.isArray(x.chairEmails) ? x.chairEmails
+      : Array.isArray(x.chairs) ? x.chairs
+      : (x.chairEmails || x.chairs || "").toString().split(",").map(s=>s.trim()).filter(Boolean)
+  ])).map(([id,name,chairEmails])=>({id,name,chairEmails})).filter(it => it.id || it.name);
+}
+
 async function fetchList(kind){
   if (caches[kind]) return caches[kind];
   const typeMap = { banquet: 'banquets', addon: 'addons', other: 'products' };
   const t = typeMap[kind];
-  const r = await fetch(`/api/router?type=${t}`, { cache: 'no-store' }).then(x=>x.json()).catch(()=>({}));
-  const list = r[t] || [];
-  caches[kind] = list;
-  return list;
+
+  // 1) try API
+  let list = [];
+  try {
+    const r = await fetch(`/api/router?type=${t}`, { cache: 'no-store' });
+    const j = await r.json();
+    list = normalizeList(kind, j[t]);
+  } catch {}
+
+  // 2) fallback to any global arrays you load
+  if (!list.length) {
+    if (kind === 'banquet' && Array.isArray(window.BANQUETS)) list = normalizeList(kind, window.BANQUETS);
+    if (kind === 'addon'   && Array.isArray(window.ADDONS))   list = normalizeList(kind, window.ADDONS);
+    if (kind === 'other'   && Array.isArray(window.PRODUCTS)) list = normalizeList(kind, window.PRODUCTS);
+  }
+
+  // de-dupe by id or name (case-insensitive)
+  const seen = new Set();
+  const deduped = [];
+  for (const it of list) {
+    const key = (it.id || it.name).toLowerCase();
+    if (!seen.has(key)) { seen.add(key); deduped.push(it); }
+  }
+
+  caches[kind] = deduped;
+  return deduped;
 }
+
 $('#actCategory').addEventListener('change', async ()=>{
   const kind = $('#actCategory').value;
   const list = await fetchList(kind);
   const sel = $('#actChoice');
   sel.innerHTML = '<option value="" selected disabled>Choose…</option>';
   list.forEach(it=>{
-    const id = (it.id || it.name || '').toLowerCase();
-    const name = it.name || it.id || '(unnamed)';
-    const chairs = Array.isArray(it.chairEmails) && it.chairEmails.length ? ' — ' + it.chairEmails.join(', ') : '';
     const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = name + chairs;
+    opt.value = it.id || it.name;                 // keep original id for better matching
+    opt.dataset.label = it.name;                  // store clean label for emailing
+    opt.textContent = it.name + (it.chairEmails?.length ? ' — ' + it.chairEmails.join(', ') : '');
     sel.appendChild(opt);
   });
 });
 
-/** Download CSV for selected item (server filter: category + item_id) **/
-$('#btnActDownload').addEventListener('click', async ()=>{
+/** Download CSV for selected item (server: category + item_id OR item) **/
+document.getElementById('btnActDownload').addEventListener('click', async ()=>{
   const kind  = $('#actCategory').value;
-  const id    = $('#actChoice').value;
+  const opt   = $('#actChoice').selectedOptions[0];
   if (!kind) return alert('Choose a category.');
-  if (!id)   return alert('Choose an item.');
-  await downloadServerCsv({ category: kind, item_id: id });
+  if (!opt)  return alert('Choose an item.');
+  const id    = opt.value;
+  const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
+
+  // category: 'catalog' is normalized on the server to 'other'
+  await downloadServerCsv({ category: kind, item_id: id, item: label });
 });
 
-/** Email chair for selected item **/
-$('#btnActEmail').addEventListener('click', async ()=>{
+/** Email chair for selected item (no token required anymore) **/
+document.getElementById('btnActEmail').addEventListener('click', async ()=>{
   const kind  = $('#actCategory').value;
-  const id    = $('#actChoice').value;
-  const label = ($('#actChoice').selectedOptions[0]?.textContent || '').split(' — ')[0] || id;
+  const opt   = $('#actChoice').selectedOptions[0];
   const scope = $('#scopeSelect').value || 'current-month';
   if (!kind) return alert('Choose a category.');
-  if (!id)   return alert('Choose an item.');
-
-  const token = localStorage.getItem('amaranth_report_token') || '';
-  const headers = { 'Content-Type':'application/json' };
-  if (token) headers.Authorization = 'Bearer ' + token;
+  if (!opt)  return alert('Choose an item.');
+  const id    = opt.value;
+  const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
 
   $('#sendMsg').textContent = 'Sending…';
   try{
     const r = await fetch('/api/router?action=send_item_report', {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ kind, id, label, scope })
     });
     const j = await r.json();
