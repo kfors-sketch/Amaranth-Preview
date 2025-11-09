@@ -75,8 +75,10 @@
 
   <!-- CSV helper MUST come before our main script so window.CSV is available -->
   <script src="/assets/js/lib/csv.js"></script>
-  <!-- Banquets (for Send Now dropdown & per-banquet export) -->
+  <!-- Data lists for selectors (load whatever you have) -->
   <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/addons.js"></script>
+  <script src="/assets/js/products.js"></script>
 </head>
 <body>
   <div class="container">
@@ -160,7 +162,7 @@
           <button id="btnDownloadBanquet" class="btn">Download</button>
         </div>
 
-        <div class="muted">Note: Date range &amp; search apply to all CSV downloads.</div>
+        <div class="muted">Note: Date range & search apply to all CSV downloads.</div>
       </div>
     </div>
 
@@ -223,21 +225,28 @@
         </div>
         <div id="sendPanel" class="hide" style="margin-top:12px">
           <div class="controls">
-            <label class="muted">Chairperson &amp; Banquet</label>
-            <select id="banquetSelect" style="min-width:320px;height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
-              <option value="" selected disabled>Loading banquets…</option>
+            <label class="muted">Type</label>
+            <select id="chairKind" class="input">
+              <option value="banquet" selected>Banquet</option>
+              <option value="addon">Add-On</option>
+              <option value="catalog">Catalog</option>
+            </select>
+
+            <label class="muted">Item</label>
+            <select id="chairItem" class="input" style="min-width:320px">
+              <option value="" selected disabled>Loading…</option>
             </select>
 
             <label class="muted">Scope</label>
-            <select id="scopeSelect" style="height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff">
+            <select id="scopeSelect" class="input">
               <option value="current-month" selected>Current Month</option>
               <option value="full">Full Report</option>
             </select>
 
-            <button id="btnSendNow" class="btn">Send</button>
+            <button id="btnSendNow" class="btn">Email Chair Now</button>
             <button id="btnSendTest" class="btn ghost" title="Send a sample CSV to verify email">Send Test Email</button>
           </div>
-          <div class="muted" style="margin-top:6px" id="sendHint">“Send Test Email” uses REPORTS_CC/BCC as a fallback if no “to” is provided.</div>
+          <div class="muted" style="margin-top:6px" id="sendHint">Uses your admin token (REPORT_TOKEN). “Test Email” uses REPORTS_CC/BCC as a fallback.</div>
         </div>
       </div>
     </div>
@@ -322,20 +331,18 @@ async function loadFromServer(){
 }
 $('#loadServerBtn').addEventListener('click', loadFromServer);
 
-// Build query string for server (start/end/q + optional cat/contains)
-function buildServerQuery(forCsv, params){
+// Build query string for server (start/end/q). Category/status are client-only.
+function buildServerQuery(_forCsv, extraQ){
   const from = $('#dateFrom').value;
   const to = $('#dateTo').value;
   const qSearch = ($('#search').value || '').trim();
-
   const u = new URLSearchParams();
   if (from) u.set('start', from);
   if (to)   u.set('end', to);
   if (qSearch) u.set('q', qSearch);
-
-  if (params && typeof params === 'object') {
-    if (params.cat) u.set('cat', params.cat);
-    if (params.contains) u.set('contains', params.contains);
+  if (extraQ) {
+    const q = u.get('q');
+    u.set('q', q ? (q + ' ' + extraQ) : extraQ);
   }
   return (u.toString() ? '&' + u.toString() : '');
 }
@@ -449,11 +456,11 @@ document.getElementById('fileImport').addEventListener('change', async (e)=>{
 
 // Export CSV — prefer server CSV; fallback to client CSV
 document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-  await downloadServerCsv(); // entire / filtered by start/end/q (and optional cat/contains via specialized buttons)
+  await downloadServerCsv(); // entire / visible via start/end/q
 });
 
-async function downloadServerCsv(extraParams){
-  const qs = buildServerQuery(true, extraParams);
+async function downloadServerCsv(extraQ){
+  const qs = buildServerQuery(true, extraQ);
   const url = '/api/router?type=orders_csv' + qs;
   try{
     const r = await fetch(url, { cache: 'no-store' });
@@ -505,7 +512,7 @@ async function downloadServerCsv(extraParams){
 
 document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
 
-// Safer clear: require typing CLEAR (local cache only; server data untouched)
+// Safer clear: require typing CLEAR (local only; server safe)
 document.getElementById('btnClear').addEventListener('click', ()=>{
   const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
   if(conf === 'CLEAR'){
@@ -521,27 +528,14 @@ document.getElementById('btnSample').addEventListener('click', ()=>{ rows = samp
 /** Category & Per-banquet downloads **/
 function populateBanquetSelects(){
   const data = (window.BANQUETS || []);
-  // Chair actions select
-  const sel = $('#banquetSelect');
-  if (sel) {
-    sel.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
-    data.forEach(b=>{
-      const opt = document.createElement('option');
-      opt.value = b.id || b.name || '';
-      opt.textContent = `${b.name || b.id || 'Banquet'}${b.chairEmails?.length ? ' — ' + b.chairEmails.join(', ') : ''}`;
-      opt.dataset.name = b.name || b.id || '';
-      sel.appendChild(opt);
-    });
-  }
   // Download per-banquet select
   const dl = $('#dlBanquet');
   if (dl) {
     dl.innerHTML = '<option value="" selected disabled>Select a banquet…</option>';
     data.forEach(b=>{
       const opt = document.createElement('option');
-      opt.value = (b.id || b.name || '');
+      opt.value = (b.id || b.name || '').toLowerCase();
       opt.textContent = b.name || b.id || 'Banquet';
-      opt.dataset.name = b.name || b.id || '';
       dl.appendChild(opt);
     });
   }
@@ -550,31 +544,29 @@ populateBanquetSelects();
 
 $('#btnDownloadCategory').addEventListener('click', async ()=>{
   const cat = $('#dlCategory').value; // '', banquet, addon, other
-  await downloadServerCsv(cat ? { cat } : undefined);
+  const extraQ = cat ? cat : '';
+  await downloadServerCsv(extraQ);
 });
 
 $('#btnDownloadBanquet').addEventListener('click', async ()=>{
-  const dl = $('#dlBanquet');
-  const val = dl.value;
+  const val = $('#dlBanquet').value;
   if (!val) { alert('Select a banquet'); return; }
-  const name = dl.options[dl.selectedIndex].dataset.name || val;
-  // Use server-side filtering: only banquets + contains the banquet name
-  await downloadServerCsv({ cat: 'banquet', contains: name });
+  await downloadServerCsv(`banquet ${val}`);
 });
 
 /** CSV helpers / normalization (placeholders if your project already has them) **/
-function csvToObjects(csv){ /* keep/replace with your implementation if needed */ return []; }
-function splitCSVLine(line){ /* keep/replace with your implementation if needed */ return []; }
+function csvToObjects(csv){ return []; }
+function splitCSVLine(line){ return []; }
 function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-function sampleRows(){ /* supply your own sample if you like */ return []; }
-function ingest(d){ /* normalize to rows[] shape if importing */ return Array.isArray(d)? d: [] }
+function sampleRows(){ return []; }
+function ingest(d){ return Array.isArray(d)? d: [] }
 
 /** Send Now / Email automation **/
 $('#revealSendPanel').addEventListener('click', ()=>{
   $('#sendPanel').classList.toggle('hide');
+  refreshChairItems();
 });
 
-// Manual send to verify email pipeline
 $('#btnSendTest').addEventListener('click', async ()=>{
   try{
     const r = await fetch('/api/router?action=test_resend', { method:'POST' });
@@ -586,32 +578,83 @@ $('#btnSendTest').addEventListener('click', async ()=>{
   }
 });
 
-// Chair-specific “Send” -> server action send_banquet_report
+// Chair-specific EMAIL to banquet/addon/catalog chair(s)
 $('#btnSendNow').addEventListener('click', async ()=>{
-  const sel = $('#banquetSelect');
-  const banquet_id = sel.value || '';
-  const scope = $('#scopeSelect').value || 'current-month';
-  if (!banquet_id) { alert('Please choose a banquet.'); return; }
+  const kind = $('#chairKind').value || 'banquet';
+  const itemSel = $('#chairItem');
+  const itemId = itemSel?.selectedOptions?.[0]?.getAttribute('data-id') || '';
+  const itemName = itemSel?.selectedOptions?.[0]?.textContent || '';
+  if (!itemId && !itemName) { alert('Pick an item.'); return; }
 
+  // scope
+  const scope = $('#scopeSelect').value || 'current-month';
+  let start = '', end = '';
+  const now = new Date();
+  if (scope === 'current-month') {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    start = `${y}-${String(m+1).padStart(2,'0')}-01`;
+    const last = new Date(y, m+1, 0).getDate();
+    end = `${y}-${String(m+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
+  } // else full = no dates (server will include all)
+
+  // auth
   const token = localStorage.getItem('amaranth_report_token') || '';
-  const headers = { 'Content-Type':'application/json' };
+  const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = 'Bearer ' + token;
 
   try{
-    const r = await fetch('/api/router?action=send_banquet_report', {
-      method:'POST',
+    const r = await fetch('/api/router?action=send_item_report', {
+      method: 'POST',
       headers,
-      body: JSON.stringify({ banquet_id, scope, category: 'banquet' })
+      body: JSON.stringify({ kind, itemId, itemName, start, end })
     });
     const j = await r.json();
     if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
-    $('#sendMsg').textContent = `Chair report queued (${j.filename || 'CSV attached'}).`;
+    $('#sendMsg').textContent = `Chair email queued (${j.rows} rows).`;
   }catch(e){
     $('#sendMsg').textContent = 'Send failed: ' + e.message + ' (Check admin token / REPORT_TOKEN)';
   }
 });
 
-// Month-to-date / Full email sends (admin)
+// Keep item list in sync with chosen kind
+$('#chairKind').addEventListener('change', refreshChairItems);
+
+function refreshChairItems(){
+  const kind = $('#chairKind').value || 'banquet';
+  const sel = $('#chairItem');
+  sel.innerHTML = '<option value="" selected disabled>Loading…</option>';
+
+  let list = [];
+  if (kind === 'banquet') list = (window.BANQUETS || []);
+  else if (kind === 'addon') list = (window.ADDONS || []);
+  else list = (window.PRODUCTS || []);
+
+  if (!Array.isArray(list)) list = [];
+
+  sel.innerHTML = '';
+  list.forEach(item=>{
+    // Cross-file shapes may differ: support id/name/title and chairEmails[]
+    const id = (item.id || item.itemId || item.slug || item.code || item.name || '').toString();
+    const name = (item.name || item.title || id || 'Item').toString();
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.setAttribute('data-id', id);
+    opt.textContent = name + (item.chairEmails?.length ? ` — ${item.chairEmails.join(', ')}` : '');
+    sel.appendChild(opt);
+  });
+
+  if (!list.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.disabled = true;
+    opt.selected = true;
+    opt.textContent = 'No items found';
+    sel.appendChild(opt);
+  }
+}
+
+/** Admin bulk sends **/
 async function adminSend(path){
   const token = localStorage.getItem('amaranth_report_token') || '';
   const headers = { 'Content-Type':'application/json' };
