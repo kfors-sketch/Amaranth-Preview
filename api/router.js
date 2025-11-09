@@ -46,8 +46,17 @@ function parseYMD(s) {
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
 }
-const normalizeKey = s => String(s || "").toLowerCase().replace(/:(adult|child|youth)$/i, "");
 
+// Base id helper: everything before the first colon (handles adult/child/custom etc.)
+const baseKey = (s) => String(s || "").toLowerCase().split(":")[0];
+
+// Legacy normalizer kept (but baseKey is what we actually rely on now)
+const normalizeKey = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/:(adult|child|youth)$/i, "");
+
+// Build effective settings (env + overrides)
 async function getEffectiveSettings() {
   const overrides = await kvHgetallSafe("settings:overrides");
   const env = {
@@ -90,12 +99,23 @@ function applyItemFilters(rows, { category, item_id, item }) {
   }
 
   if (item_id) {
-    const wantNorm = normalizeKey(item_id);
+    const wantRaw   = String(item_id).toLowerCase();
+    const wantBase  = baseKey(wantRaw);
+    const wantNorm  = normalizeKey(wantRaw);
+
     out = out.filter(r => {
-      const raw = String(r._itemId || r.item_id || "").toLowerCase();
+      const raw     = String(r._itemId || r.item_id || "").toLowerCase();
       const rawNorm = normalizeKey(raw);
-      const keyNorm = normalizeKey(r._itemKey || "");
-      return raw === String(item_id).toLowerCase() || rawNorm === wantNorm || keyNorm === wantNorm;
+      const keyBase = baseKey(r._itemId || r.item_id || "");
+      const rowBase = r._itemBase || keyBase;
+
+      return (
+        raw === wantRaw ||                // exact
+        rawNorm === wantNorm ||           // legacy normalized (“:adult” etc.)
+        keyBase === wantBase ||           // base id from raw
+        rowBase === wantBase ||           // precomputed base on the row
+        String(r._itemKey || "").toLowerCase() === wantNorm // legacy hidden key
+      );
     });
   } else if (item) {
     const want = String(item).toLowerCase();
@@ -228,6 +248,9 @@ function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
     const net = li.gross;
+    const rawId = li.itemId || "";
+    const base  = baseKey(rawId);
+
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
@@ -235,7 +258,7 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || 'other',
       item: li.itemName || '',
-      item_id: li.itemId || '', // public field (kept for backward-compat)
+      item_id: rawId, // public field (kept for backward-compat)
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -246,9 +269,10 @@ function flattenOrderToRows(o) {
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
 
-      // NEW hidden keys used for filtering
-      _itemId: li.itemId || "",
-      _itemKey: String(li.itemId || "").replace(/:(adult|child|youth)$/i, ""),
+      // Hidden keys used for filtering
+      _itemId: rawId,
+      _itemBase: base, // <-- NEW: base id for robust matching
+      _itemKey: normalizeKey(rawId), // legacy
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
@@ -273,8 +297,8 @@ function flattenOrderToRows(o) {
       net: (feeLine.gross || 0) / 100,
       status: o.status || "paid",
       notes: "",
-      // hidden keys present but empty for fees
       _itemId: "",
+      _itemBase: "",
       _itemKey: "",
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
@@ -472,7 +496,7 @@ function buildCSV(rows) {
   const headers = Object.keys(rows[0] || {
     id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
     qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-    _itemId: "", _itemKey: "", _pi: "", _charge: "", _session: ""
+    _itemId: "", _itemBase: "", _itemKey: "", _pi: "", _charge: "", _session: ""
   });
   const esc = (v) => {
     const s = String(v ?? "");
@@ -618,7 +642,7 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW precise filters (normalized)
+        // NEW precise filters (normalized, with base id support)
         const catParam    = (url.searchParams.get("category") || "").toLowerCase();
         const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
         const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
@@ -628,12 +652,21 @@ export default async function handler(req, res) {
         }
 
         if (itemIdParam) {
-          const want = normalizeKey(itemIdParam);
+          const wantRaw  = itemIdParam;
+          const wantBase = baseKey(wantRaw);
+          const wantNorm = normalizeKey(wantRaw);
           rows = rows.filter(r => {
-            const raw   = String(r._itemId || r.item_id || "").toLowerCase();
+            const raw     = String(r._itemId || r.item_id || "").toLowerCase();
             const rawNorm = normalizeKey(raw);
-            const keyNorm = normalizeKey(r._itemKey || "");
-            return raw === itemIdParam || rawNorm === want || keyNorm === want;
+            const keyBase = baseKey(raw);
+            const rowBase = r._itemBase || keyBase;
+            return (
+              raw === wantRaw ||
+              rawNorm === wantNorm ||
+              keyBase === wantBase ||
+              rowBase === wantBase ||
+              String(r._itemKey || "").toLowerCase() === wantNorm
+            );
           });
         } else if (itemParam) {
           const want = itemParam;
@@ -708,7 +741,7 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW precise filters (normalized)
+        // NEW precise filters (normalized, with base id support)
         const catParam    = (url.searchParams.get("category") || "").toLowerCase();
         const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
         const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
@@ -718,12 +751,21 @@ export default async function handler(req, res) {
         }
 
         if (itemIdParam) {
-          const want = normalizeKey(itemIdParam);
+          const wantRaw  = itemIdParam;
+          const wantBase = baseKey(wantRaw);
+          const wantNorm = normalizeKey(wantRaw);
           rows = rows.filter(r => {
-            const raw   = String(r._itemId || r.item_id || "").toLowerCase();
+            const raw     = String(r._itemId || r.item_id || "").toLowerCase();
             const rawNorm = normalizeKey(raw);
-            const keyNorm = normalizeKey(r._itemKey || "");
-            return raw === itemIdParam || rawNorm === want || keyNorm === want;
+            const keyBase = baseKey(raw);
+            const rowBase = r._itemBase || keyBase;
+            return (
+              raw === wantRaw ||
+              rawNorm === wantNorm ||
+              keyBase === wantBase ||
+              rowBase === wantBase ||
+              String(r._itemKey || "").toLowerCase() === wantNorm
+            );
           });
         } else if (itemParam) {
           const want = itemParam;
@@ -821,6 +863,7 @@ export default async function handler(req, res) {
 
         const kind  = String((body?.kind || body?.category || "")).toLowerCase();
         const id    = String(body?.id || "").trim();
+        thelabel:
         const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
 
