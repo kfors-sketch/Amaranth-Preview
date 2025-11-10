@@ -573,6 +573,99 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
   return out;
 }
 
+// ---- (NEW) single function that sends a chair CSV for a given item ----
+async function sendItemReportEmailInternal({ kind, id, label, scope = "current-month" }) {
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+  if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
+
+  // Load raw orders to pull attendee meta (title/phone/address saved in line.meta)
+  const idx = await kvSmembersSafe("orders:index");
+  const orders = [];
+  for (const sid of idx) {
+    const o = await kvGetSafe(`order:${sid}`, null);
+    if (o) orders.push(o);
+  }
+
+  // Scope window
+  let startMs, endMs;
+  if (scope === "current-month") {
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    startMs = start.getTime();
+    endMs = Date.now() + 1;
+  }
+
+  // Build attendee rows for this category, then filter by base item id
+  const rosterAll = collectAttendeesFromOrders(orders, {
+    includeAddress: false,
+    categories: [String(kind).toLowerCase()],
+    startMs, endMs
+  });
+
+  const wantBase = (s) => String(s || "").toLowerCase().split(":")[0];
+  const filtered = rosterAll.filter(r => wantBase(r.item_id) === wantBase(id)
+    || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
+  );
+
+  // CSV columns for chair email (now includes Title + Phone)
+  const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
+  const EMAIL_HEADER_LABELS = {
+    date: "Date",
+    purchaser: "Purchaser",
+    attendee: "Attendee",
+    attendee_title: "Title",
+    attendee_phone: "Phone",
+    item: "Item",
+    qty: "Qty",
+    notes: "Notes"
+  };
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
+  const bodyLines = filtered.map(r => EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
+  const emailCsv = "\uFEFF" + [headerLine, ...bodyLines].join("\n");
+
+  // Recipients from itemcfg:<id>, fallback to REPORTS_CC/BCC
+  const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+  const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
+    ? cfg.chairEmails
+    : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
+
+  const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+    .split(",").map(s=>s.trim()).filter(Boolean);
+
+  const toList = (chairEmails.length ? chairEmails : fallback);
+  if (!toList.length) return { ok: false, error: "no-recipient" };
+
+  const prettyKind = kind === "other" ? "catalog" : kind;
+  const subject = `Report — ${prettyKind}: ${label || id}`;
+  const tablePreview = `
+    <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+      <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
+      <p>Rows: <b>${filtered.length}</b></p>
+      <div style="font-size:12px;color:#555">Scope: ${scope}</div>
+    </div>`;
+
+  try {
+    const csvB64 = Buffer.from(emailCsv, "utf8").toString("base64");
+    const sendResult = await resend.emails.send({
+      from: RESEND_FROM,
+      to: toList,
+      subject,
+      html: tablePreview,
+      reply_to: REPLY_TO || undefined,
+      attachments: [{ filename: "report.csv", content: csvB64 }]
+    });
+    await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
+    return { ok: true, count: filtered.length, to: toList };
+  } catch (e) {
+    await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
+    return { ok: false, error: "send-failed", message: e?.message || String(e) };
+  }
+}
+
 // -------------- (start of main handler) --------------
 export default async function handler(req, res) {
   try {
@@ -941,6 +1034,51 @@ export default async function handler(req, res) {
         return res.status(200).send(csv);
       }
 
+      // ----- Full Attendee List (CSV: title + phone + address) -----
+      if (type === "full_attendees_csv") {
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        // Optional window (?days, ?start, ?end)
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
+        let startMs = NaN, endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const roster = collectAttendeesFromOrders(orders, {
+          includeAddress: true,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs:   isNaN(endMs)   ? undefined : endMs
+        });
+
+        const headers = [
+          "date","purchaser",
+          "attendee","attendee_title","attendee_phone","attendee_email",
+          "attendee_addr1","attendee_addr2","attendee_city","attendee_state","attendee_postal","attendee_country",
+          "item","item_id","qty","notes"
+        ];
+        const csv = buildCSVSelected(roster, headers);
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.csv"`);
+        return res.status(200).send(csv);
+      }
+
       // Idempotent finalize via GET
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
@@ -1015,103 +1153,13 @@ export default async function handler(req, res) {
 
       // ---- PUBLIC: send chair-specific CSV by category+item (no auth) ----
       if (action === "send_item_report") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-
         const kind  = String((body?.kind || body?.category || "")).toLowerCase();
         const id    = String(body?.id || "").trim();
         const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
-
-        if (!kind || !id) return REQ_ERR(res, 400, "missing-kind-or-id");
-
-        // Collect all rows, then filter the same way /orders_csv does
-        const ids = await kvSmembersSafe("orders:index");
-        let all = [];
-        for (const sid of ids) {
-          const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
-        }
-
-        // Optional scope: current month vs full
-        let startMs, endMs;
-        if (scope === "current-month") {
-          const now = new Date();
-          const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-          startMs = start.getTime();
-          endMs = Date.now() + 1;
-        }
-
-        let rows = all;
-        if (startMs || endMs) {
-          rows = filterRowsByWindow(rows, { startMs, endMs });
-        }
-        rows = applyItemFilters(rows, { category: kind, item_id: id, item: label });
-
-        // ===== EMAIL-ONLY CSV SHAPE (keep downloads unchanged) =====
-        const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "item", "qty", "notes"];
-        const EMAIL_HEADER_LABELS = {
-          date: "Date",
-          purchaser: "Purchaser",
-          attendee: "Attendee",
-          item: "Item",
-          qty: "Qty",
-          notes: "Notes"
-        };
-
-        const projected = rows.map(r => ({
-          date: r.date || "",
-          purchaser: r.purchaser || "",
-          attendee: r.attendee || "",
-          item: r.item || "",
-          qty: r.qty ?? "",
-          notes: r.notes || ""
-        }));
-
-        const esc = (v) => {
-          const s = String(v ?? "");
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-        const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
-        const bodyLines = projected.map(r => EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
-        const emailCsv = "\uFEFF" + [headerLine, ...bodyLines].join("\n");
-
-        // Find recipients from itemcfg:<id>
-        const cfg = await kvHgetallSafe(`itemcfg:${id}`);
-        const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
-          ? cfg.chairEmails
-          : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
-
-        const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-          .split(",").map(s=>s.trim()).filter(Boolean);
-
-        const toList = (chairEmails.length ? chairEmails : fallback);
-        if (!toList.length) return REQ_ERR(res, 400, "no-recipient");
-
-        const prettyKind = kind === "other" ? "catalog" : kind;
-        const subject = `Report — ${prettyKind}: ${label || id}`;
-        const tablePreview = `
-          <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-            <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
-            <p>Rows: <b>${rows.length}</b></p>
-            <div style="font-size:12px;color:#555">Scope: ${scope}</div>
-          </div>`;
-
-        try {
-          const csvB64 = Buffer.from(emailCsv, "utf8").toString("base64");
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM,
-            to: toList,
-            subject,
-            html: tablePreview,
-            reply_to: REPLY_TO || undefined,
-            attachments: [{ filename: "report.csv", content: csvB64 }]
-          });
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
-          return REQ_OK(res, { ok: true, count: rows.length, to: toList });
-        } catch (e) {
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
-          return REQ_ERR(res, 500, "send-failed", { message: e?.message || String(e) });
-        }
+        const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+        if (!result.ok) return REQ_ERR(res, 500, result.error || "send-failed", result);
+        return REQ_OK(res, { ok: true, ...result });
       }
 
       // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
@@ -1321,7 +1369,7 @@ export default async function handler(req, res) {
         try {
           const mod = await import("./admin/send-full.js");
           const result = await mod.default();
-        return REQ_OK(res, result || { ok: true });
+          return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
         }
@@ -1334,6 +1382,48 @@ export default async function handler(req, res) {
         } catch (e) {
           return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
         }
+      }
+
+      // (NEW) Bulk: send MONTHLY reports to all banquet/addon chairs
+      if (action === "send_monthly_chair_reports") {
+        const ids = await kvSmembersSafe("itemcfg:index");
+        let sent = 0, errors = 0;
+        for (const itemId of ids) {
+          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+          const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
+          const label = cfg?.name || itemId;
+          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "current-month" });
+          if (result.ok) sent += 1; else errors += 1;
+        }
+        return REQ_OK(res, { ok: true, sent, errors, scope: "current-month" });
+      }
+
+      // (NEW) Bulk: send END-OF-EVENT reports to chairs where publishEnd has passed (idempotent)
+      if (action === "send_end_of_event_reports") {
+        const now = Date.now();
+        const ids = await kvSmembersSafe("itemcfg:index");
+        let sent = 0, skipped = 0, errors = 0;
+
+        for (const itemId of ids) {
+          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+          const publishEnd = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
+          if (isNaN(publishEnd) || publishEnd > now) { skipped += 1; continue; }
+
+          const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
+          if (already) { skipped += 1; continue; }
+
+          const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
+          const label = cfg?.name || itemId;
+
+          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "full" });
+          if (result.ok) {
+            await kvSetSafe(`itemcfg:${itemId}:end_sent`, new Date().toISOString());
+            sent += 1;
+          } else {
+            errors += 1;
+          }
+        }
+        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "full" });
       }
 
       // Clear only the index set (orders remain saved under order:<id>)
