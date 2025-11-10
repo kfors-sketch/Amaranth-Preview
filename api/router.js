@@ -177,12 +177,24 @@ async function saveOrderFromSession(sessionLike) {
       attendeeId: meta.attendeeId || "",
       itemId: meta.itemId || "", // <-- important
       meta: {
-        attendeeName: meta.attendeeName || "",
-        attendeeNotes: meta.attendeeNotes || "",
-        dietaryNote: meta.dietaryNote || "",
-        itemNote: meta.itemNote || "",
-        priceMode: meta.priceMode || "",
-        bundleQty: meta.bundleQty || "",
+        // attendee identity & notes
+        attendeeName:   meta.attendeeName   || "",
+        attendeeTitle:  meta.attendeeTitle  || "",
+        attendeePhone:  meta.attendeePhone  || "",
+        attendeeEmail:  meta.attendeeEmail  || "",
+        attendeeNotes:  meta.attendeeNotes  || "",
+        dietaryNote:    meta.dietaryNote    || "",
+        itemNote:       meta.itemNote       || "",
+        // (directory / pre-reg)
+        attendeeAddr1:  meta.attendeeAddr1  || "",
+        attendeeAddr2:  meta.attendeeAddr2  || "",
+        attendeeCity:   meta.attendeeCity   || "",
+        attendeeState:  meta.attendeeState  || "",
+        attendeePostal: meta.attendeePostal || "",
+        attendeeCountry:meta.attendeeCountry|| "",
+        // pricing metadata
+        priceMode:      meta.priceMode      || "",
+        bundleQty:      meta.bundleQty      || "",
         bundleTotalCents: meta.bundleTotalCents || ""
       },
       notes: ""
@@ -244,6 +256,8 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
+// NOTE: We intentionally DO NOT include attendee title/phone/address here
+// to keep the existing /orders_csv shape unchanged.
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
@@ -271,7 +285,7 @@ function flattenOrderToRows(o) {
 
       // Hidden keys used for filtering
       _itemId: rawId,
-      _itemBase: base, // <-- NEW: base id for robust matching
+      _itemBase: base, // base id for robust matching
       _itemKey: normalizeKey(rawId), // legacy
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
@@ -508,6 +522,55 @@ function buildCSV(rows) {
   ].join("\n");
   // Prepend BOM so Excel reads UTF-8 (fixes Entrée)
   return "\uFEFF" + csv;
+}
+
+// --- (NEW) helpers for attendee roster/directory ---
+function buildCSVSelected(rows, headers) {
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+  ].join("\n");
+  return "\uFEFF" + csv; // BOM for Excel
+}
+function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
+  const cats = new Set((categories || []).map(c => String(c || "").toLowerCase()));
+  const out = [];
+  for (const o of orders || []) {
+    const createdMs = Number(o?.created || 0);
+    if (startMs && createdMs && createdMs < startMs) continue;
+    if (endMs   && createdMs && createdMs >= endMs) continue;
+
+    for (const li of (o?.lines || [])) {
+      const cat = String(li?.category || "").toLowerCase();
+      if (!cats.has(cat)) continue;
+      const m = li?.meta || {};
+      out.push({
+        date: new Date(o.created || Date.now()).toISOString(),
+        purchaser: o?.purchaser?.name || o?.customer_email || "",
+        attendee: m.attendeeName || "",
+        attendee_title: m.attendeeTitle || "",
+        attendee_phone: m.attendeePhone || "",
+        attendee_email: m.attendeeEmail || "",
+        item: li?.itemName || "",
+        item_id: li?.itemId || "",
+        qty: li?.qty || 1,
+        notes: cat === "banquet"
+          ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
+          : (m.itemNote || ""),
+        attendee_addr1: includeAddress ? (m.attendeeAddr1 || "") : "",
+        attendee_addr2: includeAddress ? (m.attendeeAddr2 || "") : "",
+        attendee_city:  includeAddress ? (m.attendeeCity  || "") : "",
+        attendee_state: includeAddress ? (m.attendeeState || "") : "",
+        attendee_postal:includeAddress ? (m.attendeePostal|| "") : "",
+        attendee_country:includeAddress ? (m.attendeeCountry|| "") : ""
+      });
+    }
+  }
+  return out;
 }
 
 // -------------- (start of main handler) --------------
@@ -785,6 +848,99 @@ export default async function handler(req, res) {
         return res.status(200).send(csv);
       }
 
+      // ----- Attendee Roster (CSV: NO address) -----
+      if (type === "attendee_roster_csv") {
+        // Gather orders
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        // window (like /orders)
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
+        let startMs = NaN, endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const roster = collectAttendeesFromOrders(orders, {
+          includeAddress: false,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs:   isNaN(endMs)   ? undefined : endMs
+        });
+
+        const headers = [
+          "date","purchaser",
+          "attendee","attendee_title","attendee_phone","attendee_email",
+          "item","item_id","qty","notes"
+        ];
+        const csv = buildCSVSelected(roster, headers);
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.csv"`);
+        return res.status(200).send(csv);
+      }
+
+      // ----- Directory / Pre-registration (CSV: WITH address) -----
+      if (type === "directory_csv") {
+        // Gather orders
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        // window
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
+        let startMs = NaN, endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        const roster = collectAttendeesFromOrders(orders, {
+          includeAddress: true,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs:   isNaN(endMs)   ? undefined : endMs
+        });
+
+        const headers = [
+          "attendee","attendee_title",
+          "attendee_email","attendee_phone",
+          "attendee_addr1","attendee_addr2",
+          "attendee_city","attendee_state","attendee_postal","attendee_country",
+          "item","qty","notes",
+          "purchaser","date"
+        ];
+        const csv = buildCSVSelected(roster, headers);
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="directory.csv"`);
+        return res.status(200).send(csv);
+      }
+
       // Idempotent finalize via GET
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
@@ -994,9 +1150,19 @@ export default async function handler(req, res) {
                     itemType: l.itemType || "",
                     attendeeId: l.attendeeId || "",
                     attendeeName: l.meta?.attendeeName || "",
+                    attendeeTitle: l.meta?.attendeeTitle || "",
+                    attendeePhone: l.meta?.attendeePhone || "",
+                    attendeeEmail: l.meta?.attendeeEmail || "",
                     attendeeNotes: l.meta?.attendeeNotes || "",
                     dietaryNote: l.meta?.dietaryNote || "",
                     itemNote: l.meta?.itemNote || "",
+                    // directory address
+                    attendeeAddr1: l.meta?.attendeeAddr1 || "",
+                    attendeeAddr2: l.meta?.attendeeAddr2 || "",
+                    attendeeCity:  l.meta?.attendeeCity  || "",
+                    attendeeState: l.meta?.attendeeState || "",
+                    attendeePostal:l.meta?.attendeePostal|| "",
+                    attendeeCountry:l.meta?.attendeeCountry || "",
                     priceMode: priceMode || "",
                     bundleQty: isBundle ? String(l.bundleQty || "") : "",
                     bundleTotalCents: isBundle ? String(unit_amount) : ""
