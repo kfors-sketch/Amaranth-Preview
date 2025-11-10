@@ -110,6 +110,8 @@
         </div>
         <div class="group">
           <button class="btn" id="btnExportCsv" title="Export rows to CSV">Export CSV (Date/Search)</button>
+          <!-- NEW: Full Attendee List button -->
+          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list (title, phone, address)">Full Attendee List (CSV)</button>
           <button class="btn ghost" id="btnPrint">Print / PDF</button>
         </div>
         <div class="group">
@@ -396,9 +398,20 @@ document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
   await downloadServerCsv(qs);
 });
 
+// NEW: Full Attendee List (title + phone + address)
+document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
+  const qs = buildServerQuery(); // honors From/To and Search
+  await downloadCsvFrom('/api/router?type=full_attendees_csv' + qs, 'amaranth-full-attendees');
+});
+
 async function downloadServerCsv(qsOrParams){
   let qs = typeof qsOrParams === 'string' ? qsOrParams : buildServerQuery(qsOrParams || {});
   const url = '/api/router?type=orders_csv' + qs;
+  return downloadCsvFrom(url, 'amaranth-report');
+}
+
+// Generic CSV downloader (reused)
+async function downloadCsvFrom(url, namePrefix){
   try{
     const r = await fetch(url, { cache: 'no-store' });
     const okType = (r.headers.get('Content-Type')||'').includes('text/csv');
@@ -406,7 +419,7 @@ async function downloadServerCsv(qsOrParams){
       const blob = await r.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `amaranth-report-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       return true;
     }
