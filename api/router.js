@@ -153,6 +153,47 @@ async function fetchSessionAndItems(stripe, sid) {
   return { session: s, lineItems };
 }
 
+// ----- Chair email resolution (NEW) -----
+async function getChairEmailsForItemId(id) {
+  const safeSplit = (val) =>
+    String(val || "").split(",").map(s => s.trim()).filter(Boolean);
+
+  // Prefer Banquets KV
+  try {
+    const banquets = await kvGetSafe("banquets", []);
+    if (Array.isArray(banquets)) {
+      const b = banquets.find(x => String(x?.id || "") === String(id));
+      if (b) {
+        const arr = Array.isArray(b.chairEmails)
+          ? b.chairEmails
+          : safeSplit(b.chairEmails || b?.chair?.email || "");
+        if (arr.length) return arr;
+      }
+    }
+  } catch {}
+
+  // Then Addons KV (if you also store chair emails here)
+  try {
+    const addons = await kvGetSafe("addons", []);
+    if (Array.isArray(addons)) {
+      const a = addons.find(x => String(x?.id || "") === String(id));
+      if (a) {
+        const arr = Array.isArray(a.chairEmails)
+          ? a.chairEmails
+          : safeSplit(a.chairEmails || a?.chair?.email || "");
+        if (arr.length) return arr;
+      }
+    }
+  } catch {}
+
+  // Legacy fallback
+  const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+  const legacyArr = Array.isArray(cfg?.chairEmails)
+    ? cfg.chairEmails
+    : safeSplit(cfg?.chairEmails || "");
+  return legacyArr;
+}
+
 // ----- order persistence helpers -----
 async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
@@ -627,16 +668,11 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   const bodyLines = filtered.map(r => EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
   const emailCsv = "\uFEFF" + [headerLine, ...bodyLines].join("\n");
 
-  // Recipients from itemcfg:<id>, fallback to REPORTS_CC/BCC
-  const cfg = await kvHgetallSafe(`itemcfg:${id}`);
-  const chairEmails = (cfg?.chairEmails && Array.isArray(cfg.chairEmails))
-    ? cfg.chairEmails
-    : String(cfg?.chairEmails || "").split(",").map(s=>s.trim()).filter(Boolean);
-
-  const fallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
+  // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
+  const toListPref = await getChairEmailsForItemId(id);
+  const envFallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
     .split(",").map(s=>s.trim()).filter(Boolean);
-
-  const toList = (chairEmails.length ? chairEmails : fallback);
+  const toList = toListPref.length ? toListPref : envFallback;
   if (!toList.length) return { ok: false, error: "no-recipient" };
 
   const prettyKind = kind === "other" ? "catalog" : kind;
@@ -1453,12 +1489,66 @@ export default async function handler(req, res) {
       if (action === "save_banquets") {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
+
+        // Mirror chair emails into legacy itemcfg:* so older code paths stay in sync (NEW)
+        try {
+          if (Array.isArray(list)) {
+            for (const b of list) {
+              const id = String(b?.id || "");
+              if (!id) continue;
+              const name = String(b?.name || "");
+              const chairEmails = Array.isArray(b?.chairEmails)
+                ? b.chairEmails
+                : String(b?.chairEmails || b?.chair?.email || "")
+                    .split(",").map(s => s.trim()).filter(Boolean);
+              const cfg = {
+                id,
+                name,
+                kind: "banquet",
+                chairEmails,
+                publishStart: b?.publishStart || "",
+                publishEnd: b?.publishEnd || "",
+                updatedAt: new Date().toISOString(),
+              };
+              await kvHsetSafe(`itemcfg:${id}`, cfg);
+              await kvSaddSafe("itemcfg:index", id);
+            }
+          }
+        } catch {}
+
         return REQ_OK(res, { ok: true, count: list.length });
       }
 
       if (action === "save_addons") {
         const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
+
+        // Mirror chair emails for addons as well (NEW)
+        try {
+          if (Array.isArray(list)) {
+            for (const a of list) {
+              const id = String(a?.id || "");
+              if (!id) continue;
+              const name = String(a?.name || "");
+              const chairEmails = Array.isArray(a?.chairEmails)
+                ? a.chairEmails
+                : String(a?.chairEmails || a?.chair?.email || "")
+                    .split(",").map(s => s.trim()).filter(Boolean);
+              const cfg = {
+                id,
+                name,
+                kind: "addon",
+                chairEmails,
+                publishStart: a?.publishStart || "",
+                publishEnd: a?.publishEnd || "",
+                updatedAt: new Date().toISOString(),
+              };
+              await kvHsetSafe(`itemcfg:${id}`, cfg);
+              await kvSaddSafe("itemcfg:index", id);
+            }
+          }
+        } catch {}
+
         return REQ_OK(res, { ok: true, count: list.length });
       }
 
