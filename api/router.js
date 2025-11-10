@@ -205,7 +205,7 @@ async function saveOrderFromSession(sessionLike) {
   const lines = lineItems.map((li) => {
     const name  = li.description || li.price?.product?.name || "Item";
     const qty   = Number(li.quantity || 1);
-    const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
+    the const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
     const total = unit * qty;
     const meta  = (li.price?.product?.metadata || {});
     return {
@@ -577,6 +577,7 @@ function buildCSVSelected(rows, headers) {
   ].join("\n");
   return "\uFEFF" + csv; // BOM for Excel
 }
+
 function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
   const cats = new Set((categories || []).map(c => String(c || "").toLowerCase()));
   const out = [];
@@ -610,6 +611,68 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
         attendee_country:includeAddress ? (m.attendeeCountry|| "") : ""
       });
     }
+  }
+  return out;
+}
+
+// ---- (NEW) Attendee Roll (deduped + numbered + blank lines) ----
+function buildAttendeeRollCSV(rows, { include = [] } = {}) {
+  // Default columns: number, name, title
+  const wantsPhone   = include.includes("phone");
+  const wantsEmail   = include.includes("email");
+  const wantsAddress = include.includes("address");
+
+  const headers = [
+    "No.",
+    "Attendee",
+    "Title",
+    ...(wantsPhone   ? ["Phone"] : []),
+    ...(wantsEmail   ? ["Email"] : []),
+    ...(wantsAddress ? ["Addr1","Addr2","City","State","Postal","Country"] : []),
+  ];
+
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const lines = [];
+  lines.push(headers.join(","));
+
+  let idx = 0;
+  for (const r of rows) {
+    idx += 1;
+    const cols = [
+      String(idx),
+      r.attendee || "",
+      r.attendee_title || "",
+      ...(wantsPhone   ? [r.attendee_phone || ""] : []),
+      ...(wantsEmail   ? [r.attendee_email || ""] : []),
+      ...(wantsAddress ? [
+        r.attendee_addr1 || "",
+        r.attendee_addr2 || "",
+        r.attendee_city  || "",
+        r.attendee_state || "",
+        r.attendee_postal|| "",
+        r.attendee_country|| ""
+      ] : []),
+    ];
+    lines.push(cols.map(esc).join(","));
+    lines.push(""); // blank line between records for readability
+  }
+  return "\uFEFF" + lines.join("\n");
+}
+
+function dedupeAttendees(attRows) {
+  // Key by (lowercased trimmed name). If name is empty, skip.
+  const seen = new Set();
+  const out = [];
+  for (const r of attRows) {
+    const key = (r.attendee || "").trim().toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
   }
   return out;
 }
@@ -1112,6 +1175,54 @@ export default async function handler(req, res) {
         const csv = buildCSVSelected(roster, headers);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="full-attendees.csv"`);
+        return res.status(200).send(csv);
+      }
+
+      // ----- (NEW) Attendee Roll (deduped + numbered + blank line between) -----
+      if (type === "attendee_roll_csv") {
+        // Load orders
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        // Optional window (?days, ?start, ?end)
+        const daysParam  = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam   = url.searchParams.get("end");
+        let startMs = NaN, endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs   = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",").map(s=>s.trim()).filter(Boolean);
+
+        // Build roster (with address so we can optionally include it)
+        let roster = collectAttendeesFromOrders(orders, {
+          includeAddress: true,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs:   isNaN(endMs)   ? undefined : endMs
+        });
+
+        // Dedupe by attendee name (one line per attendee across the report)
+        roster = dedupeAttendees(roster);
+
+        // Optional ?include=phone,email,address
+        const includeParam = String(url.searchParams.get("include") || "").toLowerCase();
+        const include = includeParam.split(",").map(s=>s.trim()).filter(Boolean);
+
+        const csv = buildAttendeeRollCSV(roster, { include });
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="attendee-roll.csv"`);
         return res.status(200).send(csv);
       }
 
