@@ -55,6 +55,24 @@ function sortByDateAsc(arr, key = "date") {
   });
 }
 
+// Normalize & dedupe helpers (keep earliest entry per attendee)
+function normalizeName(s) {
+  return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function dedupeAttendeesKeepEarliest(rows) {
+  const seen = new Set();
+  const out = [];
+  const sorted = sortByDateAsc(rows, "date"); // earliest first
+  for (const r of sorted) {
+    const key = normalizeName(r.attendee);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
 // Base id helper: everything before the first colon (handles adult/child/custom etc.)
 const baseKey = (s) => String(s || "").toLowerCase().split(":")[0];
 
@@ -319,7 +337,7 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || 'other',
       item: li.itemName || '',
-      item_id: rawId,
+      item_id: rawId, // public field (kept for backward-compat)
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -332,8 +350,8 @@ function flattenOrderToRows(o) {
 
       // Hidden keys used for filtering
       _itemId: rawId,
-      _itemBase: base,
-      _itemKey: normalizeKey(rawId),
+      _itemBase: base, // base id for robust matching
+      _itemKey: normalizeKey(rawId), // legacy
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
@@ -1084,7 +1102,7 @@ export default async function handler(req, res) {
         return res.status(200).send(csv);
       }
 
-      // ----- Full Attendee List (CSV: title + phone + address) -----
+      // ----- Full Attendee List (CSV: deduped minimal) -----
       if (type === "full_attendees_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -1111,19 +1129,28 @@ export default async function handler(req, res) {
           .split(",").map(s=>s.trim()).filter(Boolean);
 
         const roster = collectAttendeesFromOrders(orders, {
-          includeAddress: true,
+          includeAddress: false, // minimal export
           categories: cats,
           startMs: isNaN(startMs) ? undefined : startMs,
           endMs:   isNaN(endMs)   ? undefined : endMs
         });
 
-        const headers = [
-          "date","purchaser",
-          "attendee","attendee_title","attendee_phone","attendee_email",
-          "attendee_addr1","attendee_addr2","attendee_city","attendee_state","attendee_postal","attendee_country",
-          "item","item_id","qty","notes"
-        ];
-        const csv = buildCSVSelected(roster, headers);
+        // Reduce to needed columns
+        const minimal = roster.map(r => ({
+          date: r.date,
+          attendee: r.attendee,
+          attendee_title: r.attendee_title,
+          attendee_phone: r.attendee_phone,
+          attendee_email: r.attendee_email
+        }));
+
+        // Deduplicate by attendee name, keeping earliest date
+        const deduped = dedupeAttendeesKeepEarliest(minimal);
+
+        // Build CSV (date, attendee, title, phone, email) with blank spacers between records
+        const headers = ["date","attendee","attendee_title","attendee_phone","attendee_email"];
+        const csv = buildCSVSelected(deduped, headers);
+
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="full-attendees.csv"`);
         return res.status(200).send(csv);
