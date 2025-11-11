@@ -77,9 +77,9 @@ async function getEffectiveSettings() {
     REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
     REPLY_TO,
     // Optional reporting window
-    EVENT_START: process.env.EVENT_START || "",
-    EVENT_END: process.env.EVENT_END || "",
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || ""
+    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
+    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
   };
   const effective = { ...env, ...overrides,
     MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
@@ -118,11 +118,11 @@ function applyItemFilters(rows, { category, item_id, item }) {
       const rowBase = r._itemBase || keyBase;
 
       return (
-        raw === wantRaw ||
-        rawNorm === wantNorm ||
-        keyBase === wantBase ||
-        rowBase === wantBase ||
-        String(r._itemKey || "").toLowerCase() === wantNorm
+        raw === wantRaw ||                // exact
+        rawNorm === wantNorm ||           // legacy normalized (“:adult” etc.)
+        keyBase === wantBase ||           // base id from raw
+        rowBase === wantBase ||           // precomputed base on the row
+        String(r._itemKey || "").toLowerCase() === wantNorm // legacy hidden key
       );
     });
   } else if (item) {
@@ -224,8 +224,9 @@ async function saveOrderFromSession(sessionLike) {
       gross: total,
       category: (meta.itemType || "").toLowerCase() || "other",
       attendeeId: meta.attendeeId || "",
-      itemId: meta.itemId || "",
+      itemId: meta.itemId || "", // <-- important
       meta: {
+        // attendee identity & notes
         attendeeName:   meta.attendeeName   || "",
         attendeeTitle:  meta.attendeeTitle  || "",
         attendeePhone:  meta.attendeePhone  || "",
@@ -233,12 +234,14 @@ async function saveOrderFromSession(sessionLike) {
         attendeeNotes:  meta.attendeeNotes  || "",
         dietaryNote:    meta.dietaryNote    || "",
         itemNote:       meta.itemNote       || "",
+        // (directory / pre-reg)
         attendeeAddr1:  meta.attendeeAddr1  || "",
         attendeeAddr2:  meta.attendeeAddr2  || "",
         attendeeCity:   meta.attendeeCity   || "",
         attendeeState:  meta.attendeeState  || "",
         attendeePostal: meta.attendeePostal || "",
         attendeeCountry:meta.attendeeCountry|| "",
+        // pricing metadata
         priceMode:      meta.priceMode      || "",
         bundleQty:      meta.bundleQty      || "",
         bundleTotalCents: meta.bundleTotalCents || ""
@@ -273,7 +276,7 @@ async function saveOrderFromSession(sessionLike) {
   }
 
   await kvSetSafe(`order:${order.id}`, order);
-  await kvSaddSafe("orders:index", order.id);
+  await kvSaddSafe("orders:index", order.id); // stored in a Redis SET
   return order;
 }
 
@@ -302,6 +305,8 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
+// NOTE: We intentionally DO NOT include attendee title/phone/address here
+// to keep the existing /orders_csv shape unchanged.
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
@@ -316,7 +321,7 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || 'other',
       item: li.itemName || '',
-      item_id: rawId,
+      item_id: rawId, // public field (kept for backward-compat)
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -327,15 +332,17 @@ function flattenOrderToRows(o) {
         ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
         : (li.meta?.itemNote || ""),
 
+      // Hidden keys used for filtering
       _itemId: rawId,
-      _itemBase: base,
-      _itemKey: normalizeKey(rawId),
+      _itemBase: base, // base id for robust matching
+      _itemKey: normalizeKey(rawId), // legacy
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
     });
   });
 
+  // Include a distinct fee row (if present)
   const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
     rows.push({
@@ -548,6 +555,7 @@ async function sendOrderReceipts(order) {
 }
 
 // --------- Helpers to build CSV for exports/emails ----------
+// NOTE: both helpers below insert a BLANK line between each record for readability.
 function buildCSV(rows) {
   if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
   const headers = Object.keys(rows[0] || {
@@ -565,8 +573,9 @@ function buildCSV(rows) {
   const lines = [headers.join(",")];
   for (const r of sorted) {
     lines.push(headers.map(h => esc(r[h])).join(","));
-    lines.push("");
+    lines.push(""); // blank spacer between records
   }
+  // Prepend BOM so Excel reads UTF-8 (fixes Entrée)
   return "\uFEFF" + lines.join("\n");
 }
 
@@ -580,9 +589,9 @@ function buildCSVSelected(rows, headers) {
   const lines = [headers.join(",")];
   for (const r of sorted) {
     lines.push(headers.map(h => esc(r[h])).join(","));
-    lines.push("");
+    lines.push(""); // blank spacer between records
   }
-  return "\uFEFF" + lines.join("\n");
+  return "\uFEFF" + lines.join("\n"); // BOM for Excel
 }
 
 function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
@@ -622,12 +631,12 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
   return out;
 }
 
-// ---- (UPDATED) send a chair CSV for a given item (adds leading # column) ----
+// ---- (NEW) single function that sends a chair CSV for a given item ----
 async function sendItemReportEmailInternal({ kind, id, label, scope = "current-month" }) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
-  // Load orders
+  // Load raw orders to pull attendee meta (title/phone/address saved in line.meta)
   const idx = await kvSmembersSafe("orders:index");
   const orders = [];
   for (const sid of idx) {
@@ -656,10 +665,9 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // Header with new leading "#"
-  const EMAIL_COLUMNS = ["#", "date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
+  // CSV columns for chair email (now includes Title + Phone)
+  const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   const EMAIL_HEADER_LABELS = {
-    "#": "#",
     date: "Date",
     purchaser: "Purchaser",
     attendee: "Attendee",
@@ -674,32 +682,17 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
-  // Sort ASC + add blank spacer lines; number only rows that have an attendee
+  // Sort ASC + add blank spacer lines
   const sorted = sortByDateAsc(filtered, "date");
   const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
   const lines = [headerLine];
-
-  let num = 1;
   for (const r of sorted) {
-    const hasAttendee = String(r.attendee || "").trim().length > 0;
-    const row = [
-      hasAttendee ? num++ : "", // "#"
-      r.date,
-      r.purchaser,
-      r.attendee,
-      r.attendee_title,
-      r.attendee_phone,
-      r.item,
-      r.qty,
-      r.notes
-    ].map(esc).join(",");
-    lines.push(row);
+    lines.push(EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
     lines.push(""); // spacer
   }
-
   const emailCsv = "\uFEFF" + lines.join("\n");
 
-  // Recipients
+  // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
   const envFallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
     .split(",").map(s=>s.trim()).filter(Boolean);
@@ -784,6 +777,7 @@ export default async function handler(req, res) {
         });
       }
 
+      // Publishable key
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
       }
@@ -812,10 +806,12 @@ export default async function handler(req, res) {
           if (o) all.push(...flattenOrderToRows(o));
         }
 
-        const daysParam  = url.searchParams.get("days");
-        const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
+        // query params
+        const daysParam  = url.searchParams.get("days");   // ?days=7
+        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
+        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
 
+        // settings fallback
         const { effective } = await getEffectiveSettings();
         const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
@@ -849,6 +845,7 @@ export default async function handler(req, res) {
           });
         }
 
+        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
         const q = (url.searchParams.get("q") || "").trim().toLowerCase();
         if (q) {
           rows = rows.filter(r =>
@@ -861,6 +858,7 @@ export default async function handler(req, res) {
           );
         }
 
+        // NEW precise filters (normalized, with base id support)
         const catParam    = (url.searchParams.get("category") || "").toLowerCase();
         const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
         const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
@@ -891,6 +889,7 @@ export default async function handler(req, res) {
           rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
+        // DATE ORDER: ASC
         rows = sortByDateAsc(rows, "date");
 
         return REQ_OK(res, { rows });
@@ -898,6 +897,7 @@ export default async function handler(req, res) {
 
       // ----- Orders (CSV) -----
       if (type === "orders_csv") {
+        // Build the same filtered list as /orders
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
@@ -954,6 +954,7 @@ export default async function handler(req, res) {
           );
         }
 
+        // NEW precise filters (normalized, with base id support)
         const catParam    = (url.searchParams.get("category") || "").toLowerCase();
         const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
         const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
@@ -984,6 +985,7 @@ export default async function handler(req, res) {
           rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
+        // DATE ORDER: ASC is handled inside buildCSV
         const csv = buildCSV(rows);
 
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -993,6 +995,7 @@ export default async function handler(req, res) {
 
       // ----- Attendee Roster (CSV: NO address) -----
       if (type === "attendee_roster_csv") {
+        // Gather orders
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
         for (const sid of ids) {
@@ -1000,8 +1003,9 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
+        // window (like /orders)
         const daysParam  = url.searchParams.get("days");
-        aconst startParam = url.searchParams.get("start");
+        const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
         let startMs = NaN, endMs = NaN;
         if (daysParam) {
@@ -1036,6 +1040,7 @@ export default async function handler(req, res) {
 
       // ----- Directory / Pre-registration (CSV: WITH address) -----
       if (type === "directory_csv") {
+        // Gather orders
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
         for (const sid of ids) {
@@ -1043,6 +1048,7 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
+        // window
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
@@ -1089,6 +1095,7 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
+        // Optional window (?days, ?start, ?end)
         const daysParam  = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam   = url.searchParams.get("end");
@@ -1102,9 +1109,11 @@ export default async function handler(req, res) {
           endMs   = parseYMD(endParam);
         }
 
+        // We only need banquet/addon attendees; no address needed for this minimal list.
         const cats = (url.searchParams.get("category") || "banquet,addon")
           .split(",").map(s=>s.trim()).filter(Boolean);
 
+        // Collect, filter by window, then DEDUPE by attendee (name + email + phone)
         const rosterAll = collectAttendeesFromOrders(orders, {
           includeAddress: false,
           categories: cats,
@@ -1112,6 +1121,7 @@ export default async function handler(req, res) {
           endMs:   isNaN(endMs)   ? undefined : endMs
         });
 
+        // Keep rows that have an attendee name (those are the ones we count & number)
         const withAttendee = rosterAll.filter(r => String(r.attendee || "").trim().length > 0);
 
         const norm = (s) => String(s || "").trim().toLowerCase();
@@ -1123,6 +1133,7 @@ export default async function handler(req, res) {
           if (!prev) {
             map.set(key, r);
           } else {
+            // Keep EARLIEST date (so final sort by date ASC is stable)
             const tPrev = parseDateISO(prev.date);
             const tNew  = parseDateISO(r.date);
             if (!isNaN(tNew) && !isNaN(tPrev) && tNew < tPrev) {
@@ -1131,8 +1142,10 @@ export default async function handler(req, res) {
           }
         }
 
+        // Unique list, ASC by date
         const unique = sortByDateAsc(Array.from(map.values()), "date");
 
+        // Build CSV with numbering (# column first) and a blank line between each record
         const headers = ["#", "date", "attendee", "attendee_title", "attendee_phone", "attendee_email"];
         const esc = (v) => {
           const s = String(v ?? "");
@@ -1150,7 +1163,7 @@ export default async function handler(req, res) {
             esc(r.attendee_phone),
             esc(r.attendee_email)
           ].join(","));
-          lines.push("");
+          lines.push(""); // spacer line for readability
         }
 
         const csv = "\uFEFF" + lines.join("\n");
@@ -1173,6 +1186,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // Fetch one saved order
       if (type === "order") {
         const oid = String(url.searchParams.get("oid") || "").trim();
         if (!oid) return REQ_ERR(res, 400, "missing-oid");
@@ -1188,6 +1202,7 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       const body = (typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}));
 
+      // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
         if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
@@ -1218,6 +1233,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // --- Finalize (save + email) from success page ---
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -1228,16 +1244,18 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
+      // ---- PUBLIC: send chair-specific CSV by category+item (no auth) ----
       if (action === "send_item_report") {
         const kind  = String((body?.kind || body?.category || "")).toLowerCase();
         const id    = String(body?.id || "").trim();
-        aconst label = String(body?.label || "").trim();
+        const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
         const result = await sendItemReportEmailInternal({ kind, id, label, scope });
         if (!result.ok) return REQ_ERR(res, 500, result.error || "send-failed", result);
         return REQ_OK(res, { ok: true, ...result });
       }
 
+      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -1279,6 +1297,7 @@ export default async function handler(req, res) {
                     attendeeNotes: l.meta?.attendeeNotes || "",
                     dietaryNote: l.meta?.dietaryNote || "",
                     itemNote: l.meta?.itemNote || "",
+                    // directory address
                     attendeeAddr1: l.meta?.attendeeAddr1 || "",
                     attendeeAddr2: l.meta?.attendeeAddr2 || "",
                     attendeeCity:  l.meta?.attendeeCity  || "",
@@ -1340,6 +1359,7 @@ export default async function handler(req, res) {
           return REQ_OK(res, { url: session.url, id: session.id });
         }
 
+        // Legacy branch (simple items)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) return REQ_ERR(res, 400, "no-items");
 
@@ -1362,6 +1382,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { url: session.url, id: session.id });
       }
 
+      // ---- Stripe webhook ----
       if (action === "stripe_webhook") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -1405,6 +1426,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { received: true });
       }
 
+      // --- PUBLIC: register an item config (chairs/addons/products/banquets) ---
       if (action === "register_item") {
         const {
           id = "",
@@ -1432,9 +1454,10 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true });
       }
 
-      // -------- ADMIN (auth required) --------
+      // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
+      // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
         try {
           const mod = await import("./admin/send-full.js");
@@ -1454,6 +1477,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // (NEW) Bulk: send MONTHLY reports to all banquet/addon chairs
       if (action === "send_monthly_chair_reports") {
         const ids = await kvSmembersSafe("itemcfg:index");
         let sent = 0, errors = 0;
@@ -1467,6 +1491,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, sent, errors, scope: "current-month" });
       }
 
+      // (NEW) Bulk: send END-OF-EVENT reports to chairs where publishEnd has passed (idempotent)
       if (action === "send_end_of_event_reports") {
         const now = Date.now();
         const ids = await kvSmembersSafe("itemcfg:index");
@@ -1477,7 +1502,7 @@ export default async function handler(req, res) {
           const publishEnd = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
           if (isNaN(publishEnd) || publishEnd > now) { skipped += 1; continue; }
 
-          const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
+        const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
           if (already) { skipped += 1; continue; }
 
           const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
@@ -1494,11 +1519,13 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "full" });
       }
 
+      // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
         return REQ_OK(res, { ok: true, message: "orders index cleared" });
       }
 
+      // create_refund
       if (action === "create_refund") {
         const stripe = await getStripe();
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
@@ -1520,6 +1547,7 @@ export default async function handler(req, res) {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
 
+        // Mirror chair emails into legacy itemcfg:* so older code paths stay in sync (NEW)
         try {
           if (Array.isArray(list)) {
             for (const b of list) {
@@ -1552,6 +1580,7 @@ export default async function handler(req, res) {
         const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
 
+        // Mirror chair emails for addons as well (NEW)
         try {
           if (Array.isArray(list)) {
             for (const a of list) {
