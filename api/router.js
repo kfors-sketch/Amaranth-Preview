@@ -46,6 +46,14 @@ function parseYMD(s) {
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
 }
+// Sort small helper (ASC: old -> new)
+function sortByDateAsc(arr, key = "date") {
+  return (arr || []).slice().sort((a, b) => {
+    const ta = parseDateISO(a?.[key]);
+    const tb = parseDateISO(b?.[key]);
+    return (isNaN(ta) ? 0 : ta) - (isNaN(tb) ? 0 : tb);
+  });
+}
 
 // Base id helper: everything before the first colon (handles adult/child/custom etc.)
 const baseKey = (s) => String(s || "").toLowerCase().split(":")[0];
@@ -297,8 +305,6 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
-// NOTE: We intentionally DO NOT include attendee title/phone/address here
-// to keep the existing /orders_csv shape unchanged.
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
@@ -313,7 +319,7 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || 'other',
       item: li.itemName || '',
-      item_id: rawId, // public field (kept for backward-compat)
+      item_id: rawId,
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -326,8 +332,8 @@ function flattenOrderToRows(o) {
 
       // Hidden keys used for filtering
       _itemId: rawId,
-      _itemBase: base, // base id for robust matching
-      _itemKey: normalizeKey(rawId), // legacy
+      _itemBase: base,
+      _itemKey: normalizeKey(rawId),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id
@@ -547,7 +553,9 @@ async function sendOrderReceipts(order) {
 }
 
 // --------- Helpers to build CSV for exports/emails ----------
+// NOTE: both helpers below insert a BLANK line between each record for readability.
 function buildCSV(rows) {
+  if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
   const headers = Object.keys(rows[0] || {
     id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
     qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
@@ -557,26 +565,33 @@ function buildCSV(rows) {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [
-    headers.join(","),
-    ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-  ].join("\n");
+
+  const sorted = sortByDateAsc(rows, "date");
+
+  const lines = [headers.join(",")];
+  for (const r of sorted) {
+    lines.push(headers.map(h => esc(r[h])).join(","));
+    lines.push(""); // blank spacer between records
+  }
   // Prepend BOM so Excel reads UTF-8 (fixes Entrée)
-  return "\uFEFF" + csv;
+  return "\uFEFF" + lines.join("\n");
 }
 
-// --- (NEW) helpers for attendee roster/directory ---
 function buildCSVSelected(rows, headers) {
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [
-    headers.join(","),
-    ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-  ].join("\n");
-  return "\uFEFF" + csv; // BOM for Excel
+  const sorted = sortByDateAsc(rows, "date");
+
+  const lines = [headers.join(",")];
+  for (const r of sorted) {
+    lines.push(headers.map(h => esc(r[h])).join(","));
+    lines.push(""); // blank spacer between records
+  }
+  return "\uFEFF" + lines.join("\n"); // BOM for Excel
 }
+
 function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
   const cats = new Set((categories || []).map(c => String(c || "").toLowerCase()));
   const out = [];
@@ -664,9 +679,16 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
+
+  // Sort ASC + add blank spacer lines
+  const sorted = sortByDateAsc(filtered, "date");
   const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
-  const bodyLines = filtered.map(r => EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
-  const emailCsv = "\uFEFF" + [headerLine, ...bodyLines].join("\n");
+  const lines = [headerLine];
+  for (const r of sorted) {
+    lines.push(EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
+    lines.push(""); // spacer
+  }
+  const emailCsv = "\uFEFF" + lines.join("\n");
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
@@ -680,7 +702,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
       <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
-      <p>Rows: <b>${filtered.length}</b></p>
+      <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555">Scope: ${scope}</div>
     </div>`;
 
@@ -695,7 +717,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
       attachments: [{ filename: "report.csv", content: csvB64 }]
     });
     await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
-    return { ok: true, count: filtered.length, to: toList };
+    return { ok: true, count: sorted.length, to: toList };
   } catch (e) {
     await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
     return { ok: false, error: "send-failed", message: e?.message || String(e) };
@@ -865,11 +887,8 @@ export default async function handler(req, res) {
           rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
-        rows.sort((a,b) => {
-          const ta = parseDateISO(a.date);
-          const tb = parseDateISO(b.date);
-          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
-        });
+        // DATE ORDER: ASC
+        rows = sortByDateAsc(rows, "date");
 
         return REQ_OK(res, { rows });
       }
@@ -964,12 +983,7 @@ export default async function handler(req, res) {
           rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
-        rows.sort((a,b) => {
-          const ta = parseDateISO(a.date);
-          const tb = parseDateISO(b.date);
-          return (isNaN(tb)?0:tb) - (isNaN(ta)?0:ta);
-        });
-
+        // DATE ORDER: ASC is handled inside buildCSV
         const csv = buildCSV(rows);
 
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
