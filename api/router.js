@@ -666,11 +666,10 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   );
 
   // --- BEGIN: add leading "#" column for chair CSV (number only rows with attendee) ---
-  const EMAIL_COLUMNS = ["#", "date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
+  const EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   const EMAIL_HEADER_LABELS = {
     "#": "#",
     date: "Date",
-    purchaser: "Purchaser",
     attendee: "Attendee",
     attendee_title: "Title",
     attendee_phone: "Phone",
