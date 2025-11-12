@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v10"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v11"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -334,7 +334,24 @@
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice,
-          meta: { mealChoice, attendeeNotes, event: b.datetime || "", location: b.location || "" }
+          meta: {
+            mealChoice,
+            attendeeNotes,
+            event: b.datetime || "",
+            location: b.location || "",
+            // === pass attendee identity through to Stripe (so reports pick them up) ===
+            attendeeName:  att?.name  || "",
+            attendeeTitle: att?.title || "",
+            attendeePhone: att?.phone || "",
+            attendeeEmail: att?.email || "",
+            // address (for directory CSV)
+            attendeeAddr1:  att?.address1 || "",
+            attendeeAddr2:  att?.address2 || "",
+            attendeeCity:   att?.city     || "",
+            attendeeState:  att?.state    || "",
+            attendeePostal: att?.postal   || "",
+            attendeeCountry:att?.country  || "US"
+          }
         });
 
         try { localStorage.setItem('amaranth_cart_ping', String(Date.now())); } catch(e) {}
