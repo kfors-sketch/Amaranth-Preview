@@ -203,6 +203,7 @@ async function getChairEmailsForItemId(id) {
 }
 
 // ----- order persistence helpers -----
+// (PATCH) prefer purchaser fields from metadata (your Order page), fall back to Stripe customer_details
 async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
@@ -250,6 +251,21 @@ async function saveOrderFromSession(sessionLike) {
     };
   });
 
+  // (NEW) purchaser from metadata
+  const md = s.metadata || {};
+  const purchaserFromMeta = {
+    name:     (md.purchaser_name   || "").trim(),
+    email:    (md.purchaser_email  || "").trim(),
+    phone:    (md.purchaser_phone  || "").trim(),
+    title:    (md.purchaser_title  || "").trim(),
+    address1: (md.purchaser_addr1  || "").trim(),
+    address2: (md.purchaser_addr2  || "").trim(),
+    city:     (md.purchaser_city   || "").trim(),
+    state:    (md.purchaser_state  || "").trim(),
+    postal:   (md.purchaser_postal || "").trim(),
+    country:  (md.purchaser_country|| "").trim()
+  };
+
   const order = {
     id: sid,
     created: Date.now(),
@@ -257,11 +273,23 @@ async function saveOrderFromSession(sessionLike) {
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
-    customer_email: s.customer_details?.email || "",
+
+    // keep Stripe's email as receipt email if present; otherwise use purchaser email
+    customer_email: (s.customer_details?.email || purchaserFromMeta.email || "").trim(),
+
     purchaser: {
-      name: s.customer_details?.name || "",
-      phone: s.customer_details?.phone || ""
+      name:  purchaserFromMeta.name  || (s.customer_details?.name  || ""),
+      email: purchaserFromMeta.email || (s.customer_details?.email || ""),
+      phone: purchaserFromMeta.phone || (s.customer_details?.phone || ""),
+      title: purchaserFromMeta.title || "",
+      address1: purchaserFromMeta.address1 || "",
+      address2: purchaserFromMeta.address2 || "",
+      city:     purchaserFromMeta.city     || "",
+      state:    purchaserFromMeta.state    || "",
+      postal:   purchaserFromMeta.postal   || "",
+      country:  purchaserFromMeta.country  || ""
     },
+
     lines,
     fees: { pct: 0, flat: 0 },
     refunds: [],
@@ -665,7 +693,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // --- BEGIN: add leading "#" column for chair CSV (number only rows with attendee) ---
+  // --- FIXED: Chair CSV columns (removed purchaser column to stop shifting) ---
   const EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   const EMAIL_HEADER_LABELS = {
     "#": "#",
@@ -678,13 +706,11 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     notes: "Notes"
   };
 
-  // CSV escaper (reuse if you already have this defined above)
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
-  // Sort ASC and build lines
   const sorted = sortByDateAsc(filtered, "date");
   const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
   const lines = [headerLine];
@@ -695,7 +721,6 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     lines.push([
       hasAttendee ? counter++ : "",   // "#"
       esc(r.date),
-      esc(r.purchaser),
       esc(r.attendee),
       esc(r.attendee_title),
       esc(r.attendee_phone),
@@ -707,7 +732,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   }
 
   const emailCsv = "\uFEFF" + lines.join("\n");
-  // --- END: add leading "#" column for chair CSV ---
+  // --- END FIX ---
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
@@ -1354,6 +1379,7 @@ export default async function handler(req, res) {
             });
           }
 
+          // (PATCH) Send full purchaser block via metadata so we can prefer it later
           const session = await getStripe().then(stripe =>
             stripe.checkout.sessions.create({
               mode: "payment",
@@ -1362,12 +1388,16 @@ export default async function handler(req, res) {
               success_url: successUrl,
               cancel_url: cancelUrl,
               metadata: {
-                purchaser_name: purchaser.name || "",
-                purchaser_phone: purchaser.phone || "",
-                purchaser_title: purchaser.title || "",
-                purchaser_city: purchaser.city || "",
-                purchaser_state: purchaser.state || "",
-                purchaser_postal: purchaser.postal || "",
+                purchaser_name:   purchaser.name    || "",
+                purchaser_email:  purchaser.email   || "",
+                purchaser_phone:  purchaser.phone   || "",
+                purchaser_title:  purchaser.title   || "",
+                purchaser_addr1:  purchaser.address1|| "",
+                purchaser_addr2:  purchaser.address2|| "",
+                purchaser_city:   purchaser.city    || "",
+                purchaser_state:  purchaser.state   || "",
+                purchaser_postal: purchaser.postal  || "",
+                purchaser_country:purchaser.country || "",
                 cart_count: String(lines.length || 0)
               }
             })
@@ -1519,7 +1549,7 @@ export default async function handler(req, res) {
           const publishEnd = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
           if (isNaN(publishEnd) || publishEnd > now) { skipped += 1; continue; }
 
-        const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
+          const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
           if (already) { skipped += 1; continue; }
 
           const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
