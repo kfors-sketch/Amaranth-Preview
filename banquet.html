@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v9"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v10"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -257,24 +257,31 @@
         <div><small>${b.datetime || ''}</small></div>
         ${b.location ? `<div><small><em>${b.location}</em></small></div>` : ``}
         <p>${b.description || ''}</p>
-        <label>Ticket:
-          <select class="opt"></select>
-        </label>
+        <!-- Ticket dropdown removed -->
+        <div class="price-line"></div>
         <div class="meal"></div>
         <div class="assign"></div>
         <button class="add" disabled>Add to Order</button>
       `;
 
-      const optSel = div.querySelector('.opt');
-      (b.options || []).forEach(o=>{
-        const price = normalizePrice(o.price);
-        const payload = {...o, price};
-        const op = document.createElement('option');
-        op.value = JSON.stringify(payload);
-        op.textContent = `${o.label} — ${money(price)}`;
-        optSel.appendChild(op);
-      });
+      // Compute default option (first available), fallback to b.price or 0
+      let defaultChoice = null;
+      if (Array.isArray(b.options) && b.options.length){
+        defaultChoice = b.options.find(o => o && o.price != null && o.disabled !== true) || b.options[0];
+      }
+      if (!defaultChoice) {
+        defaultChoice = { id: 'standard', label: 'Standard', price: (b.price != null ? b.price : 0) };
+      }
+      const unitPrice = normalizePrice(defaultChoice.price);
 
+      // Show the price so users see cost even without a selector
+      const priceLine = div.querySelector('.price-line');
+      if (priceLine) {
+        const label = defaultChoice.label ? ` — ${defaultChoice.label}` : '';
+        priceLine.innerHTML = `<div style="margin:.25rem 0 .5rem;font-weight:600;">Price${label}: ${money(unitPrice)}</div>`;
+      }
+
+      // Meal choices (unchanged)
       if (Array.isArray(b.mealChoices) && b.mealChoices.length){
         const meal = div.querySelector('.meal');
         meal.innerHTML = `
@@ -287,6 +294,7 @@
         `;
       }
 
+      // Assign attendee (unchanged)
       const assign = div.querySelector('.assign');
       const attendeeSel = attendeeSelect();
       assign.appendChild(attendeeSel);
@@ -319,13 +327,10 @@
         );
         if (dup){ alert('This attendee is already assigned to this banquet.'); return; }
 
-        const chosen = JSON.parse(optSel.value);
-        const unitPrice = normalizePrice(chosen.price);
-
         Cart.addLine({
           attendeeId,
           itemType: 'banquet',
-          itemId: b.id + ":" + chosen.id,
+          itemId: b.id + ":" + (defaultChoice.id || 'standard'),
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice,
