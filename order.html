@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v5" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v6" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -645,38 +645,45 @@
       };
     }
 
-    // === enrich metadata (attendeeName, attendeeNotes, itemNote) ===
+    // ===== NEW: Inject attendee identity ONLY when attendeeId exists =====
     function buildPayloadFromCart() {
-      const st = Cart.get();
+      const st = Cart.get() || { lines: [], attendees: [] };
 
       // quick attendee lookup
       const aMap = {};
       (st.attendees || []).forEach(a => { aMap[a.id] = a; });
 
-      // purchaser (fallback for unassigned lines)
-      const purchaser = {
-        name:  (document.getElementById('p_name')?.value || '').trim(),
-        email: (document.getElementById('p_email')?.value || '').trim(),
-        phone: (document.getElementById('p_phone')?.value || '').trim(),
-      };
-
       const lines = (st.lines || []).map(l => {
         const att = l.attendeeId ? aMap[l.attendeeId] : null;
+        const isBanOrAddon = (l.itemType === 'banquet' || l.itemType === 'addon');
 
-        // Resolve attendee display name for this line
-        const attendeeName =
-          (l.meta && l.meta.attendeeName) ||
-          (att && att.name) ||
-          (!l.attendeeId ? (purchaser.name || 'Purchaser') : 'Attendee');
+        // Start with existing meta
+        const meta = { ...(l.meta || {}) };
 
-        // Banquet vs non-banquet notes
-        const isBanquet = (l.itemType === 'banquet');
-        const banquetNotes = isBanquet
-          ? (l.meta?.attendeeNotes || att?.notes || '')
-          : '';
-        const itemNote = !isBanquet
-          ? (l.meta?.itemNote || l.meta?.note || l.meta?.notes || l.meta?.message || '')
-          : '';
+        // If this line belongs to a specific attendee, ensure identity fields
+        if (isBanOrAddon && att) {
+          if (!meta.attendeeName)   meta.attendeeName   = att.name  || "";
+          if (!meta.attendeeTitle)  meta.attendeeTitle  = att.title || "";
+          if (!meta.attendeePhone)  meta.attendeePhone  = att.phone || "";
+          if (!meta.attendeeEmail)  meta.attendeeEmail  = att.email || "";
+          if (!meta.attendeeAddr1)  meta.attendeeAddr1  = att.address1 || "";
+          if (!meta.attendeeAddr2)  meta.attendeeAddr2  = att.address2 || "";
+          if (!meta.attendeeCity)   meta.attendeeCity   = att.city     || "";
+          if (!meta.attendeeState)  meta.attendeeState  = att.state    || "";
+          if (!meta.attendeePostal) meta.attendeePostal = att.postal   || "";
+          if (!meta.attendeeCountry)meta.attendeeCountry= att.country  || "US";
+        }
+
+        // Make sure banquet notes follow our rule
+        if (l.itemType === 'banquet') {
+          const attNotes = (att && att.notes) ? String(att.notes) : "";
+          if (!meta.attendeeNotes && attNotes) meta.attendeeNotes = attNotes;
+        }
+
+        // Preserve bundle fields if present on the line
+        const priceMode = l.priceMode || "";
+        const bundleQty = l.bundleQty || "";
+        const bundleTotalCents = l.bundleTotalCents || "";
 
         return {
           id: l.id,
@@ -686,12 +693,10 @@
           unitPrice: Number(normalizePrice(l.unitPrice)),
           qty: Number(l.qty || 1),
           attendeeId: l.attendeeId || '',
-          meta: {
-            ...l.meta,
-            attendeeName,
-            attendeeNotes: banquetNotes,
-            itemNote
-          }
+          priceMode,
+          bundleQty,
+          bundleTotalCents,
+          meta
         };
       });
 
