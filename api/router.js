@@ -665,9 +665,10 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // CSV columns for chair email (now includes Title + Phone)
-  const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
+  // --- BEGIN: add leading "#" column for chair CSV (number only rows with attendee) ---
+  const EMAIL_COLUMNS = ["#", "date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   const EMAIL_HEADER_LABELS = {
+    "#": "#",
     date: "Date",
     purchaser: "Purchaser",
     attendee: "Attendee",
@@ -677,20 +678,37 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     qty: "Qty",
     notes: "Notes"
   };
+
+  // CSV escaper (reuse if you already have this defined above)
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
-  // Sort ASC + add blank spacer lines
+  // Sort ASC and build lines
   const sorted = sortByDateAsc(filtered, "date");
   const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
   const lines = [headerLine];
+
+  let counter = 1;
   for (const r of sorted) {
-    lines.push(EMAIL_COLUMNS.map(k => esc(r[k])).join(","));
-    lines.push(""); // spacer
+    const hasAttendee = String(r.attendee || "").trim().length > 0;
+    lines.push([
+      hasAttendee ? counter++ : "",   // "#"
+      esc(r.date),
+      esc(r.purchaser),
+      esc(r.attendee),
+      esc(r.attendee_title),
+      esc(r.attendee_phone),
+      esc(r.item),
+      esc(r.qty),
+      esc(r.notes)
+    ].join(","));
+    lines.push(""); // spacer row (keeps current look)
   }
+
   const emailCsv = "\uFEFF" + lines.join("\n");
+  // --- END: add leading "#" column for chair CSV ---
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
