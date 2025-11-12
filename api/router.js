@@ -665,22 +665,22 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // CSV columns for chair email (without Purchaser)
-const EMAIL_COLUMNS = ["date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
-const EMAIL_HEADER_LABELS = {
-  date: "Date",
-  attendee: "Attendee",
-  attendee_title: "Title",
-  attendee_phone: "Phone",
-  item: "Item",
-  qty: "Qty",
-  notes: "Notes"
-};
-const esc = (v) => {
-  const s = String(v ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
+  // CSV columns for chair email (now includes Title + Phone)
+  const EMAIL_COLUMNS = ["date", "purchaser", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
+  const EMAIL_HEADER_LABELS = {
+    date: "Date",
+    purchaser: "Purchaser",
+    attendee: "Attendee",
+    attendee_title: "Title",
+    attendee_phone: "Phone",
+    item: "Item",
+    qty: "Qty",
+    notes: "Notes"
+  };
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
 
   // Sort ASC + add blank spacer lines
   const sorted = sortByDateAsc(filtered, "date");
