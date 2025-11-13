@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v11"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v12"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -92,6 +92,17 @@
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim());
   }
 
+  // Live phone formatter using Cart.phoneHelpers (shared across projects)
+  function formatPhoneLive(inputEl){
+    if (!inputEl) return;
+    const helpers = (window.Cart && Cart.phoneHelpers) || null;
+    if (!helpers) return;
+    const raw = (inputEl.value || '').trim();
+    if (raw.startsWith('+')) return; // keep international numbers intact
+    const d = helpers.digitsOnly(raw).slice(0, 10); // cap to 10 digits
+    inputEl.value = helpers.formatUS(d);
+  }
+
   // ===== NEW helpers for duplicate detection (name + full address) =====
   function _norm(s){
     return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
@@ -119,6 +130,13 @@
     const list = document.getElementById('attendees');
     const form = document.getElementById('attForm');
 
+    // Phone input: live US formatting (shared behavior desktop + mobile)
+    const phoneInput = form ? form.querySelector('input[name="phone"]') : null;
+    if (phoneInput){
+      phoneInput.addEventListener('input', () => formatPhoneLive(phoneInput));
+      phoneInput.addEventListener('blur',  () => formatPhoneLive(phoneInput));
+    }
+
     // --- keep banquet attendee <select>s in sync without reload ---
     function getAttendees(){ return (Cart.get() || {}).attendees || []; }
     function repopulateSelect(sel){
@@ -134,6 +152,7 @@
         sel.innerHTML =
           '<option value="" disabled>Select attendee…</option>' +
           a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
+        // Preserve previous selection if still valid
         if (a.some(x => String(x.id) === String(prev))) sel.value = prev;
       }
       sel.dispatchEvent(new Event('change'));
@@ -294,7 +313,7 @@
         `;
       }
 
-      // Assign attendee (unchanged)
+      // Assign attendee
       const assign = div.querySelector('.assign');
       const attendeeSel = attendeeSelect();
       assign.appendChild(attendeeSel);
@@ -392,6 +411,38 @@
     }
 
     loadBanquets();
+
+    // ===== KEEP IN SYNC WITH OTHER PAGES (Order, Add-ons, etc.) =====
+    function resyncFromStorage(){
+      try { Cart.load(); } catch(e){}
+      try {
+        renderAttendees();
+        repopulateAllAttendeeSelects();
+      } catch(e){}
+    }
+
+    // When cart changes anywhere in this tab
+    window.addEventListener('cart:updated', () => {
+      try {
+        renderAttendees();
+        repopulateAllAttendeeSelects();
+      } catch(e){}
+    });
+
+    // When tab regains focus / becomes visible
+    window.addEventListener('focus', resyncFromStorage);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resyncFromStorage();
+    });
+
+    // Cross-tab/localStorage sync
+    window.addEventListener('storage', (ev) => {
+      try {
+        if (!ev.key || ev.key === Cart.LS_KEY) {
+          resyncFromStorage();
+        }
+      } catch(e){}
+    });
   });
   </script>
 
