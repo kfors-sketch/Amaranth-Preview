@@ -109,10 +109,10 @@
           <input id="search" class="input" type="search" placeholder="Search purchaser, attendee, item, notes…" style="width:100%" />
         </div>
         <div class="group">
-          <!-- TEXT ONLY CHANGED -->
-          <button class="btn" id="btnExportCsv" title="Export rows to Excel/CSV">Export Excel/CSV (Date/Search)</button>
-          <!-- NEW: Full Attendee List button -->
-          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list (Excel/CSV)">Full Attendee List (Excel/CSV)</button>
+          <!-- Button text / title mention Excel -->
+          <button class="btn" id="btnExportCsv" title="Export rows to Excel (CSV file)">Export to Excel (Date/Search)</button>
+          <!-- Full Attendee List button -->
+          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list to Excel (CSV file)">Full Attendee List (Excel)</button>
           <button class="btn ghost" id="btnPrint">Print / PDF</button>
         </div>
         <div class="group">
@@ -151,8 +151,8 @@
           </select>
         </div>
         <div class="group">
-          <!-- TEXT ONLY CHANGED -->
-          <button id="btnActDownload" class="btn" title="Download Excel/CSV for this item">Download Excel/CSV</button>
+          <!-- Button text / title mention Excel -->
+          <button id="btnActDownload" class="btn" title="Download Excel (CSV file) for this item">Download Excel</button>
           <button id="btnActEmail" class="btn success">Email Chair</button>
         </div>
         <div class="muted">Date range &amp; search (top) will also apply to server-side exports.</div>
@@ -412,28 +412,17 @@ async function downloadServerCsv(qsOrParams){
   return downloadCsvFrom(url, 'amaranth-report');
 }
 
-// Generic downloader (now supports CSV **or** XLSX)
+// Generic downloader (works great for Excel with CSV)
 async function downloadCsvFrom(url, namePrefix){
   try{
     const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
 
-    const ct = (r.headers.get('Content-Type') || '').toLowerCase();
-
-    // Accept both CSV and Excel (XLSX)
-    const isCsv  = ct.includes('text/csv');
-    const isXlsx = ct.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-
-    if (!isCsv && !isXlsx) {
-      // Fallback: still try to download if ok, even if Content-Type is missing/weird
-      console.warn('Unexpected Content-Type for download:', ct);
-    }
-
     const blob = await r.blob();
     const a = document.createElement('a');
-    const ext = isXlsx ? 'xlsx' : 'csv';
     a.href = URL.createObjectURL(blob);
-    a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.${ext}`;
+    // Keep .csv extension; Excel opens it directly
+    a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
