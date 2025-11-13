@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v8"><!-- bumped -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v9"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -90,17 +90,27 @@
 
   <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
   <script>
-    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
-    function formatUS(d){
-      if (d.length <= 3) return d;
-      if (d.length <= 6) return d.slice(0,3)+'-'+d.slice(3);
-      return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6,10);
-    }
     function formatPhoneLive(inputEl){
-      const raw = (inputEl.value||'').trim();
-      if (raw.startsWith('+')) return; // preserve international
-      const d = digitsOnly(raw).slice(0,10);
-      inputEl.value = formatUS(d);
+      if (!inputEl) return;
+      const raw = (inputEl.value || '').trim();
+      if (raw.startsWith('+')) return; // preserve international numbers
+
+      const helpers = (window.Cart && Cart.phoneHelpers) || null;
+      if (helpers) {
+        const d = helpers.digitsOnly(raw).slice(0, 10);
+        inputEl.value = helpers.formatUS(d);
+        return;
+      }
+
+      // Fallback if Cart.phoneHelpers is not defined
+      const d = String(raw).replace(/\D+/g, '').slice(0, 10);
+      if (d.length <= 3) {
+        inputEl.value = d;
+      } else if (d.length <= 6) {
+        inputEl.value = d.slice(0, 3) + '-' + d.slice(3);
+      } else {
+        inputEl.value = d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6, 10);
+      }
     }
   </script>
 
@@ -128,6 +138,11 @@
   document.addEventListener('DOMContentLoaded', function(){
     const attForm = document.getElementById('attForm');
     const list = document.getElementById('attendees');
+
+    // Ensure Cart is loaded (shared cart for all pages)
+    if (window.Cart && typeof Cart.load === 'function') {
+      try { Cart.load(); } catch(e){}
+    }
 
     // Phone live formatting (+international untouched)
     const phoneField = attForm?.querySelector('input[name="phone"]');
@@ -220,6 +235,32 @@
     }
 
     renderAttendees();
+
+    // ===== KEEP IN SYNC WITH OTHER PAGES =====
+    function resyncFromStorage(){
+      try { Cart.load(); } catch(e){}
+      try { renderAttendees(); } catch(e){}
+    }
+
+    // When cart changes anywhere in this tab
+    window.addEventListener('cart:updated', () => {
+      try { renderAttendees(); } catch(e){}
+    });
+
+    // When tab regains focus / becomes visible
+    window.addEventListener('focus', resyncFromStorage);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resyncFromStorage();
+    });
+
+    // Cross-tab/localStorage sync
+    window.addEventListener('storage', (ev) => {
+      try {
+        if (!ev.key || ev.key === Cart.LS_KEY) {
+          resyncFromStorage();
+        }
+      } catch(e){}
+    });
   });
   </script>
 
