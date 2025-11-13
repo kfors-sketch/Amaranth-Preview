@@ -11,6 +11,34 @@
 
   function uid(prefix="id"){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
 
+  // === PHONE HELPERS (shared across all pages) ===
+  function digitsOnly(s){
+    return String(s || "").replace(/\D+/g, "");
+  }
+
+  function formatUS(d){
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return d.slice(0, 3) + "-" + d.slice(3);
+    return d.slice(0, 3) + "-" + d.slice(3, 6) + "-" + d.slice(6, 10);
+  }
+
+  // Normalize any phone value we store on attendees:
+  // - Keep "+..." as-is for international
+  // - For 10 digits, use xxx-xxx-xxxx
+  // - Otherwise leave it mostly as typed
+  function normalizePhoneValue(v){
+    const raw = String(v || "").trim();
+    if (!raw) return "";
+    if (raw.startsWith("+")) return raw; // keep international formats
+
+    const d = digitsOnly(raw);
+    if (d.length === 10) {
+      return formatUS(d);
+    }
+    // For anything else (short, long, weird), just return original text
+    return raw;
+  }
+
   // === PRICE RULES ===
   // We store ALL prices in **dollars** (e.g., 25, 40, 15.5). Never cents.
   // Router will convert to cents when creating Stripe line items.
@@ -73,6 +101,13 @@
       l.meta = l.meta || {};
       normalizeBundle(l);
     });
+
+    // Normalize any stored attendee phone numbers as well
+    data.attendees.forEach(a => {
+      if (a && typeof a === "object" && "phone" in a) {
+        a.phone = normalizePhoneValue(a.phone);
+      }
+    });
   }
 
   function save(){
@@ -84,7 +119,13 @@
   // === ATTENDEES ===
   function addAttendee(a){
     const id = uid("att");
-    state.attendees.push({ id, ...a });
+    const att = { id, ...a };
+
+    if ("phone" in att) {
+      att.phone = normalizePhoneValue(att.phone);
+    }
+
+    state.attendees.push(att);
     save();
     return id;
   }
@@ -92,7 +133,14 @@
   function updateAttendee(id, patch){
     const i = state.attendees.findIndex(x => x.id === id);
     if (i >= 0){
-      state.attendees[i] = { ...state.attendees[i], ...patch };
+      const current = state.attendees[i];
+      const next = { ...current, ...patch };
+
+      if ("phone" in next) {
+        next.phone = normalizePhoneValue(next.phone);
+      }
+
+      state.attendees[i] = next;
       save();
     }
   }
@@ -187,7 +235,13 @@
     addAttendee, updateAttendee, removeAttendee,
     addLine, updateLine, removeLine, clear,
     totals, summary,
-    LS_KEY
+    LS_KEY,
+    // expose phone helpers so all pages (order / banquets / addons / mobile) can reuse them
+    phoneHelpers: {
+      digitsOnly,
+      formatUS,
+      normalizePhoneValue
+    }
   };
 
   // auto-load once
