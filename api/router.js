@@ -1,6 +1,7 @@
 // /api/router.js
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
+import * as XLSX from "xlsx";
 
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
@@ -334,7 +335,7 @@ async function applyRefundToOrder(chargeId, refund) {
 
 // --- Flatten an order into report rows (CSV-like) ---
 // NOTE: We intentionally DO NOT include attendee title/phone/address here
-// to keep the existing /orders_csv shape unchanged.
+// to keep the existing /orders_csv shape unchanged (column *set* stays the same).
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach(li => {
@@ -583,7 +584,7 @@ async function sendOrderReceipts(order) {
 }
 
 // --------- Helpers to build CSV for exports/emails ----------
-// NOTE: both helpers below insert a BLANK line between each record for readability.
+// (kept for compatibility / future debug; main endpoints now use XLSX)
 function buildCSV(rows) {
   if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
   const headers = Object.keys(rows[0] || {
@@ -603,7 +604,6 @@ function buildCSV(rows) {
     lines.push(headers.map(h => esc(r[h])).join(","));
     lines.push(""); // blank spacer between records
   }
-  // Prepend BOM so Excel reads UTF-8 (fixes Entrée)
   return "\uFEFF" + lines.join("\n");
 }
 
@@ -620,6 +620,26 @@ function buildCSVSelected(rows, headers) {
     lines.push(""); // blank spacer between records
   }
   return "\uFEFF" + lines.join("\n"); // BOM for Excel
+}
+
+// ---- NEW: generic helper to build XLSX buffer from objects ----
+function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName = "Report") {
+  const data = [];
+  if (headers && headers.length) {
+    if (headerLabels) {
+      data.push(headers.map(h => headerLabels[h] ?? h));
+    } else {
+      data.push(headers);
+    }
+  }
+  for (const r of rows || []) {
+    data.push(headers.map(h => (r[h] ?? "")));
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  return buf;
 }
 
 function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
@@ -659,7 +679,7 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
   return out;
 }
 
-// ---- (NEW) single function that sends a chair CSV for a given item ----
+// ---- (NEW) single function that sends a chair XLSX for a given item ----
 async function sendItemReportEmailInternal({ kind, id, label, scope = "current-month" }) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
@@ -693,7 +713,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // --- FIXED: Chair CSV columns (removed purchaser column to stop shifting) ---
+  // --- Chair XLSX columns (same as your CSV, still no purchaser column) ---
   const EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   const EMAIL_HEADER_LABELS = {
     "#": "#",
@@ -706,33 +726,24 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     notes: "Notes"
   };
 
-  const esc = (v) => {
-    const s = String(v ?? "");
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
   const sorted = sortByDateAsc(filtered, "date");
-  const headerLine = EMAIL_COLUMNS.map(k => EMAIL_HEADER_LABELS[k] || k).join(",");
-  const lines = [headerLine];
-
   let counter = 1;
-  for (const r of sorted) {
+  const numbered = sorted.map(r => {
     const hasAttendee = String(r.attendee || "").trim().length > 0;
-    lines.push([
-      hasAttendee ? counter++ : "",   // "#"
-      esc(r.date),
-      esc(r.attendee),
-      esc(r.attendee_title),
-      esc(r.attendee_phone),
-      esc(r.item),
-      esc(r.qty),
-      esc(r.notes)
-    ].join(","));
-    lines.push(""); // spacer row (keeps current look)
-  }
+    return {
+      "#": hasAttendee ? counter++ : "",
+      date: r.date,
+      attendee: r.attendee,
+      attendee_title: r.attendee_title,
+      attendee_phone: r.attendee_phone,
+      item: r.item,
+      qty: r.qty,
+      notes: r.notes
+    };
+  });
 
-  const emailCsv = "\uFEFF" + lines.join("\n");
-  // --- END FIX ---
+  const xlsxBuf = objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
+  const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
@@ -745,20 +756,22 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-      <p>Attached is the CSV for <b>${prettyKind}</b> “${label || id}”.</p>
+      <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555">Scope: ${scope}</div>
     </div>`;
 
   try {
-    const csvB64 = Buffer.from(emailCsv, "utf8").toString("base64");
     const sendResult = await resend.emails.send({
       from: RESEND_FROM,
       to: toList,
       subject,
       html: tablePreview,
       reply_to: REPLY_TO || undefined,
-      attachments: [{ filename: "report.csv", content: csvB64 }]
+      attachments: [{
+        filename: "report.xlsx",
+        content: xlsxB64
+      }]
     });
     await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
     return { ok: true, count: sorted.length, to: toList };
@@ -895,7 +908,7 @@ export default async function handler(req, res) {
             String(r.attendee||"").toLowerCase().includes(q) ||
             String(r.item||"").toLowerCase().includes(q) ||
             String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q) ||
+            String(r.status||"").toLowerCase()..includes(q) ||
             String(r.notes||"").toLowerCase().includes(q)
           );
         }
@@ -937,9 +950,8 @@ export default async function handler(req, res) {
         return REQ_OK(res, { rows });
       }
 
-      // ----- Orders (CSV) -----
+      // ----- Orders (XLSX; route name kept as *_csv for compatibility) -----
       if (type === "orders_csv") {
-        // Build the same filtered list as /orders
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
@@ -1027,15 +1039,21 @@ export default async function handler(req, res) {
           rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
         }
 
-        // DATE ORDER: ASC is handled inside buildCSV
-        const csv = buildCSV(rows);
+        const sorted = sortByDateAsc(rows, "date");
+        const headers = Object.keys(sorted[0] || {
+          id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
+          qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
+          _itemId: "", _itemBase: "", _itemKey: "", _pi: "", _charge: "", _session: ""
+        });
 
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="orders.csv"`);
-        return res.status(200).send(csv);
+        const buf = objectsToXlsxBuffer(headers, sorted, null, "Orders");
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
+        return res.status(200).send(buf);
       }
 
-      // ----- Attendee Roster (CSV: NO address) -----
+      // ----- Attendee Roster (XLSX: NO address) -----
       if (type === "attendee_roster_csv") {
         // Gather orders
         const ids = await kvSmembersSafe("orders:index");
@@ -1069,18 +1087,20 @@ export default async function handler(req, res) {
           endMs:   isNaN(endMs)   ? undefined : endMs
         });
 
+        const sorted = sortByDateAsc(roster, "date");
         const headers = [
           "date","purchaser",
           "attendee","attendee_title","attendee_phone","attendee_email",
           "item","item_id","qty","notes"
         ];
-        const csv = buildCSVSelected(roster, headers);
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.csv"`);
-        return res.status(200).send(csv);
+
+        const buf = objectsToXlsxBuffer(headers, sorted, null, "Attendees");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.xlsx"`);
+        return res.status(200).send(buf);
       }
 
-      // ----- Directory / Pre-registration (CSV: WITH address) -----
+      // ----- Directory / Pre-registration (XLSX: WITH address) -----
       if (type === "directory_csv") {
         // Gather orders
         const ids = await kvSmembersSafe("orders:index");
@@ -1114,6 +1134,7 @@ export default async function handler(req, res) {
           endMs:   isNaN(endMs)   ? undefined : endMs
         });
 
+        const sorted = sortByDateAsc(roster, "date");
         const headers = [
           "attendee","attendee_title",
           "attendee_email","attendee_phone",
@@ -1122,13 +1143,14 @@ export default async function handler(req, res) {
           "item","qty","notes",
           "purchaser","date"
         ];
-        const csv = buildCSVSelected(roster, headers);
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="directory.csv"`);
-        return res.status(200).send(csv);
+
+        const buf = objectsToXlsxBuffer(headers, sorted, null, "Directory");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="directory.xlsx"`);
+        return res.status(200).send(buf);
       }
 
-      // ----- Full Attendee List (CSV: unique, numbered, minimal cols) -----
+      // ----- Full Attendee List (XLSX: unique, numbered, minimal cols) -----
       if (type === "full_attendees_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -1187,31 +1209,20 @@ export default async function handler(req, res) {
         // Unique list, ASC by date
         const unique = sortByDateAsc(Array.from(map.values()), "date");
 
-        // Build CSV with numbering (# column first) and a blank line between each record
         const headers = ["#", "date", "attendee", "attendee_title", "attendee_phone", "attendee_email"];
-        const esc = (v) => {
-          const s = String(v ?? "");
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
+        const numbered = unique.map((r, idx) => ({
+          "#": idx + 1,
+          date: r.date,
+          attendee: r.attendee,
+          attendee_title: r.attendee_title,
+          attendee_phone: r.attendee_phone,
+          attendee_email: r.attendee_email
+        }));
 
-        const lines = [headers.join(",")];
-        let n = 1;
-        for (const r of unique) {
-          lines.push([
-            n++,
-            esc(r.date),
-            esc(r.attendee),
-            esc(r.attendee_title),
-            esc(r.attendee_phone),
-            esc(r.attendee_email)
-          ].join(","));
-          lines.push(""); // spacer line for readability
-        }
-
-        const csv = "\uFEFF" + lines.join("\n");
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.csv"`);
-        return res.status(200).send(csv);
+        const buf = objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.xlsx"`);
+        return res.status(200).send(buf);
       }
 
       // Idempotent finalize via GET
@@ -1286,7 +1297,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
-      // ---- PUBLIC: send chair-specific CSV by category+item (no auth) ----
+      // ---- PUBLIC: send chair-specific XLSX by category+item (no auth) ----
       if (action === "send_item_report") {
         const kind  = String((body?.kind || body?.category || "")).toLowerCase();
         const id    = String(body?.id || "").trim();
