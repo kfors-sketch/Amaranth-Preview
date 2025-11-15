@@ -217,8 +217,34 @@
            _addressKey(a)  === _addressKey(b);
   }
 
+  // ===== Shared attendee storage (for cross-page sync) =====
+  const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
+
+  function saveAttendeesToStorage(list){
+    try {
+      const arr = Array.isArray(list) ? list : [];
+      localStorage.setItem(ATTENDEE_STORAGE_KEY, JSON.stringify(arr));
+    } catch(e){
+      console.error("Failed to save attendees to shared storage", e);
+    }
+  }
+
+  function syncAttendeesToStorageFromCart(){
+    try {
+      if (!window.Cart || typeof Cart.get !== "function") return;
+      const st = Cart.get() || {};
+      const attendees = Array.isArray(st.attendees) ? st.attendees : [];
+      saveAttendeesToStorage(attendees);
+    } catch(e){
+      console.error("Failed to sync attendees from Cart to storage", e);
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
+
+    // Initial sync of attendee list out to shared storage
+    syncAttendeesToStorageFromCart();
 
     // HOTFIX: migrate any legacy cents (once per load)
     (function migrateLegacyCents(){
@@ -402,7 +428,11 @@
 
       // wire remove
       list.querySelectorAll('button[data-remove]').forEach(b=>{
-        b.onclick = ()=>{ Cart.removeLine(b.dataset.remove); };
+        b.onclick = ()=>{ 
+          Cart.removeLine(b.dataset.remove); 
+          // After any cart change, keep attendee list mirrored out
+          syncAttendeesToStorageFromCart();
+        };
       });
 
       // wire edit show/hide + populate
@@ -513,6 +543,12 @@
             notes
           });
 
+          // After updating, mirror the attendee list out to shared storage
+          try {
+            const stNow = Cart.get() || {};
+            syncAttendeesToStorageFromCart();
+          } catch(e){}
+
           // Optionally propagate notes to banquet lines for this attendee
           try {
             const st4 = Cart.get();
@@ -544,6 +580,9 @@
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
       `;
+
+      // Final step of render: keep shared attendee storage in sync
+      syncAttendeesToStorageFromCart();
     } // end render()
 
     // expose render for resync hooks below
@@ -551,7 +590,11 @@
 
     // initial + react to cart changes
     render();
-    window.addEventListener('cart:updated', render);
+    window.addEventListener('cart:updated', function(){
+      render();
+      // Whenever cart updates (from any page action), mirror attendees out
+      syncAttendeesToStorageFromCart();
+    });
 
     // Re-render purchaser header when they type their name (affects Purchaser group label)
     const pNameEl = document.getElementById('p_name');

@@ -123,8 +123,34 @@
            _addressKey(a)  === _addressKey(b);
   }
 
+  // ===== Shared attendee storage (same key as order.html) =====
+  const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
+
+  function saveAttendeesToStorage(list){
+    try {
+      const arr = Array.isArray(list) ? list : [];
+      localStorage.setItem(ATTENDEE_STORAGE_KEY, JSON.stringify(arr));
+    } catch(e){
+      console.error("Failed to save attendees to shared storage", e);
+    }
+  }
+
+  function syncAttendeesToStorageFromCart(){
+    try {
+      if (!window.Cart || typeof Cart.get !== "function") return;
+      const st = Cart.get() || {};
+      const attendees = Array.isArray(st.attendees) ? st.attendees : [];
+      saveAttendeesToStorage(attendees);
+    } catch(e){
+      console.error("Failed to sync attendees from Cart to storage", e);
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
+
+    // Initial sync: mirror current Cart attendees out to shared storage
+    syncAttendeesToStorageFromCart();
 
     // Attendee UI render + add
     const list = document.getElementById('attendees');
@@ -186,8 +212,13 @@
           Cart.removeAttendee(btn.dataset.del);
           renderAttendees();
           repopulateAllAttendeeSelects();
+          // keep shared storage in sync after removal
+          syncAttendeesToStorageFromCart();
         };
       });
+
+      // After re-render, mirror attendees to shared storage
+      syncAttendeesToStorageFromCart();
     }
 
     form.onsubmit = (e)=>{
@@ -244,6 +275,8 @@
 
       renderAttendees();
       repopulateAllAttendeeSelects();
+      // sync new list out to shared storage
+      syncAttendeesToStorageFromCart();
     };
     renderAttendees();
     repopulateAllAttendeeSelects();
@@ -418,6 +451,8 @@
       try {
         renderAttendees();
         repopulateAllAttendeeSelects();
+        // keep shared storage mirrored after reload
+        syncAttendeesToStorageFromCart();
       } catch(e){}
     }
 
@@ -426,6 +461,7 @@
       try {
         renderAttendees();
         repopulateAllAttendeeSelects();
+        syncAttendeesToStorageFromCart();
       } catch(e){}
     });
 

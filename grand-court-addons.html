@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v9"><!-- bumped -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v10"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
@@ -135,6 +135,29 @@
            _addressKey(a)  === _addressKey(b);
   }
 
+  // ===== Shared attendee storage (same key as order/banquets) =====
+  const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
+
+  function saveAttendeesToStorage(list){
+    try {
+      const arr = Array.isArray(list) ? list : [];
+      localStorage.setItem(ATTENDEE_STORAGE_KEY, JSON.stringify(arr));
+    } catch(e){
+      console.error("Failed to save attendees to shared storage", e);
+    }
+  }
+
+  function syncAttendeesToStorageFromCart(){
+    try {
+      if (!window.Cart || typeof Cart.get !== "function") return;
+      const st = Cart.get() || {};
+      const attendees = Array.isArray(st.attendees) ? st.attendees : [];
+      saveAttendeesToStorage(attendees);
+    } catch(e){
+      console.error("Failed to sync attendees from Cart to storage", e);
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     const attForm = document.getElementById('attForm');
     const list = document.getElementById('attendees');
@@ -143,6 +166,9 @@
     if (window.Cart && typeof Cart.load === 'function') {
       try { Cart.load(); } catch(e){}
     }
+
+    // Initial mirror to shared storage
+    syncAttendeesToStorageFromCart();
 
     // Phone live formatting (+international untouched)
     const phoneField = attForm?.querySelector('input[name="phone"]');
@@ -171,8 +197,16 @@
         `;
       }).join('');
       list.querySelectorAll('button[data-del]').forEach(btn=>{
-        btn.onclick = ()=>{ Cart.removeAttendee(btn.dataset.del); renderAttendees(); };
+        btn.onclick = ()=>{
+          Cart.removeAttendee(btn.dataset.del);
+          renderAttendees();
+          // keep shared storage in sync after removal
+          syncAttendeesToStorageFromCart();
+        };
       });
+
+      // Mirror current attendees to shared storage on every render
+      syncAttendeesToStorageFromCart();
     }
 
     if (attForm){
@@ -227,10 +261,15 @@
         }
         // =================================
 
-        Cart.addAttendee({ name, email, phone, title, notes, address1, address2, city, state, postal, country });
+        Cart.addAttendee({
+          name, email, phone, title, notes,
+          address1, address2, city, state, postal, country
+        });
         attForm.reset();
         attForm.querySelector('input[name="country"]').value = 'US';
         renderAttendees();
+        // sync new list out to shared storage
+        syncAttendeesToStorageFromCart();
       };
     }
 
@@ -239,12 +278,18 @@
     // ===== KEEP IN SYNC WITH OTHER PAGES =====
     function resyncFromStorage(){
       try { Cart.load(); } catch(e){}
-      try { renderAttendees(); } catch(e){}
+      try {
+        renderAttendees();
+        syncAttendeesToStorageFromCart();
+      } catch(e){}
     }
 
     // When cart changes anywhere in this tab
     window.addEventListener('cart:updated', () => {
-      try { renderAttendees(); } catch(e){}
+      try {
+        renderAttendees();
+        syncAttendeesToStorageFromCart();
+      } catch(e){}
     });
 
     // When tab regains focus / becomes visible
