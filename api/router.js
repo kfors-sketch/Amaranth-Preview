@@ -735,9 +735,14 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  // --- Chair XLSX columns (same as your CSV, still no purchaser column) ---
-  const EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
-  const EMAIL_HEADER_LABELS = {
+  // --- Chair XLSX columns ---
+  // Default columns for chairman reports
+  let EMAIL_COLUMNS = [
+    "#", "date", "attendee", "attendee_title", "attendee_phone",
+    "item", "qty", "notes"
+  ];
+
+  let EMAIL_HEADER_LABELS = {
     "#": "#",
     date: "Date",
     attendee: "Attendee",
@@ -747,6 +752,36 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     qty: "Qty",
     notes: "Notes"
   };
+
+  // ADD full mailing address for Pre-Registration and Directory ONLY
+  const base = String(id || "").toLowerCase();
+  if (base === "pre-reg" || base === "directory") {
+    EMAIL_COLUMNS = [
+      "#", "date",
+      "attendee", "attendee_title", "attendee_phone", "attendee_email",
+      "attendee_addr1", "attendee_addr2",
+      "attendee_city", "attendee_state", "attendee_postal", "attendee_country",
+      "item", "qty", "notes"
+    ];
+
+    EMAIL_HEADER_LABELS = {
+      "#": "#",
+      date: "Date",
+      attendee: "Attendee",
+      attendee_title: "Title",
+      attendee_phone: "Phone",
+      attendee_email: "Email",
+      attendee_addr1: "Address 1",
+      attendee_addr2: "Address 2",
+      attendee_city: "City",
+      attendee_state: "State",
+      attendee_postal: "Postal",
+      attendee_country: "Country",
+      item: "Item",
+      qty: "Qty",
+      notes: "Notes"
+    };
+  }
 
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
