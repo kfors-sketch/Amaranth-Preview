@@ -764,13 +764,29 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     };
   });
 
-  const xlsxBuf = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
+  // 🔽 NEW: dynamic filename block
+  const xlsxBuf = await objectsToXlsxBuffer(
+    EMAIL_COLUMNS,
+    numbered,
+    EMAIL_HEADER_LABELS,
+    "Item Report"
+  );
   const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
+
+  // Build a nice filename: <ItemName>_<YYYY-MM-DD>.xlsx
+  const today = new Date();
+  const dateStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+  const baseNameRaw = label || id || "report";
+  const baseName = baseNameRaw
+    .replace(/[^a-z0-9]+/gi, "_")   // turn spaces & punctuation into _
+    .replace(/^_+|_+$/g, "");       // trim leading/trailing _
+
+  const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
   const envFallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-    .split(",").map(s=>s.trim()).filter(Boolean);
+    .split(",").map(s => s.trim()).filter(Boolean);
   const toList = toListPref.length ? toListPref : envFallback;
   if (!toList.length) return { ok: false, error: "no-recipient" };
 
@@ -791,7 +807,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
       html: tablePreview,
       reply_to: REPLY_TO || undefined,
       attachments: [{
-        filename: "report.xlsx",
+        filename,        // e.g. Pre_Registration_2025-11-15.xlsx
         content: xlsxB64
       }]
     });
