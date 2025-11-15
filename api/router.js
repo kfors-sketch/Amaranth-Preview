@@ -908,7 +908,7 @@ export default async function handler(req, res) {
             String(r.attendee||"").toLowerCase().includes(q) ||
             String(r.item||"").toLowerCase().includes(q) ||
             String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase()..includes(q) ||
+            String(r.status||"").toLowerCase().includes(q) ||
             String(r.notes||"").toLowerCase().includes(q)
           );
         }
