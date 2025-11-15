@@ -26,7 +26,10 @@ const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: m
 // ---------- helpers ----------
 function cents(n) { return Math.round(Number(n || 0)); }
 function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
-function toCentsAuto(v){ const n = Number(v || 0); return n < 1000 ? Math.round(n * 100) : Math.round(n); }
+function toCentsAuto(v) {
+  const n = Number(v || 0);
+  return n < 1000 ? Math.round(n * 100) : Math.round(n);
+}
 
 async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
 async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
@@ -82,18 +85,20 @@ async function getEffectiveSettings() {
     EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
     REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
   };
-  const effective = { ...env, ...overrides,
-    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true"
+  const effective = {
+    ...env,
+    ...overrides,
+    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
   };
   return { env, overrides, effective };
 }
 function filterRowsByWindow(rows, { startMs, endMs }) {
   if (!rows?.length) return rows || [];
-  return rows.filter(r => {
+  return rows.filter((r) => {
     const t = parseDateISO(r.date);
     if (isNaN(t)) return false;
     if (startMs && t < startMs) return false;
-    if (endMs   && t >= endMs)  return false;
+    if (endMs && t >= endMs) return false;
     return true;
   });
 }
@@ -104,31 +109,31 @@ function applyItemFilters(rows, { category, item_id, item }) {
 
   if (category) {
     const cat = String(category).toLowerCase();
-    out = out.filter(r => String(r.category || "").toLowerCase() === cat);
+    out = out.filter((r) => String(r.category || "").toLowerCase() === cat);
   }
 
   if (item_id) {
-    const wantRaw   = String(item_id).toLowerCase();
-    const wantBase  = baseKey(wantRaw);
-    const wantNorm  = normalizeKey(wantRaw);
+    const wantRaw = String(item_id).toLowerCase();
+    const wantBase = baseKey(wantRaw);
+    const wantNorm = normalizeKey(wantRaw);
 
-    out = out.filter(r => {
-      const raw     = String(r._itemId || r.item_id || "").toLowerCase();
+    out = out.filter((r) => {
+      const raw = String(r._itemId || r.item_id || "").toLowerCase();
       const rawNorm = normalizeKey(raw);
       const keyBase = baseKey(r._itemId || r.item_id || "");
       const rowBase = r._itemBase || keyBase;
 
       return (
-        raw === wantRaw ||                // exact
-        rawNorm === wantNorm ||           // legacy normalized (“:adult” etc.)
-        keyBase === wantBase ||           // base id from raw
-        rowBase === wantBase ||           // precomputed base on the row
+        raw === wantRaw || // exact
+        rawNorm === wantNorm || // legacy normalized (“:adult” etc.)
+        keyBase === wantBase || // base id from raw
+        rowBase === wantBase || // precomputed base on the row
         String(r._itemKey || "").toLowerCase() === wantNorm // legacy hidden key
       );
     });
   } else if (item) {
     const want = String(item).toLowerCase();
-    out = out.filter(r => String(r.item || "").toLowerCase().includes(want));
+    out = out.filter((r) => String(r.item || "").toLowerCase().includes(want));
   }
 
   return out;
@@ -136,7 +141,11 @@ function applyItemFilters(rows, { category, item_id, item }) {
 
 // --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
-async function recordMailLog(payload) { try { await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 }); } catch {} }
+async function recordMailLog(payload) {
+  try {
+    await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 });
+  } catch {}
+}
 
 // Simple bearer auth for admin writes
 function requireToken(req, res) {
@@ -152,11 +161,11 @@ function requireToken(req, res) {
 // --- Stripe helpers: always fetch the full line item list ---
 async function fetchSessionAndItems(stripe, sid) {
   const s = await stripe.checkout.sessions.retrieve(sid, {
-    expand: ["payment_intent", "customer_details"]
+    expand: ["payment_intent", "customer_details"],
   });
   const liResp = await stripe.checkout.sessions.listLineItems(sid, {
     limit: 100,
-    expand: ["data.price.product"]
+    expand: ["data.price.product"],
   });
   const lineItems = liResp?.data || [];
   return { session: s, lineItems };
@@ -165,13 +174,16 @@ async function fetchSessionAndItems(stripe, sid) {
 // ----- Chair email resolution (NEW) -----
 async function getChairEmailsForItemId(id) {
   const safeSplit = (val) =>
-    String(val || "").split(",").map(s => s.trim()).filter(Boolean);
+    String(val || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
   // Prefer Banquets KV
   try {
     const banquets = await kvGetSafe("banquets", []);
     if (Array.isArray(banquets)) {
-      const b = banquets.find(x => String(x?.id || "") === String(id));
+      const b = banquets.find((x) => String(x?.id || "") === String(id));
       if (b) {
         const arr = Array.isArray(b.chairEmails)
           ? b.chairEmails
@@ -185,7 +197,7 @@ async function getChairEmailsForItemId(id) {
   try {
     const addons = await kvGetSafe("addons", []);
     if (Array.isArray(addons)) {
-      const a = addons.find(x => String(x?.id || "") === String(id));
+      const a = addons.find((x) => String(x?.id || "") === String(id));
       if (a) {
         const arr = Array.isArray(a.chairEmails)
           ? a.chairEmails
@@ -213,11 +225,11 @@ async function saveOrderFromSession(sessionLike) {
   const { session: s, lineItems } = await fetchSessionAndItems(stripe, sid);
 
   const lines = lineItems.map((li) => {
-    const name  = li.description || li.price?.product?.name || "Item";
-    const qty   = Number(li.quantity || 1);
-    const unit  = cents(li.price?.unit_amount || 0); // Stripe returns cents
+    const name = li.description || li.price?.product?.name || "Item";
+    const qty = Number(li.quantity || 1);
+    const unit = cents(li.price?.unit_amount || 0); // Stripe returns cents
     const total = unit * qty;
-    const meta  = (li.price?.product?.metadata || {});
+    const meta = li.price?.product?.metadata || {};
     return {
       id: `${sid}:${li.id}`,
       itemName: name,
@@ -229,48 +241,51 @@ async function saveOrderFromSession(sessionLike) {
       itemId: meta.itemId || "", // <-- important
       meta: {
         // attendee identity & notes
-        attendeeName:   meta.attendeeName   || "",
-        attendeeTitle:  meta.attendeeTitle  || "",
-        attendeePhone:  meta.attendeePhone  || "",
-        attendeeEmail:  meta.attendeeEmail  || "",
-        attendeeNotes:  meta.attendeeNotes  || "",
-        dietaryNote:    meta.dietaryNote    || "",
-        itemNote:       meta.itemNote       || "",
+        attendeeName: meta.attendeeName || "",
+        attendeeTitle: meta.attendeeTitle || "",
+        attendeePhone: meta.attendeePhone || "",
+        attendeeEmail: meta.attendeeEmail || "",
+        attendeeNotes: meta.attendeeNotes || "",
+        dietaryNote: meta.dietaryNote || "",
+        itemNote: meta.itemNote || "",
         // (directory / pre-reg)
-        attendeeAddr1:  meta.attendeeAddr1  || "",
-        attendeeAddr2:  meta.attendeeAddr2  || "",
-        attendeeCity:   meta.attendeeCity   || "",
-        attendeeState:  meta.attendeeState  || "",
+        attendeeAddr1: meta.attendeeAddr1 || "",
+        attendeeAddr2: meta.attendeeAddr2 || "",
+        attendeeCity: meta.attendeeCity || "",
+        attendeeState: meta.attendeeState || "",
         attendeePostal: meta.attendeePostal || "",
-        attendeeCountry:meta.attendeeCountry|| "",
+        attendeeCountry: meta.attendeeCountry || "",
         // pricing metadata
-        priceMode:      meta.priceMode      || "",
-        bundleQty:      meta.bundleQty      || "",
-        bundleTotalCents: meta.bundleTotalCents || ""
+        priceMode: meta.priceMode || "",
+        bundleQty: meta.bundleQty || "",
+        bundleTotalCents: meta.bundleTotalCents || "",
       },
-      notes: ""
+      notes: "",
     };
   });
 
   // (NEW) purchaser from metadata
   const md = s.metadata || {};
   const purchaserFromMeta = {
-    name:     (md.purchaser_name   || "").trim(),
-    email:    (md.purchaser_email  || "").trim(),
-    phone:    (md.purchaser_phone  || "").trim(),
-    title:    (md.purchaser_title  || "").trim(),
-    address1: (md.purchaser_addr1  || "").trim(),
-    address2: (md.purchaser_addr2  || "").trim(),
-    city:     (md.purchaser_city   || "").trim(),
-    state:    (md.purchaser_state  || "").trim(),
-    postal:   (md.purchaser_postal || "").trim(),
-    country:  (md.purchaser_country|| "").trim()
+    name: (md.purchaser_name || "").trim(),
+    email: (md.purchaser_email || "").trim(),
+    phone: (md.purchaser_phone || "").trim(),
+    title: (md.purchaser_title || "").trim(),
+    address1: (md.purchaser_addr1 || "").trim(),
+    address2: (md.purchaser_addr2 || "").trim(),
+    city: (md.purchaser_city || "").trim(),
+    state: (md.purchaser_state || "").trim(),
+    postal: (md.purchaser_postal || "").trim(),
+    country: (md.purchaser_country || "").trim(),
   };
 
   const order = {
     id: sid,
     created: Date.now(),
-    payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
+    payment_intent:
+      typeof s.payment_intent === "string"
+        ? s.payment_intent
+        : s.payment_intent?.id || "",
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
@@ -279,28 +294,30 @@ async function saveOrderFromSession(sessionLike) {
     customer_email: (s.customer_details?.email || purchaserFromMeta.email || "").trim(),
 
     purchaser: {
-      name:  purchaserFromMeta.name  || (s.customer_details?.name  || ""),
-      email: purchaserFromMeta.email || (s.customer_details?.email || ""),
-      phone: purchaserFromMeta.phone || (s.customer_details?.phone || ""),
+      name: purchaserFromMeta.name || s.customer_details?.name || "",
+      email: purchaserFromMeta.email || s.customer_details?.email || "",
+      phone: purchaserFromMeta.phone || s.customer_details?.phone || "",
       title: purchaserFromMeta.title || "",
       address1: purchaserFromMeta.address1 || "",
       address2: purchaserFromMeta.address2 || "",
-      city:     purchaserFromMeta.city     || "",
-      state:    purchaserFromMeta.state    || "",
-      postal:   purchaserFromMeta.postal   || "",
-      country:  purchaserFromMeta.country  || ""
+      city: purchaserFromMeta.city || "",
+      state: purchaserFromMeta.state || "",
+      postal: purchaserFromMeta.postal || "",
+      country: purchaserFromMeta.country || "",
     },
 
     lines,
     fees: { pct: 0, flat: 0 },
     refunds: [],
     refunded_cents: 0,
-    status: "paid"
+    status: "paid",
   };
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["charges.data"] }).catch(()=>null);
+    const pi = await stripe.paymentIntents
+      .retrieve(piId, { expand: ["charges.data"] })
+      .catch(() => null);
     if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
@@ -320,12 +337,13 @@ async function applyRefundToOrder(chargeId, refund) {
         id: refund.id,
         amount: cents(refund.amount || 0),
         charge: refund.charge || chargeId,
-        created: refund.created ? refund.created * 1000 : Date.now()
+        created: refund.created ? refund.created * 1000 : Date.now(),
       };
       o.refunds = Array.isArray(o.refunds) ? o.refunds : [];
       o.refunds.push(entry);
       o.refunded_cents = (o.refunded_cents || 0) + entry.amount;
-      o.status = o.refunded_cents >= o.amount_total ? "refunded" : "partial_refund";
+      o.status =
+        o.refunded_cents >= o.amount_total ? "refunded" : "partial_refund";
       await kvSetSafe(key, o);
       return true;
     }
@@ -338,18 +356,18 @@ async function applyRefundToOrder(chargeId, refund) {
 // to keep the existing /orders_csv shape unchanged (column *set* stays the same).
 function flattenOrderToRows(o) {
   const rows = [];
-  (o.lines || []).forEach(li => {
+  (o.lines || []).forEach((li) => {
     const net = li.gross;
     const rawId = li.itemId || "";
-    const base  = baseKey(rawId);
+    const base = baseKey(rawId);
 
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: li.meta?.attendeeName || "",
-      category: li.category || 'other',
-      item: li.itemName || '',
+      category: li.category || "other",
+      item: li.itemName || "",
       item_id: rawId, // public field (kept for backward-compat)
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
@@ -357,9 +375,12 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      notes: li.category === "banquet"
-        ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
-        : (li.meta?.itemNote || ""),
+      notes:
+        li.category === "banquet"
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
+              .filter(Boolean)
+              .join("; ")
+          : li.meta?.itemNote || "",
 
       // Hidden keys used for filtering
       _itemId: rawId,
@@ -367,21 +388,23 @@ function flattenOrderToRows(o) {
       _itemKey: normalizeKey(rawId), // legacy
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id
+      _session: o.id,
     });
   });
 
   // Include a distinct fee row (if present)
-  const feeLine = (o.lines || []).find(li => /processing fee/i.test(li.itemName || ""));
+  const feeLine = (o.lines || []).find((li) =>
+    /processing fee/i.test(li.itemName || "")
+  );
   if (feeLine) {
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: "",
-      category: 'other',
-      item: feeLine.itemName || 'Processing Fee',
-      item_id: '',
+      category: "other",
+      item: feeLine.itemName || "Processing Fee",
+      item_id: "",
       qty: feeLine.qty || 1,
       price: (feeLine.unitPrice || 0) / 100,
       gross: (feeLine.gross || 0) / 100,
@@ -394,7 +417,7 @@ function flattenOrderToRows(o) {
       _itemKey: "",
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
-      _session: o.id
+      _session: o.id,
     });
   }
   return rows;
@@ -402,13 +425,17 @@ function flattenOrderToRows(o) {
 
 // -------- Email rendering + sending (receipts) --------
 function absoluteUrl(path = "/") {
-  const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/,"");
+  const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/, "");
   if (!base) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 function renderOrderEmailHTML(order) {
-  const money = (c) => (Number(c||0)/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
+  const money = (c) =>
+    (Number(c || 0) / 100).toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+    });
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
   const purchaserName = order?.purchaser?.name || "Purchaser";
 
@@ -416,16 +443,22 @@ function renderOrderEmailHTML(order) {
   const attendeeGroups = {};
   let feesCents = 0;
 
-  (order.lines || []).forEach(li => {
+  (order.lines || []).forEach((li) => {
     const name = li.itemName || "";
     const qty = Number(li.qty || 1);
     const lineCents = Number(li.unitPrice || 0) * qty;
     const cat = String(li.category || "").toLowerCase();
 
-    if (/processing\s*fee/i.test(name)) { feesCents += lineCents; return; }
+    if (/processing\s*fee/i.test(name)) {
+      feesCents += lineCents;
+      return;
+    }
 
-    const isBanquet = (cat === "banquet") || /banquet/i.test(name);
-    const isAddon   = (cat === "addon")   || /addon/i.test(li.meta?.itemType || "") || /addon/i.test(name);
+    const isBanquet = cat === "banquet" || /banquet/i.test(name);
+    const isAddon =
+      cat === "addon" ||
+      /addon/i.test(li.meta?.itemType || "") ||
+      /addon/i.test(name);
 
     if (isBanquet || isAddon) {
       const attName = (li.meta && li.meta.attendeeName) || purchaserName;
@@ -436,28 +469,46 @@ function renderOrderEmailHTML(order) {
   });
 
   const renderTable = (rows) => {
-    const bodyRows = rows.map(li => {
-      const cat = String(li.category || "").toLowerCase();
-      const isBanquet = (cat === "banquet") || /banquet/i.test(li.itemName || "");
-      const notes = isBanquet
-        ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
-        : (li.meta?.itemNote || "");
-      const notesRow = notes
-        ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g,"&lt;")}</div>`
-        : "";
-      const lineTotal = Number(li.unitPrice||0) * Number(li.qty||1);
-      return `
+    const bodyRows = rows
+      .map((li) => {
+        const cat = String(li.category || "").toLowerCase();
+        const isBanquet =
+          cat === "banquet" || /banquet/i.test(li.itemName || "");
+        const notes = isBanquet
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
+              .filter(Boolean)
+              .join("; ")
+          : li.meta?.itemNote || "";
+        const notesRow = notes
+          ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(
+              notes
+            ).replace(/</g, "&lt;")}</div>`
+          : "";
+        const lineTotal =
+          Number(li.unitPrice || 0) * Number(li.qty || 1);
+        return `
         <tr>
           <td style="padding:8px;border-bottom:1px solid #eee">
             ${li.itemName || ""}${notesRow}
           </td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty||1)}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice||0)}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${
+            Number(li.qty || 1)
+          }</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
+            li.unitPrice || 0
+          )}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
+            lineTotal
+          )}</td>
         </tr>`;
-    }).join("");
+      })
+      .join("");
 
-    const subtotal = rows.reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
+    const subtotal = rows.reduce(
+      (s, li) =>
+        s + Number(li.unitPrice || 0) * Number(li.qty || 1),
+      0
+    );
 
     return `
       <table style="width:100%;border-collapse:collapse">
@@ -473,7 +524,9 @@ function renderOrderEmailHTML(order) {
         <tfoot>
           <tr>
             <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
+            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
+              subtotal
+            )}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -487,20 +540,30 @@ function renderOrderEmailHTML(order) {
       </div>`
     : "";
 
-  const attendeeHtml = Object.entries(attendeeGroups).map(([attName, list]) => `
+  const attendeeHtml = Object.entries(attendeeGroups)
+    .map(
+      ([attName, list]) => `
     <div style="margin-top:14px">
       <div style="font-weight:700;margin:8px 0 6px">${attName} — Banquets & Addons</div>
       ${renderTable(list)}
-    </div>`).join("");
+    </div>`
+    )
+    .join("");
 
-  const subtotalAll = (order.lines||[]).reduce((s,li)=> s + Number(li.unitPrice||0)*Number(li.qty||1), 0);
+  const subtotalAll = (order.lines || []).reduce(
+    (s, li) => s + Number(li.unitPrice || 0) * Number(li.qty || 1),
+    0
+  );
   const total = Number(order.amount_total || subtotalAll);
-  const feesRow = feesCents > 0
-    ? `<tr>
+  const feesRow =
+    feesCents > 0
+      ? `<tr>
          <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
-         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(feesCents)}</td>
+         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+           feesCents
+         )}</td>
        </tr>`
-    : "";
+      : "";
 
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
   <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
@@ -521,14 +584,18 @@ function renderOrderEmailHTML(order) {
 
     <h2 style="margin:16px 0 8px">Order Summary</h2>
     ${topCatalogHtml}
-    ${attendeeHtml || '<p>No items.</p>'}
+    ${attendeeHtml || "<p>No items.</p>"}
 
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
         ${feesRow}
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${feesRow ? "#ddd" : "#ddd"};font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(total)}</td>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${
+            feesRow ? "#ddd" : "#ddd"
+          };font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
+            total
+          )}</td>
         </tr>
       </tfoot>
     </table>
@@ -547,7 +614,10 @@ async function sendOrderReceipts(order) {
   const purchaserEmail = (order.customer_email || "").trim();
   const adminList = (
     process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
-  ).split(",").map(s=>s.trim()).filter(Boolean);
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (purchaserEmail) {
     try {
@@ -556,11 +626,28 @@ async function sendOrderReceipts(order) {
         to: [purchaserEmail],
         subject,
         html,
-        reply_to: REPLY_TO || undefined
+        reply_to: REPLY_TO || undefined,
       });
-      await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: [purchaserEmail], subject, orderId: order?.id || "", resultId: sendResult?.id || null, status: "queued" });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        orderId: order?.id || "",
+        resultId: sendResult?.id || null,
+        status: "queued",
+      });
     } catch (err) {
-      await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: [purchaserEmail], subject, orderId: order?.id || "", resultId: null, status: "error", error: String(err?.message || err) });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: [purchaserEmail],
+        subject,
+        orderId: order?.id || "",
+        resultId: null,
+        status: "error",
+        error: String(err?.message || err),
+      });
     }
   }
 
@@ -571,15 +658,33 @@ async function sendOrderReceipts(order) {
         to: adminList,
         subject: `${subject} (admin copy)`,
         html,
-        reply_to: REPLY_TO || undefined
+        reply_to: REPLY_TO || undefined,
       });
-      await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: sendResult?.id || null, status: "queued" });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        orderId: order?.id || "",
+        resultId: sendResult?.id || null,
+        status: "queued",
+      });
     } catch (err) {
-      await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: adminList, subject: `${subject} (admin copy)`, orderId: order?.id || "", resultId: null, status: "error", error: String(err?.message || err) });
+      await recordMailLog({
+        ts: Date.now(),
+        from: RESEND_FROM,
+        to: adminList,
+        subject: `${subject} (admin copy)`,
+        orderId: order?.id || "",
+        resultId: null,
+        status: "error",
+        error: String(err?.message || err),
+      });
     }
   }
 
-  if (!purchaserEmail && !adminList.length) return { sent: false, reason: "no-recipients" };
+  if (!purchaserEmail && !adminList.length)
+    return { sent: false, reason: "no-recipients" };
   return { sent: true };
 }
 
@@ -587,11 +692,30 @@ async function sendOrderReceipts(order) {
 // (kept for compatibility / future debug; main endpoints now use XLSX)
 function buildCSV(rows) {
   if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
-  const headers = Object.keys(rows[0] || {
-    id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
-    qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-    _itemId: "", _itemBase: "", _itemKey: "", _pi: "", _charge: "", _session: ""
-  });
+  const headers = Object.keys(
+    rows[0] || {
+      id: "",
+      date: "",
+      purchaser: "",
+      attendee: "",
+      category: "",
+      item: "",
+      item_id: "",
+      qty: 0,
+      price: 0,
+      gross: 0,
+      fees: 0,
+      net: 0,
+      status: "",
+      notes: "",
+      _itemId: "",
+      _itemBase: "",
+      _itemKey: "",
+      _pi: "",
+      _charge: "",
+      _session: "",
+    }
+  );
   const esc = (v) => {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -601,7 +725,7 @@ function buildCSV(rows) {
 
   const lines = [headers.join(",")];
   for (const r of sorted) {
-    lines.push(headers.map(h => esc(r[h])).join(","));
+    lines.push(headers.map((h) => esc(r[h])).join(","));
     lines.push(""); // blank spacer between records
   }
   return "\uFEFF" + lines.join("\n");
@@ -616,14 +740,19 @@ function buildCSVSelected(rows, headers) {
 
   const lines = [headers.join(",")];
   for (const r of sorted) {
-    lines.push(headers.map(h => esc(r[h])).join(","));
+    lines.push(headers.map((h) => esc(r[h])).join(","));
     lines.push(""); // blank spacer between records
   }
   return "\uFEFF" + lines.join("\n"); // BOM for Excel
 }
 
 // ---- NEW: generic helper to build XLSX buffer from objects (exceljs, frozen header) ----
-async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName = "Report") {
+async function objectsToXlsxBuffer(
+  headers,
+  rows,
+  headerLabels = null,
+  sheetName = "Report"
+) {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(sheetName || "Report");
 
@@ -631,7 +760,10 @@ async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName
 
   if (effectiveHeaders.length) {
     const headerRowValues = effectiveHeaders.map(
-      (h) => (headerLabels && headerLabels[h] !== undefined ? headerLabels[h] : h)
+      (h) =>
+        headerLabels && headerLabels[h] !== undefined
+          ? headerLabels[h]
+          : h
     );
     worksheet.addRow(headerRowValues);
 
@@ -644,7 +776,7 @@ async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName
   }
 
   for (const r of rows || []) {
-    const rowValues = effectiveHeaders.map((h) => (r[h] ?? ""));
+    const rowValues = effectiveHeaders.map((h) => r[h] ?? "");
     worksheet.addRow(rowValues);
   }
 
@@ -664,15 +796,20 @@ async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName
   return Buffer.from(buf);
 }
 
-function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
-  const cats = new Set((categories || []).map(c => String(c || "").toLowerCase()));
+function collectAttendeesFromOrders(
+  orders,
+  { includeAddress = false, categories = ["banquet", "addon"], startMs, endMs } = {}
+) {
+  const cats = new Set(
+    (categories || []).map((c) => String(c || "").toLowerCase())
+  );
   const out = [];
   for (const o of orders || []) {
     const createdMs = Number(o?.created || 0);
     if (startMs && createdMs && createdMs < startMs) continue;
-    if (endMs   && createdMs && createdMs >= endMs) continue;
+    if (endMs && createdMs && createdMs >= endMs) continue;
 
-    for (const li of (o?.lines || [])) {
+    for (const li of o?.lines || []) {
       const cat = String(li?.category || "").toLowerCase();
       if (!cats.has(cat)) continue;
       const m = li?.meta || {};
@@ -686,15 +823,18 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
         item: li?.itemName || "",
         item_id: li?.itemId || "",
         qty: li?.qty || 1,
-        notes: cat === "banquet"
-          ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
-          : (m.itemNote || ""),
-        attendee_addr1: includeAddress ? (m.attendeeAddr1 || "") : "",
-        attendee_addr2: includeAddress ? (m.attendeeAddr2 || "") : "",
-        attendee_city:  includeAddress ? (m.attendeeCity  || "") : "",
-        attendee_state: includeAddress ? (m.attendeeState || "") : "",
-        attendee_postal:includeAddress ? (m.attendeePostal|| "") : "",
-        attendee_country:includeAddress ? (m.attendeeCountry|| "") : ""
+        notes:
+          cat === "banquet"
+            ? [m.attendeeNotes, m.dietaryNote]
+                .filter(Boolean)
+                .join("; ")
+            : m.itemNote || "",
+        attendee_addr1: includeAddress ? m.attendeeAddr1 || "" : "",
+        attendee_addr2: includeAddress ? m.attendeeAddr2 || "" : "",
+        attendee_city: includeAddress ? m.attendeeCity || "" : "",
+        attendee_state: includeAddress ? m.attendeeState || "" : "",
+        attendee_postal: includeAddress ? m.attendeePostal || "" : "",
+        attendee_country: includeAddress ? m.attendeeCountry || "" : "",
       });
     }
   }
@@ -702,7 +842,12 @@ function collectAttendeesFromOrders(orders, { includeAddress=false, categories=[
 }
 
 // ---- (NEW) single function that sends a chair XLSX for a given item ----
-async function sendItemReportEmailInternal({ kind, id, label, scope = "current-month" }) {
+async function sendItemReportEmailInternal({
+  kind,
+  id,
+  label,
+  scope = "current-month",
+}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
@@ -718,28 +863,47 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   let startMs, endMs;
   if (scope === "current-month") {
     const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    );
     startMs = start.getTime();
     endMs = Date.now() + 1;
   }
 
-  // Build attendee rows for this category, then filter by base item id
+  // Decide if this item needs full mailing address (Pre-Reg / Directory)
+  const base = baseKey(id);
+  const includeAddressForThisItem = base === "pre-reg" || base === "directory";
+
+  // Build attendee rows for this category
   const rosterAll = collectAttendeesFromOrders(orders, {
-    includeAddress: false,
+    includeAddress: includeAddressForThisItem,
     categories: [String(kind).toLowerCase()],
-    startMs, endMs
+    startMs,
+    endMs,
   });
 
   const wantBase = (s) => String(s || "").toLowerCase().split(":")[0];
-  const filtered = rosterAll.filter(r => wantBase(r.item_id) === wantBase(id)
-    || (!r.item_id && label && String(r.item||"").toLowerCase().includes(String(label).toLowerCase()))
+  const filtered = rosterAll.filter(
+    (r) =>
+      wantBase(r.item_id) === wantBase(id) ||
+      (!r.item_id &&
+        label &&
+        String(r.item || "")
+          .toLowerCase()
+          .includes(String(label).toLowerCase()))
   );
 
   // --- Chair XLSX columns ---
   // Default columns for chairman reports
   let EMAIL_COLUMNS = [
-    "#", "date", "attendee", "attendee_title", "attendee_phone",
-    "item", "qty", "notes"
+    "#",
+    "date",
+    "attendee",
+    "attendee_title",
+    "attendee_phone",
+    "item",
+    "qty",
+    "notes",
   ];
 
   let EMAIL_HEADER_LABELS = {
@@ -750,18 +914,27 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     attendee_phone: "Phone",
     item: "Item",
     qty: "Qty",
-    notes: "Notes"
+    notes: "Notes",
   };
 
   // ADD full mailing address for Pre-Registration and Directory ONLY
-  const base = String(id || "").toLowerCase();
-  if (base === "pre-reg" || base === "directory") {
+  if (includeAddressForThisItem) {
     EMAIL_COLUMNS = [
-      "#", "date",
-      "attendee", "attendee_title", "attendee_phone", "attendee_email",
-      "attendee_addr1", "attendee_addr2",
-      "attendee_city", "attendee_state", "attendee_postal", "attendee_country",
-      "item", "qty", "notes"
+      "#",
+      "date",
+      "attendee",
+      "attendee_title",
+      "attendee_phone",
+      "attendee_email",
+      "attendee_addr1",
+      "attendee_addr2",
+      "attendee_city",
+      "attendee_state",
+      "attendee_postal",
+      "attendee_country",
+      "item",
+      "qty",
+      "notes",
     ];
 
     EMAIL_HEADER_LABELS = {
@@ -779,27 +952,48 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
       attendee_country: "Country",
       item: "Item",
       qty: "Qty",
-      notes: "Notes"
+      notes: "Notes",
     };
   }
 
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
-  const numbered = sorted.map(r => {
+
+  // Number rows ONLY when there is an attendee name; keep # blank otherwise
+  const numbered = sorted.map((r) => {
     const hasAttendee = String(r.attendee || "").trim().length > 0;
-    return {
+    const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
       attendee: r.attendee,
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
+    };
+
+    if (includeAddressForThisItem) {
+      return {
+        ...baseRow,
+        attendee_email: r.attendee_email,
+        attendee_addr1: r.attendee_addr1,
+        attendee_addr2: r.attendee_addr2,
+        attendee_city: r.attendee_city,
+        attendee_state: r.attendee_state,
+        attendee_postal: r.attendee_postal,
+        attendee_country: r.attendee_country,
+        item: r.item,
+        qty: r.qty,
+        notes: r.notes,
+      };
+    }
+
+    return {
+      ...baseRow,
       item: r.item,
       qty: r.qty,
-      notes: r.notes
+      notes: r.notes,
     };
   });
 
-  // 🔽 NEW: dynamic filename block
   const xlsxBuf = await objectsToXlsxBuffer(
     EMAIL_COLUMNS,
     numbered,
@@ -813,15 +1007,19 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   const dateStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
   const baseNameRaw = label || id || "report";
   const baseName = baseNameRaw
-    .replace(/[^a-z0-9]+/gi, "_")   // turn spaces & punctuation into _
-    .replace(/^_+|_+$/g, "");       // trim leading/trailing _
+    .replace(/[^a-z0-9]+/gi, "_") // turn spaces & punctuation into _
+    .replace(/^_+|_+$/g, ""); // trim leading/trailing _
 
   const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
   const toListPref = await getChairEmailsForItemId(id);
-  const envFallback = (process.env.REPORTS_CC || process.env.REPORTS_BCC || "")
-    .split(",").map(s => s.trim()).filter(Boolean);
+  const envFallback = (
+    process.env.REPORTS_CC || process.env.REPORTS_BCC || ""
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const toList = toListPref.length ? toListPref : envFallback;
   if (!toList.length) return { ok: false, error: "no-recipient" };
 
@@ -829,7 +1027,9 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-      <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
+      <p>Attached is the Excel report for <b>${prettyKind}</b> “${
+    label || id
+  }”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555">Scope: ${scope}</div>
     </div>`;
@@ -841,16 +1041,39 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
       subject,
       html: tablePreview,
       reply_to: REPLY_TO || undefined,
-      attachments: [{
-        filename,        // e.g. Pre_Registration_2025-11-15.xlsx
-        content: xlsxB64
-      }]
+      attachments: [
+        {
+          filename, // e.g. Pre_Registration_2025-11-15.xlsx
+          content: xlsxB64,
+        },
+      ],
     });
-    await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: sendResult?.id || null, kind: "item-report", status: "queued" });
+    await recordMailLog({
+      ts: Date.now(),
+      from: RESEND_FROM,
+      to: toList,
+      subject,
+      resultId: sendResult?.id || null,
+      kind: "item-report",
+      status: "queued",
+    });
     return { ok: true, count: sorted.length, to: toList };
   } catch (e) {
-    await recordMailLog({ ts: Date.now(), from: RESEND_FROM, to: toList, subject, resultId: null, kind: "item-report", status: "error", error: String(e?.message || e) });
-    return { ok: false, error: "send-failed", message: e?.message || String(e) };
+    await recordMailLog({
+      ts: Date.now(),
+      from: RESEND_FROM,
+      to: toList,
+      subject,
+      resultId: null,
+      kind: "item-report",
+      status: "error",
+      error: String(e?.message || e),
+    });
+    return {
+      ok: false,
+      error: "send-failed",
+      message: e?.message || String(e),
+    };
   }
 }
 
@@ -859,11 +1082,10 @@ export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const action = url.searchParams.get("action");
-    const type  = url.searchParams.get("type");
+    const type = url.searchParams.get("type");
 
     // ---------- GET ----------
     if (req.method === "GET") {
-
       // --- Smoketest ---
       if (type === "smoketest") {
         const out = {
@@ -878,36 +1100,50 @@ export default async function handler(req, res) {
           fromTrimmed: RESEND_FROM,
           kvSetGetOk: false,
         };
-        try { await kv.set("smoketest:key", "ok", { ex: 30 }); } catch (e) {}
+        try {
+          await kv.set("smoketest:key", "ok", { ex: 30 });
+        } catch (e) {}
         try {
           const v = await kv.get("smoketest:key");
-          out.kvSetGetOk = (v === "ok");
-        } catch (e) { out.kvError = String(e?.message || e); }
+          out.kvSetGetOk = v === "ok";
+        } catch (e) {
+          out.kvError = String(e?.message || e);
+        }
         return REQ_OK(res, out);
       }
 
       // --- Last sent mail visibility
       if (type === "lastmail") {
-        const data = await kvGetSafe(MAIL_LOG_KEY, { note: "no recent email log" });
+        const data = await kvGetSafe(MAIL_LOG_KEY, {
+          note: "no recent email log",
+        });
         return REQ_OK(res, data);
       }
 
-      if (type === "banquets")  return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
-      if (type === "addons")    return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
-      if (type === "products")  return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
+      if (type === "banquets")
+        return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
+      if (type === "addons")
+        return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
+      if (type === "products")
+        return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
 
       if (type === "settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
         return REQ_OK(res, {
-          env, overrides, effective,
+          env,
+          overrides,
+          effective,
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
-          MAINTENANCE_MESSAGE: effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE
+          MAINTENANCE_MESSAGE:
+            effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
         });
       }
 
       // Publishable key
       if (type === "stripe_pubkey" || type === "stripe_pk") {
-        return REQ_OK(res, { publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
+        return REQ_OK(res, {
+          publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "",
+        });
       }
 
       if (type === "checkout_session") {
@@ -915,13 +1151,18 @@ export default async function handler(req, res) {
         if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
         const id = url.searchParams.get("id");
         if (!id) return REQ_ERR(res, 400, "missing-id");
-        const s = await stripe.checkout.sessions.retrieve(id, { expand: ["payment_intent"] });
+        const s = await stripe.checkout.sessions.retrieve(id, {
+          expand: ["payment_intent"],
+        });
         return REQ_OK(res, {
           id: s.id,
           amount_total: s.amount_total,
           currency: s.currency,
           customer_details: s.customer_details || {},
-          payment_intent: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id
+          payment_intent:
+            typeof s.payment_intent === "string"
+              ? s.payment_intent
+              : s.payment_intent?.id,
         });
       }
 
@@ -935,18 +1176,18 @@ export default async function handler(req, res) {
         }
 
         // query params
-        const daysParam  = url.searchParams.get("days");   // ?days=7
-        const startParam = url.searchParams.get("start");  // ?start=2025-11-01
-        const endParam   = url.searchParams.get("end");    // ?end=2025-11-10
+        const daysParam = url.searchParams.get("days"); // ?days=7
+        const startParam = url.searchParams.get("start"); // ?start=2025-11-01
+        const endParam = url.searchParams.get("end"); // ?end=2025-11-10
 
         // settings fallback
         const { effective } = await getEffectiveSettings();
-        const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
-        const cfgEnd   = effective.EVENT_END || "";
+        const cfgEnd = effective.EVENT_END || "";
 
         let startMs = NaN;
-        let endMs   = NaN;
+        let endMs = NaN;
 
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
@@ -954,14 +1195,16 @@ export default async function handler(req, res) {
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
-          endMs   = parseYMD(endParam);
+          endMs = parseYMD(endParam);
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs =
+              endMs -
+              Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
-            endMs   = parseYMD(cfgEnd);
+            endMs = parseYMD(cfgEnd);
           }
         }
 
@@ -969,38 +1212,54 @@ export default async function handler(req, res) {
         if (!isNaN(startMs) || !isNaN(endMs)) {
           rows = filterRowsByWindow(rows, {
             startMs: isNaN(startMs) ? undefined : startMs,
-            endMs:   isNaN(endMs)   ? undefined : endMs
+            endMs: isNaN(endMs) ? undefined : endMs,
           });
         }
 
         // Optional fuzzy text search (?q=Linda / beef / vegetarian)
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        const q = (url.searchParams.get("q") || "")
+          .trim()
+          .toLowerCase();
         if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q) ||
-            String(r.notes||"").toLowerCase().includes(q)
+          rows = rows.filter(
+            (r) =>
+              String(r.purchaser || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.attendee || "").toLowerCase().includes(q) ||
+              String(r.item || "").toLowerCase().includes(q) ||
+              String(r.category || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.status || "").toLowerCase().includes(q) ||
+              String(r.notes || "").toLowerCase().includes(q)
           );
         }
 
         // NEW precise filters (normalized, with base id support)
-        const catParam    = (url.searchParams.get("category") || "").toLowerCase();
-        const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
-        const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
+        const catParam = (
+          url.searchParams.get("category") || ""
+        ).toLowerCase();
+        const itemIdParam = (
+          url.searchParams.get("item_id") || ""
+        ).toLowerCase();
+        const itemParam = (
+          url.searchParams.get("item") || ""
+        ).toLowerCase();
 
         if (catParam) {
-          rows = rows.filter(r => String(r.category || "").toLowerCase() === catParam);
+          rows = rows.filter(
+            (r) =>
+              String(r.category || "").toLowerCase() === catParam
+          );
         }
 
         if (itemIdParam) {
-          const wantRaw  = itemIdParam;
+          const wantRaw = itemIdParam;
           const wantBase = baseKey(wantRaw);
           const wantNorm = normalizeKey(wantRaw);
-          rows = rows.filter(r => {
-            const raw     = String(r._itemId || r.item_id || "").toLowerCase();
+          rows = rows.filter((r) => {
+            const raw = String(r._itemId || r.item_id || "").toLowerCase();
             const rawNorm = normalizeKey(raw);
             const keyBase = baseKey(raw);
             const rowBase = r._itemBase || keyBase;
@@ -1014,7 +1273,9 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
+          rows = rows.filter((r) =>
+            String(r.item || "").toLowerCase().includes(want)
+          );
         }
 
         // DATE ORDER: ASC
@@ -1032,17 +1293,17 @@ export default async function handler(req, res) {
           if (o) all.push(...flattenOrderToRows(o));
         }
 
-        const daysParam  = url.searchParams.get("days");
+        const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
+        const endParam = url.searchParams.get("end");
 
         const { effective } = await getEffectiveSettings();
-        const cfgDays  = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
-        const cfgEnd   = effective.EVENT_END || "";
+        const cfgEnd = effective.EVENT_END || "";
 
         let startMs = NaN;
-        let endMs   = NaN;
+        let endMs = NaN;
 
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
@@ -1050,14 +1311,16 @@ export default async function handler(req, res) {
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
-          endMs   = parseYMD(endParam);
+          endMs = parseYMD(endParam);
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs =
+              endMs -
+              Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
-            endMs   = parseYMD(cfgEnd);
+            endMs = parseYMD(cfgEnd);
           }
         }
 
@@ -1065,37 +1328,53 @@ export default async function handler(req, res) {
         if (!isNaN(startMs) || !isNaN(endMs)) {
           rows = filterRowsByWindow(rows, {
             startMs: isNaN(startMs) ? undefined : startMs,
-            endMs:   isNaN(endMs)   ? undefined : endMs
+            endMs: isNaN(endMs) ? undefined : endMs,
           });
         }
 
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+        const q = (url.searchParams.get("q") || "")
+          .trim()
+          .toLowerCase();
         if (q) {
-          rows = rows.filter(r =>
-            String(r.purchaser||"").toLowerCase().includes(q) ||
-            String(r.attendee||"").toLowerCase().includes(q) ||
-            String(r.item||"").toLowerCase().includes(q) ||
-            String(r.category||"").toLowerCase().includes(q) ||
-            String(r.status||"").toLowerCase().includes(q) ||
-            String(r.notes||"").toLowerCase().includes(q)
+          rows = rows.filter(
+            (r) =>
+              String(r.purchaser || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.attendee || "").toLowerCase().includes(q) ||
+              String(r.item || "").toLowerCase().includes(q) ||
+              String(r.category || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.status || "").toLowerCase().includes(q) ||
+              String(r.notes || "").toLowerCase().includes(q)
           );
         }
 
         // NEW precise filters (normalized, with base id support)
-        const catParam    = (url.searchParams.get("category") || "").toLowerCase();
-        const itemIdParam = (url.searchParams.get("item_id")  || "").toLowerCase();
-        const itemParam   = (url.searchParams.get("item")     || "").toLowerCase();
+        const catParam = (
+          url.searchParams.get("category") || ""
+        ).toLowerCase();
+        const itemIdParam = (
+          url.searchParams.get("item_id") || ""
+        ).toLowerCase();
+        const itemParam = (
+          url.searchParams.get("item") || ""
+        ).toLowerCase();
 
         if (catParam) {
-          rows = rows.filter(r => String(r.category || "").toLowerCase() === catParam);
+          rows = rows.filter(
+            (r) =>
+              String(r.category || "").toLowerCase() === catParam
+          );
         }
 
         if (itemIdParam) {
-          const wantRaw  = itemIdParam;
+          const wantRaw = itemIdParam;
           const wantBase = baseKey(wantRaw);
           const wantNorm = normalizeKey(wantRaw);
-          rows = rows.filter(r => {
-            const raw     = String(r._itemId || r.item_id || "").toLowerCase();
+          rows = rows.filter((r) => {
+            const raw = String(r._itemId || r.item_id || "").toLowerCase();
             const rawNorm = normalizeKey(raw);
             const keyBase = baseKey(raw);
             const rowBase = r._itemBase || keyBase;
@@ -1109,20 +1388,52 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter(r => String(r.item || "").toLowerCase().includes(want));
+          rows = rows.filter((r) =>
+            String(r.item || "").toLowerCase().includes(want)
+          );
         }
 
         const sorted = sortByDateAsc(rows, "date");
-        const headers = Object.keys(sorted[0] || {
-          id: "", date: "", purchaser: "", attendee: "", category: "", item: "", item_id: "",
-          qty: 0, price: 0, gross: 0, fees: 0, net: 0, status: "", notes: "",
-          _itemId: "", _itemBase: "", _itemKey: "", _pi: "", _charge: "", _session: ""
-        });
+        const headers = Object.keys(
+          sorted[0] || {
+            id: "",
+            date: "",
+            purchaser: "",
+            attendee: "",
+            category: "",
+            item: "",
+            item_id: "",
+            qty: 0,
+            price: 0,
+            gross: 0,
+            fees: 0,
+            net: 0,
+            status: "",
+            notes: "",
+            _itemId: "",
+            _itemBase: "",
+            _itemKey: "",
+            _pi: "",
+            _charge: "",
+            _session: "",
+          }
+        );
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Orders");
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Orders"
+        );
 
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="orders.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1137,39 +1448,60 @@ export default async function handler(req, res) {
         }
 
         // window (like /orders)
-        const daysParam  = url.searchParams.get("days");
+        const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
-        let startMs = NaN, endMs = NaN;
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
           endMs = Date.now() + 1;
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
-          endMs   = parseYMD(endParam);
+          endMs = parseYMD(endParam);
         }
 
         const cats = (url.searchParams.get("category") || "banquet,addon")
-          .split(",").map(s=>s.trim()).filter(Boolean);
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
 
         const roster = collectAttendeesFromOrders(orders, {
           includeAddress: false,
           categories: cats,
           startMs: isNaN(startMs) ? undefined : startMs,
-          endMs:   isNaN(endMs)   ? undefined : endMs
+          endMs: isNaN(endMs) ? undefined : endMs,
         });
 
         const sorted = sortByDateAsc(roster, "date");
         const headers = [
-          "date","purchaser",
-          "attendee","attendee_title","attendee_phone","attendee_email",
-          "item","item_id","qty","notes"
+          "date",
+          "purchaser",
+          "attendee",
+          "attendee_title",
+          "attendee_phone",
+          "attendee_email",
+          "item",
+          "item_id",
+          "qty",
+          "notes",
         ];
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Attendees");
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.xlsx"`);
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Attendees"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="attendee-roster.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1184,42 +1516,65 @@ export default async function handler(req, res) {
         }
 
         // window
-        const daysParam  = url.searchParams.get("days");
+        const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
-        let startMs = NaN, endMs = NaN;
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
           endMs = Date.now() + 1;
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
-          endMs   = parseYMD(endParam);
+          endMs = parseYMD(endParam);
         }
 
         const cats = (url.searchParams.get("category") || "banquet,addon")
-          .split(",").map(s=>s.trim()).filter(Boolean);
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
 
         const roster = collectAttendeesFromOrders(orders, {
           includeAddress: true,
           categories: cats,
           startMs: isNaN(startMs) ? undefined : startMs,
-          endMs:   isNaN(endMs)   ? undefined : endMs
+          endMs: isNaN(endMs) ? undefined : endMs,
         });
 
         const sorted = sortByDateAsc(roster, "date");
         const headers = [
-          "attendee","attendee_title",
-          "attendee_email","attendee_phone",
-          "attendee_addr1","attendee_addr2",
-          "attendee_city","attendee_state","attendee_postal","attendee_country",
-          "item","qty","notes",
-          "purchaser","date"
+          "attendee",
+          "attendee_title",
+          "attendee_email",
+          "attendee_phone",
+          "attendee_addr1",
+          "attendee_addr2",
+          "attendee_city",
+          "attendee_state",
+          "attendee_postal",
+          "attendee_country",
+          "item",
+          "qty",
+          "notes",
+          "purchaser",
+          "date",
         ];
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Directory");
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename="directory.xlsx"`);
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Directory"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="directory.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1233,68 +1588,100 @@ export default async function handler(req, res) {
         }
 
         // Optional window (?days, ?start, ?end)
-        const daysParam  = url.searchParams.get("days");
+        const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
-        const endParam   = url.searchParams.get("end");
-        let startMs = NaN, endMs = NaN;
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
         if (daysParam) {
           const n = Math.max(1, Number(daysParam) || 0);
           endMs = Date.now() + 1;
           startMs = endMs - n * 24 * 60 * 60 * 1000;
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
-          endMs   = parseYMD(endParam);
+          endMs = parseYMD(endParam);
         }
 
         // We only need banquet/addon attendees; no address needed for this minimal list.
         const cats = (url.searchParams.get("category") || "banquet,addon")
-          .split(",").map(s=>s.trim()).filter(Boolean);
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
 
         // Collect, filter by window, then DEDUPE by attendee (name + email + phone)
         const rosterAll = collectAttendeesFromOrders(orders, {
           includeAddress: false,
           categories: cats,
           startMs: isNaN(startMs) ? undefined : startMs,
-          endMs:   isNaN(endMs)   ? undefined : endMs
+          endMs: isNaN(endMs) ? undefined : endMs,
         });
 
         // Keep rows that have an attendee name (those are the ones we count & number)
-        const withAttendee = rosterAll.filter(r => String(r.attendee || "").trim().length > 0);
+        const withAttendee = rosterAll.filter(
+          (r) => String(r.attendee || "").trim().length > 0
+        );
 
         const norm = (s) => String(s || "").trim().toLowerCase();
         const normPhone = (s) => String(s || "").replace(/\D+/g, "");
         const map = new Map();
         for (const r of withAttendee) {
-          const key = `${norm(r.attendee)}|${norm(r.attendee_email)}|${normPhone(r.attendee_phone)}`;
+          const key = `${norm(r.attendee)}|${norm(
+            r.attendee_email
+          )}|${normPhone(r.attendee_phone)}`;
           const prev = map.get(key);
           if (!prev) {
             map.set(key, r);
           } else {
             // Keep EARLIEST date (so final sort by date ASC is stable)
             const tPrev = parseDateISO(prev.date);
-            const tNew  = parseDateISO(r.date);
-            if (!isNaN(tNew) && !isNaN(tPrev) && tNew < tPrev) {
+            const tNew = parseDateISO(r.date);
+            if (
+              !isNaN(tNew) &&
+              !isNaN(tPrev) &&
+              tNew < tPrev
+            ) {
               map.set(key, r);
             }
           }
         }
 
         // Unique list, ASC by date
-        const unique = sortByDateAsc(Array.from(map.values()), "date");
+        const unique = sortByDateAsc(
+          Array.from(map.values()),
+          "date"
+        );
 
-        const headers = ["#", "date", "attendee", "attendee_title", "attendee_phone", "attendee_email"];
+        const headers = [
+          "#",
+          "date",
+          "attendee",
+          "attendee_title",
+          "attendee_phone",
+          "attendee_email",
+        ];
         const numbered = unique.map((r, idx) => ({
           "#": idx + 1,
           date: r.date,
           attendee: r.attendee,
           attendee_title: r.attendee_title,
           attendee_phone: r.attendee_phone,
-          attendee_email: r.attendee_email
+          attendee_email: r.attendee_email,
         }));
 
-        const buf = await objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.xlsx"`);
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          numbered,
+          null,
+          "Full Attendees"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="full-attendees.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1304,11 +1691,21 @@ export default async function handler(req, res) {
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         try {
           const order = await saveOrderFromSession({ id: sid });
-          (async () => { try { await sendOrderReceipts(order); } catch (e) {} })();
-          return REQ_OK(res, { ok: true, orderId: order.id, status: order.status || "paid" });
+          (async () => {
+            try {
+              await sendOrderReceipts(order);
+            } catch (e) {}
+          })();
+          return REQ_OK(res, {
+            ok: true,
+            orderId: order.id,
+            status: order.status || "paid",
+          });
         } catch (err) {
           console.error("finalize_order failed:", err);
-          return REQ_ERR(res, 500, "finalize-failed", { detail: String(err?.message || err) });
+          return REQ_ERR(res, 500, "finalize-failed", {
+            detail: String(err?.message || err),
+          });
         }
       }
 
@@ -1326,14 +1723,26 @@ export default async function handler(req, res) {
 
     // ---------- POST ----------
     if (req.method === "POST") {
-      const body = (typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}));
+      const body =
+        typeof req.body === "string"
+          ? JSON.parse(req.body || "{}")
+          : req.body || {};
 
       // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
-        const urlObj = new URL(req.url, `http://${req.headers.host}`);
+        if (!resend)
+          return REQ_ERR(res, 500, "resend-not-configured");
+        const urlObj = new URL(
+          req.url,
+          `http://${req.headers.host}`
+        );
         const bodyTo = (body && body.to) || urlObj.searchParams.get("to") || "";
-        const fallbackAdmin = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "").split(",").map(s=>s.trim()).filter(Boolean)[0] || "";
+        const fallbackAdmin = (
+          process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
+        )
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)[0] || "";
         const to = (bodyTo || fallbackAdmin).trim();
         if (!to) return REQ_ERR(res, 400, "missing-to");
 
@@ -1349,20 +1758,44 @@ export default async function handler(req, res) {
             to: [to],
             subject: "Amaranth test email",
             html,
-            reply_to: REPLY_TO || undefined
+            reply_to: REPLY_TO || undefined,
           });
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM || "onboarding@resend.dev", to: [to], subject: "Amaranth test email", resultId: sendResult?.id || null, kind: "manual-test", status: "queued" });
-          return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+          await recordMailLog({
+            ts: Date.now(),
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: [to],
+            subject: "Amaranth test email",
+            resultId: sendResult?.id || null,
+            kind: "manual-test",
+            status: "queued",
+          });
+          return REQ_OK(res, {
+            ok: true,
+            id: sendResult?.id || null,
+            to,
+          });
         } catch (e) {
-          await recordMailLog({ ts: Date.now(), from: RESEND_FROM || "onboarding@resend.dev", to: [to], subject: "Amaranth test email", resultId: null, kind: "manual-test", status: "error", error: String(e?.message || e) });
-          return REQ_ERR(res, 500, "resend-send-failed", { message: e?.message || String(e) });
+          await recordMailLog({
+            ts: Date.now(),
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: [to],
+            subject: "Amaranth test email",
+            resultId: null,
+            kind: "manual-test",
+            status: "error",
+            error: String(e?.message || e),
+          });
+          return REQ_ERR(res, 500, "resend-send-failed", {
+            message: e?.message || String(e),
+          });
         }
       }
 
       // --- Finalize (save + email) from success page ---
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe)
+          return REQ_ERR(res, 500, "stripe-not-configured");
         const sid = String(body.sid || body.id || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         const order = await saveOrderFromSession({ id: sid });
@@ -1372,38 +1805,60 @@ export default async function handler(req, res) {
 
       // ---- PUBLIC: send chair-specific XLSX by category+item (no auth) ----
       if (action === "send_item_report") {
-        const kind  = String((body?.kind || body?.category || "")).toLowerCase();
-        const id    = String(body?.id || "").trim();
+        const kind = String(
+          body?.kind || body?.category || ""
+        ).toLowerCase();
+        const id = String(body?.id || "").trim();
         const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
-        const result = await sendItemReportEmailInternal({ kind, id, label, scope });
-        if (!result.ok) return REQ_ERR(res, 500, result.error || "send-failed", result);
+        const result = await sendItemReportEmailInternal({
+          kind,
+          id,
+          label,
+          scope,
+        });
+        if (!result.ok)
+          return REQ_ERR(
+            res,
+            500,
+            result.error || "send-failed",
+            result
+          );
         return REQ_OK(res, { ok: true, ...result });
       }
 
       // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe)
+          return REQ_ERR(res, 500, "stripe-not-configured");
 
-        const origin = req.headers.origin || `https://${req.headers.host}`;
-        const successUrl = (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
-        const cancelUrl  = body.cancel_url  || `${origin}/order.html`;
+        const origin =
+          req.headers.origin || `https://${req.headers.host}`;
+        const successUrl =
+          (body.success_url || `${origin}/success.html`) +
+          `?sid={CHECKOUT_SESSION_ID}`;
+        const cancelUrl =
+          body.cancel_url || `${origin}/order.html`;
 
         if (Array.isArray(body.lines) && body.lines.length) {
           const lines = body.lines;
           const fees = body.fees || { pct: 0, flat: 0 };
           const purchaser = body.purchaser || {};
 
-          const line_items = lines.map(l => {
+          const line_items = lines.map((l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
-            const isBundle  = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+            const isBundle =
+              priceMode === "bundle" &&
+              (l.bundleTotalCents ?? null) != null;
 
             const unit_amount = isBundle
               ? cents(l.bundleTotalCents)
               : toCentsAuto(l.unitPrice || 0);
 
-            const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
+            const quantity = isBundle
+              ? 1
+              : Math.max(1, Number(l.qty || 1));
 
             return {
               quantity,
@@ -1426,45 +1881,59 @@ export default async function handler(req, res) {
                     // directory address
                     attendeeAddr1: l.meta?.attendeeAddr1 || "",
                     attendeeAddr2: l.meta?.attendeeAddr2 || "",
-                    attendeeCity:  l.meta?.attendeeCity  || "",
+                    attendeeCity: l.meta?.attendeeCity || "",
                     attendeeState: l.meta?.attendeeState || "",
-                    attendeePostal:l.meta?.attendeePostal|| "",
-                    attendeeCountry:l.meta?.attendeeCountry || "",
+                    attendeePostal: l.meta?.attendeePostal || "",
+                    attendeeCountry:
+                      l.meta?.attendeeCountry || "",
                     priceMode: priceMode || "",
-                    bundleQty: isBundle ? String(l.bundleQty || "") : "",
-                    bundleTotalCents: isBundle ? String(unit_amount) : ""
-                  }
-                }
-              }
+                    bundleQty: isBundle
+                      ? String(l.bundleQty || "")
+                      : "",
+                    bundleTotalCents: isBundle
+                      ? String(unit_amount)
+                      : "",
+                  },
+                },
+              },
             };
           });
 
-          const pct       = Number(fees.pct || 0);
+          const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
-          const subtotalCents = lines.reduce((s,l)=>{
+          const subtotalCents = lines.reduce((s, l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
-            const isBundle  = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+            const isBundle =
+              priceMode === "bundle" &&
+              (l.bundleTotalCents ?? null) != null;
             if (isBundle) {
               return s + cents(l.bundleTotalCents || 0);
             } else {
-              return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
+              return (
+                s +
+                toCentsAuto(l.unitPrice || 0) *
+                  Number(l.qty || 0)
+              );
             }
           }, 0);
 
-          const feeAmount = Math.max(0, Math.round(subtotalCents * (pct/100)) + flatCents);
+          const feeAmount = Math.max(
+            0,
+            Math.round(subtotalCents * (pct / 100)) + flatCents
+          );
           if (feeAmount > 0) {
             line_items.push({
               quantity: 1,
               price_data: {
                 currency: "usd",
                 unit_amount: feeAmount,
-                product_data: { name: "Processing Fee" }
-              }
+                product_data: { name: "Processing Fee" },
+              },
             });
           }
 
           // (PATCH) Send full purchaser block via metadata so we can prefer it later
-          const session = await getStripe().then(stripe =>
+          const session = await getStripe().then((stripe) =>
             stripe.checkout.sessions.create({
               mode: "payment",
               line_items,
@@ -1472,51 +1941,59 @@ export default async function handler(req, res) {
               success_url: successUrl,
               cancel_url: cancelUrl,
               metadata: {
-                purchaser_name:   purchaser.name    || "",
-                purchaser_email:  purchaser.email   || "",
-                purchaser_phone:  purchaser.phone   || "",
-                purchaser_title:  purchaser.title   || "",
-                purchaser_addr1:  purchaser.address1|| "",
-                purchaser_addr2:  purchaser.address2|| "",
-                purchaser_city:   purchaser.city    || "",
-                purchaser_state:  purchaser.state   || "",
-                purchaser_postal: purchaser.postal  || "",
-                purchaser_country:purchaser.country || "",
-                cart_count: String(lines.length || 0)
-              }
+                purchaser_name: purchaser.name || "",
+                purchaser_email: purchaser.email || "",
+                purchaser_phone: purchaser.phone || "",
+                purchaser_title: purchaser.title || "",
+                purchaser_addr1: purchaser.address1 || "",
+                purchaser_addr2: purchaser.address2 || "",
+                purchaser_city: purchaser.city || "",
+                purchaser_state: purchaser.state || "",
+                purchaser_postal: purchaser.postal || "",
+                purchaser_country: purchaser.country || "",
+                cart_count: String(lines.length || 0),
+              },
             })
           );
 
-          return REQ_OK(res, { url: session.url, id: session.id });
+          return REQ_OK(res, {
+            url: session.url,
+            id: session.id,
+          });
         }
 
         // Legacy branch (simple items)
         const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length) return REQ_ERR(res, 400, "no-items");
+        if (!items.length)
+          return REQ_ERR(res, 400, "no-items");
 
-        const session = await getStripe().then(stripe =>
+        const session = await getStripe().then((stripe) =>
           stripe.checkout.sessions.create({
             mode: "payment",
             payment_method_types: ["card"],
-            line_items: items.map(it => ({
+            line_items: items.map((it) => ({
               quantity: Math.max(1, Number(it.quantity || 1)),
               price_data: {
                 currency: "usd",
                 unit_amount: dollarsToCents(it.price || 0),
-                product_data: { name: String(it.name || "Item") }
-              }
+                product_data: { name: String(it.name || "Item") },
+              },
             })),
             success_url: successUrl,
-            cancel_url: cancelUrl
+            cancel_url: cancelUrl,
           })
         );
-        return REQ_OK(res, { url: session.url, id: session.id });
+        return REQ_OK(res, {
+          url: session.url,
+          id: session.id,
+        });
       }
 
       // ---- Stripe webhook ----
       if (action === "stripe_webhook") {
         const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe)
+          return REQ_ERR(res, 500, "stripe-not-configured");
 
         let event;
         const sig = req.headers["stripe-signature"];
@@ -1524,24 +2001,46 @@ export default async function handler(req, res) {
 
         try {
           if (whsec && typeof req.body === "string") {
-            event = stripe.webhooks.constructEvent(req.body, sig, whsec);
+            event = stripe.webhooks.constructEvent(
+              req.body,
+              sig,
+              whsec
+            );
           } else if (whsec && req.rawBody) {
-            event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
+            event = stripe.webhooks.constructEvent(
+              req.rawBody,
+              sig,
+              whsec
+            );
           } else {
-            event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+            event =
+              typeof req.body === "string"
+                ? JSON.parse(req.body)
+                : req.body;
           }
         } catch (err) {
-          console.error("Webhook signature verification failed:", err?.message);
+          console.error(
+            "Webhook signature verification failed:",
+            err?.message
+          );
           return REQ_ERR(res, 400, "invalid-signature");
         }
 
         switch (event.type) {
           case "checkout.session.completed": {
             const session = event.data.object;
-            const order = await saveOrderFromSession(session.id || session);
+            const order = await saveOrderFromSession(
+              session.id || session
+            );
             (async () => {
-              try { await sendOrderReceipts(order); }
-              catch (err) { console.error("email-failed", err?.message || err); }
+              try {
+                await sendOrderReceipts(order);
+              } catch (err) {
+                console.error(
+                  "email-failed",
+                  err?.message || err
+                );
+              }
             })();
             break;
           }
@@ -1564,23 +2063,31 @@ export default async function handler(req, res) {
           name = "",
           chairEmails = [],
           publishStart = "",
-          publishEnd = ""
+          publishEnd = "",
         } = body || {};
-        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
+        if (!id || !name)
+          return REQ_ERR(res, 400, "id-and-name-required");
 
         const cfg = {
           id,
           name,
-          chairEmails: (Array.isArray(chairEmails) ? chairEmails : String(chairEmails).split(","))
-            .map(s => String(s||"").trim()).filter(Boolean),
+          chairEmails: (Array.isArray(chairEmails)
+            ? chairEmails
+            : String(chairEmails).split(","))
+            .map((s) => String(s || "").trim())
+            .filter(Boolean),
           publishStart,
           publishEnd,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
         };
 
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
-        if (!ok1 || !ok2) return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
+        if (!ok1 || !ok2)
+          return REQ_OK(res, {
+            ok: true,
+            warning: "kv-unavailable",
+          });
 
         return REQ_OK(res, { ok: true });
       }
@@ -1595,7 +2102,9 @@ export default async function handler(req, res) {
           const result = await mod.default();
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
+          return REQ_ERR(res, 500, "send-full-failed", {
+            message: e?.message || String(e),
+          });
         }
       }
       if (action === "send_month_to_date") {
@@ -1604,78 +2113,143 @@ export default async function handler(req, res) {
           const result = await mod.default();
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
+          return REQ_ERR(res, 500, "send-mtd-failed", {
+            message: e?.message || String(e),
+          });
         }
       }
 
       // (NEW) Bulk: send MONTHLY reports to all banquet/addon chairs
       if (action === "send_monthly_chair_reports") {
         const ids = await kvSmembersSafe("itemcfg:index");
-        let sent = 0, errors = 0;
+        let sent = 0,
+          errors = 0;
         for (const itemId of ids) {
           const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
-          const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
+          const kind =
+            String(cfg?.kind || "").toLowerCase() ||
+            (itemId.includes("addon") ? "addon" : "banquet");
           const label = cfg?.name || itemId;
-          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "current-month" });
-          if (result.ok) sent += 1; else errors += 1;
+          const result = await sendItemReportEmailInternal({
+            kind,
+            id: itemId,
+            label,
+            scope: "current-month",
+          });
+          if (result.ok) sent += 1;
+          else errors += 1;
         }
-        return REQ_OK(res, { ok: true, sent, errors, scope: "current-month" });
+        return REQ_OK(res, {
+          ok: true,
+          sent,
+          errors,
+          scope: "current-month",
+        });
       }
 
       // (NEW) Bulk: send END-OF-EVENT reports to chairs where publishEnd has passed (idempotent)
       if (action === "send_end_of_event_reports") {
         const now = Date.now();
         const ids = await kvSmembersSafe("itemcfg:index");
-        let sent = 0, skipped = 0, errors = 0;
+        let sent = 0,
+          skipped = 0,
+          errors = 0;
 
         for (const itemId of ids) {
           const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
-          const publishEnd = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
-          if (isNaN(publishEnd) || publishEnd > now) { skipped += 1; continue; }
+          const publishEnd = cfg?.publishEnd
+            ? Date.parse(cfg.publishEnd)
+            : NaN;
+          if (isNaN(publishEnd) || publishEnd > now) {
+            skipped += 1;
+            continue;
+          }
 
-          const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
-          if (already) { skipped += 1; continue; }
+          const already = await kvGetSafe(
+            `itemcfg:${itemId}:end_sent`,
+            false
+          );
+          if (already) {
+            skipped += 1;
+            continue;
+          }
 
-          const kind = String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
+          const kind =
+            String(cfg?.kind || "").toLowerCase() ||
+            (itemId.includes("addon") ? "addon" : "banquet");
           const label = cfg?.name || itemId;
 
-          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "full" });
+          const result = await sendItemReportEmailInternal({
+            kind,
+            id: itemId,
+            label,
+            scope: "full",
+          });
           if (result.ok) {
-            await kvSetSafe(`itemcfg:${itemId}:end_sent`, new Date().toISOString());
+            await kvSetSafe(
+              `itemcfg:${itemId}:end_sent`,
+              new Date().toISOString()
+            );
             sent += 1;
           } else {
             errors += 1;
           }
         }
-        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "full" });
+        return REQ_OK(res, {
+          ok: true,
+          sent,
+          skipped,
+          errors,
+          scope: "full",
+        });
       }
 
       // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
-        return REQ_OK(res, { ok: true, message: "orders index cleared" });
+        return REQ_OK(res, {
+          ok: true,
+          message: "orders index cleared",
+        });
       }
 
       // create_refund
       if (action === "create_refund") {
         const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const payment_intent = String(body.payment_intent || "").trim();
+        if (!stripe)
+          return REQ_ERR(res, 500, "stripe-not-configured");
+        const payment_intent = String(
+          body.payment_intent || ""
+        ).trim();
         const charge = String(body.charge || "").trim();
         const amount_cents_raw = body.amount_cents;
         const args = {};
-        if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
+        if (amount_cents_raw != null)
+          args.amount = cents(amount_cents_raw);
         if (payment_intent) args.payment_intent = payment_intent;
         else if (charge) args.charge = charge;
-        else return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
+        else
+          return REQ_ERR(
+            res,
+            400,
+            "missing-payment_intent-or-charge"
+          );
 
         const rf = await stripe.refunds.create(args);
-        try { await applyRefundToOrder(rf.charge, rf); } catch {}
-        return REQ_OK(res, { ok: true, id: rf.id, status: rf.status });
+        try {
+          await applyRefundToOrder(rf.charge, rf);
+        } catch {}
+        return REQ_OK(res, {
+          ok: true,
+          id: rf.id,
+          status: rf.status,
+        });
       }
 
       if (action === "save_banquets") {
-        const list = Array.isArray(body.banquets) ? body.banquets : [];
+        const list = Array.isArray(body.banquets)
+          ? body.banquets
+          : [];
         await kvSetSafe("banquets", list);
 
         // Mirror chair emails into legacy itemcfg:* so older code paths stay in sync (NEW)
@@ -1687,8 +2261,12 @@ export default async function handler(req, res) {
               const name = String(b?.name || "");
               const chairEmails = Array.isArray(b?.chairEmails)
                 ? b.chairEmails
-                : String(b?.chairEmails || b?.chair?.email || "")
-                    .split(",").map(s => s.trim()).filter(Boolean);
+                : String(
+                    b?.chairEmails || b?.chair?.email || ""
+                  )
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
               const cfg = {
                 id,
                 name,
@@ -1708,7 +2286,9 @@ export default async function handler(req, res) {
       }
 
       if (action === "save_addons") {
-        const list = Array.isArray(body.addons) ? body.addons : [];
+        const list = Array.isArray(body.addons)
+          ? body.addons
+          : [];
         await kvSetSafe("addons", list);
 
         // Mirror chair emails for addons as well (NEW)
@@ -1720,8 +2300,12 @@ export default async function handler(req, res) {
               const name = String(a?.name || "");
               const chairEmails = Array.isArray(a?.chairEmails)
                 ? a.chairEmails
-                : String(a?.chairEmails || a?.chair?.email || "")
-                    .split(",").map(s => s.trim()).filter(Boolean);
+                : String(
+                    a?.chairEmails || a?.chair?.email || ""
+                  )
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
               const cfg = {
                 id,
                 name,
@@ -1741,7 +2325,9 @@ export default async function handler(req, res) {
       }
 
       if (action === "save_products") {
-        const list = Array.isArray(body.products) ? body.products : [];
+        const list = Array.isArray(body.products)
+          ? body.products
+          : [];
         await kvSetSafe("products", list);
         return REQ_OK(res, { ok: true, count: list.length });
       }
@@ -1759,8 +2345,10 @@ export default async function handler(req, res) {
           "REPLY_TO",
           "EVENT_START",
           "EVENT_END",
-          "REPORT_ORDER_DAYS"
-        ].forEach(k => { if (k in body) allow[k] = body[k]; });
+          "REPORT_ORDER_DAYS",
+        ].forEach((k) => {
+          if (k in body) allow[k] = body[k];
+        });
 
         if ("MAINTENANCE_ON" in allow) {
           allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
@@ -1769,7 +2357,10 @@ export default async function handler(req, res) {
         if (Object.keys(allow).length) {
           await kvHsetSafe("settings:overrides", allow);
         }
-        return REQ_OK(res, { ok: true, overrides: allow });
+        return REQ_OK(res, {
+          ok: true,
+          overrides: allow,
+        });
       }
 
       return REQ_ERR(res, 400, "unknown-action");
@@ -1778,7 +2369,9 @@ export default async function handler(req, res) {
     return REQ_ERR(res, 405, "method-not-allowed");
   } catch (e) {
     console.error(e);
-    return REQ_ERR(res, 500, "router-failed", { message: e?.message || String(e) });
+    return REQ_ERR(res, 500, "router-failed", {
+      message: e?.message || String(e),
+    });
   }
 }
 
