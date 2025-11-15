@@ -1,7 +1,7 @@
 // /api/router.js
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
@@ -622,24 +622,46 @@ function buildCSVSelected(rows, headers) {
   return "\uFEFF" + lines.join("\n"); // BOM for Excel
 }
 
-// ---- NEW: generic helper to build XLSX buffer from objects ----
-function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName = "Report") {
-  const data = [];
-  if (headers && headers.length) {
-    if (headerLabels) {
-      data.push(headers.map(h => headerLabels[h] ?? h));
-    } else {
-      data.push(headers);
-    }
+// ---- NEW: generic helper to build XLSX buffer from objects (exceljs, frozen header) ----
+async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName = "Report") {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet(sheetName || "Report");
+
+  const effectiveHeaders = Array.isArray(headers) ? headers.slice() : [];
+
+  if (effectiveHeaders.length) {
+    const headerRowValues = effectiveHeaders.map(
+      (h) => (headerLabels && headerLabels[h] !== undefined ? headerLabels[h] : h)
+    );
+    worksheet.addRow(headerRowValues);
+
+    // Bold header
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+
+    // Freeze the top row
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
   }
+
   for (const r of rows || []) {
-    data.push(headers.map(h => (r[h] ?? "")));
+    const rowValues = effectiveHeaders.map((h) => (r[h] ?? ""));
+    worksheet.addRow(rowValues);
   }
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  return buf;
+
+  // Auto-fit columns a bit
+  worksheet.columns.forEach((col) => {
+    let max = 10;
+    col.eachCell({ includeEmpty: true }, (cell) => {
+      const v = cell.value;
+      const len = v == null ? 0 : String(v).length;
+      if (len > max) max = len;
+    });
+    col.width = max + 2;
+  });
+
+  const buf = await workbook.xlsx.writeBuffer();
+  // writeBuffer returns an ArrayBuffer; convert to Node Buffer
+  return Buffer.from(buf);
 }
 
 function collectAttendeesFromOrders(orders, { includeAddress=false, categories=["banquet","addon"], startMs, endMs } = {}) {
@@ -742,7 +764,7 @@ async function sendItemReportEmailInternal({ kind, id, label, scope = "current-m
     };
   });
 
-  const xlsxBuf = objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
+  const xlsxBuf = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
   const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
 
   // Recipients: prefer Banquet/Addons KV, fallback to legacy itemcfg and env
@@ -1046,7 +1068,7 @@ export default async function handler(req, res) {
           _itemId: "", _itemBase: "", _itemKey: "", _pi: "", _charge: "", _session: ""
         });
 
-        const buf = objectsToXlsxBuffer(headers, sorted, null, "Orders");
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Orders");
 
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
@@ -1094,7 +1116,7 @@ export default async function handler(req, res) {
           "item","item_id","qty","notes"
         ];
 
-        const buf = objectsToXlsxBuffer(headers, sorted, null, "Attendees");
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Attendees");
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.xlsx"`);
         return res.status(200).send(buf);
@@ -1144,7 +1166,7 @@ export default async function handler(req, res) {
           "purchaser","date"
         ];
 
-        const buf = objectsToXlsxBuffer(headers, sorted, null, "Directory");
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Directory");
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", `attachment; filename="directory.xlsx"`);
         return res.status(200).send(buf);
@@ -1219,7 +1241,7 @@ export default async function handler(req, res) {
           attendee_email: r.attendee_email
         }));
 
-        const buf = objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
+        const buf = await objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", `attachment; filename="full-attendees.xlsx"`);
         return res.status(200).send(buf);
