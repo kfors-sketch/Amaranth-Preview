@@ -49,25 +49,11 @@
     .modal input, .modal select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
   </style>
 
-  <!-- CSV helper -->
+  <!-- CSV helper (for Import) -->
   <script src="/assets/js/lib/csv.js"></script>
 
-  <!-- Static lists (fallbacks). Banquets + Catalog items (from items.js) -->
-  <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/items.js"></script>
-  <script>
-    // For reporting we only need plain data, not Cart / UI behavior.
-
-    // Map your existing catalog data to PRODUCTS as a fallback.
-    // items.js defines window.CATALOG_ITEMS.
-    if (!window.PRODUCTS && Array.isArray(window.CATALOG_ITEMS)) {
-      window.PRODUCTS = window.CATALOG_ITEMS;
-    }
-
-    // Safe Add-Ons fallback: if GRAND_COURT_ADDONS exists, use it;
-    // otherwise just fall back to an empty array. No Cart usage here.
-    window.ADDONS = window.ADDONS || (window.GRAND_COURT_ADDONS || []);
-  </script>
+  <!-- NOTE: we no longer load banquets.js/products.js/grand-court-addons.js here.
+       Those were causing 404 + Cart errors and are not needed on the reporting page. -->
 </head>
 <body>
   <div class="container">
@@ -113,10 +99,10 @@
           <input id="search" class="input" type="search" placeholder="Search purchaser, attendee, item, notes…" style="width:100%" />
         </div>
         <div class="group">
-          <!-- Button text / title mention Excel -->
-          <button class="btn" id="btnExportCsv" title="Export rows to Excel (CSV file)">Export to Excel (Date/Search)</button>
+          <!-- Button text mentions Excel -->
+          <button class="btn" id="btnExportCsv" title="Export rows to Excel (.xlsx file)">Export to Excel (Date/Search)</button>
           <!-- Full Attendee List button -->
-          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list to Excel (CSV file)">Full Attendee List (Excel)</button>
+          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list to Excel (.xlsx file)">Full Attendee List (Excel)</button>
           <button class="btn ghost" id="btnPrint">Print / PDF</button>
         </div>
         <div class="group">
@@ -155,8 +141,7 @@
           </select>
         </div>
         <div class="group">
-          <!-- Button text / title mention Excel -->
-          <button id="btnActDownload" class="btn" title="Download Excel (CSV file) for this item">Download Excel</button>
+          <button id="btnActDownload" class="btn" title="Download Excel (.xlsx) for this item">Download Excel</button>
           <button id="btnActEmail" class="btn success">Email Chair</button>
         </div>
         <div class="muted">Date range &amp; search (top) will also apply to server-side exports.</div>
@@ -416,7 +401,7 @@ async function downloadServerCsv(qsOrParams){
   return downloadCsvFrom(url, 'amaranth-report');
 }
 
-// Generic downloader (works great for Excel with CSV)
+// Generic downloader (now saves as .xlsx to match router.js)
 async function downloadCsvFrom(url, namePrefix){
   try{
     const r = await fetch(url, { cache: 'no-store' });
@@ -425,8 +410,8 @@ async function downloadCsvFrom(url, namePrefix){
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    // Keep .csv extension; Excel opens it directly
-    a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.csv`;
+    // Use .xlsx extension so Excel is happy
+    a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -544,7 +529,7 @@ $('#btnActEmail').addEventListener('click', async ()=>{
   }
 });
 
-/** CSV helpers (stubs if you import) **/
+/** CSV helpers (these are still safe stubs if csv.js isn’t used) **/
 function csvToObjects(csv){ return []; }
 function splitCSVLine(line){ return []; }
 function cryptoRandom(){ return Math.random().toString(36).slice(2) }
