@@ -52,17 +52,21 @@
   <!-- CSV helper -->
   <script src="/assets/js/lib/csv.js"></script>
 
-  <!-- Static lists (fallbacks). Banquets + Products are as before -->
+  <!-- Static lists (fallbacks). Banquets + Catalog items (from items.js) -->
   <script src="/assets/js/banquets.js"></script>
-  <script src="/assets/js/products.js"></script>
-
-  <!-- IMPORTANT: real Add-Ons file + shim to expose window.ADDONS -->
-  <script src="/assets/js/grand-court-addons.js"></script>
+  <script src="/assets/js/items.js"></script>
   <script>
-    // If your real file defines GRAND_COURT_ADDONS, map it to ADDONS for this page.
-    if (!window.ADDONS && window.GRAND_COURT_ADDONS) {
-      window.ADDONS = window.GRAND_COURT_ADDONS;
+    // For reporting we only need plain data, not Cart / UI behavior.
+
+    // Map your existing catalog data to PRODUCTS as a fallback.
+    // items.js defines window.CATALOG_ITEMS.
+    if (!window.PRODUCTS && Array.isArray(window.CATALOG_ITEMS)) {
+      window.PRODUCTS = window.CATALOG_ITEMS;
     }
+
+    // Safe Add-Ons fallback: if GRAND_COURT_ADDONS exists, use it;
+    // otherwise just fall back to an empty array. No Cart usage here.
+    window.ADDONS = window.ADDONS || (window.GRAND_COURT_ADDONS || []);
   </script>
 </head>
 <body>
