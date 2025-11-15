@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v6" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v7" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -22,6 +22,13 @@
       padding:.25rem .5rem;
       font-size:.9rem;
       border-radius:.375rem;
+    }
+    .att-head button.remove-att {
+      padding:.25rem .5rem;
+      font-size:.85rem;
+      border-radius:.375rem;
+      background:#fee2e2;
+      border:1px solid #fecaca;
     }
     .edit-panel {
       display:none;
@@ -217,7 +224,7 @@
            _addressKey(a)  === _addressKey(b);
   }
 
-  // ===== Shared attendee storage (for cross-page sync) =====
+  // ===== shared attendee storage key (same as other pages) =====
   const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
 
   function saveAttendeesToStorage(list){
@@ -242,8 +249,7 @@
 
   document.addEventListener('DOMContentLoaded', function(){
     Cart.load();
-
-    // Initial sync of attendee list out to shared storage
+    // initial mirror of attendees
     syncAttendeesToStorageFromCart();
 
     // HOTFIX: migrate any legacy cents (once per load)
@@ -281,6 +287,9 @@
 
     function render(){
       const st = Cart.get();
+
+      // mirror attendees out on every render
+      syncAttendeesToStorageFromCart();
 
       // group lines by attendeeId (with purchaser bucket)
       const byA = {};
@@ -347,7 +356,10 @@
           <div class="att-block" data-aid="${aid}">
             <div class="att-head">
               <span>${displayName}</span>
-              ${showEdit ? `<button class="btn edit" data-edit="${aid}">Edit</button>` : ''}
+              ${showEdit ? `
+                <button class="btn edit" data-edit="${aid}">Edit</button>
+                <button class="remove-att" data-del="${aid}">Remove</button>
+              ` : ''}
             </div>
             ${displayMeta || ''}
 
@@ -426,11 +438,24 @@
 
       list.innerHTML = blocks.join('') || '<p>No items yet.</p>';
 
-      // wire remove
+      // wire remove line
       list.querySelectorAll('button[data-remove]').forEach(b=>{
         b.onclick = ()=>{ 
           Cart.removeLine(b.dataset.remove); 
-          // After any cart change, keep attendee list mirrored out
+        };
+      });
+
+      // wire attendee REMOVE (new)
+      list.querySelectorAll('button[data-del]').forEach(btn => {
+        btn.onclick = () => {
+          const aid = btn.dataset.del;
+          if (!aid) return;
+          if (!confirm('Remove this attendee and all of their banquet/add-on assignments from the order?')) return;
+          Cart.removeAttendee(aid);
+          // ping other tabs
+          try { localStorage.setItem('amaranth_cart_ping', String(Date.now())); } catch(e){}
+          // re-render + resync attendees mirror
+          window._orderRender?.();
           syncAttendeesToStorageFromCart();
         };
       });
@@ -543,11 +568,8 @@
             notes
           });
 
-          // After updating, mirror the attendee list out to shared storage
-          try {
-            const stNow = Cart.get() || {};
-            syncAttendeesToStorageFromCart();
-          } catch(e){}
+          // Keep shared attendees mirror in sync
+          syncAttendeesToStorageFromCart();
 
           // Optionally propagate notes to banquet lines for this attendee
           try {
@@ -580,9 +602,6 @@
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
       `;
-
-      // Final step of render: keep shared attendee storage in sync
-      syncAttendeesToStorageFromCart();
     } // end render()
 
     // expose render for resync hooks below
@@ -590,11 +609,7 @@
 
     // initial + react to cart changes
     render();
-    window.addEventListener('cart:updated', function(){
-      render();
-      // Whenever cart updates (from any page action), mirror attendees out
-      syncAttendeesToStorageFromCart();
-    });
+    window.addEventListener('cart:updated', render);
 
     // Re-render purchaser header when they type their name (affects Purchaser group label)
     const pNameEl = document.getElementById('p_name');
@@ -604,7 +619,10 @@
     // --- Auto-resync when returning to this tab or when storage changes ---
     function resyncFromStorage(){
       try { Cart.load(); } catch(e) {}
-      try { window._orderRender?.(); } catch(e) {}
+      try { 
+        window._orderRender?.(); 
+        syncAttendeesToStorageFromCart();
+      } catch(e) {}
     }
     document.addEventListener('visibilitychange', function(){ if (!document.hidden) resyncFromStorage(); });
     window.addEventListener('focus', resyncFromStorage);
