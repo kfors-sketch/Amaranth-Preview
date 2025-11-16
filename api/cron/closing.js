@@ -1,78 +1,55 @@
 // /api/cron/closing.js
-import { kv } from "@vercel/kv";
-import { Resend } from "resend";
-import { loadAllItemConfigs, lineMatchesConfig } from "../../lib/item-configs.js";
-import { rowsToCSV } from "../../lib/csv.js";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-async function loadAllOrders() {
-  const ids = await kv.smembers("orders:all");
-  if (!ids?.length) return [];
-  const results = await Promise.all(ids.map(id => kv.hgetall(`order:${id}`)));
-  return results.filter(Boolean);
-}
 
 export default async function handler(req, res) {
   try {
-    // NEW: allow optional per-banquet run, e.g. /api/cron/closing?banquetId=pa2026-chicken
-    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    const onlyId = url.searchParams.get("banquetId"); // null or string
-
-    const all = await loadAllOrders();
-    const now = new Date();
-    const cfgs = await loadAllItemConfigs();
-    let sent = 0;
-
-    for (const cfg of cfgs) {
-      // NEW: if a banquetId filter was provided, skip other configs
-      if (onlyId && cfg.id !== onlyId) continue;
-
-      const end = cfg.publishEnd ? new Date(cfg.publishEnd) : null;
-      if (!end || now < end) continue;
-
-      const sentKey = `closing:sent:${cfg.id}`;
-      const already = await kv.get(sentKey);
-      if (already) continue;
-
-      const headers = ["OrderID","PaidAt","Purchaser","Attendee","ItemID","Item","Qty","Unit","LineTotal"];
-      const rows = [];
-      for (const o of all) {
-        const purchaser = o?.purchaser?.name || "";
-        const attendees = (o?.attendees?.length ? o.attendees.map(a=>a.name||"") : [""]);
-        for (const l of (o.lines||[])) {
-          const lid = l.itemId || l.itemName || "unknown";
-          if (!lineMatchesConfig(lid, cfg.id)) continue;
-          const unit = Number(l.unitCents||0)/100;
-          const lineTotal = (Number(l.qty||0)*Number(l.unitCents||0))/100;
-          for (const an of attendees) {
-            rows.push([
-              o.orderId, o.paidAtISO||"", purchaser, an,
-              lid, l.itemName||"", String(l.qty||0), unit.toFixed(2), lineTotal.toFixed(2)
-            ]);
-          }
-        }
-      }
-
-      const csv = rowsToCSV(headers, rows);
-      const recipients = (cfg.chairEmails?.length ? cfg.chairEmails : [process.env.ADMIN_CC_EMAIL]);
-
-      await resend.emails.send({
-        from: process.env.FROM_EMAIL,
-        to: recipients,
-        cc: [process.env.ADMIN_CC_EMAIL],
-        subject: `FINAL Orders – ${cfg.name}`,
-        text: `Attached is the final CSV for ${cfg.name}.`,
-        attachments: [{ filename: `${cfg.id}_FINAL.csv`, content: Buffer.from(csv).toString("base64") }]
-      });
-
-      await kv.set(sentKey, new Date().toISOString());
-      sent++;
+    const token = process.env.REPORT_TOKEN || "";
+    if (!token) {
+      console.error("REPORT_TOKEN missing; cannot auth router for closing cron");
+      return res.status(500).json({ ok: false, error: "missing-REPORT_TOKEN" });
     }
 
-    res.status(200).json({ ok:true, sent });
+    const urlObj = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const host = req.headers.host || "";
+    const baseEnv = process.env.SITE_BASE_URL || "";
+    const origin = (baseEnv && /^https?:\/\//i.test(baseEnv)
+      ? baseEnv
+      : `https://${host}`
+    ).replace(/\/+$/, "");
+
+    // If you ever want to support ?banquetId= for a single item later,
+    // you could pass it in the body here. For now, we just run all.
+    // const onlyId = urlObj.searchParams.get("banquetId") || "";
+
+    const resp = await fetch(`${origin}/api/router?action=send_end_of_event_reports`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error("send_end_of_event_reports via cron failed:", data);
+      return res.status(500).json({
+        ok: false,
+        error: "router-error",
+        ...data,
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      source: "cron/closing",
+      ...data,
+    });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error:"closing-failed" });
+    console.error("closing cron fatal error:", e);
+    return res.status(500).json({
+      ok: false,
+      error: "closing-failed",
+      message: e?.message || String(e),
+    });
   }
 }
