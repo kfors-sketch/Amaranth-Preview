@@ -354,48 +354,20 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
-// UPDATED: include purchaser + attendee title, phone, email, and full mailing address
+// NOTE: We intentionally DO NOT include attendee title/phone/address here
+// to keep the existing /orders_csv shape unchanged (column *set* stays the same).
 function flattenOrderToRows(o) {
   const rows = [];
-  const purchaser = o.purchaser || {};
-  const purchaserName = purchaser.name || o.customer_email || "";
-  const purchaserEmail = purchaser.email || o.customer_email || "";
-  const purchaserPhone = purchaser.phone || "";
-
   (o.lines || []).forEach((li) => {
     const net = li.gross;
     const rawId = li.itemId || "";
     const base = baseKey(rawId);
-    const m = li.meta || {};
 
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
-
-      // purchaser identity + contact
-      purchaser: purchaserName,
-      purchaser_email: purchaserEmail,
-      purchaser_phone: purchaserPhone,
-      purchaser_title: purchaser.title || "",
-      purchaser_addr1: purchaser.address1 || "",
-      purchaser_addr2: purchaser.address2 || "",
-      purchaser_city: purchaser.city || "",
-      purchaser_state: purchaser.state || "",
-      purchaser_postal: purchaser.postal || "",
-      purchaser_country: purchaser.country || "",
-
-      // attendee identity + contact + mailing
-      attendee: m.attendeeName || "",
-      attendee_title: m.attendeeTitle || "",
-      attendee_phone: m.attendeePhone || "",
-      attendee_email: m.attendeeEmail || "",
-      attendee_addr1: m.attendeeAddr1 || "",
-      attendee_addr2: m.attendeeAddr2 || "",
-      attendee_city: m.attendeeCity || "",
-      attendee_state: m.attendeeState || "",
-      attendee_postal: m.attendeePostal || "",
-      attendee_country: m.attendeeCountry || "",
-
+      purchaser: o.purchaser?.name || o.customer_email || "",
+      attendee: li.meta?.attendeeName || "",
       category: li.category || "other",
       item: li.itemName || "",
       item_id: rawId, // public field (kept for backward-compat)
@@ -407,8 +379,10 @@ function flattenOrderToRows(o) {
       status: o.status || "paid",
       notes:
         li.category === "banquet"
-          ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
-          : m.itemNote || "",
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
+              .filter(Boolean)
+              .join("; ")
+          : li.meta?.itemNote || "",
 
       // Hidden keys used for filtering
       _itemId: rawId,
@@ -428,29 +402,8 @@ function flattenOrderToRows(o) {
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
-
-      purchaser: purchaserName,
-      purchaser_email: purchaserEmail,
-      purchaser_phone: purchaserPhone,
-      purchaser_title: purchaser.title || "",
-      purchaser_addr1: purchaser.address1 || "",
-      purchaser_addr2: purchaser.address2 || "",
-      purchaser_city: purchaser.city || "",
-      purchaser_state: purchaser.state || "",
-      purchaser_postal: purchaser.postal || "",
-      purchaser_country: purchaser.country || "",
-
+      purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: "",
-      attendee_title: "",
-      attendee_phone: "",
-      attendee_email: "",
-      attendee_addr1: "",
-      attendee_addr2: "",
-      attendee_city: "",
-      attendee_state: "",
-      attendee_postal: "",
-      attendee_country: "",
-
       category: "other",
       item: feeLine.itemName || "Processing Fee",
       item_id: "",
@@ -746,25 +699,7 @@ function buildCSV(rows) {
       id: "",
       date: "",
       purchaser: "",
-      purchaser_email: "",
-      purchaser_phone: "",
-      purchaser_title: "",
-      purchaser_addr1: "",
-      purchaser_addr2: "",
-      purchaser_city: "",
-      purchaser_state: "",
-      purchaser_postal: "",
-      purchaser_country: "",
       attendee: "",
-      attendee_title: "",
-      attendee_phone: "",
-      attendee_email: "",
-      attendee_addr1: "",
-      attendee_addr2: "",
-      attendee_city: "",
-      attendee_state: "",
-      attendee_postal: "",
-      attendee_country: "",
       category: "",
       item: "",
       item_id: "",
@@ -1308,7 +1243,7 @@ export default async function handler(req, res) {
         const { effective } = await getEffectiveSettings();
         const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
-        const cfgEnd = effective.EVENT_END || "";
+        the cfgEnd = effective.EVENT_END || "";
 
         let startMs = NaN;
         let endMs = NaN;
@@ -1350,13 +1285,7 @@ export default async function handler(req, res) {
               String(r.purchaser || "")
                 .toLowerCase()
                 .includes(q) ||
-              String(r.purchaser_email || "")
-                .toLowerCase()
-                .includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
-              String(r.attendee_email || "")
-                .toLowerCase()
-                .includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
               String(r.category || "")
                 .toLowerCase()
@@ -1471,13 +1400,7 @@ export default async function handler(req, res) {
               String(r.purchaser || "")
                 .toLowerCase()
                 .includes(q) ||
-              String(r.purchaser_email || "")
-                .toLowerCase()
-                .includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
-              String(r.attendee_email || "")
-                .toLowerCase()
-                .includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
               String(r.category || "")
                 .toLowerCase()
@@ -1535,25 +1458,7 @@ export default async function handler(req, res) {
             id: "",
             date: "",
             purchaser: "",
-            purchaser_email: "",
-            purchaser_phone: "",
-            purchaser_title: "",
-            purchaser_addr1: "",
-            purchaser_addr2: "",
-            purchaser_city: "",
-            purchaser_state: "",
-            purchaser_postal: "",
-            purchaser_country: "",
             attendee: "",
-            attendee_title: "",
-            attendee_phone: "",
-            attendee_email: "",
-            attendee_addr1: "",
-            attendee_addr2: "",
-            attendee_city: "",
-            attendee_state: "",
-            attendee_postal: "",
-            attendee_country: "",
             category: "",
             item: "",
             item_id: "",
@@ -1732,7 +1637,7 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // ----- Full Attendee List (XLSX: unique, numbered, minimal cols) -----
+      // ----- Full Attendee List (XLSX: unique, numbered, WITH full address) -----
       if (type === "full_attendees_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -1756,7 +1661,7 @@ export default async function handler(req, res) {
           endMs = parseYMD(endParam);
         }
 
-        // We only need banquet/addon attendees; no address needed for this minimal list.
+        // We only need banquet/addon attendees; NOW include full address for this list.
         const cats = (url.searchParams.get("category") || "banquet,addon")
           .split(",")
           .map((s) => s.trim())
@@ -1764,7 +1669,7 @@ export default async function handler(req, res) {
 
         // Collect, filter by window, then DEDUPE by attendee (name + email + phone)
         const rosterAll = collectAttendeesFromOrders(orders, {
-          includeAddress: false,
+          includeAddress: true,
           categories: cats,
           startMs: isNaN(startMs) ? undefined : startMs,
           endMs: isNaN(endMs) ? undefined : endMs,
@@ -1812,6 +1717,12 @@ export default async function handler(req, res) {
           "attendee_title",
           "attendee_phone",
           "attendee_email",
+          "attendee_addr1",
+          "attendee_addr2",
+          "attendee_city",
+          "attendee_state",
+          "attendee_postal",
+          "attendee_country",
         ];
         const numbered = unique.map((r, idx) => ({
           "#": idx + 1,
@@ -1820,6 +1731,12 @@ export default async function handler(req, res) {
           attendee_title: r.attendee_title,
           attendee_phone: r.attendee_phone,
           attendee_email: r.attendee_email,
+          attendee_addr1: r.attendee_addr1,
+          attendee_addr2: r.attendee_addr2,
+          attendee_city: r.attendee_city,
+          attendee_state: r.attendee_state,
+          attendee_postal: r.attendee_postal,
+          attendee_country: r.attendee_country,
         }));
 
         const buf = await objectsToXlsxBuffer(
