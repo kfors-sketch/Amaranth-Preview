@@ -354,20 +354,48 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
-// NOTE: We intentionally DO NOT include attendee title/phone/address here
-// to keep the existing /orders_csv shape unchanged (column *set* stays the same).
+// UPDATED: include purchaser + attendee title, phone, email, and full mailing address
 function flattenOrderToRows(o) {
   const rows = [];
+  const purchaser = o.purchaser || {};
+  const purchaserName = purchaser.name || o.customer_email || "";
+  const purchaserEmail = purchaser.email || o.customer_email || "";
+  const purchaserPhone = purchaser.phone || "";
+
   (o.lines || []).forEach((li) => {
     const net = li.gross;
     const rawId = li.itemId || "";
     const base = baseKey(rawId);
+    const m = li.meta || {};
 
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
-      purchaser: o.purchaser?.name || o.customer_email || "",
-      attendee: li.meta?.attendeeName || "",
+
+      // purchaser identity + contact
+      purchaser: purchaserName,
+      purchaser_email: purchaserEmail,
+      purchaser_phone: purchaserPhone,
+      purchaser_title: purchaser.title || "",
+      purchaser_addr1: purchaser.address1 || "",
+      purchaser_addr2: purchaser.address2 || "",
+      purchaser_city: purchaser.city || "",
+      purchaser_state: purchaser.state || "",
+      purchaser_postal: purchaser.postal || "",
+      purchaser_country: purchaser.country || "",
+
+      // attendee identity + contact + mailing
+      attendee: m.attendeeName || "",
+      attendee_title: m.attendeeTitle || "",
+      attendee_phone: m.attendeePhone || "",
+      attendee_email: m.attendeeEmail || "",
+      attendee_addr1: m.attendeeAddr1 || "",
+      attendee_addr2: m.attendeeAddr2 || "",
+      attendee_city: m.attendeeCity || "",
+      attendee_state: m.attendeeState || "",
+      attendee_postal: m.attendeePostal || "",
+      attendee_country: m.attendeeCountry || "",
+
       category: li.category || "other",
       item: li.itemName || "",
       item_id: rawId, // public field (kept for backward-compat)
@@ -379,10 +407,8 @@ function flattenOrderToRows(o) {
       status: o.status || "paid",
       notes:
         li.category === "banquet"
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
-              .filter(Boolean)
-              .join("; ")
-          : li.meta?.itemNote || "",
+          ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
+          : m.itemNote || "",
 
       // Hidden keys used for filtering
       _itemId: rawId,
@@ -402,8 +428,29 @@ function flattenOrderToRows(o) {
     rows.push({
       id: o.id,
       date: new Date(o.created || Date.now()).toISOString(),
-      purchaser: o.purchaser?.name || o.customer_email || "",
+
+      purchaser: purchaserName,
+      purchaser_email: purchaserEmail,
+      purchaser_phone: purchaserPhone,
+      purchaser_title: purchaser.title || "",
+      purchaser_addr1: purchaser.address1 || "",
+      purchaser_addr2: purchaser.address2 || "",
+      purchaser_city: purchaser.city || "",
+      purchaser_state: purchaser.state || "",
+      purchaser_postal: purchaser.postal || "",
+      purchaser_country: purchaser.country || "",
+
       attendee: "",
+      attendee_title: "",
+      attendee_phone: "",
+      attendee_email: "",
+      attendee_addr1: "",
+      attendee_addr2: "",
+      attendee_city: "",
+      attendee_state: "",
+      attendee_postal: "",
+      attendee_country: "",
+
       category: "other",
       item: feeLine.itemName || "Processing Fee",
       item_id: "",
@@ -699,7 +746,25 @@ function buildCSV(rows) {
       id: "",
       date: "",
       purchaser: "",
+      purchaser_email: "",
+      purchaser_phone: "",
+      purchaser_title: "",
+      purchaser_addr1: "",
+      purchaser_addr2: "",
+      purchaser_city: "",
+      purchaser_state: "",
+      purchaser_postal: "",
+      purchaser_country: "",
       attendee: "",
+      attendee_title: "",
+      attendee_phone: "",
+      attendee_email: "",
+      attendee_addr1: "",
+      attendee_addr2: "",
+      attendee_city: "",
+      attendee_state: "",
+      attendee_postal: "",
+      attendee_country: "",
       category: "",
       item: "",
       item_id: "",
@@ -1285,7 +1350,13 @@ export default async function handler(req, res) {
               String(r.purchaser || "")
                 .toLowerCase()
                 .includes(q) ||
+              String(r.purchaser_email || "")
+                .toLowerCase()
+                .includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
+              String(r.attendee_email || "")
+                .toLowerCase()
+                .includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
               String(r.category || "")
                 .toLowerCase()
@@ -1400,7 +1471,13 @@ export default async function handler(req, res) {
               String(r.purchaser || "")
                 .toLowerCase()
                 .includes(q) ||
+              String(r.purchaser_email || "")
+                .toLowerCase()
+                .includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
+              String(r.attendee_email || "")
+                .toLowerCase()
+                .includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
               String(r.category || "")
                 .toLowerCase()
@@ -1458,7 +1535,25 @@ export default async function handler(req, res) {
             id: "",
             date: "",
             purchaser: "",
+            purchaser_email: "",
+            purchaser_phone: "",
+            purchaser_title: "",
+            purchaser_addr1: "",
+            purchaser_addr2: "",
+            purchaser_city: "",
+            purchaser_state: "",
+            purchaser_postal: "",
+            purchaser_country: "",
             attendee: "",
+            attendee_title: "",
+            attendee_phone: "",
+            attendee_email: "",
+            attendee_addr1: "",
+            attendee_addr2: "",
+            attendee_city: "",
+            attendee_state: "",
+            attendee_postal: "",
+            attendee_country: "",
             category: "",
             item: "",
             item_id: "",
