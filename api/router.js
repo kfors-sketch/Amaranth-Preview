@@ -1243,7 +1243,7 @@ export default async function handler(req, res) {
         const { effective } = await getEffectiveSettings();
         const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
-        the cfgEnd = effective.EVENT_END || "";
+        const cfgEnd = effective.EVENT_END || "";
 
         let startMs = NaN;
         let endMs = NaN;
