@@ -1017,24 +1017,54 @@ async function sendItemReportEmailInternal({
 
   const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
-  // Recipients: prefer Banquet/Addons/Products KV, fallback to legacy itemcfg and env
+  // ---------- RECIPIENTS (To + Admin BCC) ----------
+
+  // Per-item chair emails from KV (banquets/addons/products/legacy itemcfg)
   const toListPref = await getChairEmailsForItemId(id);
-  const envFallback = (
-    process.env.REPORTS_CC || process.env.REPORTS_BCC || ""
-  )
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+
+  // Pull effective REPORTS_CC / REPORTS_BCC (respects /settings overrides)
+  const { effective } = await getEffectiveSettings();
+
+  const safeSplit = (val) =>
+    String(val || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  // If no per-item chairs, fall back to configured CC/BCC so reports still go somewhere
+  const envFallback = safeSplit(
+    effective.REPORTS_CC ||
+      effective.REPORTS_BCC ||
+      process.env.REPORTS_CC ||
+      process.env.REPORTS_BCC ||
+      ""
+  );
+
   const toList = toListPref.length ? toListPref : envFallback;
-  if (!toList.length) return { ok: false, error: "no-recipient" };
+
+  // Admin BCC list: always BCC these on chair reports (but avoid duplicate addresses)
+  const adminBccBase = safeSplit(
+    effective.REPORTS_BCC ||
+      effective.REPORTS_CC ||
+      process.env.REPORTS_BCC ||
+      process.env.REPORTS_CC ||
+      ""
+  );
+  const bccList = adminBccBase.filter(
+    (addr) => !toList.includes(addr)
+  );
+
+  // Require at least one address somewhere
+  if (!toList.length && !bccList.length)
+    return { ok: false, error: "no-recipient" };
 
   const prettyKind = kind === "other" ? "catalog" : kind;
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
       <p>Attached is the Excel report for <b>${prettyKind}</b> “${
-    label || id
-  }”.</p>
+        label || id
+      }”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555">Scope: ${scope}</div>
     </div>`;
@@ -1042,7 +1072,8 @@ async function sendItemReportEmailInternal({
   try {
     const sendResult = await resend.emails.send({
       from: RESEND_FROM,
-      to: toList,
+      to: toList.length ? toList : bccList, // if only BCC exists, send them as "to"
+      bcc: toList.length && bccList.length ? bccList : undefined,
       subject,
       html: tablePreview,
       reply_to: REPLY_TO || undefined,
@@ -1056,18 +1087,18 @@ async function sendItemReportEmailInternal({
     await recordMailLog({
       ts: Date.now(),
       from: RESEND_FROM,
-      to: toList,
+      to: [...toList, ...bccList],
       subject,
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
     });
-    return { ok: true, count: sorted.length, to: toList };
+    return { ok: true, count: sorted.length, to: toList, bcc: bccList };
   } catch (e) {
     await recordMailLog({
       ts: Date.now(),
       from: RESEND_FROM,
-      to: toList,
+      to: [...toList, ...bccList],
       subject,
       resultId: null,
       kind: "item-report",
