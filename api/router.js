@@ -2224,29 +2224,78 @@ export default async function handler(req, res) {
         }
       }
 
-      // (NEW) Bulk: send MONTHLY reports to all banquet/addon chairs
+      // (NEW) Bulk: send MONTHLY reports to current banquet/addon/catalog chairs ONLY
+      // We derive the list from the *current* banquets/addons/products arrays,
+      // not from every historical itemcfg entry. This avoids ghost/retired items.
       if (action === "send_monthly_chair_reports") {
-        const ids = await kvSmembersSafe("itemcfg:index");
-        let sent = 0,
-          errors = 0;
-        for (const itemId of ids) {
-          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+        const now = Date.now();
+
+        const banquets = (await kvGetSafe("banquets", [])) || [];
+        const addons   = (await kvGetSafe("addons", [])) || [];
+        const products = (await kvGetSafe("products", [])) || [];
+
+        const queue = [];
+        const seenIds = new Set();
+
+        const pushItem = (kind, entry) => {
+          const id = String(entry?.id || "").trim();
+          if (!id || seenIds.has(id)) return;
+          seenIds.add(id);
+          queue.push({
+            kind,
+            id,
+            label: entry?.name || id,
+          });
+        };
+
+        for (const b of banquets) pushItem("banquet", b);
+        for (const a of addons) pushItem("addon", a);
+        for (const p of products) pushItem("catalog", p);
+
+        let sent = 0;
+        let errors = 0;
+        let skipped = 0;
+
+        for (const item of queue) {
+          // Look up itemcfg for publishStart/publishEnd + chairs, if present
+          const cfg = await kvHgetallSafe(`itemcfg:${item.id}`);
+          const publishStartMs = cfg?.publishStart
+            ? Date.parse(cfg.publishStart)
+            : NaN;
+          const publishEndMs = cfg?.publishEnd
+            ? Date.parse(cfg.publishEnd)
+            : NaN;
+
+          // If publishStart is in the future, or publishEnd is in the past, skip this item.
+          if (!isNaN(publishStartMs) && now < publishStartMs) {
+            skipped += 1;
+            continue;
+          }
+          if (!isNaN(publishEndMs) && now > publishEndMs) {
+            skipped += 1;
+            continue;
+          }
+
           const kind =
             String(cfg?.kind || "").toLowerCase() ||
-            (itemId.includes("addon") ? "addon" : "banquet");
-          const label = cfg?.name || itemId;
+            item.kind;
+
+          const label = cfg?.name || item.label || item.id;
+
           const result = await sendItemReportEmailInternal({
             kind,
-            id: itemId,
+            id: item.id,
             label,
             scope: "current-month",
           });
           if (result.ok) sent += 1;
           else errors += 1;
         }
+
         return REQ_OK(res, {
           ok: true,
           sent,
+          skipped,
           errors,
           scope: "current-month",
         });
