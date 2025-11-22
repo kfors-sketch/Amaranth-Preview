@@ -25,6 +25,7 @@
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="product-catalog.html" data-catalog-link>Product Catalog</a>
         <a href="order.html">Order</a>
+        <a href="contact.html">Contact</a>
       </nav>
     </div>
   </header>
@@ -498,39 +499,38 @@
   <script src="assets/js/site-boot.js"></script>
 
   <!-- Hide Product Catalog link if no visible items -->
-<script>
-(async function(){
-  const link = document.querySelector('[data-catalog-link]');
-  if (!link) return;
+  <script>
+  (async function(){
+    const link = document.querySelector('[data-catalog-link]');
+    if (!link) return;
 
-  async function fetchJson(url){
-    try {
-      const r = await fetch(url, { cache: 'no-store' });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch(e){ return null; }
-  }
+    async function fetchJson(url){
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch(e){ return null; }
+    }
 
-  let items = [];
-  let j = await fetchJson('/api/router?type=products');
-  if (Array.isArray(j?.products)) items = j.products;
+    let items = [];
+    let j = await fetchJson('/api/router?type=products');
+    if (Array.isArray(j?.products)) items = j.products;
 
-  if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
 
-  const now = Date.now();
-  const hasVisible = (items || []).some(i => {
-    if (i && i.active === false) return false;
-    const s = i?.publishStart ? Date.parse(i.publishStart) : null;
-    const e = i?.publishEnd   ? Date.parse(i.publishEnd) : null;
-    return (s == null || now >= s) && (e == null || now <= e);
-  });
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (i && i.active === false) return false;
+      const s = i?.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i?.publishEnd   ? Date.parse(i.publishEnd) : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
 
-  if (!hasVisible) link.style.display = 'none';
-})();
-</script>
+    if (!hasVisible) link.style.display = 'none';
+  })();
+  </script>
 
-
- <!-- Maintenance -->
+  <!-- Maintenance -->
   <script>
   (async () => {
     try {
