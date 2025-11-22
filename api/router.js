@@ -19,7 +19,8 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // ---- Mail “From / Reply-To” (sanitized) ----
 const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
 const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
-const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // NEW: log recipients for monthly cron summary
+const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // log recipients for monthly cron summary
+const CONTACT_TO = (process.env.CONTACT_TO || "pa_sessions@yahoo.com").trim(); // contact form receiver
 
 const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
@@ -172,7 +173,7 @@ async function fetchSessionAndItems(stripe, sid) {
   return { session: s, lineItems };
 }
 
-// ----- Chair email resolution (NEW) -----
+// ----- Chair email resolution -----
 async function getChairEmailsForItemId(id) {
   const safeSplit = (val) =>
     String(val || "")
@@ -217,7 +218,6 @@ async function getChairEmailsForItemId(id) {
 }
 
 // ----- order persistence helpers -----
-// (PATCH) prefer purchaser fields from metadata (your Order page), fall back to Stripe customer_details
 async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
@@ -241,7 +241,6 @@ async function saveOrderFromSession(sessionLike) {
       attendeeId: meta.attendeeId || "",
       itemId: meta.itemId || "", // <-- important
       meta: {
-        // attendee identity & notes
         attendeeName: meta.attendeeName || "",
         attendeeTitle: meta.attendeeTitle || "",
         attendeePhone: meta.attendeePhone || "",
@@ -249,25 +248,21 @@ async function saveOrderFromSession(sessionLike) {
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
         itemNote: meta.itemNote || "",
-        // (directory / pre-reg)
         attendeeAddr1: meta.attendeeAddr1 || "",
         attendeeAddr2: meta.attendeeAddr2 || "",
         attendeeCity: meta.attendeeCity || "",
         attendeeState: meta.attendeeState || "",
         attendeePostal: meta.attendeePostal || "",
         attendeeCountry: meta.attendeeCountry || "",
-        // pricing metadata
         priceMode: meta.priceMode || "",
         bundleQty: meta.bundleQty || "",
         bundleTotalCents: meta.bundleTotalCents || "",
-        // item type hint (catalog / banquet / addon)
         itemType: meta.itemType || "",
       },
       notes: "",
     };
   });
 
-  // (NEW) purchaser from metadata
   const md = s.metadata || {};
   const purchaserFromMeta = {
     name: (md.purchaser_name || "").trim(),
@@ -292,10 +287,7 @@ async function saveOrderFromSession(sessionLike) {
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
-
-    // keep Stripe's email as receipt email if present; otherwise use purchaser email
     customer_email: (s.customer_details?.email || purchaserFromMeta.email || "").trim(),
-
     purchaser: {
       name: purchaserFromMeta.name || s.customer_details?.name || "",
       email: purchaserFromMeta.email || s.customer_details?.email || "",
@@ -308,7 +300,6 @@ async function saveOrderFromSession(sessionLike) {
       postal: purchaserFromMeta.postal || "",
       country: purchaserFromMeta.country || "",
     },
-
     lines,
     fees: { pct: 0, flat: 0 },
     refunds: [],
@@ -325,7 +316,7 @@ async function saveOrderFromSession(sessionLike) {
   }
 
   await kvSetSafe(`order:${order.id}`, order);
-  await kvSaddSafe("orders:index", order.id); // stored in a Redis SET
+  await kvSaddSafe("orders:index", order.id);
   return order;
 }
 
@@ -355,8 +346,6 @@ async function applyRefundToOrder(chargeId, refund) {
 }
 
 // --- Flatten an order into report rows (CSV-like) ---
-// NOTE: We intentionally DO NOT include attendee title/phone/address here
-// to keep the existing /orders_csv shape unchanged (column *set* stays the same).
 function flattenOrderToRows(o) {
   const rows = [];
   (o.lines || []).forEach((li) => {
@@ -371,7 +360,7 @@ function flattenOrderToRows(o) {
       attendee: li.meta?.attendeeName || "",
       category: li.category || "other",
       item: li.itemName || "",
-      item_id: rawId, // public field (kept for backward-compat)
+      item_id: rawId,
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -384,18 +373,15 @@ function flattenOrderToRows(o) {
               .filter(Boolean)
               .join("; ")
           : li.meta?.itemNote || "",
-
-      // Hidden keys used for filtering
       _itemId: rawId,
-      _itemBase: base, // base id for robust matching
-      _itemKey: normalizeKey(rawId), // legacy
+      _itemBase: base,
+      _itemKey: normalizeKey(rawId),
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
     });
   });
 
-  // Include a distinct fee row (if present)
   const feeLine = (o.lines || []).find((li) =>
     /processing fee/i.test(li.itemName || "")
   );
@@ -692,7 +678,6 @@ async function sendOrderReceipts(order) {
 }
 
 // --------- Helpers to build CSV for exports/emails ----------
-// (kept for compatibility / future debug; main endpoints now use XLSX)
 function buildCSV(rows) {
   if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
   const headers = Object.keys(
@@ -729,7 +714,7 @@ function buildCSV(rows) {
   const lines = [headers.join(",")];
   for (const r of sorted) {
     lines.push(headers.map((h) => esc(r[h])).join(","));
-    lines.push(""); // blank spacer between records
+    lines.push("");
   }
   return "\uFEFF" + lines.join("\n");
 }
@@ -744,12 +729,12 @@ function buildCSVSelected(rows, headers) {
   const lines = [headers.join(",")];
   for (const r of sorted) {
     lines.push(headers.map((h) => esc(r[h])).join(","));
-    lines.push(""); // blank spacer between records
+    lines.push("");
   }
-  return "\uFEFF" + lines.join("\n"); // BOM for Excel
+  return "\uFEFF" + lines.join("\n");
 }
 
-// ---- NEW: generic helper to build XLSX buffer from objects (exceljs, frozen header) ----
+// ---- generic XLSX helper ----
 async function objectsToXlsxBuffer(
   headers,
   rows,
@@ -770,11 +755,8 @@ async function objectsToXlsxBuffer(
     );
     worksheet.addRow(headerRowValues);
 
-    // Bold header
     const headerRow = worksheet.getRow(1);
     headerRow.font = { bold: true };
-
-    // Freeze the top row
     worksheet.views = [{ state: "frozen", ySplit: 1 }];
   }
 
@@ -783,7 +765,6 @@ async function objectsToXlsxBuffer(
     worksheet.addRow(rowValues);
   }
 
-  // Auto-fit columns a bit
   worksheet.columns.forEach((col) => {
     let max = 10;
     col.eachCell({ includeEmpty: true }, (cell) => {
@@ -795,7 +776,6 @@ async function objectsToXlsxBuffer(
   });
 
   const buf = await workbook.xlsx.writeBuffer();
-  // writeBuffer returns an ArrayBuffer; convert to Node Buffer
   return Buffer.from(buf);
 }
 
@@ -828,9 +808,7 @@ function collectAttendeesFromOrders(
         qty: li?.qty || 1,
         notes:
           cat === "banquet"
-            ? [m.attendeeNotes, m.dietaryNote]
-                .filter(Boolean)
-                .join("; ")
+            ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
             : m.itemNote || "",
         attendee_addr1: includeAddress ? m.attendeeAddr1 || "" : "",
         attendee_addr2: includeAddress ? m.attendeeAddr2 || "" : "",
@@ -844,7 +822,7 @@ function collectAttendeesFromOrders(
   return out;
 }
 
-// ---- (NEW) single function that sends a chair XLSX for a given item ----
+// ---- single function that sends a chair XLSX for a given item ----
 async function sendItemReportEmailInternal({
   kind,
   id,
@@ -854,7 +832,6 @@ async function sendItemReportEmailInternal({
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
-  // Load raw orders to pull attendee meta (title/phone/address saved in line.meta)
   const idx = await kvSmembersSafe("orders:index");
   const orders = [];
   for (const sid of idx) {
@@ -862,7 +839,6 @@ async function sendItemReportEmailInternal({
     if (o) orders.push(o);
   }
 
-  // Scope window
   let startMs, endMs;
   if (scope === "current-month") {
     const now = new Date();
@@ -871,16 +847,11 @@ async function sendItemReportEmailInternal({
     );
     startMs = start.getTime();
     endMs = Date.now() + 1;
-  } else if (scope === "full") {
-    startMs = undefined;
-    endMs = undefined;
   }
 
-  // Decide if this item needs full mailing address (Pre-Reg / Directory)
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory";
 
-  // Build attendee rows for this category
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
     categories: [String(kind).toLowerCase()],
@@ -899,8 +870,6 @@ async function sendItemReportEmailInternal({
           .includes(String(label).toLowerCase()))
   );
 
-  // --- Chair XLSX columns ---
-  // Default columns for chairman reports
   let EMAIL_COLUMNS = [
     "#",
     "date",
@@ -923,7 +892,6 @@ async function sendItemReportEmailInternal({
     notes: "Notes",
   };
 
-  // ADD full mailing address for Pre-Registration and Directory ONLY
   if (includeAddressForThisItem) {
     EMAIL_COLUMNS = [
       "#",
@@ -965,7 +933,6 @@ async function sendItemReportEmailInternal({
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
 
-  // Number rows ONLY when there is an attendee name; keep # blank otherwise
   const numbered = sorted.map((r) => {
     const hasAttendee = String(r.attendee || "").trim().length > 0;
     const baseRow = {
@@ -1008,22 +975,17 @@ async function sendItemReportEmailInternal({
   );
   const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
 
-  // Build a nice filename: <ItemName>_<YYYY-MM-DD>.xlsx
   const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+  const dateStr = today.toISOString().slice(0, 10);
   const baseNameRaw = label || id || "report";
   const baseName = baseNameRaw
-    .replace(/[^a-z0-9]+/gi, "_") // turn spaces & punctuation into _
-    .replace(/^_+|_+$/g, ""); // trim leading/trailing _
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "");
 
   const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
-  // ---------- RECIPIENTS (To + Admin BCC) ----------
-
-  // Per-item chair emails from KV (banquets/addons/products/legacy itemcfg)
   const toListPref = await getChairEmailsForItemId(id);
 
-  // Pull effective REPORTS_CC / REPORTS_BCC (respects /settings overrides)
   const { effective } = await getEffectiveSettings();
 
   const safeSplit = (val) =>
@@ -1032,7 +994,6 @@ async function sendItemReportEmailInternal({
       .map((s) => s.trim())
       .filter(Boolean);
 
-  // If no per-item chairs, fall back to configured CC/BCC so reports still go somewhere
   const envFallback = safeSplit(
     effective.REPORTS_CC ||
       effective.REPORTS_BCC ||
@@ -1043,7 +1004,6 @@ async function sendItemReportEmailInternal({
 
   const toList = toListPref.length ? toListPref : envFallback;
 
-  // Admin BCC list: always BCC these on chair reports (but avoid duplicate addresses)
   const adminBccBase = safeSplit(
     effective.REPORTS_BCC ||
       effective.REPORTS_CC ||
@@ -1055,7 +1015,6 @@ async function sendItemReportEmailInternal({
     (addr) => !toList.includes(addr)
   );
 
-  // Require at least one address somewhere
   if (!toList.length && !bccList.length)
     return { ok: false, error: "no-recipient" };
 
@@ -1073,14 +1032,14 @@ async function sendItemReportEmailInternal({
   try {
     const sendResult = await resend.emails.send({
       from: RESEND_FROM,
-      to: toList.length ? toList : bccList, // if only BCC exists, send them as "to"
+      to: toList.length ? toList : bccList,
       bcc: toList.length && bccList.length ? bccList : undefined,
       subject,
       html: tablePreview,
       reply_to: REPLY_TO || undefined,
       attachments: [
         {
-          filename, // e.g. Pre_Registration_2025-11-15.xlsx
+          filename,
           content: xlsxB64,
         },
       ],
@@ -1114,7 +1073,7 @@ async function sendItemReportEmailInternal({
   }
 }
 
-// ---- NEW: real-time per-order chair emails for CATALOG items ----
+// ---- real-time per-order chair emails for CATALOG items ----
 const REALTIME_CHAIR_KEY_PREFIX = "order:catalog_chairs_sent:";
 
 async function sendRealtimeChairEmailsForOrder(order) {
@@ -1126,7 +1085,6 @@ async function sendRealtimeChairEmailsForOrder(order) {
     const cat = String(li.category || "").toLowerCase();
     const metaType = String(li.meta?.itemType || "").toLowerCase();
 
-    // Only fire for PRODUCT CATALOG items
     const isCatalog =
       cat === "catalog" || metaType === "catalog";
 
@@ -1145,7 +1103,7 @@ async function sendRealtimeChairEmailsForOrder(order) {
       kind: cat || "catalog",
       id,
       label,
-      scope: "full", // full history for that item (like directory/pre-reg chairs)
+      scope: "full",
     });
 
     if (result.ok) sent += 1;
@@ -1158,7 +1116,7 @@ async function maybeSendRealtimeChairEmails(order) {
   if (!order?.id) return;
   const key = `${REALTIME_CHAIR_KEY_PREFIX}${order.id}`;
   const already = await kvGetSafe(key, null);
-  if (already) return; // already sent for this order
+  if (already) return;
 
   try {
     await sendRealtimeChairEmailsForOrder(order);
@@ -1168,7 +1126,7 @@ async function maybeSendRealtimeChairEmails(order) {
   }
 }
 
-// -------------- (start of main handler) --------------
+// -------------- main handler --------------
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1177,7 +1135,6 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
-      // --- Smoketest ---
       if (type === "smoketest") {
         const out = {
           ok: true,
@@ -1193,7 +1150,7 @@ export default async function handler(req, res) {
         };
         try {
           await kv.set("smoketest:key", "ok", { ex: 30 });
-        } catch (e) {}
+        } catch {}
         try {
           const v = await kv.get("smoketest:key");
           out.kvSetGetOk = v === "ok";
@@ -1203,7 +1160,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, out);
       }
 
-      // --- Last sent mail visibility
       if (type === "lastmail") {
         const data = await kvGetSafe(MAIL_LOG_KEY, {
           note: "no recent email log",
@@ -1230,7 +1186,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // Publishable key
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         return REQ_OK(res, {
           publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "",
@@ -1257,7 +1212,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // ----- Orders (JSON) -----
       if (type === "orders") {
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
@@ -1266,12 +1220,10 @@ export default async function handler(req, res) {
           if (o) all.push(...flattenOrderToRows(o));
         }
 
-        // query params
-        const daysParam = url.searchParams.get("days"); // ?days=7
-        const startParam = url.searchParams.get("start"); // ?start=2025-11-01
-        const endParam = url.searchParams.get("end"); // ?end=2025-11-10
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
 
-        // settings fallback
         const { effective } = await getEffectiveSettings();
         const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
         const cfgStart = effective.EVENT_START || "";
@@ -1307,7 +1259,6 @@ export default async function handler(req, res) {
           });
         }
 
-        // Optional fuzzy text search (?q=Linda / beef / vegetarian)
         const q = (url.searchParams.get("q") || "")
           .trim()
           .toLowerCase();
@@ -1327,7 +1278,6 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW precise filters (normalized, with base id support)
         const catParam = (
           url.searchParams.get("category") || ""
         ).toLowerCase();
@@ -1369,13 +1319,11 @@ export default async function handler(req, res) {
           );
         }
 
-        // DATE ORDER: ASC
         rows = sortByDateAsc(rows, "date");
 
         return REQ_OK(res, { rows });
       }
 
-      // ----- Orders (XLSX; route name kept as *_csv for compatibility) -----
       if (type === "orders_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
@@ -1442,7 +1390,6 @@ export default async function handler(req, res) {
           );
         }
 
-        // NEW precise filters (normalized, with base id support)
         const catParam = (
           url.searchParams.get("category") || ""
         ).toLowerCase();
@@ -1528,9 +1475,7 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // ----- Attendee Roster (XLSX: NO address) -----
       if (type === "attendee_roster_csv") {
-        // Gather orders
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
         for (const sid of ids) {
@@ -1538,7 +1483,6 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
-        // window (like /orders)
         const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam = url.searchParams.get("end");
@@ -1596,9 +1540,7 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // ----- Directory / Pre-registration (XLSX: WITH address) -----
       if (type === "directory_csv") {
-        // Gather orders
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
         for (const sid of ids) {
@@ -1606,7 +1548,6 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
-        // window
         const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam = url.searchParams.get("end");
@@ -1669,7 +1610,6 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // ----- Full Attendee List (XLSX: unique, numbered, WITH full address) -----
       if (type === "full_attendees_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -1678,7 +1618,6 @@ export default async function handler(req, res) {
           if (o) orders.push(o);
         }
 
-        // Optional window (?days, ?start, ?end)
         const daysParam = url.searchParams.get("days");
         const startParam = url.searchParams.get("start");
         const endParam = url.searchParams.get("end");
@@ -1693,13 +1632,11 @@ export default async function handler(req, res) {
           endMs = parseYMD(endParam);
         }
 
-        // We only need banquet/addon attendees; NOW include full address for this list.
         const cats = (url.searchParams.get("category") || "banquet,addon")
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean);
 
-        // Collect, filter by window, then DEDUPE by attendee (name + email + phone)
         const rosterAll = collectAttendeesFromOrders(orders, {
           includeAddress: true,
           categories: cats,
@@ -1707,7 +1644,6 @@ export default async function handler(req, res) {
           endMs: isNaN(endMs) ? undefined : endMs,
         });
 
-        // Keep rows that have an attendee name (those are the ones we count & number)
         const withAttendee = rosterAll.filter(
           (r) => String(r.attendee || "").trim().length > 0
         );
@@ -1723,7 +1659,6 @@ export default async function handler(req, res) {
           if (!prev) {
             map.set(key, r);
           } else {
-            // Keep EARLIEST date (so final sort by date ASC is stable)
             const tPrev = parseDateISO(prev.date);
             const tNew = parseDateISO(r.date);
             if (
@@ -1736,7 +1671,6 @@ export default async function handler(req, res) {
           }
         }
 
-        // Unique list, ASC by date
         const unique = sortByDateAsc(
           Array.from(map.values()),
           "date"
@@ -1788,7 +1722,6 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // Idempotent finalize via GET
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
@@ -1797,8 +1730,8 @@ export default async function handler(req, res) {
           (async () => {
             try {
               await sendOrderReceipts(order);
-              await maybeSendRealtimeChairEmails(order); // NEW: catalog chairs
-            } catch (e) {}
+              await maybeSendRealtimeChairEmails(order);
+            } catch {}
           })();
           return REQ_OK(res, {
             ok: true,
@@ -1813,7 +1746,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // Fetch one saved order
       if (type === "order") {
         const oid = String(url.searchParams.get("oid") || "").trim();
         if (!oid) return REQ_ERR(res, 400, "missing-oid");
@@ -1895,6 +1827,194 @@ export default async function handler(req, res) {
         }
       }
 
+      // --- NEW: Contact form (no auth) ---
+      if (action === "contact_form") {
+        if (!resend && !CONTACT_TO)
+          return REQ_ERR(res, 500, "resend-not-configured");
+
+        const {
+          name = "",
+          email = "",
+          phone = "",
+          topic = "",
+          page = "",
+          item = "",
+          message: msg = "",
+        } = body || {};
+
+        const missing = [];
+        if (!String(name).trim()) missing.push("name");
+        if (!String(email).trim()) missing.push("email");
+        if (!String(topic).trim()) missing.push("topic");
+        if (!String(msg).trim()) missing.push("message");
+        if (missing.length) {
+          return REQ_ERR(res, 400, "missing-fields", { missing });
+        }
+
+        const topicMap = {
+          banquets: "Banquets / meal choices",
+          addons: "Grand Court add-ons (directory, love gifts, etc.)",
+          catalog: "Product catalog / merchandise items",
+          order: "Order / checkout issues",
+          website: "Website or technical problem",
+          general: "General question",
+        };
+        const pageMap = {
+          home: "Home",
+          banquet: "Banquets page",
+          addons: "Grand Court Add-Ons page",
+          catalog: "Product Catalog page",
+          order: "Order page",
+        };
+
+        const topicLabel =
+          topicMap[String(topic).toLowerCase()] ||
+          String(topic) ||
+          "General question";
+        const pageLabel =
+          pageMap[String(page).toLowerCase()] || String(page) || "";
+
+        const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
+        const safe = (s) => String(s || "").trim();
+
+        const createdIso = new Date().toISOString();
+        const ua = req.headers["user-agent"] || "";
+        const ip =
+          req.headers["x-forwarded-for"] ||
+          req.headers["x-real-ip"] ||
+          req.socket?.remoteAddress ||
+          "";
+
+        const html = `
+          <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
+            <h2 style="margin-bottom:4px;">Website Contact Form</h2>
+            <p style="margin:2px 0;">Time (UTC): ${esc(createdIso)}</p>
+            <p style="margin:2px 0;">Topic: <b>${esc(topicLabel)}</b></p>
+            ${
+              pageLabel
+                ? `<p style="margin:2px 0;">Page: <b>${esc(pageLabel)}</b></p>`
+                : ""
+            }
+            <table style="border-collapse:collapse;border:1px solid #ccc;margin-top:10px;font-size:13px;">
+              <tbody>
+                <tr>
+                  <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Name</th>
+                  <td style="padding:4px 6px;border:1px solid #ddd;">${esc(name)}</td>
+                </tr>
+                <tr>
+                  <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Email</th>
+                  <td style="padding:4px 6px;border:1px solid #ddd;">${esc(email)}</td>
+                </tr>
+                <tr>
+                  <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Phone</th>
+                  <td style="padding:4px 6px;border:1px solid #ddd;">${esc(phone)}</td>
+                </tr>
+                <tr>
+                  <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Topic</th>
+                  <td style="padding:4px 6px;border:1px solid #ddd;">${esc(topicLabel)}</td>
+                </tr>
+                ${
+                  pageLabel
+                    ? `<tr>
+                        <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Page</th>
+                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(
+                          pageLabel
+                        )}</td>
+                      </tr>`
+                    : ""
+                }
+                ${
+                  item
+                    ? `<tr>
+                        <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Item</th>
+                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(
+                          item
+                        )}</td>
+                      </tr>`
+                    : ""
+                }
+                <tr>
+                  <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;vertical-align:top;">Message</th>
+                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(
+                    msg
+                  )}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top:10px;font-size:12px;color:#555;">
+              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
+            </p>
+          </div>
+        `;
+
+        const { effective } = await getEffectiveSettings();
+        const split = (val) =>
+          String(val || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        const toList = [CONTACT_TO].filter(Boolean);
+        const adminBccBase = split(
+          effective.REPORTS_BCC ||
+            effective.REPORTS_CC ||
+            process.env.REPORTS_BCC ||
+            process.env.REPORTS_CC ||
+            ""
+        );
+        const senderEmail = safe(email).toLowerCase();
+        const bccList = adminBccBase.filter(
+          (addr) =>
+            !toList.includes(addr) &&
+            addr.toLowerCase() !== senderEmail
+        );
+
+        if (!toList.length && !bccList.length) {
+          return REQ_ERR(res, 500, "no-recipient");
+        }
+        if (!resend) {
+          return REQ_ERR(res, 500, "resend-not-configured");
+        }
+
+        const subject = `Website contact — ${topicLabel}`;
+
+        try {
+          const sendResult = await resend.emails.send({
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: toList.length ? toList : bccList,
+            bcc: toList.length && bccList.length ? bccList : undefined,
+            subject,
+            html,
+            reply_to: senderEmail || REPLY_TO || undefined,
+          });
+
+          await recordMailLog({
+            ts: Date.now(),
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: [...toList, ...bccList],
+            subject,
+            kind: "contact-form",
+            status: "queued",
+            resultId: sendResult?.id || null,
+          });
+
+          return REQ_OK(res, { ok: true });
+        } catch (e) {
+          await recordMailLog({
+            ts: Date.now(),
+            from: RESEND_FROM || "onboarding@resend.dev",
+            to: [...toList, ...bccList],
+            subject,
+            kind: "contact-form",
+            status: "error",
+            error: String(e?.message || e),
+          });
+          return REQ_ERR(res, 500, "contact-send-failed", {
+            message: e?.message || String(e),
+          });
+        }
+      }
+
       // --- Finalize (save + email) from success page ---
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
@@ -1904,7 +2024,7 @@ export default async function handler(req, res) {
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         const order = await saveOrderFromSession({ id: sid });
         await sendOrderReceipts(order);
-        await maybeSendRealtimeChairEmails(order); // NEW: catalog chairs on finalize
+        await maybeSendRealtimeChairEmails(order);
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
@@ -1983,7 +2103,6 @@ export default async function handler(req, res) {
                     attendeeNotes: l.meta?.attendeeNotes || "",
                     dietaryNote: l.meta?.dietaryNote || "",
                     itemNote: l.meta?.itemNote || "",
-                    // directory address
                     attendeeAddr1: l.meta?.attendeeAddr1 || "",
                     attendeeAddr2: l.meta?.attendeeAddr2 || "",
                     attendeeCity: l.meta?.attendeeCity || "",
@@ -2037,7 +2156,6 @@ export default async function handler(req, res) {
             });
           }
 
-          // (PATCH) Send full purchaser block via metadata so we can prefer it later
           const session = await getStripe().then((stripe) =>
             stripe.checkout.sessions.create({
               mode: "payment",
@@ -2067,7 +2185,6 @@ export default async function handler(req, res) {
           });
         }
 
-        // Legacy branch (simple items)
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length)
           return REQ_ERR(res, 400, "no-items");
@@ -2094,7 +2211,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // ---- Stripe webhook ----
       if (action === "stripe_webhook") {
         const stripe = await getStripe();
         if (!stripe)
@@ -2140,7 +2256,7 @@ export default async function handler(req, res) {
             (async () => {
               try {
                 await sendOrderReceipts(order);
-                await maybeSendRealtimeChairEmails(order); // NEW: catalog chairs on webhook finalize
+                await maybeSendRealtimeChairEmails(order);
               } catch (err) {
                 console.error(
                   "email-failed",
@@ -2162,7 +2278,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { received: true });
       }
 
-      // --- PUBLIC: register an item config (chairs/addons/products/banquets) ---
       if (action === "register_item") {
         const {
           id = "",
@@ -2201,7 +2316,6 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
-      // Manual report sends (hook to existing scripts)
       if (action === "send_full_report") {
         try {
           const mod = await import("./admin/send-full.js");
@@ -2225,9 +2339,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // (NEW) Bulk: send MONTHLY reports to current banquet/addon/catalog chairs ONLY
-      // We derive the list from the *current* banquets/addons/products arrays,
-      // not from every historical itemcfg entry. This avoids ghost/retired items.
       if (action === "send_monthly_chair_reports") {
         const now = Date.now();
 
@@ -2257,10 +2368,9 @@ export default async function handler(req, res) {
         let errors = 0;
         let skipped = 0;
 
-        const itemsLog = []; // NEW: build a log for this run
+        const itemsLog = [];
 
         for (const item of queue) {
-          // Look up itemcfg for publishStart/publishEnd + chairs, if present
           const cfg = await kvHgetallSafe(`itemcfg:${item.id}`);
           const publishStartMs = cfg?.publishStart
             ? Date.parse(cfg.publishStart)
@@ -2269,7 +2379,6 @@ export default async function handler(req, res) {
             ? Date.parse(cfg.publishEnd)
             : NaN;
 
-          // If publishStart is in the future, or publishEnd is in the past, skip this item.
           if (!isNaN(publishStartMs) && now < publishStartMs) {
             skipped += 1;
             continue;
@@ -2317,7 +2426,6 @@ export default async function handler(req, res) {
           else errors += 1;
         }
 
-        // --- NEW: send a summary email of this cron run to REPORTS_LOG_TO ---
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
             .map((s) => s.trim())
@@ -2414,7 +2522,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // (NEW) Bulk: send END-OF-EVENT reports to chairs where publishEnd has passed (idempotent)
       if (action === "send_end_of_event_reports") {
         const now = Date.now();
         const ids = await kvSmembersSafe("itemcfg:index");
@@ -2471,7 +2578,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // Clear only the index set (orders remain saved under order:<id>)
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
         return REQ_OK(res, {
@@ -2480,7 +2586,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // create_refund
       if (action === "create_refund") {
         const stripe = await getStripe();
         if (!stripe)
@@ -2519,7 +2624,6 @@ export default async function handler(req, res) {
           : [];
         await kvSetSafe("banquets", list);
 
-        // Mirror chair emails into legacy itemcfg:* so older code paths stay in sync (NEW)
         try {
           if (Array.isArray(list)) {
             for (const b of list) {
@@ -2558,7 +2662,6 @@ export default async function handler(req, res) {
           : [];
         await kvSetSafe("addons", list);
 
-        // Mirror chair emails for addons as well (NEW)
         try {
           if (Array.isArray(list)) {
             for (const a of list) {
@@ -2597,7 +2700,6 @@ export default async function handler(req, res) {
           : [];
         await kvSetSafe("products", list);
 
-        // NEW: mirror product catalog chairs into itemcfg:* so sendItemReport + chair lookups work
         try {
           if (Array.isArray(list)) {
             for (const p of list) {
@@ -2616,7 +2718,7 @@ export default async function handler(req, res) {
               const cfg = {
                 id,
                 name,
-                kind: "catalog", // aligns with category "catalog" from itemType
+                kind: "catalog",
                 chairEmails,
                 publishStart: p?.publishStart || "",
                 publishEnd: p?.publishEnd || "",
