@@ -19,6 +19,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // ---- Mail “From / Reply-To” (sanitized) ----
 const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
 const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
+const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // NEW: log recipients for monthly cron summary
 
 const REQ_OK  = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
@@ -2256,6 +2257,8 @@ export default async function handler(req, res) {
         let errors = 0;
         let skipped = 0;
 
+        const itemsLog = []; // NEW: build a log for this run
+
         for (const item of queue) {
           // Look up itemcfg for publishStart/publishEnd + chairs, if present
           const cfg = await kvHgetallSafe(`itemcfg:${item.id}`);
@@ -2288,8 +2291,118 @@ export default async function handler(req, res) {
             label,
             scope: "current-month",
           });
+
+          console.log("[monthly_chair_reports:item]", {
+            itemId: item.id,
+            kind,
+            label,
+            ok: result.ok,
+            count: result.count,
+            to: result.to,
+            bcc: result.bcc,
+          });
+
+          itemsLog.push({
+            id: item.id,
+            label,
+            kind,
+            ok: !!result.ok,
+            count: result.count ?? 0,
+            to: Array.isArray(result.to) ? result.to : [],
+            bcc: Array.isArray(result.bcc) ? result.bcc : [],
+            error: !result.ok ? (result.error || result.message || "") : "",
+          });
+
           if (result.ok) sent += 1;
           else errors += 1;
+        }
+
+        // --- NEW: send a summary email of this cron run to REPORTS_LOG_TO ---
+        try {
+          const logRecipients = REPORTS_LOG_TO.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          if (resend && logRecipients.length) {
+            const ts = new Date();
+            const dateStr = ts.toISOString().slice(0, 10);
+            const timeStr = ts.toISOString();
+
+            const esc = (s) =>
+              String(s || "").replace(/</g, "&lt;");
+
+            const rowsHtml = itemsLog.length
+              ? itemsLog
+                  .map(
+                    (it, idx) => `
+              <tr>
+                <td style="padding:4px;border:1px solid #ddd;">${idx + 1}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.id)}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.label)}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.kind)}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${it.ok ? "OK" : "ERROR"}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${it.count}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.to.join(", "))}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.bcc.join(", "))}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(it.error)}</td>
+              </tr>`
+                  )
+                  .join("")
+              : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
+
+            const html = `
+              <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
+                <h2 style="margin-bottom:4px;">Monthly Chair Reports Log</h2>
+                <p style="margin:2px 0;">Time (UTC): ${esc(timeStr)}</p>
+                <p style="margin:2px 0;">Scope: <b>current-month</b></p>
+                <p style="margin:6px 0 10px;">
+                  Sent: <b>${sent}</b> &nbsp; | &nbsp;
+                  Skipped (publish window): <b>${skipped}</b> &nbsp; | &nbsp;
+                  Errors: <b>${errors}</b>
+                </p>
+                <table style="border-collapse:collapse;border:1px solid #ccc;font-size:13px;">
+                  <thead>
+                    <tr>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">#</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">ID</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Label</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Kind</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Status</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Rows</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">To</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">BCC</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rowsHtml}
+                  </tbody>
+                </table>
+              </div>
+            `;
+
+            const subject = `Monthly chair report log — ${dateStr}`;
+
+            const sendResult = await resend.emails.send({
+              from: RESEND_FROM || "onboarding@resend.dev",
+              to: logRecipients,
+              subject,
+              html,
+              reply_to: REPLY_TO || undefined,
+            });
+
+            await recordMailLog({
+              ts: Date.now(),
+              from: RESEND_FROM || "onboarding@resend.dev",
+              to: logRecipients,
+              subject,
+              resultId: sendResult?.id || null,
+              kind: "monthly-log",
+              status: "queued",
+            });
+          }
+        } catch (e) {
+          console.error("monthly_log_email_failed", e?.message || e);
         }
 
         return REQ_OK(res, {
