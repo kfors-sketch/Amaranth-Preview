@@ -49,7 +49,14 @@
       border: 1px solid #d1d5db;
       border-radius: 6px;
     }
-    .actions { text-align: right; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
     .btn-primary {
       padding: .55rem 1.2rem;
       border-radius: 999px;
@@ -57,6 +64,20 @@
       background: #860000;
       color: #fff;
       font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-secondary {
+      padding: .55rem 1.1rem;
+      border-radius: 999px;
+      border: 1px solid #6b7280;
+      background: #f3f4f6;
+      color: #111827;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .status {
+      font-size: 0.9rem;
+      min-height: 1.2em;
     }
     .status.ok { color:#065f46; }
     .status.err { color:#b91c1c; }
@@ -149,6 +170,7 @@
         </div>
 
         <div class="actions full-width">
+          <button type="button" class="btn-secondary" onclick="history.back()">Close</button>
           <button type="submit" class="btn-primary" id="cf-submit">Send Message</button>
           <div class="status" id="cf-status"></div>
         </div>
