@@ -41,6 +41,49 @@ async function kvHgetallSafe(key)            { try { return (await kv.hgetall(ke
 async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
 async function kvDelSafe(key)                { try { await kv.del(key); return true; } catch { return false; } }
 
+// Small sleep helper for retries
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Cached orders for the lifetime of a single lambda invocation
+let _ordersCache = null;
+let _ordersCacheLoadedAt = 0;
+
+// Load all orders with a few retries to be safer on cold starts
+async function loadAllOrdersWithRetry(options = {}) {
+  const { retries = 4, delayMs = 500 } = options;
+
+  if (Array.isArray(_ordersCache)) {
+    return _ordersCache;
+  }
+
+  let lastOrders = [];
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const idx = await kvSmembersSafe("orders:index");
+    const orders = [];
+    for (const sid of idx) {
+      const o = await kvGetSafe(`order:${sid}`, null);
+      if (o) orders.push(o);
+    }
+    lastOrders = orders;
+
+    // If there are any orders, or if there truly are no orders at all, stop retrying.
+    if (orders.length > 0 || idx.length === 0) {
+      _ordersCache = orders;
+      _ordersCacheLoadedAt = Date.now();
+      return orders;
+    }
+
+    if (attempt < retries - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  _ordersCache = lastOrders;
+  _ordersCacheLoadedAt = Date.now();
+  return lastOrders;
+}
+
 // --- Reporting / filtering helpers ---
 function parseDateISO(s) {
   if (!s) return NaN;
@@ -832,12 +875,8 @@ async function sendItemReportEmailInternal({
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
-  const idx = await kvSmembersSafe("orders:index");
-  const orders = [];
-  for (const sid of idx) {
-    const o = await kvGetSafe(`order:${sid}`, null);
-    if (o) orders.push(o);
-  }
+  // NEW: load all orders with a small retry window (helps cold start / timing issues)
+  const orders = await loadAllOrdersWithRetry();
 
   let startMs, endMs;
   if (scope === "current-month") {
@@ -2341,6 +2380,9 @@ export default async function handler(req, res) {
 
       if (action === "send_monthly_chair_reports") {
         const now = Date.now();
+
+        // Warm up orders cache once at the start of the run
+        await loadAllOrdersWithRetry();
 
         const banquets = (await kvGetSafe("banquets", [])) || [];
         const addons   = (await kvGetSafe("addons", [])) || [];
