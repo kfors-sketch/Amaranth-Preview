@@ -44,6 +44,26 @@ async function kvDelSafe(key)                { try { await kv.del(key); return t
 // Small sleep helper for retries
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ---- Email retry helper (3 attempts, spacing 2s → 5s → 10s) ----
+async function sendWithRetry(sendFn, label = "email") {
+  const attempts = [0, 2000, 5000, 10000];
+  let lastErr = null;
+
+  for (let i = 1; i <= 3; i++) {
+    try {
+      if (attempts[i] > 0) {
+        await sleep(attempts[i]);
+      }
+      const result = await sendFn();
+      return { ok: true, attempt: i, result };
+    } catch (err) {
+      lastErr = err;
+      console.error(`Retry ${i} failed for ${label}:`, err);
+    }
+  }
+  return { ok: false, error: lastErr };
+}
+
 // Cached orders for the lifetime of a single lambda invocation
 let _ordersCache = null;
 let _ordersCacheLoadedAt = 0;
@@ -651,15 +671,23 @@ async function sendOrderReceipts(order) {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Purchaser receipt (with retry)
   if (purchaserEmail) {
-    try {
-      const sendResult = await resend.emails.send({
-        from: RESEND_FROM,
-        to: [purchaserEmail],
-        subject,
-        html,
-        reply_to: REPLY_TO || undefined,
-      });
+    const payload = {
+      from: RESEND_FROM,
+      to: [purchaserEmail],
+      subject,
+      html,
+      reply_to: REPLY_TO || undefined,
+    };
+
+    const retry = await sendWithRetry(
+      () => resend.emails.send(payload),
+      `receipt:purchaser:${order.id}`
+    );
+
+    if (retry.ok) {
+      const sendResult = retry.result;
       await recordMailLog({
         ts: Date.now(),
         from: RESEND_FROM,
@@ -668,8 +696,10 @@ async function sendOrderReceipts(order) {
         orderId: order?.id || "",
         resultId: sendResult?.id || null,
         status: "queued",
+        kind: "receipt-purchaser",
       });
-    } catch (err) {
+    } else {
+      const err = retry.error;
       await recordMailLog({
         ts: Date.now(),
         from: RESEND_FROM,
@@ -678,20 +708,29 @@ async function sendOrderReceipts(order) {
         orderId: order?.id || "",
         resultId: null,
         status: "error",
+        kind: "receipt-purchaser",
         error: String(err?.message || err),
       });
     }
   }
 
+  // Admin copy (with retry)
   if (adminList.length) {
-    try {
-      const sendResult = await resend.emails.send({
-        from: RESEND_FROM,
-        to: adminList,
-        subject: `${subject} (admin copy)`,
-        html,
-        reply_to: REPLY_TO || undefined,
-      });
+    const payloadAdmin = {
+      from: RESEND_FROM,
+      to: adminList,
+      subject: `${subject} (admin copy)`,
+      html,
+      reply_to: REPLY_TO || undefined,
+    };
+
+    const retryAdmin = await sendWithRetry(
+      () => resend.emails.send(payloadAdmin),
+      `receipt:admin:${order.id}`
+    );
+
+    if (retryAdmin.ok) {
+      const sendResult = retryAdmin.result;
       await recordMailLog({
         ts: Date.now(),
         from: RESEND_FROM,
@@ -700,8 +739,10 @@ async function sendOrderReceipts(order) {
         orderId: order?.id || "",
         resultId: sendResult?.id || null,
         status: "queued",
+        kind: "receipt-admin",
       });
-    } catch (err) {
+    } else {
+      const err = retryAdmin.error;
       await recordMailLog({
         ts: Date.now(),
         from: RESEND_FROM,
@@ -710,6 +751,7 @@ async function sendOrderReceipts(order) {
         orderId: order?.id || "",
         resultId: null,
         status: "error",
+        kind: "receipt-admin",
         error: String(err?.message || err),
       });
     }
@@ -1068,21 +1110,28 @@ async function sendItemReportEmailInternal({
       <div style="font-size:12px;color:#555">Scope: ${scope}</div>
     </div>`;
 
-  try {
-    const sendResult = await resend.emails.send({
-      from: RESEND_FROM,
-      to: toList.length ? toList : bccList,
-      bcc: toList.length && bccList.length ? bccList : undefined,
-      subject,
-      html: tablePreview,
-      reply_to: REPLY_TO || undefined,
-      attachments: [
-        {
-          filename,
-          content: xlsxB64,
-        },
-      ],
-    });
+  const payload = {
+    from: RESEND_FROM,
+    to: toList.length ? toList : bccList,
+    bcc: toList.length && bccList.length ? bccList : undefined,
+    subject,
+    html: tablePreview,
+    reply_to: REPLY_TO || undefined,
+    attachments: [
+      {
+        filename,
+        content: xlsxB64,
+      },
+    ],
+  };
+
+  const retry = await sendWithRetry(
+    () => resend.emails.send(payload),
+    `item-report:${kind}:${id}`
+  );
+
+  if (retry.ok) {
+    const sendResult = retry.result;
     await recordMailLog({
       ts: Date.now(),
       from: RESEND_FROM,
@@ -1093,7 +1142,8 @@ async function sendItemReportEmailInternal({
       status: "queued",
     });
     return { ok: true, count: sorted.length, to: toList, bcc: bccList };
-  } catch (e) {
+  } else {
+    const err = retry.error;
     await recordMailLog({
       ts: Date.now(),
       from: RESEND_FROM,
@@ -1102,12 +1152,12 @@ async function sendItemReportEmailInternal({
       resultId: null,
       kind: "item-report",
       status: "error",
-      error: String(e?.message || e),
+      error: String(err?.message || err),
     });
     return {
       ok: false,
       error: "send-failed",
-      message: e?.message || String(e),
+      message: err?.message || String(err),
     };
   }
 }
@@ -1827,14 +1877,21 @@ export default async function handler(req, res) {
           <p>From: ${RESEND_FROM || ""}</p>
         </div>`;
 
-        try {
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM || "onboarding@resend.dev",
-            to: [to],
-            subject: "Amaranth test email",
-            html,
-            reply_to: REPLY_TO || undefined,
-          });
+        const payload = {
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: [to],
+          subject: "Amaranth test email",
+          html,
+          reply_to: REPLY_TO || undefined,
+        };
+
+        const retry = await sendWithRetry(
+          () => resend.emails.send(payload),
+          "manual-test"
+        );
+
+        if (retry.ok) {
+          const sendResult = retry.result;
           await recordMailLog({
             ts: Date.now(),
             from: RESEND_FROM || "onboarding@resend.dev",
@@ -1849,7 +1906,8 @@ export default async function handler(req, res) {
             id: sendResult?.id || null,
             to,
           });
-        } catch (e) {
+        } else {
+          const err = retry.error;
           await recordMailLog({
             ts: Date.now(),
             from: RESEND_FROM || "onboarding@resend.dev",
@@ -1858,10 +1916,10 @@ export default async function handler(req, res) {
             resultId: null,
             kind: "manual-test",
             status: "error",
-            error: String(e?.message || e),
+            error: String(err?.message || err),
           });
           return REQ_ERR(res, 500, "resend-send-failed", {
-            message: e?.message || String(e),
+            message: err?.message || String(err),
           });
         }
       }
@@ -2017,16 +2075,22 @@ export default async function handler(req, res) {
 
         const subject = `Website contact — ${topicLabel}`;
 
-        try {
-          const sendResult = await resend.emails.send({
-            from: RESEND_FROM || "onboarding@resend.dev",
-            to: toList.length ? toList : bccList,
-            bcc: toList.length && bccList.length ? bccList : undefined,
-            subject,
-            html,
-            reply_to: senderEmail || REPLY_TO || undefined,
-          });
+        const payload = {
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: toList.length ? toList : bccList,
+          bcc: toList.length && bccList.length ? bccList : undefined,
+          subject,
+          html,
+          reply_to: senderEmail || REPLY_TO || undefined,
+        };
 
+        const retry = await sendWithRetry(
+          () => resend.emails.send(payload),
+          "contact-form"
+        );
+
+        if (retry.ok) {
+          const sendResult = retry.result;
           await recordMailLog({
             ts: Date.now(),
             from: RESEND_FROM || "onboarding@resend.dev",
@@ -2038,7 +2102,8 @@ export default async function handler(req, res) {
           });
 
           return REQ_OK(res, { ok: true });
-        } catch (e) {
+        } else {
+          const err = retry.error;
           await recordMailLog({
             ts: Date.now(),
             from: RESEND_FROM || "onboarding@resend.dev",
@@ -2046,10 +2111,10 @@ export default async function handler(req, res) {
             subject,
             kind: "contact-form",
             status: "error",
-            error: String(e?.message || e),
+            error: String(err?.message || err),
           });
           return REQ_ERR(res, 500, "contact-send-failed", {
-            message: e?.message || String(e),
+            message: err?.message || String(err),
           });
         }
       }
@@ -2533,23 +2598,43 @@ export default async function handler(req, res) {
 
             const subject = `Monthly chair report log — ${dateStr}`;
 
-            const sendResult = await resend.emails.send({
+            const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
               to: logRecipients,
               subject,
               html,
               reply_to: REPLY_TO || undefined,
-            });
+            };
 
-            await recordMailLog({
-              ts: Date.now(),
-              from: RESEND_FROM || "onboarding@resend.dev",
-              to: logRecipients,
-              subject,
-              resultId: sendResult?.id || null,
-              kind: "monthly-log",
-              status: "queued",
-            });
+            const retry = await sendWithRetry(
+              () => resend.emails.send(payload),
+              "monthly-log"
+            );
+
+            if (retry.ok) {
+              const sendResult = retry.result;
+              await recordMailLog({
+                ts: Date.now(),
+                from: payload.from,
+                to: logRecipients,
+                subject,
+                resultId: sendResult?.id || null,
+                kind: "monthly-log",
+                status: "queued",
+              });
+            } else {
+              const err = retry.error;
+              await recordMailLog({
+                ts: Date.now(),
+                from: payload.from,
+                to: logRecipients,
+                subject,
+                resultId: null,
+                kind: "monthly-log",
+                status: "error",
+                error: String(err?.message || err),
+              });
+            }
           }
         } catch (e) {
           console.error("monthly_log_email_failed", e?.message || e);
