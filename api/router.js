@@ -2486,20 +2486,46 @@ export default async function handler(req, res) {
             ? Date.parse(cfg.publishEnd)
             : NaN;
 
-          if (!isNaN(publishStartMs) && now < publishStartMs) {
-            skipped += 1;
-            continue;
-          }
-          if (!isNaN(publishEndMs) && now > publishEndMs) {
-            skipped += 1;
-            continue;
-          }
-
+          const label = cfg?.name || item.label || item.id;
           const kind =
             String(cfg?.kind || "").toLowerCase() ||
             item.kind;
 
-          const label = cfg?.name || item.label || item.id;
+          // --- SKIPPED: before publish window ---
+          if (!isNaN(publishStartMs) && now < publishStartMs) {
+            skipped += 1;
+            itemsLog.push({
+              id: item.id,
+              label,
+              kind,
+              ok: false,
+              skipped: true,
+              skipReason: "Not yet open (publishStart in future)",
+              count: 0,
+              to: [],
+              bcc: [],
+              error: "",
+            });
+            continue;
+          }
+
+          // --- SKIPPED: after publish window ---
+          if (!isNaN(publishEndMs) && now > publishEndMs) {
+            skipped += 1;
+            itemsLog.push({
+              id: item.id,
+              label,
+              kind,
+              ok: false,
+              skipped: true,
+              skipReason: "Closed (publishEnd in past)",
+              count: 0,
+              to: [],
+              bcc: [],
+              error: "",
+            });
+            continue;
+          }
 
           const result = await sendItemReportEmailInternal({
             kind,
@@ -2523,6 +2549,8 @@ export default async function handler(req, res) {
             label,
             kind,
             ok: !!result.ok,
+            skipped: false,
+            skipReason: "",
             count: result.count ?? 0,
             to: Array.isArray(result.to) ? result.to : [],
             bcc: Array.isArray(result.bcc) ? result.bcc : [],
@@ -2548,20 +2576,30 @@ export default async function handler(req, res) {
 
             const rowsHtml = itemsLog.length
               ? itemsLog
-                  .map(
-                    (it, idx) => `
+                  .map((it, idx) => {
+                    const status = it.skipped
+                      ? "SKIPPED"
+                      : it.ok
+                        ? "OK"
+                        : "ERROR";
+                    const rowsLabel = it.skipped ? "-" : it.count;
+                    const errorText = it.skipped
+                      ? it.skipReason || ""
+                      : it.error || "";
+
+                    return `
               <tr>
                 <td style="padding:4px;border:1px solid #ddd;">${idx + 1}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(it.id)}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(it.label)}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(it.kind)}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${it.ok ? "OK" : "ERROR"}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${it.count}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.to.join(", "))}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.bcc.join(", "))}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.error)}</td>
-              </tr>`
-                  )
+                <td style="padding:4px;border:1px solid #ddd;">${esc(status)}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${rowsLabel}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc((it.to || []).join(", "))}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc((it.bcc || []).join(", "))}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(errorText)}</td>
+              </tr>`;
+                  })
                   .join("")
               : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
 
