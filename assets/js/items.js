@@ -16,8 +16,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
-    chairEmails: ["Pa_Sessions@Yahoo.com"],
+    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
+    chairEmails: ["pa_sessions@yahoo.com"],
     publishStart: "", // e.g. "2026-01-01T00:00:00-05:00"
     publishEnd: ""    // treat as "ordering closes" for FINAL if used
   },
@@ -35,8 +35,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
-    chairEmails: ["Pa_Sessions@Yahoo.com"],
+    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
+    chairEmails: ["pa_sessions@yahoo.com"],
     publishStart: "",
     publishEnd: ""
   },
@@ -59,8 +59,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "Pa_Sessions@Yahoo.com" },
-    chairEmails: ["Pa_Sessions@Yahoo.com"],
+    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
+    chairEmails: ["pa_sessions@yahoo.com"],
     publishStart: "",
     publishEnd: ""
   }
