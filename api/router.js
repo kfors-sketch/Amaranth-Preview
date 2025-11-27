@@ -2,6 +2,11 @@
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
+import {
+  isInternationalOrder,
+  computeInternationalFeeCents,
+  buildInternationalFeeLineItem,
+} from "./admin/fees.js";
 
 
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
