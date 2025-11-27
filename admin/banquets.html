@@ -233,7 +233,7 @@
   function normalizeBanquet(b){
     const out = {...b};
 
-    // price: prefer top-level price; else derive from options[0].price (options might be cents or dollars depending on legacy — assume dollars here)
+    // price: prefer top-level price; else derive from options[0].price
     if (out.price == null) {
       const opt0 = Array.isArray(out.options) && out.options[0] ? out.options[0] : null;
       if (opt0 && opt0.price != null) out.price = Number(opt0.price) || 0;
@@ -266,7 +266,7 @@
     out.publishStart = out.publishStart || '';
     out.publishEnd = out.publishEnd || '';
 
-    // NEW: normalize reportFrequency (for scheduler helper)
+    // normalize reportFrequency
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
     // remove legacy options to avoid writing them back out
@@ -292,15 +292,28 @@
       reportFrequency: normalizeFreq(b.reportFrequency || b.report_frequency || "monthly")
     })).filter(x => x.id && x.name);
 
+    if (!payloads.length) return { attempted: 0, ok: 0 };
+
+    // include admin token header, like other admin endpoints
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
     const results = await Promise.all(payloads.map(async p => {
       try {
         const r = await fetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(p)
         });
-        return r.ok;
-      } catch { return false; }
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          console.warn("register_item failed for", p.id, r.status, txt);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn("register_item error for", p.id, err);
+        return false;
+      }
     }));
 
     const ok = results.filter(Boolean).length;
@@ -582,9 +595,9 @@
     renderList();
 
     try{
-      const headers = { "Content-Type": "application/json" };
-      const t = localStorage.getItem("amaranth_report_token");
-      if (t) headers.Authorization = "Bearer " + t;
+      // include admin token
+      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
       // Always write new schema (price, reportFrequency), never legacy options
       const payload = normalizeAll(model).map(it => {
         const { options, ...rest } = it;
@@ -603,7 +616,8 @@
       const { attempted, ok } = await syncChairEmailConfigs(payload);
 
       $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
-    }catch{
+    }catch(e){
+      console.warn("Save/sync error:", e);
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
