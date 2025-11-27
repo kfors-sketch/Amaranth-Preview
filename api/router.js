@@ -2,6 +2,7 @@
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
+import { runScheduledChairReports } from "./admin/report-scheduler.js";
 
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
@@ -2444,123 +2445,18 @@ export default async function handler(req, res) {
       }
 
       if (action === "send_monthly_chair_reports") {
-        const now = Date.now();
-
-        // Warm up orders cache once at the start of the run
+        // Warm up orders cache once so the helper can reuse it
         await loadAllOrdersWithRetry();
 
-        const banquets = (await kvGetSafe("banquets", [])) || [];
-        const addons   = (await kvGetSafe("addons", [])) || [];
-        const products = (await kvGetSafe("products", [])) || [];
-
-        const queue = [];
-        const seenIds = new Set();
-
-        const pushItem = (kind, entry) => {
-          const id = String(entry?.id || "").trim();
-          if (!id || seenIds.has(id)) return;
-          seenIds.add(id);
-          queue.push({
-            kind,
-            id,
-            label: entry?.name || id,
-          });
-        };
-
-        for (const b of banquets) pushItem("banquet", b);
-        for (const a of addons) pushItem("addon", a);
-        for (const p of products) pushItem("catalog", p);
-
-        let sent = 0;
-        let errors = 0;
-        let skipped = 0;
-
-        const itemsLog = [];
-
-        for (const item of queue) {
-          const cfg = await kvHgetallSafe(`itemcfg:${item.id}`);
-          const publishStartMs = cfg?.publishStart
-            ? Date.parse(cfg.publishStart)
-            : NaN;
-          const publishEndMs = cfg?.publishEnd
-            ? Date.parse(cfg.publishEnd)
-            : NaN;
-
-          const label = cfg?.name || item.label || item.id;
-          const kind =
-            String(cfg?.kind || "").toLowerCase() ||
-            item.kind;
-
-          // --- SKIPPED: before publish window ---
-          if (!isNaN(publishStartMs) && now < publishStartMs) {
-            skipped += 1;
-            itemsLog.push({
-              id: item.id,
-              label,
-              kind,
-              ok: false,
-              skipped: true,
-              skipReason: "Not yet open (publishStart in future)",
-              count: 0,
-              to: [],
-              bcc: [],
-              error: "",
-            });
-            continue;
-          }
-
-          // --- SKIPPED: after publish window ---
-          if (!isNaN(publishEndMs) && now > publishEndMs) {
-            skipped += 1;
-            itemsLog.push({
-              id: item.id,
-              label,
-              kind,
-              ok: false,
-              skipped: true,
-              skipReason: "Closed (publishEnd in past)",
-              count: 0,
-              to: [],
-              bcc: [],
-              error: "",
-            });
-            continue;
-          }
-
-          const result = await sendItemReportEmailInternal({
-            kind,
-            id: item.id,
-            label,
-            scope: "current-month",
+        // Delegate which items to send/skip to the helper
+        const { sent, skipped, errors, itemsLog } =
+          await runScheduledChairReports({
+            now: new Date(),
+            sendItemReportEmailInternal,
           });
 
-          console.log("[monthly_chair_reports:item]", {
-            itemId: item.id,
-            kind,
-            label,
-            ok: result.ok,
-            count: result.count,
-            to: result.to,
-            bcc: result.bcc,
-          });
-
-          itemsLog.push({
-            id: item.id,
-            label,
-            kind,
-            ok: !!result.ok,
-            skipped: false,
-            skipReason: "",
-            count: result.count ?? 0,
-            to: Array.isArray(result.to) ? result.to : [],
-            bcc: Array.isArray(result.bcc) ? result.bcc : [],
-            error: !result.ok ? (result.error || result.message || "") : "",
-          });
-
-          if (result.ok) sent += 1;
-          else errors += 1;
-        }
-
+        // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
+        // including skipped ones and any errors.
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
             .map((s) => s.trim())
@@ -2574,7 +2470,7 @@ export default async function handler(req, res) {
             const esc = (s) =>
               String(s || "").replace(/</g, "&lt;");
 
-            const rowsHtml = itemsLog.length
+            const rowsHtml = (itemsLog || []).length
               ? itemsLog
                   .map((it, idx) => {
                     const status = it.skipped
@@ -2605,12 +2501,12 @@ export default async function handler(req, res) {
 
             const html = `
               <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
-                <h2 style="margin-bottom:4px;">Monthly Chair Reports Log</h2>
+                <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Time (UTC): ${esc(timeStr)}</p>
-                <p style="margin:2px 0;">Scope: <b>current-month</b></p>
+                <p style="margin:2px 0;">Scope: <b>current-month (per item frequency)</b></p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
-                  Skipped (publish window): <b>${skipped}</b> &nbsp; | &nbsp;
+                  Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
                   Errors: <b>${errors}</b>
                 </p>
                 <table style="border-collapse:collapse;border:1px solid #ccc;font-size:13px;">
@@ -2624,7 +2520,7 @@ export default async function handler(req, res) {
                       <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Rows</th>
                       <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">To</th>
                       <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">BCC</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Error</th>
+                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Error / Reason</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2634,7 +2530,7 @@ export default async function handler(req, res) {
               </div>
             `;
 
-            const subject = `Monthly chair report log — ${dateStr}`;
+            const subject = `Scheduled chair report log — ${dateStr}`;
 
             const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
