@@ -601,7 +601,11 @@
         <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
         <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
-        <p class="tiny" style="margin:.25rem 0 0;">The fee helps cover online processing costs.</p>
+        <p class="tiny" style="margin:.25rem 0 0;">
+          The fee helps cover online processing costs. If your card is issued outside the United States,
+          an additional international card processing fee may be added during checkout and will be shown
+          as a separate line on the Stripe payment page.
+        </p>
       `;
     } // end render()
 
