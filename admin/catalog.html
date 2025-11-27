@@ -196,7 +196,7 @@
     const d = new Date(iso);
     if(isNaN(d)) return '';
     const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
-    return \`\${y}-\${m}-\${day}T\${hh}:\${mm}\`;
+    return `${y}-${m}-${day}T${hh}:${mm}`;
   }
   function fromLocalDT(local){
     if(!local) return '';
@@ -455,7 +455,7 @@
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
     for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return \`Invalid chair email: \${em}\`;
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
     return '';
   }
@@ -469,7 +469,7 @@
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = \`\${base}-\${i}\`; }
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
     return candidate;
   }
 
@@ -540,7 +540,7 @@
       $('#editMsg').textContent = 'Saved. Syncing report routing…';
       const { attempted, ok } = await syncChairEmailConfigs(payload);
 
-      $('#editMsg').textContent = \`Saved to server. Report routing synced (\${ok}/\${attempted}).\`;
+      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
     }catch{
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
@@ -563,7 +563,7 @@
       // Also update itemcfg for these
       await syncChairEmailConfigs(normalized);
 
-      $('#listMsg').textContent = \`Imported \${j?.count ?? normalized.length} item(s) from file.\`;
+      $('#listMsg').textContent = `Imported ${j?.count ?? normalized.length} item(s) from file.`;
       // reload data from server so the table shows fresh values
       await (async function refreshAfterSync(){
         try{
