@@ -58,6 +58,7 @@
         <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
         <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
+        <li><b>Report Frequency</b>: controls how often chair reports are sent for this banquet.</li>
       </ul>
     </section>
 
@@ -81,6 +82,7 @@
                 <th style="min-width:120px">ID</th>
                 <th>Event Date</th>
                 <th>Active</th>
+                <th>Reports</th>
                 <th>Publish Window</th>
                 <th>Chair</th>
                 <th style="min-width:160px">Actions</th>
@@ -127,6 +129,16 @@
             <input id="f_price" type="number" step="0.01" min="0" placeholder="60.00" />
           </div>
         </div>
+
+        <label for="f_report_freq">Report Frequency</label>
+        <select id="f_report_freq">
+          <option value="monthly">Monthly (default)</option>
+          <option value="biweekly">Twice per month</option>
+          <option value="weekly">Weekly</option>
+          <option value="daily">Daily</option>
+          <option value="none">Do not auto-send</option>
+        </select>
+        <div class="hint">Used by automated chair reports for this banquet.</div>
 
         <label for="f_location">Location</label>
         <input id="f_location" type="text" placeholder="Grand Ballroom, Hershey Lodge" />
@@ -195,6 +207,28 @@
     return isNaN(d) ? '' : d.toISOString();
   }
 
+  // ---- Frequency helpers (UI side) ----
+  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
+
+  function normalizeFreq(raw){
+    const v = String(raw || "").trim().toLowerCase();
+    if (!v) return "monthly";
+    if (VALID_FREQS.includes(v)) return v;
+    return "monthly";
+  }
+
+  function describeFreq(freq){
+    const f = normalizeFreq(freq);
+    switch (f) {
+      case "daily":    return "Daily";
+      case "weekly":   return "Weekly";
+      case "biweekly": return "Twice per month";
+      case "monthly":  return "Monthly";
+      case "none":     return "—";
+      default:         return "Monthly";
+    }
+  }
+
   // ---- Normalization helpers (migrate legacy -> new) ----
   function normalizeBanquet(b){
     const out = {...b};
@@ -232,6 +266,9 @@
     out.publishStart = out.publishStart || '';
     out.publishEnd = out.publishEnd || '';
 
+    // NEW: normalize reportFrequency (for scheduler helper)
+    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+
     // remove legacy options to avoid writing them back out
     delete out.options;
 
@@ -242,7 +279,7 @@
     return (Array.isArray(list) ? list : []).map(normalizeBanquet);
   }
 
-  // NEW: sync each banquet's chair emails to backend register_item, so reports use latest routing
+  // NEW: sync each banquet's chair emails (and frequency) to backend register_item, so reports use latest routing
   async function syncChairEmailConfigs(list){
     const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
 
@@ -251,7 +288,8 @@
       name: b.name || "",
       chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : (b.chair?.email ? [b.chair.email] : []),
       publishStart: b.publishStart || "",
-      publishEnd: b.publishEnd || ""
+      publishEnd: b.publishEnd || "",
+      reportFrequency: normalizeFreq(b.reportFrequency || b.report_frequency || "monthly")
     })).filter(x => x.id && x.name);
 
     const results = await Promise.all(payloads.map(async p => {
@@ -326,19 +364,21 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="7" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="8" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
     }
     for(const b of model){
       const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
       const end   = b.publishEnd ? new Date(b.publishEnd).toLocaleString() : '—';
       const chair = (b.chair && b.chair.name) ? b.chair.name : (b.chair?.email || '—');
       const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
+      const freqLabel = describeFreq(b.reportFrequency || b.report_frequency || "monthly");
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(b.name||'')}</strong></td>
         <td><code>${esc(b.id||'')}</code></td>
         <td>${esc(eventPretty)}</td>
         <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><span class="muted">${esc(freqLabel)}</span></td>
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(chair)}</td>
         <td>
@@ -365,6 +405,7 @@
     $('#f_meals').value = '';
     $('#f_active').value = 'true';
     $('#f_price').value = '';
+    $('#f_report_freq').value = 'monthly';
     $('#f_location').value = '';
     $('#f_eventAt').value = '';
     $('#f_start').value = '';
@@ -388,6 +429,8 @@
     $('#f_active').value = String(n.active !== false);
     $('#f_price').value = n.price ? Number(n.price).toFixed(2) : '';
 
+    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
+
     $('#f_location').value = n.location || '';
     $('#f_eventAt').value = toLocalDT(n.eventAt || '');
     $('#f_start').value = toLocalDT(n.publishStart || '');
@@ -404,6 +447,7 @@
     const active = $('#f_active').value === 'true';
     const price = parseFloat($('#f_price').value || '0') || 0;
     const location = $('#f_location').value.trim();
+    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
 
     const eventAtISO = fromLocalDT($('#f_eventAt').value);
     const startISO = fromLocalDT($('#f_start').value);
@@ -434,7 +478,8 @@
       location,
       description: notes,
       chair: { name: chairName, email: chairEmails[0] || '' },
-      chairEmails
+      chairEmails,
+      reportFrequency: freq
     };
   }
 
@@ -519,7 +564,7 @@
     }
   });
 
-  // Save (updated: also syncs chair emails for report routing)
+  // Save (updated: also syncs chair emails + freq for report routing)
   $('#btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
@@ -540,7 +585,7 @@
       const headers = { "Content-Type": "application/json" };
       const t = localStorage.getItem("amaranth_report_token");
       if (t) headers.Authorization = "Bearer " + t;
-      // Always write new schema (price), never legacy options
+      // Always write new schema (price, reportFrequency), never legacy options
       const payload = normalizeAll(model).map(it => {
         const { options, ...rest } = it;
         return rest;
@@ -553,7 +598,7 @@
       });
       if (!res.ok) throw new Error("server rejected");
 
-      // 2) Sync chair emails → itemcfg:<id> (affects report routing)
+      // 2) Sync chair emails + frequency → itemcfg:<id> (affects report routing)
       $('#editMsg').textContent = 'Saved. Syncing report routing…';
       const { attempted, ok } = await syncChairEmailConfigs(payload);
 

@@ -56,29 +56,25 @@
         <li><b>Price</b>: use simple price here; tiered/variants can remain defined in your site file.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
+        <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
       </ul>
     </section>
 
     <div class="row">
       <!-- Left side -->
       <section class="col left">
-        <!-- 3) List toolbar (now includes the moved button) -->
+        <!-- List toolbar -->
         <div class="toolbar">
           <button id="btnAddNew" class="btn success">+ New Product</button>
           <button id="btnExport" class="btn ghost">Export JSON</button>
           <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
           <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
           <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
-
-          <!-- MOVED HERE from removed 2nd box -->
           <button id="btnSyncFiles" class="btn ghost" title="Sync products from site file (/assets/js/items.js)">Sync from Site Files</button>
-
           <span id="listMsg" class="muted"></span>
         </div>
 
-        <!-- REMOVED 2) Quick Toggles box -->
-
-        <!-- 3) Table (kept) -->
+        <!-- Table -->
         <div style="overflow:auto;max-height:65vh;margin-top:8px">
           <table>
             <thead>
@@ -87,6 +83,7 @@
                 <th style="min-width:160px">ID</th>
                 <th>Price</th>
                 <th>Active</th>
+                <th>Reports</th>
                 <th>Publish Window</th>
                 <th>SKU</th>
                 <th style="min-width:160px">Actions</th>
@@ -97,7 +94,7 @@
         </div>
       </section>
 
-      <!-- 4) Editor (kept) -->
+      <!-- Editor -->
       <aside class="col right">
         <div class="toolbar">
           <span class="chip" id="modeChip">New</span>
@@ -128,6 +125,16 @@
             <input id="f_sku" type="text" placeholder="SUN-001" />
           </div>
         </div>
+
+        <label for="f_report_freq">Report Frequency</label>
+        <select id="f_report_freq">
+          <option value="monthly">Monthly (default)</option>
+          <option value="biweekly">Twice per month</option>
+          <option value="weekly">Weekly</option>
+          <option value="daily">Daily</option>
+          <option value="none">Do not auto-send</option>
+        </select>
+        <div class="hint">Used by automated chair reports for this product.</div>
 
         <div class="row">
           <div>
@@ -163,6 +170,9 @@
     </div>
   </main>
 
+  <!-- Tell admin pages where to send item-configs -->
+  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
+
   <!-- Static fallback for products -->
   <script src="/assets/js/items.js"></script>
 
@@ -186,12 +196,99 @@
     const d = new Date(iso);
     if(isNaN(d)) return '';
     const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
+    return \`\${y}-\${m}-\${day}T\${hh}:\${mm}\`;
   }
   function fromLocalDT(local){
     if(!local) return '';
     const d = new Date(local);
     return isNaN(d) ? '' : d.toISOString();
+  }
+
+  // ---- Frequency helpers ----
+  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
+
+  function normalizeFreq(raw){
+    const v = String(raw || "").trim().toLowerCase();
+    if (!v) return "monthly";
+    if (VALID_FREQS.includes(v)) return v;
+    return "monthly";
+  }
+
+  function describeFreq(freq){
+    const f = normalizeFreq(freq);
+    switch (f) {
+      case "daily":    return "Daily";
+      case "weekly":   return "Weekly";
+      case "biweekly": return "Twice per month";
+      case "monthly":  return "Monthly";
+      case "none":     return "—";
+      default:         return "Monthly";
+    }
+  }
+
+  // ---- Normalization helpers for products ----
+  function normalizeProduct(p){
+    const out = { ...(p || {}) };
+
+    // price
+    out.price = Number(out.price || 0) || 0;
+
+    // active flag
+    out.active = (out.active !== false);
+
+    // ensure ISO-ish fields are strings or empty
+    out.publishStart = out.publishStart || "";
+    out.publishEnd   = out.publishEnd   || "";
+
+    // chairEmails array
+    if (!Array.isArray(out.chairEmails)) {
+      const e = out.chairEmails || (out.chair && out.chair.email) || "";
+      out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
+    }
+
+    // chair object in sync
+    out.chair = out.chair || {};
+    if (!out.chair.name) out.chair.name = "";
+    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
+
+    // normalize frequency (for reporting)
+    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+
+    return out;
+  }
+
+  function normalizeAll(list){
+    return (Array.isArray(list) ? list : []).map(normalizeProduct);
+  }
+
+  // NEW: sync each product's chair emails + freq to backend register_item
+  async function syncChairEmailConfigs(list){
+    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+
+    const payloads = (list || []).map(p => ({
+      id: p.id || "",
+      name: p.name || "",
+      chairEmails: Array.isArray(p.chairEmails) ? p.chairEmails : (p.chair?.email ? [p.chair.email] : []),
+      publishStart: p.publishStart || "",
+      publishEnd: p.publishEnd || "",
+      reportFrequency: normalizeFreq(p.reportFrequency || p.report_frequency || "monthly")
+    })).filter(x => x.id && x.name);
+
+    const results = await Promise.all(payloads.map(async cfg => {
+      try {
+        const r = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg)
+        });
+        return r.ok;
+      } catch {
+        return false;
+      }
+    }));
+
+    const ok = results.filter(Boolean).length;
+    return { attempted: payloads.length, ok };
   }
 
   let model = [];
@@ -206,7 +303,7 @@
       if (r.ok) {
         const j = await r.json();
         if (Array.isArray(j?.products) && j.products.length > 0) {
-          model = j.products;
+          model = normalizeAll(j.products);
           loaded = true;
         }
       }
@@ -216,7 +313,7 @@
 
     if (!loaded) {
       const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-      model = JSON.parse(JSON.stringify(src));
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Using static list (fallback).';
     } else {
       $('#listMsg').textContent = 'Loaded from server.';
@@ -234,14 +331,14 @@
       if (r.ok) {
         const j = await r.json();
         if (Array.isArray(j?.products) && j.products.length > 0){
-          model = j.products; loaded = true;
+          model = normalizeAll(j.products); loaded = true;
           $('#listMsg').textContent = 'Loaded from server.';
         }
       }
     }catch(err){ console.warn('Refresh server error:', err); }
     if(!loaded){
       const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-      model = JSON.parse(JSON.stringify(src));
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
     renderList(); startNew();
@@ -251,17 +348,19 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="7" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="8" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
     }
     for(const p of model){
       const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
       const end   = p.publishEnd ? new Date(p.publishEnd).toLocaleString() : '—';
+      const freqLabel = describeFreq(p.reportFrequency || p.report_frequency || "monthly");
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(p.name||'')}</strong></td>
         <td><code>${esc(p.id||'')}</code></td>
         <td>$${Number(p.price||0).toFixed(2)}</td>
         <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><span class="muted">${esc(freqLabel)}</span></td>
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(p.sku||'—')}</td>
         <td>
@@ -286,6 +385,7 @@
     $('#f_active').value = 'true';
     $('#f_price').value = '';
     $('#f_sku').value = '';
+    $('#f_report_freq').value = 'monthly';
     $('#f_start').value = '';
     $('#f_end').value = '';
     $('#f_notes').value = '';
@@ -296,23 +396,25 @@
   }
 
   function fillForm(p){
+    const n = normalizeProduct(p);
     isNew = false;
-    current = p;
+    current = n;
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = '';
 
-    $('#f_name').value = p.name || '';
-    $('#f_id').value = p.id || '';
-    $('#f_active').value = String(p.active !== false);
-    $('#f_price').value = (Number.isFinite(Number(p.price)) ? Number(p.price).toFixed(2) : '');
-    $('#f_sku').value = p.sku || '';
-    $('#f_start').value = toLocalDT(p.publishStart || '');
-    $('#f_end').value = toLocalDT(p.publishEnd || '');
-    $('#f_notes').value = p.notes || p.description || '';
-    $('#f_thumb_url').value = p.thumbnailUrl || p.image || p.imageThumb || '';
-    $('#f_img1_url').value = p.imageUrl || (Array.isArray(p.images) ? p.images[0] : (p.image || ''));
-    $('#f_chair_name').value = (p.chair && p.chair.name) ? p.chair.name : '';
-    $('#f_chair_emails').value = Array.isArray(p.chairEmails) ? p.chairEmails.join(', ') : (p.chair?.email || '');
+    $('#f_name').value = n.name || '';
+    $('#f_id').value = n.id || '';
+    $('#f_active').value = String(n.active !== false);
+    $('#f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
+    $('#f_sku').value = n.sku || '';
+    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
+    $('#f_start').value = toLocalDT(n.publishStart || '');
+    $('#f_end').value = toLocalDT(n.publishEnd || '');
+    $('#f_notes').value = n.notes || n.description || '';
+    $('#f_thumb_url').value = n.thumbnailUrl || n.image || n.imageThumb || '';
+    $('#f_img1_url').value = n.imageUrl || (Array.isArray(n.images) ? n.images[0] : (n.image || ''));
+    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
+    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
   }
 
   function readForm(){
@@ -329,6 +431,8 @@
     const chairName = $('#f_chair_name').value.trim();
     const chairEmailsRaw = $('#f_chair_emails').value.trim();
     const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
+
     const base = current ? { ...current } : {};
     return {
       ...base,
@@ -338,7 +442,8 @@
       notes, description: notes || base.description || '',
       thumbnailUrl, imageUrl,
       chair: { name: chairName, email: chairEmails[0] || '' },
-      chairEmails
+      chairEmails,
+      reportFrequency: freq
     };
   }
 
@@ -350,7 +455,7 @@
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
     for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return \`Invalid chair email: \${em}\`;
     }
     return '';
   }
@@ -364,7 +469,7 @@
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = \`\${base}-\${i}\`; }
     return candidate;
   }
 
@@ -372,7 +477,7 @@
     const id = e.currentTarget.dataset.id;
     const p = model.find(x => x.id === id);
     if (!p) { $('#editMsg').textContent = 'Item not found.'; return; }
-    const copy = JSON.parse(JSON.stringify(p));
+    const copy = normalizeProduct(JSON.parse(JSON.stringify(p)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'item') + '-copy';
     copy.id = uniqueId(baseId);
@@ -384,7 +489,7 @@
 
   // Export / Import
   $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(model, null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'products-export.json';
@@ -399,7 +504,7 @@
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = data;
+      model = normalizeAll(data);
       renderList();
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
@@ -423,33 +528,48 @@
 
     try{
       const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-      const res = await fetch("/api/router?action=save_products", { method: "POST", headers, body: JSON.stringify({ products: model }) });
+      const payload = normalizeAll(model);
+
+      $('#editMsg').textContent = 'Saving…';
+      const res = await fetch("/api/router?action=save_products", {
+        method: "POST", headers, body: JSON.stringify({ products: payload })
+      });
       if (!res.ok) throw new Error("server rejected");
-      $('#editMsg').textContent = 'Saved to server.';
+
+      // After saving, sync chair emails + freq to itemcfg
+      $('#editMsg').textContent = 'Saved. Syncing report routing…';
+      const { attempted, ok } = await syncChairEmailConfigs(payload);
+
+      $('#editMsg').textContent = \`Saved to server. Report routing synced (\${ok}/\${attempted}).\`;
     }catch{
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
 
-  // NEW: Sync from site files (moved button functionality)
+  // NEW: Sync from site files
   document.getElementById('btnSyncFiles').addEventListener('click', async ()=>{
     const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
     if(!fileItems.length){ $('#listMsg').textContent = 'No items in /assets/js/items.js'; return; }
     $('#listMsg').textContent = 'Syncing from site files…';
     try{
       const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
+      const normalized = normalizeAll(fileItems);
       const r = await fetch('/api/router?action=save_products', {
-        method: 'POST', headers, body: JSON.stringify({ products: fileItems })
+        method: 'POST', headers, body: JSON.stringify({ products: normalized })
       });
       const j = await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(j?.error || 'Sync failed');
-      $('#listMsg').textContent = `Imported ${j?.count ?? fileItems.length} item(s) from file.`;
+
+      // Also update itemcfg for these
+      await syncChairEmailConfigs(normalized);
+
+      $('#listMsg').textContent = \`Imported \${j?.count ?? normalized.length} item(s) from file.\`;
       // reload data from server so the table shows fresh values
       await (async function refreshAfterSync(){
         try{
           const res = await fetch('/api/router?type=products', { cache:'no-store' });
           const data = await res.json();
-          if(res.ok && Array.isArray(data?.products)){ model = data.products; renderList(); }
+          if(res.ok && Array.isArray(data?.products)){ model = normalizeAll(data.products); renderList(); }
         }catch{}
       })();
     }catch(e){

@@ -63,6 +63,7 @@
         <li><b>Chair Emails</b>: comma-separated. Leave blank if unknown.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the add-on is visible.</li>
         <li><b>Limit/attendee</b>: optional max a single attendee can purchase for this add-on.</li>
+        <li><b>Report Frequency</b>: controls how often chair reports are sent for this add-on.</li>
       </ul>
     </section>
 
@@ -86,6 +87,7 @@
                 <th style="min-width:160px">ID</th>
                 <th>Type</th>
                 <th>Active</th>
+                <th>Reports</th>
                 <th>Publish Window</th>
                 <th>Chair</th>
                 <th style="min-width:160px">Actions</th>
@@ -150,6 +152,16 @@
         <label for="f_chair_emails">Chair Emails (comma-separated)</label>
         <input id="f_chair_emails" type="text" placeholder="chair@example.com, cochair@example.com" />
 
+        <label for="f_report_freq">Report Frequency</label>
+        <select id="f_report_freq">
+          <option value="monthly">Monthly (default)</option>
+          <option value="biweekly">Twice per month</option>
+          <option value="weekly">Weekly</option>
+          <option value="daily">Daily</option>
+          <option value="none">Do not auto-send</option>
+        </select>
+        <div class="hint">Used by automated chair reports for this add-on.</div>
+
         <div class="row">
           <div>
             <label for="f_start">Publish Start</label>
@@ -206,6 +218,159 @@
     return isNaN(d) ? '' : d.toISOString();
   }
 
+  // ---- Frequency helpers ----
+  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
+
+  function normalizeFreq(raw){
+    const v = String(raw || "").trim().toLowerCase();
+    if (!v) return "monthly";
+    if (VALID_FREQS.includes(v)) return v;
+    return "monthly";
+  }
+
+  function describeFreq(freq){
+    const f = normalizeFreq(freq);
+    switch (f) {
+      case "daily":    return "Daily";
+      case "weekly":   return "Weekly";
+      case "biweekly": return "Twice per month";
+      case "monthly":  return "Monthly";
+      case "none":     return "—";
+      default:         return "Monthly";
+    }
+  }
+
+  // ---- Normalization helpers for add-ons ----
+  function normalizeAddon(a){
+    const out = { ...(a || {}) };
+
+    // price
+    if (out.type === "fixed" || out.type === "qty") {
+      out.price = Number(out.price || 0) || 0;
+    } else {
+      if (out.price == null) delete out.price;
+    }
+
+    // active flag
+    out.active = (out.active !== false);
+
+    // ensure ISO-ish fields are strings or empty
+    out.publishStart = out.publishStart || "";
+    out.publishEnd   = out.publishEnd   || "";
+
+    // chairEmails array
+    if (!Array.isArray(out.chairEmails)) {
+      const e = out.chairEmails || (out.chair && out.chair.email) || "";
+      out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
+    }
+
+    // chair object in sync
+    out.chair = out.chair || {};
+    if (!out.chair.name) out.chair.name = "";
+    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
+
+    // limit
+    if (out.limitPerAttendee == null && out.limit != null) {
+      out.limitPerAttendee = out.limit;
+    }
+
+    // report frequency
+    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+
+    // type default
+    if (!out.type) out.type = "fixed";
+
+    return out;
+  }
+
+  function normalizeAll(list){
+    return (Array.isArray(list) ? list : []).map(normalizeAddon);
+  }
+
+  // NEW: sync each add-on's chair emails + freq to backend register_item
+  async function syncChairEmailConfigs(list){
+    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+
+    const payloads = (list || []).map(a => ({
+      id: a.id || "",
+      name: a.name || "",
+      chairEmails: Array.isArray(a.chairEmails) ? a.chairEmails : (a.chair?.email ? [a.chair.email] : []),
+      publishStart: a.publishStart || "",
+      publishEnd: a.publishEnd || "",
+      reportFrequency: normalizeFreq(a.reportFrequency || a.report_frequency || "monthly")
+    })).filter(x => x.id && x.name);
+
+    const results = await Promise.all(payloads.map(async cfg => {
+      try {
+        const r = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg)
+        });
+        return r.ok;
+      } catch {
+        return false;
+      }
+    }));
+
+    const ok = results.filter(Boolean).length;
+    return { attempted: payloads.length, ok };
+  }
+
+  let model = [];
+  let current = null;
+  let isNew = true;
+
+  // ---- Initial Load (with empty-array fallback fix) ----
+  async function loadInitial(){
+    let loaded = false;
+    try {
+      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.addons) && j.addons.length > 0) {
+          model = normalizeAll(j.addons);
+          loaded = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Server addons fetch failed:', e);
+    }
+
+    if (!loaded) {
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      $('#listMsg').textContent = 'Using static list (fallback).';
+    } else {
+      $('#listMsg').textContent = 'Loaded from server.';
+    }
+
+    renderList();
+    startNew();
+    syncTypeFields();
+  }
+
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    $('#listMsg').textContent = 'Refreshing…';
+    let loaded = false;
+    try{
+      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.addons) && j.addons.length > 0){
+          model = normalizeAll(j.addons); loaded = true;
+          $('#listMsg').textContent = 'Loaded from server.';
+        }
+      }
+    }catch(err){ console.warn('Refresh server error:', err); }
+    if(!loaded){
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
+    }
+    renderList(); startNew(); syncTypeFields();
+  });
+
   // Show/hide price vs variants based on type
   const typeEl = $('#f_type');
   const rowPrice = $('#row_price');
@@ -225,76 +390,24 @@
   }
   typeEl.addEventListener('change', syncTypeFields);
 
-  let model = [];
-  let current = null;
-  let isNew = true;
-
-  // ---- Initial Load (with empty-array fallback fix) ----
-  async function loadInitial(){
-    let loaded = false;
-    try {
-      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.addons) && j.addons.length > 0) {
-          model = j.addons;
-          loaded = true;
-        }
-      }
-    } catch (e) {
-      console.warn('Server addons fetch failed:', e);
-    }
-
-    if (!loaded) {
-      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
-      model = JSON.parse(JSON.stringify(src));
-      $('#listMsg').textContent = 'Using static list (fallback).';
-    } else {
-      $('#listMsg').textContent = 'Loaded from server.';
-    }
-
-    renderList();
-    startNew();
-    syncTypeFields();
-  }
-
-  $('#btnRefresh').addEventListener('click', async ()=>{
-    $('#listMsg').textContent = 'Refreshing…';
-    let loaded = false;
-    try{
-      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.addons) && j.addons.length > 0){
-          model = j.addons; loaded = true;
-          $('#listMsg').textContent = 'Loaded from server.';
-        }
-      }
-    }catch(err){ console.warn('Refresh server error:', err); }
-    if(!loaded){
-      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
-      model = JSON.parse(JSON.stringify(src));
-      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
-    }
-    renderList(); startNew(); syncTypeFields();
-  });
-
   // ---------- List Rendering ----------
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="7" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="8" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
     }
     for(const a of model){
       const start = a.publishStart ? new Date(a.publishStart).toLocaleString() : '—';
       const end   = a.publishEnd ? new Date(a.publishEnd).toLocaleString() : '—';
       const chair = (a.chair && a.chair.name) ? a.chair.name : (a.chair?.email || '—');
+      const freqLabel = describeFreq(a.reportFrequency || a.report_frequency || "monthly");
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(a.name||'')}</strong></td>
         <td><code>${esc(a.id||'')}</code></td>
         <td>${esc(a.type||'fixed')}</td>
         <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><span class="muted">${esc(freqLabel)}</span></td>
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(chair)}</td>
         <td>
@@ -323,6 +436,7 @@
     $('#f_limit').value = '';
     $('#f_chair_name').value = '';
     $('#f_chair_emails').value = '';
+    $('#f_report_freq').value = 'monthly';
     $('#f_start').value = '';
     $('#f_end').value = '';
     $('#f_notes').value = '';
@@ -330,35 +444,37 @@
   }
 
   function fillForm(a){
+    const n = normalizeAddon(a);
     isNew = false;
-    current = a;
+    current = n;
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = '';
 
-    $('#f_name').value = a.name || '';
-    $('#f_id').value = a.id || '';
-    $('#f_type').value = a.type || 'fixed';
-    $('#f_active').value = String(a.active !== false);
+    $('#f_name').value = n.name || '';
+    $('#f_id').value = n.id || '';
+    $('#f_type').value = n.type || 'fixed';
+    $('#f_active').value = String(n.active !== false);
 
     // price (only for fixed/qty)
-    const price = Number(a.price || 0);
+    const price = Number(n.price || 0);
     $('#f_price').value = price > 0 ? price.toFixed(2) : '';
 
     // variants textarea for variantQty
-    if (Array.isArray(a.variants) && a.variants.length){
-      $('#f_variants').value = a.variants.map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`).join('\n');
+    if (Array.isArray(n.variants) && n.variants.length){
+      $('#f_variants').value = n.variants.map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`).join('\n');
     } else {
       $('#f_variants').value = '';
     }
 
-    $('#f_limit').value = (a.limitPerAttendee || a.limit || '') || '';
+    $('#f_limit').value = (n.limitPerAttendee || n.limit || '') || '';
 
-    $('#f_chair_name').value = (a.chair && a.chair.name) ? a.chair.name : '';
-    $('#f_chair_emails').value = Array.isArray(a.chairEmails) ? a.chairEmails.join(', ') : (a.chair?.email || '');
+    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
+    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
 
-    $('#f_start').value = toLocalDT(a.publishStart || '');
-    $('#f_end').value = toLocalDT(a.publishEnd || '');
-    $('#f_notes').value = a.description || a.notes || '';
+    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
+    $('#f_start').value = toLocalDT(n.publishStart || '');
+    $('#f_end').value = toLocalDT(n.publishEnd || '');
+    $('#f_notes').value = n.description || n.notes || '';
 
     syncTypeFields();
   }
@@ -393,6 +509,7 @@
     const startISO = fromLocalDT($('#f_start').value);
     const endISO = fromLocalDT($('#f_end').value);
     const notes = $('#f_notes').value.trim();
+    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
 
     const chairEmails = chairEmailsRaw
       ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean)
@@ -404,7 +521,8 @@
       publishEnd: endISO,
       description: notes,
       chair: { name: chairName, email: chairEmails[0] || '' },
-      chairEmails
+      chairEmails,
+      reportFrequency: freq
     };
 
     if (limitPerAttendee > 0) base.limitPerAttendee = limitPerAttendee;
@@ -462,7 +580,7 @@
     const id = e.currentTarget.dataset.id;
     const a = model.find(x => x.id === id);
     if (!a) { $('#editMsg').textContent = 'Item not found.'; return; }
-    const copy = JSON.parse(JSON.stringify(a));
+    const copy = normalizeAddon(JSON.parse(JSON.stringify(a)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'addon') + '-copy';
     copy.id = uniqueId(baseId);
@@ -481,7 +599,7 @@
 
   // Export / Import
   $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(model, null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'addons-export.json';
@@ -496,7 +614,7 @@
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = data;
+      model = normalizeAll(data);
       renderList();
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
@@ -528,11 +646,20 @@
       const headers = { "Content-Type": "application/json" };
       const t = localStorage.getItem("amaranth_report_token");
       if (t) headers.Authorization = "Bearer " + t;
+
+      const payload = normalizeAll(model);
+
+      $('#editMsg').textContent = 'Saving…';
       const res = await fetch("/api/router?action=save_addons", {
-        method: "POST", headers, body: JSON.stringify({ addons: model })
+        method: "POST", headers, body: JSON.stringify({ addons: payload })
       });
       if (!res.ok) throw new Error("server rejected");
-      $('#editMsg').textContent = 'Saved to server.';
+
+      // After saving, sync chair emails + freq to itemcfg
+      $('#editMsg').textContent = 'Saved. Syncing report routing…';
+      const { attempted, ok } = await syncChairEmailConfigs(payload);
+
+      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
     }catch{
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
