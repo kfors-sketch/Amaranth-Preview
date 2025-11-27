@@ -16,8 +16,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
-    chairEmails: ["pa_sessions@yahoo.com"],
+    chair: { name: "Product Catalog", email: "" }, // email managed via admin
+    chairEmails: [],                               // emails come from KV/admin
     publishStart: "", // e.g. "2026-01-01T00:00:00-05:00"
     publishEnd: ""    // treat as "ordering closes" for FINAL if used
   },
@@ -35,8 +35,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
-    chairEmails: ["pa_sessions@yahoo.com"],
+    chair: { name: "Product Catalog", email: "" }, // email managed via admin
+    chairEmails: [],                               // emails come from KV/admin
     publishStart: "",
     publishEnd: ""
   },
@@ -59,8 +59,8 @@ window.CATALOG_ITEMS = [
     active: true,
 
     // ===== reporting fields =====
-    chair: { name: "Product Catalog", email: "pa_sessions@yahoo.com" },
-    chairEmails: ["pa_sessions@yahoo.com"],
+    chair: { name: "Product Catalog", email: "" }, // email managed via admin
+    chairEmails: [],                               // emails come from KV/admin
     publishStart: "",
     publishEnd: ""
   }
@@ -70,15 +70,22 @@ window.CATALOG_ITEMS = [
 (function () {
   try {
     (window.CATALOG_ITEMS || []).forEach(item => {
+      // Compute emails from item, but only send them if there are any.
+      const emails = Array.isArray(item.chairEmails)
+        ? item.chairEmails.filter(Boolean)
+        : [item?.chair?.email].filter(Boolean);
+
       const payload = {
         id: item.id,
         name: item.name,
-        chairEmails: Array.isArray(item.chairEmails)
-          ? item.chairEmails
-          : [item?.chair?.email].filter(Boolean),
         publishStart: item.publishStart || "",
         publishEnd: item.publishEnd || "" // used as "ordering closes" for FINAL report if set
       };
+
+      // Only include chairEmails if we actually have some.
+      if (emails.length > 0) {
+        payload.chairEmails = emails;
+      }
 
       fetch("/api/router?action=register_item", {
         method: "POST",
