@@ -2,7 +2,7 @@
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
-import { runScheduledChairReports } from "./admin/report-scheduler.js";
+
 
 // ---- Lazy Stripe loader (avoid crashing function at import time) ----
 let _stripe = null;
@@ -2444,9 +2444,27 @@ export default async function handler(req, res) {
         }
       }
 
-      if (action === "send_monthly_chair_reports") {
+          if (action === "send_monthly_chair_reports") {
         // Warm up orders cache once so the helper can reuse it
         await loadAllOrdersWithRetry();
+
+        // Dynamically import the scheduler helper so a problem there
+        // does NOT break normal /api/router traffic (addons, banquets, etc.)
+        let schedulerMod;
+        try {
+          schedulerMod = await import("./admin/report-scheduler.js");
+        } catch (e) {
+          console.error("Failed to load ./admin/report-scheduler.js", e);
+          return REQ_ERR(res, 500, "scheduler-missing", {
+            message: e?.message || String(e),
+          });
+        }
+
+        const { runScheduledChairReports } = schedulerMod || {};
+        if (typeof runScheduledChairReports !== "function") {
+          console.error("runScheduledChairReports is not a function");
+          return REQ_ERR(res, 500, "scheduler-invalid");
+        }
 
         // Delegate which items to send/skip to the helper
         const { sent, skipped, errors, itemsLog } =
