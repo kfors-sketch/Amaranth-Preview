@@ -667,12 +667,9 @@ export default async function handler(req, res) {
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         try {
           const order = await saveOrderFromSession({ id: sid });
-          (async () => {
-            try {
-              await sendOrderReceipts(order);
-              await maybeSendRealtimeChairEmails(order);
-            } catch {}
-          })();
+          // IMPORTANT:
+          // Do NOT send emails here. Webhook (checkout.session.completed)
+          // is the single source of truth for receipts + chair emails.
           return REQ_OK(res, {
             ok: true,
             orderId: order.id,
@@ -970,7 +967,8 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- Finalize (save + email) from success page ---
+      // --- Finalize (save only) from success page ---
+      // IMPORTANT: emails are sent from the Stripe webhook, not here.
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
         if (!stripe)
@@ -978,8 +976,6 @@ export default async function handler(req, res) {
         const sid = String(body.sid || body.id || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         const order = await saveOrderFromSession({ id: sid });
-        await sendOrderReceipts(order);
-        await maybeSendRealtimeChairEmails(order);
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
@@ -1007,7 +1003,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { ok: true, ...result });
       }
 
-      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION) ----
+      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION + INTERNATIONAL FEE) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
         if (!stripe)
@@ -1080,6 +1076,8 @@ export default async function handler(req, res) {
 
           const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
+
+          // Subtotal of cart items (no fees yet)
           const subtotalCents = lines.reduce((s, l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle =
@@ -1096,6 +1094,7 @@ export default async function handler(req, res) {
             }
           }, 0);
 
+          // Base processing fee (your normal pct + flat)
           const feeAmount = Math.max(
             0,
             Math.round(subtotalCents * (pct / 100)) + flatCents
@@ -1109,6 +1108,44 @@ export default async function handler(req, res) {
                 product_data: { name: "Processing Fee" },
               },
             });
+          }
+
+          // --- NEW: International card processing fee (3%) ---
+          const purchaserCountry = (
+            purchaser.country ||
+            purchaser.addressCountry ||
+            ""
+          )
+            .trim()
+            .toUpperCase() || "US";
+          const accountCountry = (
+            process.env.STRIPE_ACCOUNT_COUNTRY || "US"
+          )
+            .trim()
+            .toUpperCase();
+
+          let intlFeeAmount = 0;
+          if (isInternationalOrder(purchaserCountry, accountCountry)) {
+            intlFeeAmount = computeInternationalFeeCents(
+              subtotalCents,
+              0.03
+            );
+          }
+
+          if (intlFeeAmount > 0) {
+            const intlLine = buildInternationalFeeLineItem(
+              intlFeeAmount,
+              "usd"
+            );
+            if (intlLine) {
+              // add minimal metadata so it can be identified in reports if needed
+              intlLine.price_data.product_data.metadata = {
+                ...(intlLine.price_data.product_data.metadata || {}),
+                itemType: "other",
+                itemId: "intl-fee",
+              };
+              line_items.push(intlLine);
+            }
           }
 
           const session = await getStripe().then((stripe) =>
