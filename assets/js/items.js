@@ -4,7 +4,13 @@ window.CATALOG_ITEMS = [
     id: "sunflower-pendant",
     name: "Sunflower Pendant",
     // Single-price item
-    price: 25, // dollars
+    price: 25, // dollars (item price, not shipping)
+
+    // Per-order shipping & handling for this item (in cents).
+    // Checkout logic will later charge the HIGHEST shippingCents
+    // from all items in the cart, once per order.
+    shippingCents: 550, // $5.50 shipping & handling
+
     image: "/assets/shop/sunflower-pin_thumb.jpg",
     images: [
       "/assets/shop/sunflower-pin_full.jpg",
@@ -27,6 +33,10 @@ window.CATALOG_ITEMS = [
     name: "Amaranth Pendant",
     // Single-price item
     price: 500, // dollars
+
+    // Higher-value pendant; keep shipping safely covered.
+    shippingCents: 650, // $6.50 shipping & handling
+
     image: "/assets/shop/pendant_thumb.jpg",
     images: ["/assets/shop/pendant_full.jpg"],
     sku: "AM-001",
@@ -51,6 +61,11 @@ window.CATALOG_ITEMS = [
       { qty: 3, price: 25 },
       { qty: 6, price: 40 }
     ],
+
+    // Coins are dense/heavier; give them a slightly higher shipping
+    // so you never lose money, even if they push weight up a USPS tier.
+    shippingCents: 750, // $7.50 shipping & handling
+
     image: "/assets/shop/coin_thumb.jpg",   // placeholder
     images: ["/assets/shop/coin_full.jpg"], // placeholder
     sku: "COIN-001",

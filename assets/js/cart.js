@@ -211,17 +211,52 @@
     return JSON.parse(JSON.stringify(state));
   }
 
+  // === SHIPPING (in dollars) ===
+  // We charge shipping & handling ONCE per order,
+  // using the highest shippingCents value from any catalog item in the cart.
+  function computeShippingDollars(){
+    const items = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+    if (!items.length) return 0;
+
+    // Build a quick lookup of itemId -> shippingCents
+    const shippingMap = {};
+    items.forEach(it => {
+      if (it && it.id) {
+        const cents = Number(it.shippingCents || 0);
+        if (cents > 0) {
+          shippingMap[it.id] = cents;
+        }
+      }
+    });
+
+    let maxCents = 0;
+
+    state.lines.forEach(line => {
+      const itemId = line && line.itemId;
+      if (!itemId) return;
+      const cents = shippingMap[itemId] || 0;
+      if (cents > maxCents) maxCents = cents;
+    });
+
+    return maxCents > 0 ? maxCents / 100 : 0; // convert to dollars
+  }
+
   // === TOTALS (in dollars) ===
   function totals(){
     const subtotal = state.lines.reduce((s, l) => s + Number(l.unitPrice || 0) * Number(l.qty || 0), 0);
+
+    // Shipping & handling once per order, using highest shippingCents
+    const shipping = computeShippingDollars();
 
     // Fees come from global SITE_SETTINGS (dollars-based): feePercent and feeFlat
     const pct  = (window.SITE_SETTINGS && Number(window.SITE_SETTINGS.feePercent)) || 0;
     const flat = (window.SITE_SETTINGS && Number(window.SITE_SETTINGS.feeFlat)) || 0;
 
-    const fee = subtotal > 0 ? (subtotal * (pct / 100) + flat) : 0;
-    const total = subtotal + fee;
-    return { subtotal, fee, total, pct, flat };
+    const feeBase = subtotal; // keep existing behavior: fee based on items only
+    const fee = feeBase > 0 ? (feeBase * (pct / 100) + flat) : 0;
+
+    const total = subtotal + shipping + fee;
+    return { subtotal, shipping, fee, total, pct, flat };
   }
 
   function summary(){
