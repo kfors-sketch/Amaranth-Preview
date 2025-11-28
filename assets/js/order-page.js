@@ -73,6 +73,19 @@
     return name || "Purchaser";
   }
 
+  // --- International fee helper (3% of subtotal for non-US) ---
+  function computeInternationalFeeDollars(subtotalDollars, country) {
+    const c = String(country || "").trim().toUpperCase();
+    if (!c || c === "US" || c === "USA" || c === "UNITED STATES") return 0;
+
+    // Do the math in cents so it matches backend rounding
+    const subtotalCents = Math.round(Number(subtotalDollars || 0) * 100);
+    if (subtotalCents <= 0) return 0;
+
+    const feeCents = Math.round(subtotalCents * 0.03); // 3%
+    return feeCents / 100;
+  }
+
   // ------- RENDER LOGIC -------
   function render() {
     const st = Cart.get();
@@ -454,19 +467,31 @@
     const subtotal = Number(t.subtotal || 0);
     const shipping = Number(t.shipping || 0);
     const fee = Number(t.fee || 0);
-    const total = Number(t.total || subtotal + shipping + fee);
+
+    // Purchaser country from the form (for intl preview)
+    const pCountryEl = document.getElementById("p_country");
+    const purchaserCountry = pCountryEl ? pCountryEl.value : "US";
+
+    const intlFee = computeInternationalFeeDollars(subtotal, purchaserCountry);
+
+    const total = Number(subtotal + shipping + fee + intlFee);
 
     orderTotal.textContent = money(total);
     summaryBox.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
         <div><strong>Shipping &amp; Handling</strong>: ${money(shipping)}</div>
-        <div>Fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        <div>Processing fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        ${
+          intlFee > 0
+            ? `<div>International card processing fee (3%): ${money(intlFee)}</div>`
+            : ""
+        }
         <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
         <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">
-          The fee helps cover online processing costs. If your card is issued outside the United States,
-          an additional international card processing fee may be added during checkout and will be shown
-          as a separate line on the Stripe payment page.
+          The processing fees above will be shown as separate line items on the secure Stripe checkout page.
+          For cards issued outside the United States, the international card processing fee (if shown above)
+          is also added as a separate line at checkout.
         </p>
       `;
   }
@@ -693,13 +718,20 @@
       pPhone.addEventListener("blur", () => formatPhoneLive(pPhone));
     }
 
+    // Re-render when purchaser name changes (Purchaser group label)
+    const pNameEl = document.getElementById("p_name");
+    if (pNameEl) pNameEl.addEventListener("input", render);
+
+    // Re-render when purchaser country changes (intl fee preview)
+    const pCountryEl = document.getElementById("p_country");
+    if (pCountryEl) {
+      pCountryEl.addEventListener("input", render);
+      pCountryEl.addEventListener("change", render);
+    }
+
     // initial + react to cart changes
     render();
     window.addEventListener("cart:updated", render);
-
-    // Re-render purchaser header when they type their name (affects Purchaser group label)
-    const pNameEl = document.getElementById("p_name");
-    if (pNameEl) pNameEl.addEventListener("input", render);
 
     // Wire checkout button
     const btn = document.getElementById("checkout");
