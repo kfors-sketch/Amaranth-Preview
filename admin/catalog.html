@@ -201,8 +201,8 @@
     if(!iso) return '';
     const d = new Date(iso);
     if(isNaN(d)) return '';
-    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
-    return \`\${y}-\${m}-\${day}T\${hh}:\${mm}\`;
+    const y = d.getFullYear(), m = pad(d.getMonth()+1), day = pad(d.getDate()), hh = pad(d.getHours()), mm = pad(d.getMinutes());
+    return `${y}-${m}-${day}T${hh}:${mm}`;
   }
   function fromLocalDT(local){
     if(!local) return '';
@@ -489,7 +489,7 @@
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
     for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return \`Invalid chair email: \${em}\`;
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
     return '';
   }
@@ -503,7 +503,7 @@
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = \`\${base}-\${i}\`; }
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
     return candidate;
   }
 
@@ -545,7 +545,6 @@
     }catch(err){
       alert('Import failed: ' + (err?.message || String(err)));
     }finally{
-
       ev.target.value = '';
     }
   });
