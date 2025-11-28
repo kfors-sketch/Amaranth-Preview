@@ -41,7 +41,7 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="pill">Admin Mode</span>
-        <!-- NEW: Main site button -->
+        <!-- Main site button -->
         <a class="btn ghost" href="/index.html" style="height:34px;display:inline-flex;align-items:center">← Main Site</a>
         <button id="logoutBtn" class="btn ghost" style="height:34px;">Log Out</button>
       </div>
@@ -67,14 +67,14 @@
         <a class="btn" href="/admin/banquets.html">Open Banquet Manager</a>
       </div>
 
-      <!-- NEW: Grand Court Add-Ons -->
+      <!-- Grand Court Add-Ons -->
       <div class="card">
          <h2>Add-Ons Manager</h2>
          <p>Create and edit add-ons (price, active, publish window, notes).</p>
          <a class="btn" href="/admin/addons.html">Open Add-Ons</a>
       </div>
 
-      <!-- NEW: Product Catalog -->
+      <!-- Product Catalog -->
       <div class="card">
         <h2>Catalog Manager</h2>
         <p>Manage product catalog (SKU, price, stock, image, options, description).</p>
@@ -90,14 +90,20 @@
       location.href = '/admin/reporting_login.html';
     });
 
-    // Maintenance status pill
+    // Maintenance status pill (use router settings endpoint)
     (async function(){
+      const pill = document.getElementById('maintPill');
       try{
-        const res = await fetch('/api/admin/settings');
+        const res = await fetch('/api/router?type=settings', { cache: 'no-store' });
+        if (!res.ok) throw new Error('settings not available');
         const j = await res.json();
-        const on = j?.effective?.MAINTENANCE_ON;
-        const pill = document.getElementById('maintPill');
-        if(on){
+
+        const on =
+          (j?.effective && (j.effective.MAINTENANCE_ON ?? j.effective.maintenance_on)) ??
+          j?.MAINTENANCE_ON ??
+          j?.maintenance_on;
+
+        if(on === 'true' || on === true){
           pill.textContent = 'Maintenance: ON';
           pill.style.background = '#fee2e2';
           pill.style.color = '#b91c1c';
@@ -107,7 +113,10 @@
           pill.style.color = '#065f46';
         }
         pill.style.display = 'inline-flex';
-      }catch(e){ /* noop */ }
+      }catch(e){
+        // If settings fail, just hide the pill quietly
+        pill.style.display = 'none';
+      }
     })();
   </script>
 </body>
