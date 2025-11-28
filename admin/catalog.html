@@ -543,8 +543,9 @@
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
     }catch(err){
-      alert('Import failed: ' ' + (err?.message || String(err)));
+      alert('Import failed: ' + (err?.message || String(err)));
     }finally{
+
       ev.target.value = '';
     }
   });
