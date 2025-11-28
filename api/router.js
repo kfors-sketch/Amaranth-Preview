@@ -1077,7 +1077,7 @@ export default async function handler(req, res) {
           const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
 
-          // Subtotal of cart items (no fees yet)
+          // Subtotal of cart items (no processing / intl fees yet)
           const subtotalCents = lines.reduce((s, l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle =
@@ -1105,7 +1105,13 @@ export default async function handler(req, res) {
               price_data: {
                 currency: "usd",
                 unit_amount: feeAmount,
-                product_data: { name: "Processing Fee" },
+                product_data: {
+                  name: "Online Processing Fee",
+                  metadata: {
+                    itemType: "fee",
+                    itemId: "processing-fee",
+                  },
+                },
               },
             });
           }
@@ -1137,13 +1143,19 @@ export default async function handler(req, res) {
               intlFeeAmount,
               "usd"
             );
-            if (intlLine) {
-              // add minimal metadata so it can be identified in reports if needed
+            if (intlLine && intlLine.price_data?.product_data) {
+              // Ensure a clear label + fee metadata
+              intlLine.price_data.product_data.name =
+                intlLine.price_data.product_data.name ||
+                "International Card Processing Fee (3%)";
               intlLine.price_data.product_data.metadata = {
                 ...(intlLine.price_data.product_data.metadata || {}),
-                itemType: "other",
+                itemType: "fee",
                 itemId: "intl-fee",
               };
+              line_items.push(intlLine);
+            } else if (intlLine) {
+              // Fallback if helper didn't build product_data as expected
               line_items.push(intlLine);
             }
           }
