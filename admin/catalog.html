@@ -54,6 +54,7 @@
       <ul class="muted" style="margin:8px 0 0 16px">
         <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>sunflower-pendant</code>).</li>
         <li><b>Price</b>: use simple price here; tiered/variants can remain defined in your site file.</li>
+        <li><b>Shipping &amp; Handling</b>: per-item amount (USD). Checkout charges the highest shipping once per order.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
@@ -82,6 +83,7 @@
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:160px">ID</th>
                 <th>Price</th>
+                <th>Shipping</th>
                 <th>Active</th>
                 <th>Reports</th>
                 <th>Publish Window</th>
@@ -119,6 +121,10 @@
           <div>
             <label for="f_price">Price (USD)</label>
             <input id="f_price" type="number" step="0.01" min="0" placeholder="25.00" />
+          </div>
+          <div>
+            <label for="f_shipping">Shipping &amp; Handling (USD)</label>
+            <input id="f_shipping" type="number" step="0.01" min="0" placeholder="5.50" />
           </div>
           <div>
             <label for="f_sku">SKU</label>
@@ -196,7 +202,7 @@
     const d = new Date(iso);
     if(isNaN(d)) return '';
     const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
+    return \`\${y}-\${m}-\${day}T\${hh}:\${mm}\`;
   }
   function fromLocalDT(local){
     if(!local) return '';
@@ -232,6 +238,22 @@
 
     // price
     out.price = Number(out.price || 0) || 0;
+
+    // shippingCents (store as integer cents)
+    let scRaw = out.shippingCents;
+    if (scRaw == null && out.shipping_cents != null) scRaw = out.shipping_cents;
+    if (scRaw == null && out.shipping != null) scRaw = out.shipping;
+
+    let sc = Number(scRaw || 0);
+    if (!Number.isFinite(sc)) sc = 0;
+
+    // If shipping was stored as dollars (e.g. 5.5), convert to cents
+    if (!Number.isInteger(sc)) {
+      sc = Math.round(sc * 100);
+    }
+    if (sc < 0) sc = 0;
+
+    out.shippingCents = sc;
 
     // active flag
     out.active = (out.active !== false);
@@ -348,17 +370,21 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="8" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="9" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
     }
     for(const p of model){
       const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
       const end   = p.publishEnd ? new Date(p.publishEnd).toLocaleString() : '—';
       const freqLabel = describeFreq(p.reportFrequency || p.report_frequency || "monthly");
+      const shipDollars = (Number(p.shippingCents || 0) || 0) / 100;
+      const shipLabel = shipDollars > 0 ? '$' + shipDollars.toFixed(2) : '—';
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(p.name||'')}</strong></td>
         <td><code>${esc(p.id||'')}</code></td>
         <td>$${Number(p.price||0).toFixed(2)}</td>
+        <td>${shipLabel}</td>
         <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><span class="muted">${esc(freqLabel)}</span></td>
         <td><div class="muted">${start} → ${end}</div></td>
@@ -384,6 +410,7 @@
     $('#f_id').value = '';
     $('#f_active').value = 'true';
     $('#f_price').value = '';
+    $('#f_shipping').value = '';
     $('#f_sku').value = '';
     $('#f_report_freq').value = 'monthly';
     $('#f_start').value = '';
@@ -406,6 +433,8 @@
     $('#f_id').value = n.id || '';
     $('#f_active').value = String(n.active !== false);
     $('#f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
+    const shipDollars = (Number(n.shippingCents || 0) || 0) / 100;
+    $('#f_shipping').value = shipDollars > 0 ? shipDollars.toFixed(2) : '';
     $('#f_sku').value = n.sku || '';
     $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
     $('#f_start').value = toLocalDT(n.publishStart || '');
@@ -422,6 +451,7 @@
     const id   = $('#f_id').value.trim();
     const active = $('#f_active').value === 'true';
     const price = parseFloat($('#f_price').value || '0') || 0;
+    const shippingDollars = parseFloat($('#f_shipping').value || '0') || 0;
     const sku = $('#f_sku').value.trim();
     const publishStart = fromLocalDT($('#f_start').value);
     const publishEnd   = fromLocalDT($('#f_end').value);
@@ -434,10 +464,13 @@
     const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
 
     const base = current ? { ...current } : {};
+    const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
+
     return {
       ...base,
       id, name, active,
       price: Math.round(price * 100) / 100,
+      shippingCents,
       sku, publishStart, publishEnd,
       notes, description: notes || base.description || '',
       thumbnailUrl, imageUrl,
@@ -452,10 +485,11 @@
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
     if (Number(o.price) < 0) return 'Price cannot be negative.';
+    if (Number(o.shippingCents) < 0) return 'Shipping cannot be negative.';
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
     for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return \`Invalid chair email: \${em}\`;
     }
     return '';
   }
@@ -469,7 +503,7 @@
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = \`\${base}-\${i}\`; }
     return candidate;
   }
 
@@ -509,7 +543,7 @@
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
     }catch(err){
-      alert('Import failed: ' + (err?.message || String(err)));
+      alert('Import failed: ' ' + (err?.message || String(err)));
     }finally{
       ev.target.value = '';
     }
