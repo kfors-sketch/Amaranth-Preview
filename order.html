@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v7" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v8" />
   <title>Order</title>
   <style>
     /* Page-specific polish for inline edit positioning */
@@ -74,6 +74,19 @@
       border-radius:10px;
     }
 
+    /* International card fee notice */
+    #intl-fee-note {
+      display:none;
+      margin-top:8px;
+      font-size:.85rem;
+      line-height:1.3;
+      color:#7c2d12;
+      background:#fffbeb;
+      border:1px solid #fed7aa;
+      padding:6px 8px;
+      border-radius:6px;
+    }
+
     .att-notes,
     .att-meta {
       font-size:.9rem;
@@ -128,22 +141,42 @@
     <section class="card">
       <h2>Purchaser</h2>
       <div class="grid-2">
-        <label>Full name<input id="p_name" type="text" placeholder="Your name *" required></label>
-        <label>Title<input id="p_title" type="text" placeholder="Title *" required></label>
+        <label>Full name
+          <input id="p_name" type="text" placeholder="Your name *" required>
+        </label>
+        <label>Title
+          <input id="p_title" type="text" placeholder="Title *" required>
+        </label>
       </div>
       <div class="grid-2">
-        <label>Email<input id="p_email" type="email" placeholder="you@example.com *" required></label>
-        <label>Phone<input id="p_phone" type="tel" placeholder="555-555-5555 *" required></label>
+        <label>Email
+          <input id="p_email" type="email" placeholder="you@example.com *" required>
+        </label>
+        <label>Phone
+          <input id="p_phone" type="tel" placeholder="555-555-5555 *" required>
+        </label>
       </div>
       <div class="grid-3">
-        <label>Address line 1<input id="p_addr1" type="text" placeholder="Address line 1 *" required></label>
-        <label>Address line 2<input id="p_addr2" type="text" placeholder="Address line 2"></label>
-        <label>City<input id="p_city" type="text" placeholder="City *" required></label>
+        <label>Address line 1
+          <input id="p_addr1" type="text" placeholder="Address line 1 *" required>
+        </label>
+        <label>Address line 2
+          <input id="p_addr2" type="text" placeholder="Address line 2">
+        </label>
+        <label>City
+          <input id="p_city" type="text" placeholder="City *" required>
+        </label>
       </div>
       <div class="grid-3">
-        <label>State/Province<input id="p_state" type="text" placeholder="State/Province *" required></label>
-        <label>Postal code<input id="p_zip" type="text" placeholder="Postal code *" required></label>
-        <label>Country<input id="p_country" type="text" value="US" placeholder="Country *" required></label>
+        <label>State/Province
+          <input id="p_state" type="text" placeholder="State/Province *" required>
+        </label>
+        <label>Postal code
+          <input id="p_zip" type="text" placeholder="Postal code *" required>
+        </label>
+        <label>Country
+          <input id="p_country" type="text" value="US" placeholder="Country *" required>
+        </label>
       </div>
     </section>
 
@@ -158,7 +191,14 @@
 
       <div class="fees-box" id="order-summary"></div>
 
-      <div style="display:flex;align-items:center;gap:10px">
+      <!-- International card processing note (shown for non-US countries) -->
+      <div id="intl-fee-note">
+        🌎 Note: Orders with a billing address outside the United States include an additional
+        3% international card processing fee at checkout. This will appear as a separate line on
+        your Stripe payment summary.
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
         <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
         <span id="checkoutStatus" class="tiny"></span>
       </div>
@@ -199,6 +239,38 @@
 
   <!-- Order page logic (rendering + shipping + checkout) -->
   <script src="/assets/js/order-page.js"></script>
+
+  <!-- Page-specific wiring: phone formatting + international fee notice -->
+  <script>
+    (function(){
+      const phone = document.getElementById('p_phone');
+      if (phone) {
+        phone.addEventListener('input', () => formatPhoneLive(phone));
+        phone.addEventListener('blur', () => formatPhoneLive(phone));
+      }
+
+      const countryInput = document.getElementById('p_country');
+      const intlNote = document.getElementById('intl-fee-note');
+
+      function updateIntlNote() {
+        if (!countryInput || !intlNote) return;
+        const val = (countryInput.value || '').trim().toUpperCase();
+        // Only show for clearly non-US entries
+        if (val && val !== 'US' && val !== 'USA' && val !== 'UNITED STATES') {
+          intlNote.style.display = 'block';
+        } else {
+          intlNote.style.display = 'none';
+        }
+      }
+
+      if (countryInput) {
+        countryInput.addEventListener('input', updateIntlNote);
+        countryInput.addEventListener('change', updateIntlNote);
+        // initial state (default "US" hides it)
+        updateIntlNote();
+      }
+    })();
+  </script>
 
   <!-- Hide Product Catalog link if no visible items -->
   <script>
