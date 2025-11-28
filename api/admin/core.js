@@ -472,26 +472,48 @@ function absoluteUrl(path = "/") {
 }
 
 function renderOrderEmailHTML(order) {
+  // cents → money
   const money = (c) =>
     (Number(c || 0) / 100).toLocaleString("en-US", {
       style: "currency",
       currency: "USD",
     });
+
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
   const purchaserName = order?.purchaser?.name || "Purchaser";
+  const lines = order.lines || [];
 
   const topCatalog = [];
   const attendeeGroups = {};
-  let feesCents = 0;
 
-  (order.lines || []).forEach((li) => {
+  // NEW: split Stripe fee vs international fee
+  let processingFeeCents = 0;
+  let intlFeeCents = 0;
+
+  (lines || []).forEach((li) => {
     const name = li.itemName || "";
     const qty = Number(li.qty || 1);
     const lineCents = Number(li.unitPrice || 0) * qty;
     const cat = String(li.category || "").toLowerCase();
+    const itemId = String(li.itemId || "").toLowerCase();
+    const metaType = String(li.meta?.itemType || "").toLowerCase();
 
-    if (/processing\s*fee/i.test(name)) {
-      feesCents += lineCents;
+    const isProcessingFee =
+      itemId === "processing-fee" ||
+      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+        /processing\s*fee/i.test(name));
+
+    const isIntlFee =
+      itemId === "intl-fee" ||
+      /international card processing fee/i.test(name);
+
+    // Skip fee lines from the item tables and track them for the summary
+    if (isProcessingFee) {
+      processingFeeCents += lineCents;
+      return;
+    }
+    if (isIntlFee) {
+      intlFeeCents += lineCents;
       return;
     }
 
@@ -591,19 +613,92 @@ function renderOrderEmailHTML(order) {
     )
     .join("");
 
-  const subtotalAll = (order.lines || []).reduce(
-    (s, li) => s + Number(li.unitPrice || 0) * Number(li.qty || 1),
-    0
-  );
-  const total = Number(order.amount_total || subtotalAll);
-  const feesRow =
-    feesCents > 0
-      ? `<tr>
-         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Fees</td>
-         <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
-           feesCents
-         )}</td>
-       </tr>`
+  // --- New summary breakdown to match the order page ---
+  // Re-scan all lines to compute subtotal vs shipping (fee lines already tracked above)
+  const { itemsSubtotalCents, shippingCents } = (function () {
+    let itemsSubtotal = 0;
+    let shipping = 0;
+
+    for (const li of lines) {
+      const name = li.itemName || "";
+      const qty = Number(li.qty || 1);
+      const lineCents = Number(li.unitPrice || 0) * qty;
+      const cat = String(li.category || "").toLowerCase();
+      const itemId = String(li.itemId || "").toLowerCase();
+      const metaType = String(li.meta?.itemType || "").toLowerCase();
+
+      const isProcessingFee =
+        itemId === "processing-fee" ||
+        ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+          /processing\s*fee/i.test(name));
+      const isIntlFee =
+        itemId === "intl-fee" ||
+        /international card processing fee/i.test(name);
+      const isShipping =
+        cat === "shipping" ||
+        metaType === "shipping" ||
+        itemId === "shipping";
+
+      if (isProcessingFee || isIntlFee) {
+        continue; // handled separately
+      }
+
+      if (isShipping) {
+        shipping += lineCents;
+        continue;
+      }
+
+      // Everything else counts as "items subtotal"
+      itemsSubtotal += lineCents;
+    }
+
+    return { itemsSubtotalCents: itemsSubtotal, shippingCents: shipping };
+  })();
+
+  const grandTotalCents =
+    itemsSubtotalCents +
+    shippingCents +
+    processingFeeCents +
+    intlFeeCents;
+
+  // Fallback to Stripe's amount_total if for some reason the computed total is 0
+  const totalCents =
+    grandTotalCents > 0
+      ? grandTotalCents
+      : Number(order.amount_total || 0);
+
+  // Build summary footer rows
+  const shippingRow =
+    shippingCents > 0
+      ? `
+      <tr>
+        <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Shipping &amp; Handling</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          shippingCents
+        )}</td>
+      </tr>`
+      : "";
+
+  const processingRow =
+    processingFeeCents > 0
+      ? `
+      <tr>
+        <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Online Processing Fee</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          processingFeeCents
+        )}</td>
+      </tr>`
+      : "";
+
+  const intlRow =
+    intlFeeCents > 0
+      ? `
+      <tr>
+        <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">International Card Processing Fee (3%)</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          intlFeeCents
+        )}</td>
+      </tr>`
       : "";
 
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
@@ -629,13 +724,19 @@ function renderOrderEmailHTML(order) {
 
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
-        ${feesRow}
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid ${
-            feesRow ? "#ddd" : "#ddd"
-          };font-weight:700">Total</td>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Subtotal</td>
+          <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+            itemsSubtotalCents
+          )}</td>
+        </tr>
+        ${shippingRow}
+        ${processingRow}
+        ${intlRow}
+        <tr>
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
           <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
-            total
+            totalCents
           )}</td>
         </tr>
       </tfoot>
@@ -785,12 +886,12 @@ function buildCSV(rows) {
 
   const sorted = sortByDateAsc(rows, "date");
 
-  const lines = [headers.join(",")];
+  const linesOut = [headers.join(",")];
   for (const r of sorted) {
-    lines.push(headers.map((h) => esc(r[h])).join(","));
-    lines.push("");
+    linesOut.push(headers.map((h) => esc(r[h])).join(","));
+    linesOut.push("");
   }
-  return "\uFEFF" + lines.join("\n");
+  return "\uFEFF" + linesOut.join("\n");
 }
 
 function buildCSVSelected(rows, headers) {
