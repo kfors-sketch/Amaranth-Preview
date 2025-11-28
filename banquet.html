@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v12"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v13"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -177,10 +177,12 @@
       } else {
         sel.disabled = false;
         sel.innerHTML =
-          '<option value="" disabled>Select attendee…</option>' +
+          '<option value="">Select attendee…</option>' +
           a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
-        // Preserve previous selection if still valid
-        if (a.some(x => String(x.id) === String(prev))) sel.value = prev;
+
+        // Preserve previous selection if still valid; otherwise keep placeholder
+        const hasPrev = a.some(x => String(x.id) === String(prev));
+        sel.value = hasPrev ? prev : "";
       }
       sel.dispatchEvent(new Event('change'));
     }
@@ -294,8 +296,10 @@
         s.innerHTML = '<option value="">Add attendee first</option>';
       } else {
         s.disabled = false;
-        s.innerHTML = '<option value="" disabled selected>Select attendee…</option>' +
+        s.innerHTML = '<option value="">Select attendee…</option>' +
           a.map(at=>`<option value="${at.id}">${at.name || at.email}</option>`).join('');
+        // always start with placeholder selected
+        s.value = "";
       }
       return s;
     }
