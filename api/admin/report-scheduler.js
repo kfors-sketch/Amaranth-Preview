@@ -13,13 +13,21 @@ async function kvSetSafe(key, val) {
 }
 
 // ---- Frequency helpers ----
-const VALID_FREQS = ["daily", "weekly", "biweekly", "monthly", "none"];
+// Internal normalized values:
+//   "daily", "weekly", "twice-per-month", "monthly", "none"
+const VALID_FREQS = ["daily", "weekly", "twice-per-month", "monthly", "none"];
 
 function normalizeFrequency(raw) {
   const v = String(raw || "").trim().toLowerCase();
-  if (!v) return "monthly";           // default if nothing set
+  if (!v) return "monthly"; // default if nothing set
+
+  // Map various UI / legacy labels to our internal set
+  if (v === "biweekly") return "twice-per-month"; // backward compatibility
+  if (v === "twice" || v === "twice per month" || v === "2x") return "twice-per-month";
+  if (v === "do not auto send" || v === "do-not-auto-send") return "none";
+
   if (VALID_FREQS.includes(v)) return v;
-  return "monthly";                   // fallback
+  return "monthly"; // fallback
 }
 
 function formatYMDUTC(d) {
@@ -53,12 +61,13 @@ function isoWeekIdUTC(date) {
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
+// This is now only for LOGGING (not for dedupe).
 function computePeriodId(freq, now) {
   const f = normalizeFrequency(freq);
-  if (f === "none") return ""; // no period
+  if (f === "none") return "";
   if (f === "daily") return formatYMDUTC(now);
   if (f === "weekly") return isoWeekIdUTC(now);
-  if (f === "biweekly") {
+  if (f === "twice-per-month") {
     const ym = formatYMUTC(now);
     const half = now.getUTCDate() <= 15 ? "1" : "2"; // first or second half of month
     return `${ym}-${half}`;
@@ -67,12 +76,58 @@ function computePeriodId(freq, now) {
   return formatYMUTC(now);
 }
 
+// ---- Date-diff helpers for scheduling by lastSentAt ----
+function daysBetween(a, b) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((a.getTime() - b.getTime()) / msPerDay);
+}
+
+function monthsBetween(a, b) {
+  return (
+    (a.getFullYear() - b.getFullYear()) * 12 +
+    (a.getMonth() - b.getMonth())
+  );
+}
+
+// Decide if an item is due based on lastSentAt + current frequency.
+//
+// freq: "daily" | "weekly" | "twice-per-month" | "monthly" | "none"
+function shouldSendReport({ now, lastSentAt, freq }) {
+  if (!freq || freq === "none") return false;
+
+  // Never sent before? Always send once.
+  if (!lastSentAt) return true;
+
+  const last = lastSentAt;
+
+  switch (freq) {
+    case "daily": {
+      // At least 1 full day since last send (different calendar day)
+      return daysBetween(now, last) >= 1;
+    }
+    case "weekly": {
+      // ~7 days apart
+      return daysBetween(now, last) >= 7;
+    }
+    case "twice-per-month": {
+      // Roughly every 14 days (≈ 2x per month)
+      return daysBetween(now, last) >= 14;
+    }
+    case "monthly": {
+      // At least 1 calendar month difference
+      return monthsBetween(now, last) >= 1;
+    }
+    default:
+      return false;
+  }
+}
+
 // ---- Main scheduler ----
 //
 // This helper decides WHICH items get a report this run, based on:
 //   - publishStart / publishEnd window
-//   - per-item reportFrequency (daily/weekly/biweekly/monthly/none)
-//   - per-item last sent period key
+//   - per-item reportFrequency (daily/weekly/twice-per-month/monthly/none)
+//   - per-item lastSentAt timestamp
 //
 // It does NOT send log emails. It just calls sendItemReportEmailInternal
 // and returns a log of what happened so router.js can email/report.
@@ -125,6 +180,7 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
       item.fromList?.report_frequency
     );
 
+    // For log/debug only (no longer used for dedupe)
     const periodId = computePeriodId(freq, now);
 
     let skip = false;
@@ -140,18 +196,24 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
     } else if (freq === "none") {
       skip = true;
       skipReason = "Frequency set to 'none'";
-    } else if (!periodId) {
-      skip = true;
-      skipReason = "Unsupported frequency";
     }
 
-    const lastKey = `itemcfg:${id}:last_period:${freq}`;
+    // Last-sent-based scheduling
+    const lastSentKey = `itemcfg:${id}:last_sent_at`;
+    const lastSentRaw = await kvGetSafe(lastSentKey, "");
+    let lastSentAt = null;
+    if (lastSentRaw) {
+      const d = new Date(lastSentRaw);
+      if (!isNaN(d.getTime())) {
+        lastSentAt = d;
+      }
+    }
 
     if (!skip) {
-      const lastPeriod = await kvGetSafe(lastKey, "");
-      if (lastPeriod === periodId) {
+      const due = shouldSendReport({ now, lastSentAt, freq });
+      if (!due) {
         skip = true;
-        skipReason = "Already sent for this period";
+        skipReason = "Not due yet";
       }
     }
 
@@ -184,7 +246,7 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
 
     if (result.ok) {
       sent += 1;
-      await kvSetSafe(lastKey, periodId);
+      await kvSetSafe(lastSentKey, now.toISOString());
     } else {
       errors += 1;
     }
