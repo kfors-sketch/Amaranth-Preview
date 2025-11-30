@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v4" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v5" />
   <title>Product Catalog</title>
 </head>
 
@@ -44,11 +44,15 @@
     <!-- Product grid -->
     <section class="shop-grid" id="shopGrid" aria-live="polite"></section>
 
-    <!-- Lightbox -->
+    <!-- Lightbox with gallery controls -->
     <div class="lightbox" id="lightbox" hidden>
-      <button class="lightbox-close" id="lbClose" aria-label="Close">×</button>
-      <img id="lbImg" class="lightbox-img" alt="">
-      <div id="lbCap" class="lightbox-caption"></div>
+      <div class="lightbox-inner">
+        <button class="lightbox-close" id="lbClose" aria-label="Close">×</button>
+        <button class="lightbox-nav lightbox-prev" id="lbPrev" aria-label="Previous image">‹</button>
+        <img id="lbImg" class="lightbox-img" alt="">
+        <button class="lightbox-nav lightbox-next" id="lbNext" aria-label="Next image">›</button>
+        <div id="lbCap" class="lightbox-caption"></div>
+      </div>
     </div>
   </main>
 
@@ -113,19 +117,56 @@
     return isWithinWindow(item, now);
   }
 
-  // Simple lightbox
+  // Lightbox with gallery support
   function setupLightbox(){
-    const lb = document.getElementById('lightbox');
-    const img = document.getElementById('lbImg');
-    const cap = document.getElementById('lbCap');
+    const lb    = document.getElementById('lightbox');
+    const img   = document.getElementById('lbImg');
+    const cap   = document.getElementById('lbCap');
     const close = document.getElementById('lbClose');
+    const prev  = document.getElementById('lbPrev');
+    const next  = document.getElementById('lbNext');
 
-    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
-    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
+    let gallery = [];
+    let index   = 0;
+    let title   = '';
 
-    close.addEventListener('click', closeLb);
+    function showCurrent(){
+      if (!gallery.length) return;
+      img.src = gallery[index];
+      const count = gallery.length > 1 ? ' (' + (index + 1) + '/' + gallery.length + ')' : '';
+      cap.textContent = (title || '') + count;
+    }
+
+    function open(images, startIndex, caption){
+      gallery = (Array.isArray(images) ? images : []).filter(Boolean);
+      if (!gallery.length) return;
+      index = Math.min(Math.max(startIndex || 0, 0), gallery.length - 1);
+      title = caption || '';
+      lb.hidden = false;
+      showCurrent();
+    }
+
+    function closeLb(){
+      lb.hidden = true;
+      img.src = '';
+      cap.textContent = '';
+      gallery = [];
+      index = 0;
+    }
+
+    function go(delta){
+      if (!gallery.length) return;
+      index = (index + delta + gallery.length) % gallery.length;
+      showCurrent();
+    }
+
+    // Wire up controls
+    close.addEventListener('click', (e)=>{ e.stopPropagation(); closeLb(); });
     lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
-    return { open, close: closeLb };
+    if (prev) prev.addEventListener('click', (e)=>{ e.stopPropagation(); go(-1); });
+    if (next) next.addEventListener('click', (e)=>{ e.stopPropagation(); go(1); });
+
+    return { open };
   }
 
   document.addEventListener('DOMContentLoaded', function(){
@@ -171,8 +212,8 @@
         const low = total > 0 && remaining > 0 && remaining <= LOW_STOCK;
 
         const badge = soldOut
-          ? `<div class="item-badge badge-soldout">Sold out</div>`
-          : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
+          ? '<div class="item-badge badge-soldout">Sold out</div>'
+          : (low ? '<div class="item-badge badge-low">Only ' + remaining + ' left</div>' : '');
 
         // ----- PRICE / CONTROLS VIEW -----
         let controlsHtml = '';
@@ -186,43 +227,45 @@
             .sort((a,b)=>a.qty-b.qty);
 
           const fromEach = tiers.length ? (tiers[0].price / tiers[0].qty) : 0;
-          priceLine = `<p class="item-price">From ${money(fromEach)} each</p>`;
+          priceLine = '<p class="item-price">From ' + money(fromEach) + ' each</p>';
 
           const opts = tiers.map(t =>
-            `<option value="${t.qty}" data-price="${t.price}">${t.qty} for ${money(t.price)} (${money(t.price/t.qty)} each)</option>`
+            '<option value="' + t.qty + '" data-price="' + t.price + '">' +
+              t.qty + ' for ' + money(t.price) + ' (' + money(t.price/t.qty) + ' each)' +
+            '</option>'
           ).join('');
 
-          controlsHtml = `
-            <div class="buy-row">
-              <label class="stack">
-                <span class="lbl">Bundle</span>
-                <select class="bundle" ${soldOut ? 'disabled' : ''}>
-                  ${opts}
-                </select>
-              </label>
-              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
-            </div>
-            <div class="bundle-total tiny" aria-live="polite"></div>
-          `;
+          controlsHtml = [
+            '<div class="buy-row">',
+              '<label class="stack">',
+                '<span class="lbl">Bundle</span>',
+                '<select class="bundle" ' + (soldOut ? 'disabled' : '') + '>',
+                  opts,
+                '</select>',
+              '</label>',
+              '<button class="btn btn-primary add" ' + (soldOut ? 'disabled' : '') + '>Add to Order</button>',
+            '</div>',
+            '<div class="bundle-total tiny" aria-live="polite"></div>'
+          ].join('');
         } else {
           // Single-price
           const price = normalizePrice(item.price || 0);
-          priceLine = `<p class="item-price">${money(price)}</p>`;
-          controlsHtml = `
-            <div class="buy-row">
-              <label class="stack">
-                <span class="lbl">Qty</span>
-                <input class="qty" type="number" min="1" step="1" value="1" ${soldOut ? 'disabled' : ''}>
-              </label>
-              <button class="btn btn-primary add" ${soldOut ? 'disabled' : ''}>Add to Order</button>
-            </div>
-          `;
+          priceLine = '<p class="item-price">' + money(price) + '</p>';
+          controlsHtml = [
+            '<div class="buy-row">',
+              '<label class="stack">',
+                '<span class="lbl">Qty</span>',
+                '<input class="qty" type="number" min="1" step="1" value="1" ' + (soldOut ? 'disabled' : '') + '>',
+              '</label>',
+              '<button class="btn btn-primary add" ' + (soldOut ? 'disabled' : '') + '>Add to Order</button>',
+            '</div>'
+          ].join('');
         }
 
         // Description (from admin notes/description)
         const desc = (item.description || item.notes || '').trim();
         const descHtml = desc
-          ? `<p class="item-desc">${escHtml(desc)}</p>`
+          ? '<p class="item-desc">' + escHtml(desc) + '</p>'
           : '';
 
         // Thumbnail: prefer new fields first; last resort = logo.svg (no 404)
@@ -232,18 +275,18 @@
           (Array.isArray(item.images) && item.images[0]) ||
           '/assets/img/logo.svg';
 
-        return `
-          <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
-            ${badge}
-            <button class="thumb" ${soldOut ? 'disabled' : ''} aria-label="Preview image">
-              <img src="${thumbSrc}" alt="${item.name || 'Item'}">
-            </button>
-            <div class="item-name">${item.name || ''}</div>
-            ${descHtml}
-            ${priceLine}
-            ${controlsHtml}
-          </article>
-        `;
+        return [
+          '<article class="item ' + (soldOut ? 'is-soldout' : '') + '" data-id="' + item.id + '">',
+            badge,
+            '<button class="thumb" ' + (soldOut ? 'disabled' : '') + ' aria-label="Preview image">',
+              '<img src="' + thumbSrc + '" alt="' + (item.name || 'Item') + '">',
+            '</button>',
+            '<div class="item-name">' + (item.name || '') + '</div>',
+            descHtml,
+            priceLine,
+            controlsHtml,
+          '</article>'
+        ].join('');
       }).join('');
 
       // Hook up behaviors
@@ -255,15 +298,20 @@
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
 
-            // Full image prefers imageUrl, then images[0], then thumbnail/image, then logo.svg
-            const fullSrc =
-              item.imageUrl ||
-              (Array.isArray(item.images) && item.images[0]) ||
-              item.thumbnailUrl ||
-              item.image ||
-              '/assets/img/logo.svg';
+            // Build gallery from item.images (fall back to single image)
+            let gallery = [];
+            if (Array.isArray(item.images) && item.images.length){
+              gallery = item.images;
+            } else {
+              const fallback =
+                item.imageUrl ||
+                item.thumbnailUrl ||
+                item.image ||
+                '/assets/img/logo.svg';
+              gallery = [fallback];
+            }
 
-            lb.open(fullSrc, item.name || '');
+            lb.open(gallery, 0, item.name || '');
           });
         }
 
@@ -277,7 +325,7 @@
           const updateBundleTotal = ()=>{
             const selected = bundleSel.options[bundleSel.selectedIndex];
             const price = normalizePrice(selected.dataset.price);
-            bundleTotalEl.textContent = `Total for selection: ${money(price)}`;
+            bundleTotalEl.textContent = 'Total for selection: ' + money(price);
           };
           bundleSel.addEventListener('change', updateBundleTotal);
           updateBundleTotal();
@@ -299,7 +347,7 @@
             if (total > 0){
               if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
               if (bundleQty > remaining){
-                alert(`Only ${remaining} left – cannot add a ${bundleQty}-pack.`);
+                alert('Only ' + remaining + ' left – cannot add a ' + bundleQty + '-pack.');
                 return;
               }
             }
@@ -310,7 +358,7 @@
               attendeeId: '(unassigned)',
               itemType: 'catalog',
               itemId: String(item.id),
-              itemName: `${item.name} (${bundleQty}-pack)`,
+              itemName: (item.name || 'Item') + ' (' + bundleQty + '-pack)',
               qty: bundleQty,
               unitPrice: perUnit,
               meta: { sku: item.sku || '', note: '', bundleQty, bundlePrice }
@@ -337,7 +385,7 @@
               if (qty > remaining){
                 qty = remaining;
                 qtyInput.value = String(qty);
-                alert(`Only ${remaining} left – quantity adjusted.`);
+                alert('Only ' + remaining + ' left – quantity adjusted.');
               }
             }
 
@@ -499,6 +547,71 @@
       margin-top:6px;
       font-weight:700;
     }
+
+    /* Lightbox layout */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .lightbox[hidden] {
+      display: none;
+    }
+    .lightbox-inner {
+      position: relative;
+      max-width: 90vw;
+      max-height: 90vh;
+      background: #111;
+      padding: 12px 40px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+    }
+    .lightbox-img {
+      max-width: 100%;
+      max-height: 70vh;
+      object-fit: contain;
+    }
+    .lightbox-caption {
+      margin-top: 8px;
+      color: #f9fafb;
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      border: 0;
+      background: transparent;
+      color: #f9fafb;
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: rgba(0,0,0,0.5);
+      color: #f9fafb;
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      font-size: 1.4rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-prev { left: 8px; }
+    .lightbox-next { right: 8px; }
   </style>
 
   <!-- Core site scripts (order matters) -->
