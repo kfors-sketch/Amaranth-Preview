@@ -1190,6 +1190,20 @@ async function sendItemReportEmailInternal({
     return { ok: false, error: "no-recipient" };
 
   const prettyKind = kind === "other" ? "catalog" : kind;
+
+  // NEW: nicer human scope label + explanation for current-month
+  const scopeLabel =
+    scope === "current-month"
+      ? "current-month (from the first of the month through today)"
+      : scope === "full"
+        ? "full (all orders for this item)"
+        : String(scope || "");
+
+  const extraScopeLine =
+    scope === "current-month"
+      ? `<p style="font-size:12px;color:#555;margin:2px 0 0;"><strong>These reports include all activity from the first of the month through today.</strong></p>`
+      : "";
+
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
@@ -1197,7 +1211,8 @@ async function sendItemReportEmailInternal({
         label || id
       }”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
-      <div style="font-size:12px;color:#555">Scope: ${scope}</div>
+      <div style="font-size:12px;color:#555">Scope: ${scopeLabel}</div>
+      ${extraScopeLine}
     </div>`;
 
   const payload = {
