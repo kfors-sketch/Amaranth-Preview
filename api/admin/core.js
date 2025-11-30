@@ -133,6 +133,16 @@ const normalizeKey = (s) =>
     .toLowerCase()
     .replace(/:(adult|child|youth)$/i, "");
 
+// ---- Report frequency normalizer (shared) ----
+const VALID_FREQS = ["daily", "weekly", "biweekly", "monthly", "none"];
+
+function normalizeReportFrequency(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "monthly";
+  if (VALID_FREQS.includes(v)) return v;
+  return "monthly";
+}
+
 // Build effective settings (env + overrides)
 async function getEffectiveSettings() {
   const overrides = await kvHgetallSafe("settings:overrides");
@@ -465,9 +475,6 @@ function flattenOrderToRows(o) {
 }
 
 // --- Helper to estimate Stripe fee from items + shipping ---
-// This does NOT change any stored data by itself;
-// it just gives you the correct fee if you want to base it on
-// (items subtotal + shipping & handling), excluding any existing fee lines.
 function computeStripeProcessingFeeFromLines(
   lines,
   { stripePct = 0.029, stripeFlatCents = 30 } = {}
@@ -513,7 +520,6 @@ function computeStripeProcessingFeeFromLines(
   const base = itemsSubtotal + shipping;
   if (base <= 0) return 0;
 
-  // base is in cents; apply percentage + flat fee, still in cents
   return Math.round(base * stripePct + stripeFlatCents);
 }
 
@@ -667,7 +673,6 @@ function renderOrderEmailHTML(order) {
     .join("");
 
   // --- New summary breakdown to match the order page ---
-  // Re-scan all lines to compute subtotal vs shipping (fee lines already tracked above)
   const { itemsSubtotalCents, shippingCents } = (function () {
     let itemsSubtotal = 0;
     let shipping = 0;
@@ -701,7 +706,6 @@ function renderOrderEmailHTML(order) {
         continue;
       }
 
-      // Everything else counts as "items subtotal"
       itemsSubtotal += lineCents;
     }
 
@@ -714,13 +718,11 @@ function renderOrderEmailHTML(order) {
     processingFeeCents +
     intlFeeCents;
 
-  // Fallback to Stripe's amount_total if for some reason the computed total is 0
   const totalCents =
     grandTotalCents > 0
       ? grandTotalCents
       : Number(order.amount_total || 0);
 
-  // Build summary footer rows
   const shippingRow =
     shippingCents > 0
       ? `
@@ -1244,7 +1246,6 @@ async function sendItemReportEmailInternal({
 
   const prettyKind = kind === "other" ? "catalog" : kind;
 
-  // NEW: nicer human scope label + explanation for current-month
   const scopeLabel =
     scope === "current-month"
       ? "current-month (from the first of the month through today)"
@@ -1406,6 +1407,7 @@ export {
   sortByDateAsc,
   baseKey,
   normalizeKey,
+  normalizeReportFrequency,
   getEffectiveSettings,
   filterRowsByWindow,
   applyItemFilters,
