@@ -66,11 +66,7 @@
   // $X,XXX.00 — always commas + 2 decimals; clamp to >= 0.01 for display
   function money(n){
     const v = Math.max(0.01, Math.round(Number(n) * 100) / 100);
-    return v.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2
-    });
+    return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
   }
 
   // Treat 0 < n < 1 as cents accidentally stored; convert to dollars
@@ -80,20 +76,14 @@
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
-  // Simple HTML escape (for description text)
-  function escHtml(str){
-    return String(str ?? '').replace(/[&<>"']/g, c => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    }[c]));
-  }
-
-  // Clean image URLs: treat null/undefined/"undefined"/"null" as empty
-  function cleanSrc(v){
-    const s = (v == null ? '' : String(v)).trim();
-    if (!s) return '';
-    const low = s.toLowerCase();
-    if (low === 'undefined' || low === 'null') return '';
-    return s;
+  // Basic HTML escape for description text
+  function escHtml(s){
+    return String(s || '').replace(/[&<>"]/g, c => (
+      c === '&' ? '&amp;'
+      : c === '<' ? '&lt;'
+      : c === '>' ? '&gt;'
+      : '&quot;'
+    ));
   }
 
   // Parse flexible date strings: ISO, "YYYY-MM-DD", or empty => null
@@ -130,16 +120,8 @@
     const cap = document.getElementById('lbCap');
     const close = document.getElementById('lbClose');
 
-    function open(src, caption){
-      img.src = src;
-      cap.textContent = caption || '';
-      lb.hidden = false;
-    }
-    function closeLb(){
-      lb.hidden = true;
-      img.src = '';
-      cap.textContent = '';
-    }
+    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
+    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
 
     close.addEventListener('click', closeLb);
     lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
@@ -165,18 +147,13 @@
       }
     })();
 
-    const grid = document.getElementById('shopGrid');
+    const grid  = document.getElementById('shopGrid');
     const empty = document.getElementById('emptyCatalog');
-    const lb = setupLightbox();
+    const lb    = setupLightbox();
 
-    // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
-    const rawItems = (window.DataStore && DataStore.getItems && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
     const now = new Date();
-
-    // === visibility gate (same publish-window logic as elsewhere) ===
-    const items = (rawItems || []).filter(it => isVisibleItem(it, now));
-
     const LOW_STOCK = 5;
+    let items = [];
 
     function render(){
       if (!items.length){
@@ -242,20 +219,18 @@
           `;
         }
 
-        // === DESCRIPTION (uses description or notes) ===
-        const descRaw = (item.description || item.notes || '').trim();
-        const descHtml = descRaw
-          ? `<p class="item-desc">${escHtml(descRaw)}</p>`
+        // Description (from admin notes/description)
+        const desc = (item.description || item.notes || '').trim();
+        const descHtml = desc
+          ? `<p class="item-desc">${escHtml(desc)}</p>`
           : '';
 
-        // === Thumbnail source: prefer new fields, clean bad values, fallback to logo ===
-        const thumbSrc = cleanSrc(
+        // Thumbnail: prefer new fields first; last resort = logo.svg (no 404)
+        const thumbSrc =
           item.thumbnailUrl ||
           item.image ||
-          item.imageUrl ||
           (Array.isArray(item.images) && item.images[0]) ||
-          'assets/img/logo.svg'
-        );
+          '/assets/img/logo.svg';
 
         return `
           <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
@@ -276,25 +251,24 @@
         const id = card.dataset.id;
         const item = items.find(x=>String(x.id)===String(id));
         const thumbBtn = card.querySelector('.thumb');
-        if (thumbBtn){
+        if (thumbBtn && item){
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
 
-            // Full image prefers imageUrl, then images[0], then thumbnail, then image, then logo
-            const fullSrc = cleanSrc(
+            // Full image prefers imageUrl, then images[0], then thumbnail/image, then logo.svg
+            const fullSrc =
               item.imageUrl ||
               (Array.isArray(item.images) && item.images[0]) ||
               item.thumbnailUrl ||
               item.image ||
-              'assets/img/logo.svg'
-            );
+              '/assets/img/logo.svg';
 
             lb.open(fullSrc, item.name || '');
           });
         }
 
         const addBtn = card.querySelector('.add');
-        if (!addBtn) return;
+        if (!addBtn || !item) return;
 
         // Live "Total for selection" preview for bundles
         const bundleSel = card.querySelector('.bundle');
@@ -391,8 +365,33 @@
       });
     }
 
-    render();
-    window.addEventListener && window.addEventListener('items:updated', render);
+    // Load products from server first, then fall back to items.js
+    async function loadAndRender(){
+      let rawItems = [];
+      try {
+        const resp = await fetch('/api/router?type=products', { cache: 'no-store' });
+        if (resp.ok){
+          const data = await resp.json();
+          if (Array.isArray(data.products) && data.products.length){
+            rawItems = data.products;
+          }
+        }
+      } catch (e){
+        console.warn('Product fetch failed, falling back to static items:', e);
+      }
+
+      if (!rawItems.length){
+        rawItems =
+          (window.DataStore && DataStore.getItems && DataStore.getItems()) ||
+          (window.CATALOG_ITEMS || []);
+      }
+
+      items = (rawItems || []).filter(it => isVisibleItem(it, now));
+      render();
+    }
+
+    loadAndRender();
+    window.addEventListener && window.addEventListener('items:updated', loadAndRender);
   });
   </script>
 
@@ -455,9 +454,9 @@
     }
 
     .item-desc{
-      margin:4px 0 6px;
       font-size:.9rem;
-      min-height: 2.4em;   /* keeps cards even when some have desc and some don’t */
+      margin:4px 0 0;
+      min-height: 2.7em; /* ~2 lines space so cards stay even-ish */
       color:#374151;
     }
 
