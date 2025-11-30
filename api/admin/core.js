@@ -464,6 +464,59 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
+// --- Helper to estimate Stripe fee from items + shipping ---
+// This does NOT change any stored data by itself;
+// it just gives you the correct fee if you want to base it on
+// (items subtotal + shipping & handling), excluding any existing fee lines.
+function computeStripeProcessingFeeFromLines(
+  lines,
+  { stripePct = 0.029, stripeFlatCents = 30 } = {}
+) {
+  if (!Array.isArray(lines) || !lines.length) return 0;
+
+  let itemsSubtotal = 0;
+  let shipping = 0;
+
+  for (const li of lines) {
+    const name = li.itemName || "";
+    const qty = Number(li.qty || 1);
+    const lineCents = Number(li.unitPrice || 0) * qty;
+    const cat = String(li.category || "").toLowerCase();
+    const itemId = String(li.itemId || "").toLowerCase();
+    const metaType = String(li.meta?.itemType || "").toLowerCase();
+
+    const isProcessingFee =
+      itemId === "processing-fee" ||
+      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+        /processing\s*fee/i.test(name));
+    const isIntlFee =
+      itemId === "intl-fee" ||
+      /international card processing fee/i.test(name);
+
+    const isShipping =
+      cat === "shipping" ||
+      metaType === "shipping" ||
+      itemId === "shipping";
+
+    // Skip any existing fee lines from the base
+    if (isProcessingFee || isIntlFee) continue;
+
+    if (isShipping) {
+      shipping += lineCents;
+      continue;
+    }
+
+    // Everything else counts as "items subtotal"
+    itemsSubtotal += lineCents;
+  }
+
+  const base = itemsSubtotal + shipping;
+  if (base <= 0) return 0;
+
+  // base is in cents; apply percentage + flat fee, still in cents
+  return Math.round(base * stripePct + stripeFlatCents);
+}
+
 // -------- Email rendering + sending (receipts) --------
 function absoluteUrl(path = "/") {
   const base = (process.env.SITE_BASE_URL || "").replace(/\/+$/, "");
@@ -1363,6 +1416,7 @@ export {
   saveOrderFromSession,
   applyRefundToOrder,
   flattenOrderToRows,
+  computeStripeProcessingFeeFromLines,
   absoluteUrl,
   renderOrderEmailHTML,
   sendOrderReceipts,
