@@ -276,6 +276,27 @@
     // normalize frequency (for reporting)
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
+    // ---- NEW: image / URL normalization & sync ----
+    // Prefer admin-managed URLs, but also heal old data that only had image/images.
+    if (!out.thumbnailUrl) {
+      out.thumbnailUrl = out.imageThumb || out.image || "";
+    }
+    if (!out.imageUrl) {
+      if (Array.isArray(out.images) && out.images.length) {
+        out.imageUrl = out.images[0];
+      } else {
+        out.imageUrl = out.image || out.thumbnailUrl || "";
+      }
+    }
+
+    // Keep legacy fields in sync with the admin URLs
+    out.image = out.thumbnailUrl || out.image || "";
+    if (Array.isArray(out.images) && out.images.length) {
+      out.images = [out.imageUrl || out.images[0]];
+    } else {
+      out.images = out.imageUrl ? [out.imageUrl] : [];
+    }
+
     return out;
   }
 
@@ -466,43 +487,26 @@
     const base = current ? { ...current } : {};
     const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
 
-    // core object
-    const o = {
+    // Preserve any existing images if a new one isn't provided
+    const baseImages = Array.isArray(base.images) ? base.images.slice() : [];
+    const newImages = imageUrl ? [imageUrl] : baseImages;
+
+    return {
       ...base,
       id, name, active,
       price: Math.round(price * 100) / 100,
       shippingCents,
       sku, publishStart, publishEnd,
-      notes,
-      description: notes || base.description || '',
+      notes, description: notes || base.description || '',
+      // NEW: keep legacy image fields in sync with the form URLs
       thumbnailUrl,
       imageUrl,
+      image: thumbnailUrl || base.image || '',
+      images: newImages,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
       reportFrequency: freq
     };
-
-    // 🔁 keep legacy image fields in sync:
-    // - image       ≈ thumbnail
-    // - images[0]   ≈ main/full image
-    if (thumbnailUrl){
-      o.image = thumbnailUrl;
-    } else if (thumbnailUrl === '' && 'image' in o){
-      o.image = '';
-    }
-
-    if (imageUrl){
-      if (!Array.isArray(o.images)) o.images = [];
-      if (o.images.length === 0){
-        o.images.push(imageUrl);
-      } else {
-        o.images[0] = imageUrl;
-      }
-    } else if (imageUrl === '' && Array.isArray(o.images) && o.images.length){
-      o.images[0] = '';
-    }
-
-    return o;
   }
 
   function validate(o){
