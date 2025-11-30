@@ -169,6 +169,21 @@
           ? `<div class="item-badge badge-soldout">Sold out</div>`
           : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
 
+        // ----- IMAGE SOURCES (new logic) -----
+        const thumbSrc =
+          item.thumbnailUrl ||
+          item.imageUrl ||
+          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          item.image ||
+          'assets/shop/placeholder.png';
+
+        const fullSrc =
+          item.imageUrl ||
+          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          item.image ||
+          thumbSrc ||
+          'assets/shop/placeholder.png';
+
         // ----- PRICE / CONTROLS VIEW -----
         let controlsHtml = '';
         let priceLine = '';
@@ -218,7 +233,7 @@
           <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
             ${badge}
             <button class="thumb" ${soldOut ? 'disabled' : ''} aria-label="Preview image">
-              <img src="${item.image || 'assets/shop/placeholder.png'}" alt="${item.name || 'Item'}">
+              <img src="${thumbSrc}" alt="${item.name || 'Item'}">
             </button>
             <div class="item-name">${item.name || ''}</div>
             ${priceLine}
@@ -231,11 +246,27 @@
       grid.querySelectorAll('.item').forEach(card=>{
         const id = card.dataset.id;
         const item = items.find(x=>String(x.id)===String(id));
+
+        // Compute image sources again for JS side (same rules as above)
+        const thumbSrc =
+          item.thumbnailUrl ||
+          item.imageUrl ||
+          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          item.image ||
+          'assets/shop/placeholder.png';
+
+        const fullSrc =
+          item.imageUrl ||
+          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          item.image ||
+          thumbSrc ||
+          'assets/shop/placeholder.png';
+
         const thumbBtn = card.querySelector('.thumb');
         if (thumbBtn){
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
-            lb.open(item.image || 'assets/shop/placeholder.png', item.name || '');
+            lb.open(fullSrc, item.name || '');
           });
         }
 
