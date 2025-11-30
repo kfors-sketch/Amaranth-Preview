@@ -276,23 +276,21 @@
     // normalize frequency (for reporting)
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // ---- NEW: image / URL normalization & sync ----
-    // Prefer admin-managed URLs, but also heal old data that only had image/images.
-    if (!out.thumbnailUrl) {
-      out.thumbnailUrl = out.imageThumb || out.image || "";
-    }
-    if (!out.imageUrl) {
-      if (Array.isArray(out.images) && out.images.length) {
-        out.imageUrl = out.images[0];
-      } else {
-        out.imageUrl = out.image || out.thumbnailUrl || "";
-      }
-    }
+    // ===== IMAGE FIELD NORMALIZATION =====
+    const origImages = Array.isArray(out.images) ? out.images.slice() : [];
 
-    // Keep legacy fields in sync with the admin URLs
-    out.image = out.thumbnailUrl || out.image || "";
-    if (Array.isArray(out.images) && out.images.length) {
-      out.images = [out.imageUrl || out.images[0]];
+    // Canonical thumbnail & main URLs
+    let thumb = out.thumbnailUrl || out.image || (origImages[0] || "");
+    let main  = out.imageUrl || origImages[0] || out.image || thumb;
+
+    out.thumbnailUrl = thumb || "";
+    out.imageUrl = main || "";
+
+    // Legacy fields kept in sync
+    out.image = out.thumbnailUrl || "";
+    if (origImages.length) {
+      origImages[0] = out.imageUrl || origImages[0];
+      out.images = origImages;
     } else {
       out.images = out.imageUrl ? [out.imageUrl] : [];
     }
@@ -477,8 +475,8 @@
     const publishStart = fromLocalDT($('#f_start').value);
     const publishEnd   = fromLocalDT($('#f_end').value);
     const notes = $('#f_notes').value.trim();
-    const thumbnailUrl = $('#f_thumb_url').value.trim();
-    const imageUrl = $('#f_img1_url').value.trim();
+    const thumbField = $('#f_thumb_url').value.trim();
+    const imageField = $('#f_img1_url').value.trim();
     const chairName = $('#f_chair_name').value.trim();
     const chairEmailsRaw = $('#f_chair_emails').value.trim();
     const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
@@ -487,9 +485,16 @@
     const base = current ? { ...current } : {};
     const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
 
-    // Preserve any existing images if a new one isn't provided
-    const baseImages = Array.isArray(base.images) ? base.images.slice() : [];
-    const newImages = imageUrl ? [imageUrl] : baseImages;
+    // compute canonical thumb & main, then sync legacy fields
+    const thumb = thumbField || base.thumbnailUrl || base.image || (Array.isArray(base.images) ? base.images[0] : "");
+    const main  = imageField || base.imageUrl || (Array.isArray(base.images) ? base.images[0] : thumb);
+
+    const newImages = Array.isArray(base.images) ? [...base.images] : [];
+    if (newImages.length) {
+      newImages[0] = main;
+    } else if (main) {
+      newImages.push(main);
+    }
 
     return {
       ...base,
@@ -498,10 +503,9 @@
       shippingCents,
       sku, publishStart, publishEnd,
       notes, description: notes || base.description || '',
-      // NEW: keep legacy image fields in sync with the form URLs
-      thumbnailUrl,
-      imageUrl,
-      image: thumbnailUrl || base.image || '',
+      thumbnailUrl: thumb,
+      imageUrl: main,
+      image: thumb,
       images: newImages,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
@@ -639,6 +643,9 @@
       $('#listMsg').textContent = 'Sync failed: ' + (e.message || e);
     }
   });
+
+  // Hook "New Product" button
+  document.getElementById('btnAddNew').addEventListener('click', startNew);
 
   // Kick off
   loadInitial();
