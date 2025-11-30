@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v3" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v4" />
   <title>Product Catalog</title>
 </head>
 
@@ -66,7 +66,11 @@
   // $X,XXX.00 — always commas + 2 decimals; clamp to >= 0.01 for display
   function money(n){
     const v = Math.max(0.01, Math.round(Number(n) * 100) / 100);
-    return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+    return v.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    });
   }
 
   // Treat 0 < n < 1 as cents accidentally stored; convert to dollars
@@ -74,6 +78,22 @@
     const n = Number(p);
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
+  }
+
+  // Simple HTML escape (for description text)
+  function escHtml(str){
+    return String(str ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // Clean image URLs: treat null/undefined/"undefined"/"null" as empty
+  function cleanSrc(v){
+    const s = (v == null ? '' : String(v)).trim();
+    if (!s) return '';
+    const low = s.toLowerCase();
+    if (low === 'undefined' || low === 'null') return '';
+    return s;
   }
 
   // Parse flexible date strings: ISO, "YYYY-MM-DD", or empty => null
@@ -110,8 +130,16 @@
     const cap = document.getElementById('lbCap');
     const close = document.getElementById('lbClose');
 
-    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
-    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
+    function open(src, caption){
+      img.src = src;
+      cap.textContent = caption || '';
+      lb.hidden = false;
+    }
+    function closeLb(){
+      lb.hidden = true;
+      img.src = '';
+      cap.textContent = '';
+    }
 
     close.addEventListener('click', closeLb);
     lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
@@ -214,12 +242,20 @@
           `;
         }
 
-        // === NEW: choose thumbnail from new fields first ===
-        const thumbSrc =
+        // === DESCRIPTION (uses description or notes) ===
+        const descRaw = (item.description || item.notes || '').trim();
+        const descHtml = descRaw
+          ? `<p class="item-desc">${escHtml(descRaw)}</p>`
+          : '';
+
+        // === Thumbnail source: prefer new fields, clean bad values, fallback to logo ===
+        const thumbSrc = cleanSrc(
           item.thumbnailUrl ||
           item.image ||
+          item.imageUrl ||
           (Array.isArray(item.images) && item.images[0]) ||
-          'assets/shop/placeholder.png';
+          'assets/img/logo.svg'
+        );
 
         return `
           <article class="item ${soldOut ? 'is-soldout' : ''}" data-id="${item.id}">
@@ -228,6 +264,7 @@
               <img src="${thumbSrc}" alt="${item.name || 'Item'}">
             </button>
             <div class="item-name">${item.name || ''}</div>
+            ${descHtml}
             ${priceLine}
             ${controlsHtml}
           </article>
@@ -243,13 +280,14 @@
           thumbBtn.addEventListener('click', ()=>{
             if (thumbBtn.disabled) return;
 
-            // === NEW: full image prefers imageUrl, then images[0], then thumbnail ===
-            const fullSrc =
+            // Full image prefers imageUrl, then images[0], then thumbnail, then image, then logo
+            const fullSrc = cleanSrc(
               item.imageUrl ||
               (Array.isArray(item.images) && item.images[0]) ||
               item.thumbnailUrl ||
               item.image ||
-              'assets/shop/placeholder.png';
+              'assets/img/logo.svg'
+            );
 
             lb.open(fullSrc, item.name || '');
           });
@@ -414,6 +452,13 @@
       font-weight:700;
       margin-top:10px;
       min-height: 1.3em;
+    }
+
+    .item-desc{
+      margin:4px 0 6px;
+      font-size:.9rem;
+      min-height: 2.4em;   /* keeps cards even when some have desc and some don’t */
+      color:#374151;
     }
 
     .item-price{
