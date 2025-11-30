@@ -462,17 +462,32 @@
       };
     });
 
-    // totals (use Cart.totals which now includes shipping)
+    // totals (use Cart.totals for subtotal + shipping, but recompute fees here)
     const t = Cart.totals(); // { subtotal, shipping, fee, total, pct, flat }
-    const subtotal = Number(t.subtotal || 0);
-    const shipping = Number(t.shipping || 0);
-    const fee = Number(t.fee || 0);
+    const subtotal = Number(t.subtotal || 0);  // banquets + addons + merch
+    const shipping = Number(t.shipping || 0);  // product Shipping & Handling
+    const baseForFees = subtotal + shipping;   // what Stripe actually uses
+
+    // Compute processing fee using the SAME cents-logic as the backend
+    const pct = Number(t.pct || 0);
+    const flat = Number(t.flat || 0);
+    const baseCents = Math.round(baseForFees * 100);
+    const flatCents = Math.round(flat * 100);
+    const feeCents = Math.max(
+      0,
+      Math.round(baseCents * (pct / 100)) + flatCents
+    );
+    const fee = feeCents / 100;
 
     // Purchaser country from the form (for intl preview)
     const pCountryEl = document.getElementById("p_country");
     const purchaserCountry = pCountryEl ? pCountryEl.value : "US";
 
-    const intlFee = computeInternationalFeeDollars(subtotal, purchaserCountry);
+    // International card fee is also applied on subtotal + shipping
+    const intlFee = computeInternationalFeeDollars(
+      baseForFees,
+      purchaserCountry
+    );
 
     const total = Number(subtotal + shipping + fee + intlFee);
 
@@ -487,11 +502,13 @@
             : ""
         }
         <hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:.5rem 0;">
-        <div style="font-size:1.1em"><strong>Total</strong>: ${money(total)}</div>
+        <div style="font-size:1.1em"><strong>Total (charged at checkout)</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">
-          The processing fees above will be shown as separate line items on the secure Stripe checkout page.
-          For cards issued outside the United States, the international card processing fee (if shown above)
-          is also added as a separate line at checkout.
+          The processing fees above are calculated on your entire order
+          (banquets, Grand Court add-ons, merchandise, and shipping &amp; handling)
+          and will be shown as separate line items on the secure Stripe checkout page.
+          For cards issued outside the United States, the international card processing fee
+          (if shown above) is also added as a separate line at checkout.
         </p>
       `;
   }
