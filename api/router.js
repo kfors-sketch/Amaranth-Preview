@@ -26,6 +26,7 @@ import {
   sortByDateAsc,
   baseKey,
   normalizeKey,
+  normalizeReportFrequency, // <-- NEW import
   getEffectiveSettings,
   filterRowsByWindow,
   applyItemFilters,
@@ -1282,6 +1283,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { received: true });
       }
 
+      // ---------- register_item (used by admin chairs sync) ----------
       if (action === "register_item") {
         const {
           id = "",
@@ -1289,20 +1291,40 @@ export default async function handler(req, res) {
           chairEmails = [],
           publishStart = "",
           publishEnd = "",
+          reportFrequency,
+          kind,
         } = body || {};
+
         if (!id || !name)
           return REQ_ERR(res, 400, "id-and-name-required");
 
+        // normalize chair emails
+        const emails = Array.isArray(chairEmails)
+          ? chairEmails
+          : String(chairEmails || "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+
+        // merge with existing cfg so we don't lose kind, etc.
+        const existing = await kvHgetallSafe(`itemcfg:${id}`);
+
+        const freq = normalizeReportFrequency(
+          reportFrequency ||
+            existing?.reportFrequency ||
+            existing?.report_frequency ||
+            "monthly"
+        );
+
         const cfg = {
+          ...existing,
           id,
           name,
-          chairEmails: (Array.isArray(chairEmails)
-            ? chairEmails
-            : String(chairEmails).split(","))
-            .map((s) => String(s || "").trim())
-            .filter(Boolean),
+          kind: kind || existing?.kind || "", // don't guess; keep existing if any
+          chairEmails: emails,
           publishStart,
           publishEnd,
+          reportFrequency: freq,
           updatedAt: new Date().toISOString(),
         };
 
@@ -1314,7 +1336,7 @@ export default async function handler(req, res) {
             warning: "kv-unavailable",
           });
 
-        return REQ_OK(res, { ok: true });
+        return REQ_OK(res, { ok: true, cfg });
       }
 
       // -------- ADMIN (auth required below) --------
@@ -1617,6 +1639,11 @@ export default async function handler(req, res) {
                     .split(",")
                     .map((s) => s.trim())
                     .filter(Boolean);
+
+              const freq = normalizeReportFrequency(
+                b?.reportFrequency || b?.report_frequency || "monthly"
+              );
+
               const cfg = {
                 id,
                 name,
@@ -1624,6 +1651,7 @@ export default async function handler(req, res) {
                 chairEmails,
                 publishStart: b?.publishStart || "",
                 publishEnd: b?.publishEnd || "",
+                reportFrequency: freq,
                 updatedAt: new Date().toISOString(),
               };
               await kvHsetSafe(`itemcfg:${id}`, cfg);
@@ -1655,6 +1683,11 @@ export default async function handler(req, res) {
                     .split(",")
                     .map((s) => s.trim())
                     .filter(Boolean);
+
+              const freq = normalizeReportFrequency(
+                a?.reportFrequency || a?.report_frequency || "monthly"
+              );
+
               const cfg = {
                 id,
                 name,
@@ -1662,6 +1695,7 @@ export default async function handler(req, res) {
                 chairEmails,
                 publishStart: a?.publishStart || "",
                 publishEnd: a?.publishEnd || "",
+                reportFrequency: freq,
                 updatedAt: new Date().toISOString(),
               };
               await kvHsetSafe(`itemcfg:${id}`, cfg);
@@ -1694,6 +1728,10 @@ export default async function handler(req, res) {
                     .map((s) => s.trim())
                     .filter(Boolean);
 
+              const freq = normalizeReportFrequency(
+                p?.reportFrequency || p?.report_frequency || "monthly"
+              );
+
               const cfg = {
                 id,
                 name,
@@ -1701,6 +1739,7 @@ export default async function handler(req, res) {
                 chairEmails,
                 publishStart: p?.publishStart || "",
                 publishEnd: p?.publishEnd || "",
+                reportFrequency: freq,
                 updatedAt: new Date().toISOString(),
               };
               await kvHsetSafe(`itemcfg:${id}`, cfg);
