@@ -48,12 +48,18 @@
       </div>
     </header>
 
-    <!-- 1) Rules (kept) -->
+    <!-- 1) Rules (kept, with Type added) -->
     <section class="col rules">
       <strong>Rules & Tips</strong>
       <ul class="muted" style="margin:8px 0 0 16px">
         <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>sunflower-pendant</code>).</li>
-        <li><b>Price</b>: use simple price here; tiered/variants can remain defined in your site file.</li>
+        <li><b>Type</b>:
+          <code>fixed</code> (simple item),
+          <code>qty</code> (choose quantity),
+          <code>amount</code> (open dollar amount / donation-style),
+          <code>variantQty</code> (choose from labeled variants with quantity).
+        </li>
+        <li><b>Price</b>: base price (USD). Tiered/bundle logic can still be defined in your site JS.</li>
         <li><b>Shipping &amp; Handling</b>: per-item amount (USD). Checkout charges the highest shipping once per order.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
@@ -83,6 +89,7 @@
               <tr>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:160px">ID</th>
+                <th>Type</th>
                 <th>Price</th>
                 <th>Shipping</th>
                 <th>Active</th>
@@ -117,6 +124,15 @@
             <select id="f_active">
               <option value="true">true</option>
               <option value="false">false</option>
+            </select>
+          </div>
+          <div>
+            <label for="f_type">Type</label>
+            <select id="f_type">
+              <option value="fixed">fixed</option>
+              <option value="qty">qty</option>
+              <option value="amount">amount</option>
+              <option value="variantQty">variantQty</option>
             </select>
           </div>
           <div>
@@ -163,7 +179,7 @@
         <label for="f_img1_url">Main Image URL (optional)</label>
         <input id="f_img1_url" type="text" placeholder="/assets/shop/item-main.jpg" />
 
-        <!-- NEW: additional images -->
+        <!-- Additional images -->
         <label for="f_img_extra">Additional Image URLs (optional)</label>
         <textarea
           id="f_img_extra"
@@ -211,7 +227,7 @@
     const d = new Date(iso);
     if(isNaN(d)) return '';
     const y = d.getFullYear(), m = pad(d.getMonth()+1), day = pad(d.getDate()), hh = pad(d.getHours()), mm = pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
+    return \`\${y}-\${m}-\${day}T\${hh}:\${mm}\`;
   }
   function fromLocalDT(local){
     if(!local) return '';
@@ -284,6 +300,9 @@
 
     // normalize frequency (for reporting)
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+
+    // ----- TYPE (for product behavior) -----
+    if (!out.type) out.type = "fixed";
 
     // ===== IMAGE FIELD NORMALIZATION =====
     const origImages = Array.isArray(out.images) ? out.images.slice() : [];
@@ -398,7 +417,7 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="10" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
     }
     for(const p of model){
       const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
@@ -411,6 +430,7 @@
       tr.innerHTML = `
         <td><strong>${esc(p.name||'')}</strong></td>
         <td><code>${esc(p.id||'')}</code></td>
+        <td>${esc(p.type || 'fixed')}</td>
         <td>$${Number(p.price||0).toFixed(2)}</td>
         <td>${shipLabel}</td>
         <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
@@ -437,6 +457,7 @@
     $('#f_name').value = '';
     $('#f_id').value = '';
     $('#f_active').value = 'true';
+    $('#f_type').value = 'fixed';
     $('#f_price').value = '';
     $('#f_shipping').value = '';
     $('#f_sku').value = '';
@@ -461,6 +482,7 @@
     $('#f_name').value = n.name || '';
     $('#f_id').value = n.id || '';
     $('#f_active').value = String(n.active !== false);
+    $('#f_type').value = n.type || 'fixed';
     $('#f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
     const shipDollars = (Number(n.shippingCents || 0) || 0) / 100;
     $('#f_shipping').value = shipDollars > 0 ? shipDollars.toFixed(2) : '';
@@ -487,6 +509,7 @@
     const name = $('#f_name').value.trim();
     const id   = $('#f_id').value.trim();
     const active = $('#f_active').value === 'true';
+    const type = $('#f_type').value || 'fixed';
     const price = parseFloat($('#f_price').value || '0') || 0;
     const shippingDollars = parseFloat($('#f_shipping').value || '0') || 0;
     const sku = $('#f_sku').value.trim();
@@ -521,6 +544,7 @@
     return {
       ...base,
       id, name, active,
+      type,
       price: Math.round(price * 100) / 100,
       shippingCents,
       sku, publishStart, publishEnd,
@@ -544,7 +568,7 @@
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
     for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return \`Invalid chair email: \${em}\`;
     }
     return '';
   }
@@ -558,7 +582,7 @@
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
+    while (model.some(x => x.id === candidate)) { i += 1; candidate = \`\${base}-\${i}\`; }
     return candidate;
   }
 
@@ -629,7 +653,7 @@
       $('#editMsg').textContent = 'Saved. Syncing report routing…';
       const { attempted, ok } = await syncChairEmailConfigs(payload);
 
-      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
+      $('#editMsg').textContent = \`Saved to server. Report routing synced (\${ok}/\${attempted}).\`;
     }catch{
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
@@ -652,7 +676,7 @@
       // Also update itemcfg for these
       await syncChairEmailConfigs(normalized);
 
-      $('#listMsg').textContent = `Imported ${j?.count ?? normalized.length} item(s) from file.`;
+      $('#listMsg').textContent = \`Imported \${j?.count ?? normalized.length} item(s) from file.\`;
       // reload data from server so the table shows fresh values
       await (async function refreshAfterSync(){
         try{
