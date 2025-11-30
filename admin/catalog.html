@@ -157,7 +157,7 @@
         <!-- Variants row (for variantQty, like admin/addons) -->
         <div id="row_variants" style="display:none">
           <label for="f_variants">Variants (one per line, format: <code>Label:Price</code>)</label>
-          <textarea id="f_variants" placeholder="1 for $10:10&#10;3 for $25:25&#10;6 for $40:40"></textarea>
+          <textarea id="f_variants" placeholder="1:10.00&#10;3:25.00&#10;6:40.00"></textarea>
           <div class="hint">Only for <code>variantQty</code>. Example above will create labeled price options.</div>
         </div>
 
@@ -269,7 +269,7 @@
     }
   }
 
-  // ---- Type/price/variants visibility (copied from addons style) ----
+  // ---- Type/price/variants visibility (like addons) ----
   const typeEl = $('#f_type');
   const rowPrice = $('#row_price');
   const rowVariants = $('#row_variants');
@@ -356,11 +356,30 @@
     // normalize frequency (for reporting)
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // variants normalize (ensure array if present)
+    // ===== VARIANTS + TIERED BUNDLE NORMALIZATION =====
     if (out.type === "variantQty") {
-      if (!Array.isArray(out.variants)) {
+      if (Array.isArray(out.variants) && out.variants.length) {
+        // Clean up existing variants
+        out.variants = out.variants.map(v => {
+          const label = v.label || v.name || String(v.id || '');
+          const price = Number(v.price || 0) || 0;
+          const id = (v.id || label).toLowerCase().replace(/[^a-z0-9-]+/g,'-');
+          return { id, label, price };
+        });
+      } else if (Array.isArray(out.pricing) && out.pricing.length) {
+        // Legacy tiered pricing -> variants
+        out.variants = out.pricing.map(pr => {
+          const qty = Number(pr.qty || 1) || 1;
+          return {
+            id: String(qty),
+            label: String(qty),
+            price: Number(pr.price || 0) || 0
+          };
+        });
+      } else {
         out.variants = [];
       }
+      out.tiered = true;
     }
 
     // ===== IMAGE FIELD NORMALIZATION =====
@@ -630,15 +649,35 @@
       reportFrequency: freq
     };
 
-    if (type === 'variantQty'){
-      out.variants = variants;      // array of { id,label,price }
-      delete out.price;             // price comes from variants
-    } else if (type === 'amount'){
-      delete out.price;             // open amount / donation-style
+    if (type === 'variantQty') {
+      // Save variants
+      out.variants = variants; // [{id,label,price}, ...]
+
+      // Also keep legacy tiered/pricing in sync for the public catalog
+      out.tiered = true;
+      out.pricing = variants.map(v => {
+        // Try to infer qty from label, default to 1
+        const m = String(v.label || '').match(/\d+/);
+        const qty = m ? parseInt(m[0], 10) : 1;
+        return {
+          qty,
+          price: Number(v.price || 0) || 0
+        };
+      });
+
+      delete out.price; // bundle prices come from variants/pricing
+    } else if (type === 'amount') {
+      // Open amount / donation-style — no fixed price here
+      delete out.price;
       delete out.variants;
+      delete out.tiered;
+      delete out.pricing;
     } else {
+      // fixed / qty
       out.price = Math.round(price * 100) / 100; // dollars
       delete out.variants;
+      delete out.tiered;
+      delete out.pricing;
     }
 
     return out;
