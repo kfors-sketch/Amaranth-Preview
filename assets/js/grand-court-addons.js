@@ -59,9 +59,15 @@
           };
         }
         return {
-          id: String(v.id || v.label || "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-"),
+          id: String(v.id || v.label || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, "-"),
           label: String(v.label || v.name || "").trim() || "Option",
-          price: toNumber(v.price != null ? v.price : a.price || 0, 0),
+          price: toNumber(
+            v.price != null ? v.price : a.price || 0,
+            0
+          ),
         };
       });
     } else {
@@ -99,14 +105,16 @@
     // 1) Try from backend (KV)
     const j = await fetchJson("/api/router?type=addons");
     if (Array.isArray(j?.addons) && j.addons.length) {
-      addons = j.addons.map(normalizeAddon).filter((a) => a.active && isWithinWindow(a, now));
+      addons = j.addons
+        .map(normalizeAddon)
+        .filter((a) => a.active && isWithinWindow(a, now));
     }
 
-    // 2) Fallback to static list (items.js) if server empty/unavailable
+    // 2) Fallback to static list if server empty/unavailable
     if (!addons.length && Array.isArray(window.GRAND_COURT_ADDONS)) {
-      addons = window.GRAND_COURT_ADDONS.map(normalizeAddon).filter(
-        (a) => a.active && isWithinWindow(a, now)
-      );
+      addons = window.GRAND_COURT_ADDONS
+        .map(normalizeAddon)
+        .filter((a) => a.active && isWithinWindow(a, now));
     }
 
     return addons;
@@ -114,7 +122,8 @@
 
   // ---- Attendee helpers (shared Cart structure) ----
   function getCartState() {
-    if (!window.Cart || typeof Cart.get !== "function") return { attendees: [], lines: [] };
+    if (!window.Cart || typeof Cart.get !== "function")
+      return { attendees: [], lines: [] };
     try {
       return Cart.get() || { attendees: [], lines: [] };
     } catch (e) {
@@ -172,6 +181,7 @@
       amount,
       attendee,
       variant,
+      notes, // NEW
     } = options || {};
 
     const quantity = Math.max(1, toNumber(qty || 1, 1));
@@ -203,6 +213,10 @@
     if (variant) {
       meta.variantId = variant.id || "";
       meta.variantLabel = variant.label || "";
+    }
+
+    if (notes) {
+      meta.notes = notes; // NEW: carry custom/notes text to reports
     }
 
     // This shape is what order-page + backend expect
@@ -257,6 +271,7 @@
     let qtyInput = null;
     let amountInput = null;
     let variantSelect = null;
+    let notesInput = null; // NEW: shared notes/custom text field
 
     if (addon.type === "amount") {
       // Open-dollar amount (e.g., Love Gift)
@@ -272,6 +287,17 @@
       amtWrap.appendChild(amtLabel);
       amtWrap.appendChild(amountInput);
       row.appendChild(amtWrap);
+
+      // Optional notes for amount-type add-ons
+      const notesWrap = document.createElement("label");
+      const notesLabel = document.createElement("span");
+      notesLabel.textContent = "Notes (optional)";
+      notesInput = document.createElement("input");
+      notesInput.type = "text";
+      notesInput.placeholder = "Message or special instructions";
+      notesWrap.appendChild(notesLabel);
+      notesWrap.appendChild(notesInput);
+      row.appendChild(notesWrap);
     } else if (addon.type === "variantQty" && addon.variants.length) {
       const varWrap = document.createElement("label");
       const varLabel = document.createElement("span");
@@ -300,8 +326,20 @@
       qtyWrap.appendChild(qtyLabel);
       qtyWrap.appendChild(qtyInput);
 
+      // NEW: Notes / custom text for variantQty (e.g., corsage custom flowers)
+      const notesWrap = document.createElement("label");
+      const notesLabel = document.createElement("span");
+      notesLabel.textContent = "Notes (optional)";
+      notesInput = document.createElement("input");
+      notesInput.type = "text";
+      notesInput.placeholder =
+        "Custom flowers, colors, ribbon, or other details";
+      notesWrap.appendChild(notesLabel);
+      notesWrap.appendChild(notesInput);
+
       row.appendChild(varWrap);
       row.appendChild(qtyWrap);
+      row.appendChild(notesWrap);
     } else if (addon.type === "qty") {
       const qtyWrap = document.createElement("label");
       const qtyLabel = document.createElement("span");
@@ -317,7 +355,9 @@
     } else {
       // fixed
       const priceP = document.createElement("p");
-      priceP.innerHTML = `<strong>${money(addon.price)}</strong> each (limit 1 per attendee)`;
+      priceP.innerHTML = `<strong>${money(
+        addon.price
+      )}</strong> each (limit 1 per attendee)`;
       card.appendChild(priceP);
     }
 
@@ -342,8 +382,7 @@
     // Click handler
     addBtn.addEventListener("click", () => {
       const attKey = attendeeSelect.value || "";
-      const attendee =
-        attKey ? findAttendeeByKey(attKey) : null;
+      const attendee = attKey ? findAttendeeByKey(attKey) : null;
 
       // For now we *strongly* prefer an attendee for all add-ons.
       if (!attendee) {
@@ -354,6 +393,10 @@
       let qty = 1;
       let amount = addon.price;
       let variant = null;
+      const notes =
+        notesInput && typeof notesInput.value === "string"
+          ? notesInput.value.trim()
+          : "";
 
       if (addon.type === "amount") {
         const min = addon.minAmount || 0.01;
@@ -365,9 +408,9 @@
       } else if (addon.type === "variantQty") {
         const val = variantSelect ? variantSelect.value : "";
         const selected =
-          addon.variants.find((v) => v.id === val || v.label === val) ||
-          addon.variants[0] ||
-          null;
+          addon.variants.find(
+            (v) => v.id === val || v.label === val
+          ) || addon.variants[0] || null;
         if (!selected) {
           alert("Please choose an option.");
           return;
@@ -397,6 +440,7 @@
         amount,
         attendee,
         variant,
+        notes, // NEW
       });
 
       if (ok) {
