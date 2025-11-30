@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v3" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v4" />
   <title>Product Catalog</title>
 </head>
 
@@ -63,32 +63,27 @@
   /* =======================
      Helpers / Formatting
      ======================= */
-  // $X,XXX.00 — always commas + 2 decimals; clamp to >= 0.01 for display
   function money(n){
     const v = Math.max(0.01, Math.round(Number(n) * 100) / 100);
     return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
   }
 
-  // Treat 0 < n < 1 as cents accidentally stored; convert to dollars
   function normalizePrice(p){
     const n = Number(p);
     if (!isFinite(n)) return 0;
     return (n > 0 && n < 1) ? Math.round(n * 100) : n;
   }
 
-  // Parse flexible date strings: ISO, "YYYY-MM-DD", or empty => null
   function parseDate(d){
     if (!d) return null;
     if (typeof d === 'number') return new Date(d);
     const s = String(d).trim();
     if (!s) return null;
-    // Ensure "YYYY-MM-DD" gains a time so it becomes local midnight
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00');
     const t = Date.parse(s);
     return isNaN(t) ? null : new Date(t);
   }
 
-  // Publish window check (inclusive). Empty start/end = open.
   function isWithinWindow(item, now){
     const start = parseDate(item.publishStart);
     const end   = parseDate(item.publishEnd);
@@ -97,21 +92,28 @@
     return true;
   }
 
-  // Item visibility: active === true AND within publish window
   function isVisibleItem(item, now){
     if (!item || item.active !== true) return false;
     return isWithinWindow(item, now);
   }
 
-  // Simple lightbox
+  // Lightbox
   function setupLightbox(){
     const lb = document.getElementById('lightbox');
     const img = document.getElementById('lbImg');
     const cap = document.getElementById('lbCap');
     const close = document.getElementById('lbClose');
 
-    function open(src, caption){ img.src = src; cap.textContent = caption || ''; lb.hidden = false; }
-    function closeLb(){ lb.hidden = true; img.src = ''; cap.textContent = ''; }
+    function open(src, caption){
+      img.src = src;
+      cap.textContent = caption || '';
+      lb.hidden = false;
+    }
+    function closeLb(){
+      lb.hidden = true;
+      img.src = '';
+      cap.textContent = '';
+    }
 
     close.addEventListener('click', closeLb);
     lb.addEventListener('click', (e)=>{ if (e.target === lb) closeLb(); });
@@ -141,11 +143,9 @@
     const empty = document.getElementById('emptyCatalog');
     const lb = setupLightbox();
 
-    // Pull items (prefers DataStore merges; falls back to window.CATALOG_ITEMS)
+    // Items from KV/DataStore first, fallback to static CATALOG_ITEMS
     const rawItems = (window.DataStore && DataStore.getItems && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
     const now = new Date();
-
-    // === visibility gate (same publish-window logic as elsewhere) ===
     const items = (rawItems || []).filter(it => isVisibleItem(it, now));
 
     const LOW_STOCK = 5;
@@ -169,27 +169,36 @@
           ? `<div class="item-badge badge-soldout">Sold out</div>`
           : (low ? `<div class="item-badge badge-low">Only ${remaining} left</div>` : '');
 
-        // ----- IMAGE SOURCES (new logic) -----
+        // 🔍 Decide image URLs (always prefer admin-managed URLs)
         const thumbSrc =
           item.thumbnailUrl ||
-          item.imageUrl ||
-          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
           item.image ||
+          (Array.isArray(item.images) && item.images[0]) ||
           'assets/shop/placeholder.png';
 
         const fullSrc =
           item.imageUrl ||
-          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          (Array.isArray(item.images) && item.images[0]) ||
           item.image ||
           thumbSrc ||
           'assets/shop/placeholder.png';
+
+        // Debug help if something looks wrong in the future:
+        console.debug('[shop] image sources', {
+          id: item.id,
+          name: item.name,
+          thumbSrc,
+          fullSrc,
+          image: item.image,
+          imageUrl: item.imageUrl,
+          images: item.images
+        });
 
         // ----- PRICE / CONTROLS VIEW -----
         let controlsHtml = '';
         let priceLine = '';
 
         if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
-          // Sort tiers by qty ascending, normalize prices
           const tiers = item.pricing
             .map(t => ({ qty: Number(t.qty||1), price: normalizePrice(t.price||0) }))
             .filter(t => t.qty > 0 && t.price >= 0)
@@ -215,7 +224,6 @@
             <div class="bundle-total tiny" aria-live="polite"></div>
           `;
         } else {
-          // Single-price
           const price = normalizePrice(item.price || 0);
           priceLine = `<p class="item-price">${money(price)}</p>`;
           controlsHtml = `
@@ -247,17 +255,16 @@
         const id = card.dataset.id;
         const item = items.find(x=>String(x.id)===String(id));
 
-        // Compute image sources again for JS side (same rules as above)
+        // Recompute the same image choice here so lightbox uses the same logic
         const thumbSrc =
           item.thumbnailUrl ||
-          item.imageUrl ||
-          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
           item.image ||
+          (Array.isArray(item.images) && item.images[0]) ||
           'assets/shop/placeholder.png';
 
         const fullSrc =
           item.imageUrl ||
-          (Array.isArray(item.images) && item.images.length ? item.images[0] : null) ||
+          (Array.isArray(item.images) && item.images[0]) ||
           item.image ||
           thumbSrc ||
           'assets/shop/placeholder.png';
@@ -273,7 +280,6 @@
         const addBtn = card.querySelector('.add');
         if (!addBtn) return;
 
-        // Live "Total for selection" preview for bundles
         const bundleSel = card.querySelector('.bundle');
         const bundleTotalEl = card.querySelector('.bundle-total');
         if (bundleSel && bundleTotalEl){
@@ -292,13 +298,11 @@
           const remaining = Math.max(0, total - sold);
 
           if (item.tiered && Array.isArray(item.pricing) && item.pricing.length){
-            // Tiered: read selected bundle
             const bundleSel = card.querySelector('.bundle');
             const bundleQty = Math.max(1, parseInt(bundleSel.value||'1',10));
             const selected = bundleSel.options[bundleSel.selectedIndex];
             const bundlePrice = normalizePrice(selected.dataset.price);
 
-            // Inventory enforcement if applicable (remaining counts items, not bundles)
             if (total > 0){
               if (remaining <= 0){ alert('Sorry, this item is sold out.'); return; }
               if (bundleQty > remaining){
@@ -307,7 +311,6 @@
               }
             }
 
-            // Add as qty=bundleQty, unitPrice=(bundlePrice / bundleQty)
             const perUnit = Math.round((bundlePrice / bundleQty) * 100) / 100;
             Cart.addLine({
               attendeeId: '(unassigned)',
@@ -319,7 +322,6 @@
               meta: { sku: item.sku || '', note: '', bundleQty, bundlePrice }
             });
 
-            // Update inventory
             if (total > 0){
               item.qtySold = (Number(item.qtySold||0) + bundleQty);
               if (window.DataStore && DataStore.saveItems){
@@ -330,7 +332,6 @@
             }
             alert('Added to order.');
           } else {
-            // Single-price item
             const price = normalizePrice(item.price||0);
             const qtyInput = card.querySelector('.qty');
             let qty = Math.max(1, parseInt(qtyInput.value||'1',10));
@@ -374,11 +375,6 @@
   </script>
 
   <style>
-    /* Page-specific enhancements:
-       - Frosted cards (matching Banquets)
-       - Better layout for tiered bundles (wrap/stack gracefully)
-       - Roomier card width for long bundle labels
-    */
     .shop-grid{
       --card-gap: 16px;
       --card-radius: 14px;
@@ -442,14 +438,14 @@
       gap:12px;
       align-items:flex-end;
       justify-content:center;
-      flex-wrap: wrap;                  /* allow wrapping on small cards */
+      flex-wrap: wrap;
     }
     .buy-row .stack{
       display:flex;
       flex-direction:column;
       align-items:flex-start;
       gap:6px;
-      min-width: 180px;                 /* give select/qty room */
+      min-width: 180px;
     }
     .buy-row .lbl{
       font-size:.9rem;
@@ -474,7 +470,6 @@
 
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
-  <!-- cache-bust items.js so phones/Edge don’t use stale list -->
   <script src="assets/js/items.js?v=nov-06-2025"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
