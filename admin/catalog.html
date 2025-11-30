@@ -6,8 +6,6 @@
   <title>Product Catalog — Amaranth</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
-  <!-- favicon so the 404 /favicon.ico goes away -->
-  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
@@ -60,6 +58,7 @@
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
+        <li><b>Additional Images</b>: put one URL per line for extra gallery images.</li>
       </ul>
     </section>
 
@@ -164,6 +163,14 @@
         <label for="f_img1_url">Main Image URL (optional)</label>
         <input id="f_img1_url" type="text" placeholder="/assets/shop/item-main.jpg" />
 
+        <!-- NEW: additional images -->
+        <label for="f_img_extra">Additional Image URLs (optional)</label>
+        <textarea
+          id="f_img_extra"
+          placeholder="/assets/shop/item-alt1.jpg&#10;/assets/shop/item-alt2.jpg"
+        ></textarea>
+        <div class="hint">One URL per line (or separated by commas). These become extra gallery images.</div>
+
         <label for="f_chair_name">Chairperson Name (optional)</label>
         <input id="f_chair_name" type="text" placeholder="Jane Smith" />
 
@@ -198,7 +205,6 @@
   const idOK = id => /^[a-z0-9-]+$/.test(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const pad = n => String(n).padStart(2,'0');
-  const cleanStr = v => (v === "undefined" ? "" : (v || ""));
 
   function toLocalDT(iso){
     if(!iso) return '';
@@ -280,27 +286,22 @@
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
     // ===== IMAGE FIELD NORMALIZATION =====
-    const imagesArr = Array.isArray(out.images)
-      ? out.images.map(cleanStr).filter(Boolean)
-      : [];
+    const origImages = Array.isArray(out.images) ? out.images.slice() : [];
 
-    let thumb = cleanStr(out.thumbnailUrl || out.image || imagesArr[0]);
-    let main  = cleanStr(out.imageUrl || imagesArr[0] || thumb);
+    // Canonical thumbnail & main URLs
+    let thumb = out.thumbnailUrl || out.image || (origImages[0] || "");
+    let main  = out.imageUrl || origImages[0] || out.image || thumb;
 
-    out.thumbnailUrl = thumb;
-    out.imageUrl = main;
+    out.thumbnailUrl = thumb || "";
+    out.imageUrl = main || "";
 
-    // Legacy fields kept in sync so front-end never sees stale jpgs
-    out.image = thumb || main || "";
-
-    if (main) {
-      out.images = [main];
-      // keep any additional unique images after index 0
-      imagesArr.slice(1).forEach(u => {
-        if (u && !out.images.includes(u)) out.images.push(u);
-      });
+    // Legacy fields kept in sync
+    out.image = out.thumbnailUrl || "";
+    if (origImages.length) {
+      origImages[0] = out.imageUrl || origImages[0];
+      out.images = origImages;
     } else {
-      out.images = imagesArr;
+      out.images = out.imageUrl ? [out.imageUrl] : [];
     }
 
     return out;
@@ -445,6 +446,7 @@
     $('#f_notes').value = '';
     $('#f_thumb_url').value = '';
     $('#f_img1_url').value = '';
+    $('#f_img_extra').value = '';
     $('#f_chair_name').value = '';
     $('#f_chair_emails').value = '';
   }
@@ -467,12 +469,15 @@
     $('#f_start').value = toLocalDT(n.publishStart || '');
     $('#f_end').value = toLocalDT(n.publishEnd || '');
     $('#f_notes').value = n.notes || n.description || '';
+    $('#f_thumb_url').value = n.thumbnailUrl || n.image || n.imageThumb || '';
+    $('#f_img1_url').value = n.imageUrl || (Array.isArray(n.images) ? n.images[0] : (n.image || ''));
 
-    const thumb = cleanStr(n.thumbnailUrl || n.image || (Array.isArray(n.images) ? n.images[0] : ""));
-    const main  = cleanStr(n.imageUrl || (Array.isArray(n.images) ? n.images[0] : "") || thumb);
-
-    $('#f_thumb_url').value = thumb;
-    $('#f_img1_url').value = main;
+    // extra images (everything after index 0)
+    let extras = "";
+    if (Array.isArray(n.images) && n.images.length > 1) {
+      extras = n.images.slice(1).join('\n');
+    }
+    $('#f_img_extra').value = extras;
 
     $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
     $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
@@ -488,32 +493,30 @@
     const publishStart = fromLocalDT($('#f_start').value);
     const publishEnd   = fromLocalDT($('#f_end').value);
     const notes = $('#f_notes').value.trim();
-    const thumbField = cleanStr($('#f_thumb_url').value.trim());
-    const imageField = cleanStr($('#f_img1_url').value.trim());
+    const thumbField = $('#f_thumb_url').value.trim();
+    const imageField = $('#f_img1_url').value.trim();
+    const extraField = $('#f_img_extra').value.trim();
     const chairName = $('#f_chair_name').value.trim();
     const chairEmailsRaw = $('#f_chair_emails').value.trim();
-    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(/[,]+/).map(s=>s.trim()).filter(Boolean) : [];
     const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
 
     const base = current ? { ...current } : {};
     const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
 
-    const baseThumb = cleanStr(base.thumbnailUrl || base.image || (Array.isArray(base.images) ? base.images[0] : ""));
-    const baseMain  = cleanStr(base.imageUrl || (Array.isArray(base.images) ? base.images[0] : "") || baseThumb);
+    // compute canonical thumb & main
+    const thumb = thumbField || base.thumbnailUrl || base.image || (Array.isArray(base.images) ? base.images[0] : "");
+    const main  = imageField || base.imageUrl || (Array.isArray(base.images) ? base.images[0] : thumb);
 
-    const thumb = thumbField || baseThumb;
-    const main  = imageField || baseMain || thumb;
+    // parse extra URLs (newline or comma separated)
+    const extraUrls = extraField
+      ? extraField.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+      : [];
 
+    // build images array: main first, then extras
     const newImages = [];
     if (main) newImages.push(main);
-    if (Array.isArray(base.images)) {
-      base.images.forEach((url, idx) => {
-        const v = cleanStr(url);
-        if (!v) return;
-        if (idx === 0 && v === main) return;
-        if (!newImages.includes(v)) newImages.push(v);
-      });
-    }
+    extraUrls.forEach(u => { if (u && !newImages.includes(u)) newImages.push(u); });
 
     return {
       ...base,
@@ -522,15 +525,10 @@
       shippingCents,
       sku, publishStart, publishEnd,
       notes, description: notes || base.description || '',
-
-      // modern fields
       thumbnailUrl: thumb,
       imageUrl: main,
-
-      // legacy fields kept in lock-step so front-end / DataStore never see stale .jpg
-      image: thumb || main || "",
+      image: thumb,
       images: newImages,
-
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
       reportFrequency: freq
