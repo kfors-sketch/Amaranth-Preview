@@ -1421,6 +1421,7 @@ export default async function handler(req, res) {
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Time (UTC): ${esc(timeStr)}</p>
                 <p style="margin:2px 0;">Scope: <b>current-month (per item frequency)</b></p>
+                <p style="margin:2px 0;"><strong>These reports include all activity from the first of the month through today.</strong></p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
