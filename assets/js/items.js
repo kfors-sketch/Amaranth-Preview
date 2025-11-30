@@ -66,8 +66,8 @@ window.CATALOG_ITEMS = [
     // so you never lose money, even if they push weight up a USPS tier.
     shippingCents: 750, // $7.50 shipping & handling
 
-    image: "/assets/shop/coin_thumb.jpg",   // placeholder
-    images: ["/assets/shop/coin_full.jpg"], // placeholder
+    image: "",   // placeholder
+    images: [], // placeholder
     sku: "COIN-001",
     qtyTotal: 0, // unlimited
     qtySold: 0,
