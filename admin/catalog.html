@@ -466,18 +466,43 @@
     const base = current ? { ...current } : {};
     const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
 
-    return {
+    // core object
+    const o = {
       ...base,
       id, name, active,
       price: Math.round(price * 100) / 100,
       shippingCents,
       sku, publishStart, publishEnd,
-      notes, description: notes || base.description || '',
-      thumbnailUrl, imageUrl,
+      notes,
+      description: notes || base.description || '',
+      thumbnailUrl,
+      imageUrl,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
       reportFrequency: freq
     };
+
+    // 🔁 keep legacy image fields in sync:
+    // - image       ≈ thumbnail
+    // - images[0]   ≈ main/full image
+    if (thumbnailUrl){
+      o.image = thumbnailUrl;
+    } else if (thumbnailUrl === '' && 'image' in o){
+      o.image = '';
+    }
+
+    if (imageUrl){
+      if (!Array.isArray(o.images)) o.images = [];
+      if (o.images.length === 0){
+        o.images.push(imageUrl);
+      } else {
+        o.images[0] = imageUrl;
+      }
+    } else if (imageUrl === '' && Array.isArray(o.images) && o.images.length){
+      o.images[0] = '';
+    }
+
+    return o;
   }
 
   function validate(o){
