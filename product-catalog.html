@@ -145,7 +145,7 @@
     const rawItems = (window.DataStore && DataStore.getItems && DataStore.getItems()) || (window.CATALOG_ITEMS || []);
     const now = new Date();
 
-    // === NEW: visibility gate ===
+    // === visibility gate (same publish-window logic as elsewhere) ===
     const items = (rawItems || []).filter(it => isVisibleItem(it, now));
 
     const LOW_STOCK = 5;
@@ -450,18 +450,22 @@
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
+  <!-- Maintenance check (match Grand Court Add-Ons behavior) -->
   <script>
   (async () => {
     try {
-      const resp = await fetch('/api/admin/settings.js');
+      const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
 
-      if (data.MAINTENANCE_ON === 'true' || data.MAINTENANCE_ON === true) {
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
             <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
             <p style="font-size:1.2em;max-width:500px;">
-              ${data.MAINTENANCE_MESSAGE || 'The site is temporarily unavailable. Please check back soon.'}
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
             </p>
           </div>
         `;
