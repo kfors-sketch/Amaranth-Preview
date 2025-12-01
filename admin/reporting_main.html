@@ -14,582 +14,853 @@
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
     .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     .card h3{margin:0 0 8px;font-size:15px;color:#374151}
-    .muted{color:#6b7280}
-    .page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    .page-title h1{font-size:22px;margin:0}
-    .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
-    .controls{display:flex;flex-wrap:wrap;gap:8px}
-    .controls .group{display:flex;gap:6px;align-items:center}
-    .input, select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
-    .input[type="date"]{padding:0 8px}
-    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:600}
-    .btn.ghost{background:#fff;color:#111}
-    .btn.warn{background:#b91c1c;border-color:#991b1b}
-    .btn.success{background:#065f46;border-color:#064e3b}
-    .btn.tiny{height:26px;font-size:12px;padding:0 8px;border-radius:8px}
-    table{width:100%;border-collapse:separate;border-spacing:0}
-    thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;padding:10px}
-    tbody td{padding:10px;border-bottom:1px solid #f0f0f4;vertical-align:top}
-    tbody tr:hover{background:#fcfcff}
-    .num{text-align:right;white-space:nowrap}
-    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
-    .tag.banquet{background:#ecfeff;color:#155e75}
-    .tag.addon{background:#fef9c3;color:#854d0e}
-    .tag.donation{background:#ecfccb;color:#3f6212}
-    .tag.other{background:#eee;color:#444}
-    .totals{display:flex;flex-wrap:wrap;gap:10px}
-    .total-chip{background:#111;color:#fff;border-radius:12px;padding:8px 12px;font-weight:700}
-    .total-chip.alt{background:#1f2937}
-    .total-chip.net{background:#065f46}
-    .empty{padding:32px;text-align:center;color:#6b7280}
-    .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
-    .modal .inner{background:#fff;border-radius:12px;max-width:420px;width:100%;padding:16px;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-    .modal .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:.5rem 0}
-    .modal label{display:flex;flex-direction:column;gap:6px;flex:1}
-    .modal input, .modal select{height:36px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
+    .card p{margin:4px 0 8px;font-size:13px;color:#4b5563}
+    .muted{color:#6b7280;font-size:12px}
+    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+    .col{flex:1 1 0;min-width:260px}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+    .controls label{font-size:12px;color:#4b5563}
+    .controls input,.controls select{width:100%;height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px}
+    .controls .group{flex:1 1 120px;min-width:120px}
+    .btn{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+    .btn.secondary{background:#fff;color:#111}
+    .btn.sm{height:28px;font-size:12px;padding:0 10px}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center}
+    .toolbar .spacer{flex:1 1 auto}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left;vertical-align:top}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;background:#f9fafb;position:sticky;top:0;z-index:1}
+    tr:nth-child(even){background:#f9fafb}
+    .badge{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:1px 7px;font-size:11px;color:#374151;background:#f9fafb}
+    .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid #e5e7eb;background:#f9fafb}
+    .pill.green{border-color:#16a34a;color:#166534;background:#ecfdf3}
+    .pill.red{border-color:#dc2626;color:#b91c1c;background:#fef2f2}
+    .pill.orange{border-color:#ea580c;color:#9a3412;background:#fff7ed}
+    .tag-muted{background:#f3f4f6;color:#4b5563;border-color:#e5e7eb}
+    .flex{display:flex}
+    .flex.between{justify-content:space-between;align-items:center}
+    .flex.gap-8{gap:8px}
+    .mt-8{margin-top:8px}
+    .mt-12{margin-top:12px}
+    .mt-4{margin-top:4px}
+    .text-right{text-align:right}
+    .nowrap{white-space:nowrap}
+    .w-100{width:100%}
+    .chip{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:2px 8px;font-size:11px;background:#f9fafb;color:#374151;margin-right:4px;margin-bottom:4px}
+    .chip span{opacity:.7;margin-left:4px}
+    .badge-dot{width:6px;height:6px;border-radius:999px;margin-right:4px}
+    .badge-dot.green{background:#16a34a}
+    .badge-dot.red{background:#ef4444}
+    .badge-dot.gray{background:#9ca3af}
+    .status-icon{font-size:11px;border-radius:999px;border:1px solid #e5e7eb;padding:0 6px;display:inline-flex;align-items:center;gap:3px}
+    .status-icon span.dot{width:6px;height:6px;border-radius:999px;background:#9ca3af}
+    .status-icon.paid span.dot{background:#16a34a}
+    .status-icon.refunded span.dot{background:#ef4444}
+    .status-icon.pending span.dot{background:#f97316}
+    .table-wrap{max-height:480px;overflow:auto;border-radius:12px;border:1px solid #e5e7eb;background:#fff}
+    .badge-sm{font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;color:#4b5563}
+    .text-sm{font-size:12px}
+    .text-xs{font-size:11px}
+    .mb-4{margin-bottom:4px}
+    .mb-8{margin-bottom:8px}
+    .mb-12{margin-bottom:12px}
+    .mb-16{margin-bottom:16px}
+    .border-top{border-top:1px solid #e5e7eb;margin-top:8px;padding-top:8px}
+    .right-controls{display:flex;flex-wrap:wrap;gap:8px}
+    .right-controls .group{min-width:120px}
+    .pill-blue{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}
+    .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:4px}
+    .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
+    .heading-row h2{margin:0;font-size:20px;color:#111827}
+    .heading-row .muted{font-size:12px;max-width:420px}
+    @media (max-width:768px){
+      .row{flex-direction:column}
+      .table-wrap{max-height:none}
+    }
+
+    /* Simple modal for refunds (unchanged) */
+    #refundModal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:50}
+    #refundModal[aria-hidden="false"]{display:flex}
+    #refundModal .modal-inner{background:#fff;border-radius:16px;box-shadow:0 20px 40px rgba(15,23,42,.25);max-width:420px;width:100%;padding:16px}
+    #refundModal h4{margin:0 0 8px;font-size:16px}
+    #refundModal p{margin:0 0 8px;font-size:13px}
+    #refundModal .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
   </style>
-
-  <!-- CSV helper (for Import) -->
-  <script src="/assets/js/lib/csv.js"></script>
-
-  <!-- NOTE: we no longer load banquets.js/products.js/grand-court-addons.js here.
-       Those were causing 404 + Cart errors and are not needed on the reporting page. -->
 </head>
 <body>
   <div class="container">
-    <div class="page-title">
+    <div class="heading-row">
       <div>
-        <h1>Amaranth Reporting</h1>
-        <div class="muted">Banquets · Add-Ons · Orders · Donations</div>
+        <h2>Reporting Dashboard</h2>
+        <p class="muted">Download, email, and inspect registration data. Filters at the top affect most exports.</p>
       </div>
-      <span id="adminPill" class="pill">Admin Mode</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button id="loadServerBtn" class="btn ghost">Load from Server</button>
-        <a class="btn ghost" href="/admin/index.html" style="height:28px;padding:0 10px;font-size:13px;">← Admin Hub</a>
-        <button id="logoutBtn" class="btn ghost" style="height:28px;padding:0 10px;font-size:13px;">Log Out</button>
-      </div>
+      <button id="btnPrint" class="btn secondary sm">Print</button>
     </div>
 
-    <!-- Filters -->
-    <div class="card">
-      <div class="controls" id="controls">
+    <!-- Top filters + tools -->
+    <div class="card mb-16">
+      <div class="toolbar">
         <div class="group">
-          <label class="muted" for="dateFrom">From</label>
-          <input id="dateFrom" class="input" type="date" />
-          <label class="muted" for="dateTo">To</label>
-          <input id="dateTo" class="input" type="date" />
+          <label class="muted">From date</label>
+          <input id="dateFrom" type="date" />
         </div>
         <div class="group">
-          <select id="category" title="Category filter">
-            <option value="">All Categories</option>
-            <option value="banquet">Banquet</option>
-            <option value="addon">Add-On</option>
-            <option value="donation">Donation</option>
-            <option value="other">Catalog</option>
-          </select>
-          <select id="status" title="Payment status">
-            <option value="">Any Status</option>
-            <option value="paid">Paid</option>
-            <option value="refunded">Refunded</option>
-            <option value="partial_refund">Partial</option>
-            <option value="pending">Pending</option>
-          </select>
+          <label class="muted">To date</label>
+          <input id="dateTo" type="date" />
         </div>
-        <div class="group" style="flex:1 1 320px">
-          <input id="search" class="input" type="search" placeholder="Search purchaser, attendee, item, notes…" style="width:100%" />
-        </div>
-        <div class="group">
-          <!-- renamed button -->
-          <button
-            class="btn"
-            id="btnExportCsv"
-            title="Download current search results to Excel (.xlsx file)"
-          >
-            Search Results (Excel)
-          </button>
-          <!-- Full Attendee List button -->
-          <button class="btn" id="btnFullAttendeesCsv" title="Export full attendee list to Excel (.xlsx file)">Full Attendee List (Excel)</button>
-          <button class="btn ghost" id="btnPrint">Print / PDF</button>
-        </div>
-        <div class="group">
-          <label class="btn ghost" for="fileImport">Import JSON/CSV</label>
-          <input id="fileImport" type="file" accept=".json,.csv,application/json,text/csv" style="display:none" />
-          <button class="btn ghost" id="btnSample">Load Sample</button>
-          <button class="btn warn" id="btnClear" title="Clear locally stored report data">Clear Local</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Download / Email by Category + Item -->
-    <div class="card">
-      <h3>Download / Email by Specific Item</h3>
-      <div class="controls">
         <div class="group">
           <label class="muted">Category</label>
-          <select id="actCategory" class="input">
-            <option value="" selected disabled>Choose category…</option>
-            <option value="banquet">Banquet</option>
-            <option value="addon">Add-On</option>
-            <option value="other">Catalog</option>
+          <select id="category">
+            <option value="">All</option>
+            <option value="banquet">Banquets</option>
+            <option value="addon">Add-ons</option>
+            <option value="catalog">Catalog</option>
           </select>
         </div>
         <div class="group">
-          <label class="muted">Item</label>
-          <select id="actChoice" class="input" style="min-width:320px">
-            <option value="" selected disabled>Choose…</option>
+          <label class="muted">Status</label>
+          <select id="status">
+            <option value="">Any</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+            <option value="refunded">Refunded</option>
           </select>
         </div>
-        <div class="group">
-          <label class="muted">Scope</label>
-          <select id="scopeSelect" class="input">
-            <option value="current-month" selected>Current Month</option>
-            <option value="full">Full Report</option>
-          </select>
+        <div class="group w-100" style="max-width:220px">
+          <label class="muted">Search (name, email, item…)</label>
+          <input id="search" type="text" placeholder="Search text…" />
         </div>
-        <div class="group">
-          <button id="btnActDownload" class="btn" title="Download Excel (.xlsx) for this item">Download Excel</button>
-          <button id="btnActEmail" class="btn success">Email Chair</button>
+        <div class="spacer"></div>
+        <div class="right-controls">
+          <button id="btnExportCsv" class="btn sm">Export Filtered (.xlsx)</button>
+          <button id="btnFullAttendeesCsv" class="btn sm secondary">Full Attendee List</button>
+          <button id="btnSample" class="btn sm secondary">Load Sample</button>
+          <button id="btnClear" class="btn sm secondary">Clear Local</button>
         </div>
-        <div class="muted">Date range &amp; search (top) will also apply to server-side exports.</div>
       </div>
-      <div class="muted" id="sendMsg" style="margin-top:6px"></div>
+      <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
 
-    <!-- Totals -->
-    <div class="card">
-      <h3>Totals (visible)</h3>
-      <div class="totals" id="totals">
-        <span class="total-chip">Gross: <span id="tGross">$0.00</span></span>
-        <span class="total-chip alt">Fees: <span id="tFees">$0.00</span></span>
-        <span class="total-chip net">Net: <span id="tNet">$0.00</span></span>
-        <span class="total-chip alt">Banquets: <span id="tBanquet">$0.00</span></span>
-        <span class="total-chip alt">Add-Ons: <span id="tAddon">$0.00</span></span>
-        <span class="total-chip alt">Donations: <span id="tDonation">$0.00</span></span>
-        <span class="total-chip alt">Count: <span id="tCount">0</span></span>
+    <div class="row">
+      <!-- Left: Table -->
+      <div class="col">
+        <div class="card">
+          <div class="flex between mb-8">
+            <div>
+              <div class="section-label">Overview</div>
+              <h3>Orders &amp; Payments</h3>
+              <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
+            </div>
+            <div class="text-right">
+              <div class="badge"><span id="totalCount">0</span>&nbsp; rows</div>
+              <div class="mt-4 text-xs muted">
+                Total: <strong id="totalAmount">$0.00</strong><br/>
+                Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Buyer</th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th class="text-right">Amount</th>
+                  <th>Meta</th>
+                </tr>
+              </thead>
+              <tbody id="tbody">
+                <!-- rows injected -->
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- Table -->
-    <div class="card">
-      <div style="overflow:auto;max-height:65vh">
-        <table id="reportTable">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Order #</th>
-              <th>Purchaser</th>
-              <th>Attendee</th>
-              <th>Category</th>
-              <th>Item</th>
-              <th class="num">Qty</th>
-              <th class="num">Price</th>
-              <th class="num">Gross</th>
-              <th class="num">Fees</th>
-              <th class="num">Net</th>
-              <th>Status</th>
-              <th>Notes</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-        <div id="empty" class="empty hide">No records. Click “Load from Server” or import JSON/CSV.</div>
+      <!-- Right: tools / exports -->
+      <div class="col">
+        <!-- Import / Export -->
+        <div class="card mb-12">
+          <div class="section-label">Local Tools</div>
+          <h3>Import / Export</h3>
+          <p class="muted">Work offline by importing .json or .csv. This never overwrites data on the server.</p>
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Import from file</label>
+              <input id="fileImport" type="file" accept=".json,.csv" />
+            </div>
+          </div>
+          <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
+        </div>
+
+        <!-- NEW: Automated chair report settings -->
+        <div class="card mb-12">
+          <div class="section-label">Automation</div>
+          <h3>Automated Chair Reports</h3>
+          <p class="muted">
+            Control how often the cron job emails XLSX reports to all banquet, add-on, and catalog chairs.
+            The cron runs daily but only sends when a window below applies.
+          </p>
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Report frequency</label>
+              <select id="reportFrequency">
+                <option value="monthly">Monthly (previous month)</option>
+                <option value="semi-monthly">1–15 &amp; 16–End</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            <div class="group">
+              <label class="muted">Weekly send day</label>
+              <select id="reportWeekday">
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+                <option value="7">Sunday</option>
+              </select>
+            </div>
+          </div>
+          <div class="controls mt-4">
+            <div class="group" style="max-width:180px">
+              <button id="btnSaveReportSettings" class="btn sm">Save Settings</button>
+            </div>
+            <div class="group">
+              <span id="reportSettingsStatus" class="muted"></span>
+            </div>
+          </div>
+          <p class="muted mt-4" id="reportSettingsHelp"></p>
+        </div>
+
+        <!-- By-item download / email -->
+        <div class="card mb-12">
+          <div class="section-label">Per-item tools</div>
+          <h3>Download / Email by Specific Item</h3>
+          <p class="muted">Pick a category and item to download a focused report or email the chair directly.</p>
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Category</label>
+              <select id="actCategory">
+                <option value="" selected disabled>Choose…</option>
+                <option value="banquet">Banquets</option>
+                <option value="addon">Add-ons</option>
+                <option value="other">Catalog</option>
+              </select>
+            </div>
+            <div class="group">
+              <label class="muted">Item</label>
+              <select id="actChoice">
+                <option value="" selected disabled>Choose…</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- NEW email scope / range controls -->
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Email scope</label>
+              <select id="scopeMode">
+                <option value="full">Full (all orders for this item)</option>
+                <option value="current-month">Month-to-date (from the 1st)</option>
+                <option value="custom">Custom date range</option>
+              </select>
+            </div>
+          </div>
+          <div class="controls mt-4" id="scopeRangeRow" style="display:none">
+            <div class="group">
+              <label class="muted">Start date</label>
+              <input id="scopeStart" type="date" />
+            </div>
+            <div class="group">
+              <label class="muted">End date</label>
+              <input id="scopeEnd" type="date" />
+            </div>
+          </div>
+
+          <div class="controls mt-4">
+            <div class="group" style="max-width:200px">
+              <button id="btnActDownload" class="btn sm secondary">Download .xlsx</button>
+            </div>
+            <div class="group" style="max-width:200px">
+              <button id="btnActEmail" class="btn sm">Email Chair(s)</button>
+            </div>
+          </div>
+          <p class="muted mt-4" id="sendMsg"></p>
+        </div>
+
+        <!-- Totals -->
+        <div class="card">
+          <div class="section-label">Quick totals</div>
+          <h3>By Category</h3>
+          <p class="muted">Rough totals for the current filter window. For full accounting, use the exports above.</p>
+          <div id="totalsByCategory" class="mt-8 text-sm muted">
+            <!-- injected -->
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Refund modal -->
-  <div id="refundModal" class="modal" aria-hidden="true">
-    <div class="inner">
-      <h3 style="margin:0 0 8px;font-size:16px">Issue Refund</h3>
-      <div class="muted" id="rfInfo" style="margin-bottom:8px"></div>
-      <div class="row">
-        <label>Refund Type
-          <select id="rfType"><option value="full">Full</option><option value="partial">Partial</option></select>
-        </label>
-        <label id="rfAmtWrap" style="display:none">Amount (USD)
-          <input id="rfAmount" type="number" step="0.01" min="0" placeholder="e.g. 25.00"/>
-        </label>
+  <!-- Refund modal (unchanged) -->
+  <div id="refundModal" aria-hidden="true">
+    <div class="modal-inner">
+      <h4>Issue Refund</h4>
+      <p class="muted">Create a Stripe refund for this payment.</p>
+      <div class="mt-8">
+        <label class="muted">Type</label>
+        <select id="rfType" class="w-100" style="height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px">
+          <option value="full">Full refund</option>
+          <option value="partial">Partial amount</option>
+        </select>
       </div>
-      <div class="row" style="justify-content:flex-end">
-        <button id="rfCancel" class="btn ghost">Cancel</button>
-        <button id="rfSubmit" class="btn warn">Refund</button>
+      <div class="mt-4" id="rfAmtWrap" style="display:none">
+        <label class="muted">Amount (USD)</label>
+        <input id="rfAmount" type="number" min="0" step="0.01" class="w-100" style="height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px" />
+      </div>
+      <p class="muted mt-4" id="rfInfo"></p>
+      <div class="modal-actions">
+        <button id="rfCancel" class="btn secondary sm">Cancel</button>
+        <button id="rfSubmit" class="btn sm">Refund</button>
       </div>
     </div>
   </div>
 
-<script>
-/**** Auth guard ****/
-(function authGuard(){
-  if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
-    location.replace('reporting_login.html');
-  }
-})();
+  <script>
+    const LS_KEY = 'amaranth-report-rows-v1';
+    let rows = [];
 
-const LS_KEY = 'amaranth_reports_v1';
-const ADMIN_KEY = 'amaranth_admin_ok';
+    function $(sel){ return document.querySelector(sel); }
 
-const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-const fmt = n => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(n||0);
-const parseDate = s => s? new Date(s) : null;
-const inRange = (d,from,to)=>{ if(!d) return false; if(from && d < from) return false; if(to && d > to) return false; return true; }
+    function loadFromLocal(){
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if(!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)? parsed: [];
+      }catch(e){
+        console.warn('Failed to load local rows', e);
+        return [];
+      }
+    }
+    function saveToLocal(data){
+      try{
+        localStorage.setItem(LS_KEY, JSON.stringify(data || []));
+      }catch(e){
+        console.warn('Failed to save local rows', e);
+      }
+    }
 
-(function initAdmin(){
-  const url = new URL(location.href);
-  if(url.searchParams.get('admin')==='1') localStorage.setItem(ADMIN_KEY,'1');
-  const isAdmin = !!localStorage.getItem(ADMIN_KEY);
-  $('#adminPill').style.display = isAdmin? 'inline-flex' : 'none';
-})();
+    function buildServerQuery(extra){
+      const params = new URLSearchParams();
+      const df = document.getElementById('dateFrom').value;
+      const dt = document.getElementById('dateTo').value;
+      const cat = document.getElementById('category').value;
+      const st  = document.getElementById('status').value;
+      const q   = document.getElementById('search').value.trim();
+      if (df) params.set('from', df);
+      if (dt) params.set('to', dt);
+      if (cat) params.set('category', cat);
+      if (st) params.set('status', st);
+      if (q) params.set('search', q);
+      if (extra && typeof extra === 'object') {
+        Object.entries(extra).forEach(([k,v])=>{
+          if (v !== undefined && v !== null && v !== '') {
+            params.set(k, v);
+          }
+        });
+      }
+      const qs = params.toString();
+      return qs ? ('?' + qs) : '';
+    }
 
-// LOG OUT
-$('#logoutBtn').addEventListener('click', () => {
-  localStorage.removeItem('amaranth_admin_pw_ok');
-  location.href = 'reporting_login.html';
-});
+    function render(){
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '';
+      const df = document.getElementById('dateFrom').value;
+      const dt = document.getElementById('dateTo').value;
+      const cat = document.getElementById('category').value;
+      const st  = document.getElementById('status').value;
+      const q   = document.getElementById('search').value.trim().toLowerCase();
 
-// ---- Data ----
-let rows = [];
-function loadFromLocal(){ try{ const data = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); return Array.isArray(data)? data: [] }catch{ return [] } }
-function saveToLocal(data){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+      const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
+      const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
 
-// Build query string for server (start/end/q + extra {category,item_id,item})
-function buildServerQuery(extra = {}) {
-  const from = $('#dateFrom').value;
-  const to = $('#dateTo').value;
-  const q = ($('#search').value || '').trim();
-  const u = new URLSearchParams();
-  if (from) u.set('start', from);
-  if (to)   u.set('end', to);
-  if (q)    u.set('q', q);
-  Object.entries(extra).forEach(([k,v])=>{
-    if (v != null && v !== '') u.set(k, v);
-  });
-  return (u.toString() ? '&' + u.toString() : '');
-}
+      let filtered = (rows || []).slice();
+      filtered = filtered.filter(r=>{
+        const t = Date.parse(r.date || r.created || r.created_at || '');
+        if (!isNaN(fromMs) && !isNaN(t) && t < fromMs) return false;
+        if (!isNaN(toMs) && !isNaN(t) && t > toMs) return false;
+        if (cat && String(r.category || '').toLowerCase() !== cat.toLowerCase()) return false;
+        if (st && String(r.status || '').toLowerCase() !== st.toLowerCase()) return false;
+        if (q) {
+          const hay = [
+            r.name, r.buyer, r.email, r.item, r.item_name,
+            r.address, r.city, r.state, r.zip, r.country,
+            r.phone, r.notes, r.metadata && JSON.stringify(r.metadata)
+          ].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
 
-// Load from server
-async function loadFromServer(){
-  const qs = buildServerQuery();
-  try{
-    const r = await fetch('/api/router?type=orders' + qs,{cache:'no-store'});
-    if(!r.ok) throw 0;
-    const j = await r.json();
-    if (Array.isArray(j.rows)) {
-      rows = j.rows;
+      filtered.sort((a,b)=>{
+        const ta = Date.parse(a.date || a.created || a.created_at || '') || 0;
+        const tb = Date.parse(b.date || b.created || b.created_at || '') || 0;
+        return ta - tb;
+      });
+
+      let idx = 0;
+      let total = 0;
+      let paid = 0, pending = 0, refunded = 0;
+      const byCat = {};
+
+      for (const r of filtered) {
+        idx++;
+        const tr = document.createElement('tr');
+
+        const dateStr = (()=>{
+          const t = Date.parse(r.date || r.created || r.created_at || '');
+          if (isNaN(t)) return '—';
+          return new Date(t).toLocaleString();
+        })();
+
+        const buyer = r.name || r.buyer || r.customer_name || '—';
+        const item  = r.item || r.item_name || r.description || '—';
+        const catVal = r.category || r.type || '—';
+        const status = (r.status || '').toLowerCase() || 'unknown';
+        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
+
+        if (status === 'paid') paid++;
+        else if (status === 'pending') pending++;
+        else if (status === 'refunded') refunded++;
+
+        total += isFinite(amount) ? amount : 0;
+
+        const keyCat = String(catVal || 'other').toLowerCase();
+        byCat[keyCat] = byCat[keyCat] || { total:0, count:0 };
+        byCat[keyCat].total += isFinite(amount) ? amount : 0;
+        byCat[keyCat].count += 1;
+
+        const tds = [];
+        for (let i=0;i<8;i++) tds.push(document.createElement('td'));
+
+        tds[0].textContent = idx;
+        tds[0].className = 'text-xs muted';
+
+        tds[1].textContent = dateStr;
+        tds[1].className = 'text-xs';
+
+        tds[2].innerHTML = `
+          <div class="text-xs">${buyer}</div>
+          <div class="text-xs muted">${r.email || ''}</div>
+        `;
+
+        tds[3].innerHTML = `
+          <div class="text-xs">${item}</div>
+          <div class="text-xs muted">${r.notes || r.memo || ''}</div>
+        `;
+
+        tds[4].innerHTML = `<span class="badge-sm tag-muted">${catVal}</span>`;
+
+        const statusClass =
+          status === 'paid' ? 'paid' :
+          status === 'refunded' ? 'refunded' :
+          status === 'pending' ? 'pending' : '';
+        tds[5].innerHTML = `
+          <span class="status-icon ${statusClass}">
+            <span class="dot"></span>
+            <span>${status || 'unknown'}</span>
+          </span>
+        `;
+
+        tds[6].className = 'text-right text-xs';
+        tds[6].textContent = isFinite(amount) ? '$' + amount.toFixed(2) : '—';
+
+        const metaBits = [];
+        if (r.phone) metaBits.push(`📞 ${r.phone}`);
+        if (r.city || r.state) metaBits.push(`📍 ${[r.city,r.state].filter(Boolean).join(', ')}`);
+        if (r.order_id || r.id) metaBits.push(`ID: ${r.order_id || r.id}`);
+        tds[7].innerHTML = metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join('');
+
+        tr.append(...tds);
+
+        tr.addEventListener('click', ()=> {
+          const payment_intent = r.payment_intent || r.pi || null;
+          const charge = r.charge || r.charge_id || null;
+          if (!payment_intent && !charge) {
+            alert('No Stripe payment info on this row.');
+            return;
+          }
+          openRefundModal({
+            payment_intent,
+            charge,
+            total: amount || 0,
+          });
+        });
+
+        tbody.appendChild(tr);
+      }
+
+      document.getElementById('totalCount').textContent = filtered.length;
+      document.getElementById('totalAmount').textContent = '$' + total.toFixed(2);
+      document.getElementById('paidCount').textContent = paid;
+      document.getElementById('pendingCount').textContent = pending;
+      document.getElementById('refundedCount').textContent = refunded;
+
+      const totalsDiv = document.getElementById('totalsByCategory');
+      totalsDiv.innerHTML = '';
+      const cats = Object.entries(byCat);
+      if (!cats.length) {
+        totalsDiv.textContent = 'No rows in current filter window.';
+      } else {
+        cats.forEach(([catKey,info])=>{
+          const line = document.createElement('div');
+          line.className = 'mb-4';
+          line.innerHTML = `
+            <span class="pill tag-muted">${catKey}</span>
+            <span class="text-xs muted">Count: ${info.count || 0}</span>
+            <span class="text-xs muted"> • Total: $${(info.total||0).toFixed(2)}</span>
+          `;
+          totalsDiv.appendChild(line);
+        });
+      }
+    }
+
+    async function loadFromServer(){
+      try{
+        const qs = buildServerQuery();
+        const resp = await fetch('/api/router?type=orders' + qs, { cache:'no-store' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error || 'Failed to fetch');
+        const incoming = Array.isArray(data?.rows) ? data.rows : [];
+        rows = incoming;
+        saveToLocal(rows);
+        render();
+      }catch(e){
+        console.error('Failed to load from server:', e);
+        rows = loadFromLocal();
+        render();
+      }
+    }
+
+    /** Import / Export **/
+    document.getElementById('fileImport').addEventListener('change', async (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      const text = await file.text();
+      let data = [];
+      try{
+        if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')) data = JSON.parse(text);
+        else data = csvToObjects(text);
+      }catch(err){ alert('Failed to parse file: '+err.message); return; }
+      const normalized = ingest(data);
+      if(!normalized.length){ alert('No recognizable rows found.'); return; }
+      rows = normalized;
       saveToLocal(rows);
       render();
-      return;
+      e.target.value = '';
+    });
+
+    // Export (top) — only date/search filters apply
+    document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
+      const qs = buildServerQuery();
+      await downloadServerCsv(qs);
+    });
+
+    // Full Attendee List (title + phone + address)
+    document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
+      const qs = buildServerQuery(); // honors From/To and Search
+      await downloadCsvFrom('/api/router?type=full_attendees_csv' + qs, 'amaranth-full-attendees');
+    });
+
+    async function downloadServerCsv(qsOrParams){
+      let qs = typeof qsOrParams === 'string' ? qsOrParams : buildServerQuery(qsOrParams || {});
+      const url = '/api/router?type=orders_csv' + qs;
+      return downloadCsvFrom(url, 'amaranth-report');
     }
-  }catch{}
-  alert('No server orders found yet (did the webhook or success page save any orders?).');
-}
-$('#loadServerBtn').addEventListener('click', loadFromServer);
 
-// ---- Render ----
-function render(){
-  const tbody = $('#tbody');
-  tbody.innerHTML = '';
-  const filtered = applyFilters(rows);
-  if(!filtered.length){ $('#empty').classList.remove('hide'); return updateTotals([]); }
-  $('#empty').classList.add('hide');
+    // Generic downloader (now saves as .xlsx to match router.js)
+    async function downloadCsvFrom(url, namePrefix){
+      try{
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
 
-  const frag = document.createDocumentFragment();
-  for(const r of filtered){
-    const canRefund = (r._pi || r._charge);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${r.date? new Date(r.date).toLocaleDateString(): ''}</td>
-      <td>${esc(r.id)}</td>
-      <td>${esc(r.purchaser||'')}</td>
-      <td>${esc(r.attendee||'')}</td>
-      <td>${tag(r.category)}</td>
-      <td>${esc(r.item||'')}</td>
-      <td class="num">${r.qty||1}</td>
-      <td class="num">${fmt(r.price||0)}</td>
-      <td class="num">${fmt(r.gross||0)}</td>
-      <td class="num">${fmt(r.fees||0)}</td>
-      <td class="num">${fmt(r.net||0)}</td>
-      <td>${esc(r.status||'')}</td>
-      <td>${esc(r.notes||'')}</td>
-      <td>${canRefund ? `<button class="btn tiny" data-refund="1" data-pi="${esc(r._pi||'')}" data-charge="${esc(r._charge||'')}" data-total="${Number(r.net||r.gross||0).toFixed(2)}">Refund</button>` : ''}</td>
-    `;
-    frag.appendChild(tr);
-  }
-  tbody.appendChild(frag);
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        // Use .xlsx extension so Excel is happy
+        a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return true;
+      }catch(e){
+        console.error('Download failed:', e);
+      }
+      alert('Download failed.');
+      return false;
+    }
 
-  // wire refund buttons
-  $$('#tbody [data-refund]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      openRefundModal({
-        payment_intent: btn.getAttribute('data-pi') || '',
-        charge: btn.getAttribute('data-charge') || '',
-        total: Number(btn.getAttribute('data-total') || '0')
+    document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
+
+    // Safer clear: require typing CLEAR
+    document.getElementById('btnClear').addEventListener('click', ()=>{
+      const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
+      if(conf === 'CLEAR'){
+        localStorage.removeItem(LS_KEY);
+        rows = [];
+        render();
+      }
+    });
+
+    document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
+    ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
+
+    /** Populate Category -> Item dropdowns **/
+    const caches = { banquet: null, addon: null, other: null };
+
+    function normalizeList(kind, rawList) {
+      return (rawList || []).map(x => ({
+        id: (x.id || x.itemId || x.slug || x.code || x.name || "").toString(),
+        name: (x.name || x.title || x.label || x.slug || x.id || "(unnamed)").toString(),
+        chairEmails: Array.isArray(x.chairEmails) ? x.chairEmails
+                     : Array.isArray(x.chairs) ? x.chairs
+                     : (x.chairEmails || x.chairs || "").toString().split(",").map(s=>s.trim()).filter(Boolean)
+      })).filter(it => it.id || it.name);
+    }
+
+    async function fetchList(kind){
+      if (caches[kind]) return caches[kind];
+      const typeMap = { banquet: 'banquets', addon: 'addons', other: 'products' };
+      const t = typeMap[kind];
+      let list = [];
+      try {
+        const r = await fetch(`/api/router?type=${t}`, { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          list = normalizeList(kind, j[t]);
+        }
+      } catch {}
+      // Fall back to static global lists if API isn’t populated
+      if (!list.length) {
+        if (kind === 'banquet' && Array.isArray(window.BANQUETS)) list = normalizeList(kind, window.BANQUETS);
+        if (kind === 'addon'   && Array.isArray(window.ADDONS))   list = normalizeList(kind, window.ADDONS);
+        if (kind === 'other'   && Array.isArray(window.PRODUCTS)) list = normalizeList(kind, window.PRODUCTS);
+      }
+      // Dedupe by id/name (case-insensitive)
+      const seen = new Set(); const deduped = [];
+      for (const it of list) {
+        const key = (it.id || it.name).toLowerCase();
+        if (!seen.has(key)) { seen.add(key); deduped.push(it); }
+      }
+      caches[kind] = deduped;
+      return deduped;
+    }
+
+    document.getElementById('actCategory').addEventListener('change', async ()=>{
+      const kind = document.getElementById('actCategory').value;
+      const list = await fetchList(kind);
+      const sel = document.getElementById('actChoice');
+      sel.innerHTML = '<option value="" selected disabled>Choose…</option>';
+      list.forEach(it=>{
+        const opt = document.createElement('option');
+        opt.value = it.id || it.name;
+        opt.dataset.label = it.name;
+        opt.textContent = it.name + (it.chairEmails?.length ? ' — ' + it.chairEmails.join(', ') : '');
+        sel.appendChild(opt);
       });
     });
-  });
 
-  updateTotals(filtered);
-}
-
-function applyFilters(data){
-  const f = $('#dateFrom').value? new Date($('#dateFrom').value) : null;
-  const t = $('#dateTo').value? new Date($('#dateTo').value+'T23:59:59') : null;
-  const cat = $('#category').value;
-  const st = $('#status').value;
-  const q = $('#search').value.trim().toLowerCase();
-
-  return data.filter(r=>{
-    const d = r.date? new Date(r.date) : null;
-    if(!inRange(d,f,t)) return false;
-    if(cat && r.category!==cat) return false;
-    if(st && (r.status||'')!==st) return false;
-    if(q){
-      const hay = `${r.id}|${r.purchaser}|${r.attendee}|${r.item}|${r.notes}|${r.category}`.toLowerCase();
-      if(!hay.includes(q)) return false;
+    // --- NEW: toggle custom date range UI for chair emails ---
+    const scopeModeEl = document.getElementById('scopeMode');
+    const scopeRangeRow = document.getElementById('scopeRangeRow');
+    if (scopeModeEl && scopeRangeRow) {
+      scopeModeEl.addEventListener('change', () => {
+        scopeRangeRow.style.display = scopeModeEl.value === 'custom' ? 'flex' : 'none';
+      });
     }
-    return true;
-  });
-}
 
-function updateTotals(data){
-  const sum = (key)=> data.reduce((s,r)=> s + Number(r[key]||0), 0);
-  const gross = sum('gross');
-  const fees = sum('fees');
-  const net = sum('net') || gross - fees;
-  $('#tGross').textContent = fmt(gross);
-  $('#tFees').textContent = fmt(fees);
-  $('#tNet').textContent = fmt(net);
-  $('#tBanquet').textContent = fmt(data.filter(r=>r.category==='banquet').reduce((s,r)=>s+r.net,0));
-  $('#tAddon').textContent = fmt(data.filter(r=>r.category==='addon').reduce((s,r)=>s+r.net,0));
-  $('#tDonation').textContent = fmt(data.filter(r=>r.category==='donation').reduce((s,r)=>s+r.net,0));
-  $('#tCount').textContent = String(data.length);
-}
-
-function esc(s){ return (s??'').toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
-function tag(c){
-  const cls = ['banquet','addon','donation'].includes(c)? c:'other';
-  return `<span class="tag ${cls}">${c||'other'}</span>`
-}
-
-/** Import / Export **/
-document.getElementById('fileImport').addEventListener('change', async (e)=>{
-  const file = e.target.files[0]; if(!file) return;
-  const text = await file.text();
-  let data = [];
-  try{
-    if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')) data = JSON.parse(text);
-    else data = csvToObjects(text);
-  }catch(err){ alert('Failed to parse file: '+err.message); return; }
-  const normalized = ingest(data);
-  if(!normalized.length){ alert('No recognizable rows found.'); return; }
-  rows = normalized;
-  saveToLocal(rows);
-  render();
-  e.target.value = '';
-});
-
-// Export (top) — only date/search filters apply
-document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-  const qs = buildServerQuery();
-  await downloadServerCsv(qs);
-});
-
-// Full Attendee List (title + phone + address)
-document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
-  const qs = buildServerQuery(); // honors From/To and Search
-  await downloadCsvFrom('/api/router?type=full_attendees_csv' + qs, 'amaranth-full-attendees');
-});
-
-async function downloadServerCsv(qsOrParams){
-  let qs = typeof qsOrParams === 'string' ? qsOrParams : buildServerQuery(qsOrParams || {});
-  const url = '/api/router?type=orders_csv' + qs;
-  return downloadCsvFrom(url, 'amaranth-report');
-}
-
-// Generic downloader (now saves as .xlsx to match router.js)
-async function downloadCsvFrom(url, namePrefix){
-  try{
-    const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    // Use .xlsx extension so Excel is happy
-    a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    return true;
-  }catch(e){
-    console.error('Download failed:', e);
-  }
-  alert('Download failed.');
-  return false;
-}
-
-document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
-
-// Safer clear: require typing CLEAR
-document.getElementById('btnClear').addEventListener('click', ()=>{
-  const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
-  if(conf === 'CLEAR'){
-    localStorage.removeItem(LS_KEY);
-    rows = [];
-    render();
-  }
-});
-
-document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
-['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
-
-/** Populate Category -> Item dropdowns **/
-const caches = { banquet: null, addon: null, other: null };
-
-function normalizeList(kind, rawList) {
-  return (rawList || []).map(x => ({
-    id: (x.id || x.itemId || x.slug || x.code || x.name || "").toString(),
-    name: (x.name || x.title || x.label || x.slug || x.id || "(unnamed)").toString(),
-    chairEmails: Array.isArray(x.chairEmails) ? x.chairEmails
-                 : Array.isArray(x.chairs) ? x.chairs
-                 : (x.chairEmails || x.chairs || "").toString().split(",").map(s=>s.trim()).filter(Boolean)
-  })).filter(it => it.id || it.name);
-}
-
-async function fetchList(kind){
-  if (caches[kind]) return caches[kind];
-  const typeMap = { banquet: 'banquets', addon: 'addons', other: 'products' };
-  const t = typeMap[kind];
-  let list = [];
-  try {
-    const r = await fetch(`/api/router?type=${t}`, { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      list = normalizeList(kind, j[t]);
-    }
-  } catch {}
-  // Fall back to static global lists if API isn’t populated
-  if (!list.length) {
-    if (kind === 'banquet' && Array.isArray(window.BANQUETS)) list = normalizeList(kind, window.BANQUETS);
-    if (kind === 'addon'   && Array.isArray(window.ADDONS))   list = normalizeList(kind, window.ADDONS);
-    if (kind === 'other'   && Array.isArray(window.PRODUCTS)) list = normalizeList(kind, window.PRODUCTS);
-  }
-  // Dedupe by id/name (case-insensitive)
-  const seen = new Set(); const deduped = [];
-  for (const it of list) {
-    const key = (it.id || it.name).toLowerCase();
-    if (!seen.has(key)) { seen.add(key); deduped.push(it); }
-  }
-  caches[kind] = deduped;
-  return deduped;
-}
-
-$('#actCategory').addEventListener('change', async ()=>{
-  const kind = $('#actCategory').value;
-  const list = await fetchList(kind);
-  const sel = $('#actChoice');
-  sel.innerHTML = '<option value="" selected disabled>Choose…</option>';
-  list.forEach(it=>{
-    const opt = document.createElement('option');
-    opt.value = it.id || it.name;
-    opt.dataset.label = it.name;
-    opt.textContent = it.name + (it.chairEmails?.length ? ' — ' + it.chairEmails.join(', ') : '');
-    sel.appendChild(opt);
-  });
-});
-
-/** Item Download / Email **/
-$('#btnActDownload').addEventListener('click', async ()=>{
-  const kind  = $('#actCategory').value;
-  const opt   = $('#actChoice').selectedOptions[0];
-  if (!kind) return alert('Choose a category.');
-  if (!opt)  return alert('Choose an item.');
-  const id    = opt.value;
-  const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
-  const params = { category: kind, item_id: id, item: label };
-  await downloadServerCsv(params);
-});
-
-$('#btnActEmail').addEventListener('click', async ()=>{
-  const kind  = $('#actCategory').value;
-  const opt   = $('#actChoice').selectedOptions[0];
-  const scope = $('#scopeSelect').value || 'current-month';
-  if (!kind) return alert('Choose a category.');
-  if (!opt)  return alert('Choose an item.');
-  const id    = opt.value;
-  const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
-
-  $('#sendMsg').textContent = 'Sending…';
-  try{
-    const r = await fetch('/api/router?action=send_item_report', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ kind, id, label, scope })
+    /** Item Download / Email **/
+    document.getElementById('btnActDownload').addEventListener('click', async ()=>{
+      const kind  = document.getElementById('actCategory').value;
+      const opt   = document.getElementById('actChoice').selectedOptions[0];
+      if (!kind) return alert('Choose a category.');
+      if (!opt)  return alert('Choose an item.');
+      const id    = opt.value;
+      const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
+      const params = { category: kind, item_id: id, item: label };
+      await downloadServerCsv(params);
     });
-    const j = await r.json();
-    if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
-    $('#sendMsg').textContent = `Email queued. (${j.count || 0} rows)`;
-  }catch(e){
-    $('#sendMsg').textContent = 'Send failed: ' + e.message;
-  }
-});
 
-/** CSV helpers (these are still safe stubs if csv.js isn’t used) **/
-function csvToObjects(csv){ return []; }
-function splitCSVLine(line){ return []; }
-function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-function sampleRows(){ return []; }
-function ingest(d){ return Array.isArray(d)? d: [] }
+    document.getElementById('btnActEmail').addEventListener('click', async ()=>{
+      const kind  = document.getElementById('actCategory').value;
+      const opt   = document.getElementById('actChoice').selectedOptions[0];
+      const scopeMode = document.getElementById('scopeMode').value || 'full';
+      if (!kind) return alert('Choose a category.');
+      if (!opt)  return alert('Choose an item.');
+      const id    = opt.value;
+      const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
 
-/** Refund modal **/
-const modal = $('#refundModal');
-const rfType = $('#rfType');
-const rfAmtWrap = $('#rfAmtWrap');
-const rfAmount = $('#rfAmount');
-const rfInfo = $('#rfInfo');
-let currentRefundCtx = null;
+      const payload = { kind, id, label, scope: scopeMode };
 
-rfType.addEventListener('change', ()=>{ rfAmtWrap.style.display = rfType.value === 'partial' ? 'block' : 'none'; });
+      if (scopeMode === 'custom') {
+        const start = document.getElementById('scopeStart').value;
+        const end   = document.getElementById('scopeEnd').value;
+        if (!start || !end) {
+          alert('Choose both a start date and an end date for the custom range.');
+          return;
+        }
+        payload.startYMD = start;
+        payload.endYMD   = end;
+      }
 
-$('#rfCancel').addEventListener('click', ()=> closeRefundModal());
-$('#rfSubmit').addEventListener('click', async ()=>{
-  if (!currentRefundCtx) return;
-  const token = localStorage.getItem('amaranth_report_token') || '';
-  const headers = { 'Content-Type':'application/json' };
-  if (token) headers.Authorization = 'Bearer ' + token;
+      document.getElementById('sendMsg').textContent = 'Sending…';
+      try{
+        const r = await fetch('/api/router?action=send_item_report', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const j = await r.json();
+        if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
+        document.getElementById('sendMsg').textContent = `Email queued. (${j.count || 0} rows)`;
+      }catch(e){
+        document.getElementById('sendMsg').textContent = 'Send failed: ' + e.message;
+      }
+    });
 
-  let amount_cents;
-  if (rfType.value === 'partial') {
-    const v = Number(rfAmount.value || 0);
-    if (!isFinite(v) || v <= 0) { alert('Enter a positive amount'); return; }
-    amount_cents = Math.round(v * 100);
-  }
+    /** CSV helpers (safe stubs if csv.js isn’t present) **/
+    function csvToObjects(csv){ return []; }
+    function splitCSVLine(line){ return []; }
+    function cryptoRandom(){ return Math.random().toString(36).slice(2) }
+    function sampleRows(){ return []; }
+    function ingest(d){ return Array.isArray(d)? d: [] }
 
-  const payload = {
-    payment_intent: currentRefundCtx.payment_intent || undefined,
-    charge: currentRefundCtx.charge || undefined,
-    ...(amount_cents ? { amount_cents } : {})
-  };
+    /** Refund modal **/
+    const modal = document.getElementById('refundModal');
+    const rfType = document.getElementById('rfType');
+    const rfAmtWrap = document.getElementById('rfAmtWrap');
+    const rfAmount = document.getElementById('rfAmount');
+    const rfInfo = document.getElementById('rfInfo');
+    let currentRefundCtx = null;
 
-  try{
-    const r = await fetch('/api/router?action=create_refund', { method: 'POST', headers, body: JSON.stringify(payload) });
-    const j = await r.json();
-    if(!r.ok) throw new Error(j?.error || 'Refund failed');
-    alert('Refund created.'); closeRefundModal(); loadFromServer();
-  }catch(e){ alert('Refund failed: ' + e.message); }
-});
+    rfType.addEventListener('change', ()=>{ rfAmtWrap.style.display = rfType.value === 'partial' ? 'block' : 'none'; });
 
-function openRefundModal(ctx){
-  currentRefundCtx = ctx;
-  rfType.value = 'full'; rfAmount.value = ''; rfAmtWrap.style.display = 'none';
-  rfInfo.textContent = `PI: ${ctx.payment_intent || '—'}  Charge: ${ctx.charge || '—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
-  modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false');
-}
-function closeRefundModal(){ modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); currentRefundCtx = null; }
+    document.getElementById('rfCancel').addEventListener('click', ()=> closeRefundModal());
+    document.getElementById('rfSubmit').addEventListener('click', async ()=>{
+      if (!currentRefundCtx) return;
+      const token = localStorage.getItem('amaranth_report_token') || '';
+      const headers = { 'Content-Type':'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
 
-// init
-(function init(){ rows = loadFromLocal(); render(); })();
-</script>
+      let amount_cents;
+      if (rfType.value === 'partial') {
+        const v = Number(rfAmount.value || 0);
+        if (!isFinite(v) || v <= 0) { alert('Enter a positive amount'); return; }
+        amount_cents = Math.round(v * 100);
+      }
+
+      const payload = {
+        payment_intent: currentRefundCtx.payment_intent || undefined,
+        charge: currentRefundCtx.charge || undefined,
+        ...(amount_cents ? { amount_cents } : {})
+      };
+
+      try{
+        const r = await fetch('/api/router?action=create_refund', { method: 'POST', headers, body: JSON.stringify(payload) });
+        const j = await r.json();
+        if(!r.ok) throw new Error(j?.error || 'Refund failed');
+        alert('Refund created.'); closeRefundModal(); loadFromServer();
+      }catch(e){ alert('Refund failed: ' + e.message); }
+    });
+
+    function openRefundModal(ctx){
+      currentRefundCtx = ctx;
+      rfType.value = 'full'; rfAmount.value = ''; rfAmtWrap.style.display = 'none';
+      rfInfo.textContent = `PI: ${ctx.payment_intent || '—'}  Charge: ${ctx.charge || '—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+      modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false');
+    }
+    function closeRefundModal(){ modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); currentRefundCtx = null; }
+
+    /** NEW: Auto-report settings helpers **/
+    function getAuthHeaders() {
+      const token = localStorage.getItem('amaranth_report_token') || '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
+      return headers;
+    }
+
+    async function loadReportSettings() {
+      const statusEl = document.getElementById('reportSettingsStatus');
+      const helpEl = document.getElementById('reportSettingsHelp');
+      try {
+        const r = await fetch('/api/router?action=get_settings', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({})
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || 'Failed');
+        const effective = j.effective || {};
+        const freq = String(effective.REPORT_FREQUENCY || 'monthly').toLowerCase();
+        const weekday = String(effective.REPORT_WEEKDAY || '1');
+
+        document.getElementById('reportFrequency').value =
+          (freq === 'bi-weekly' || freq === 'biweekly') ? 'semi-monthly' : freq;
+        document.getElementById('reportWeekday').value = weekday;
+
+        statusEl.textContent = '';
+        helpEl.textContent =
+          `Currently set to ${document.getElementById('reportFrequency').selectedOptions[0].textContent}. ` +
+          `Weekly sends use ${document.getElementById('reportWeekday').selectedOptions[0].textContent}.`;
+      } catch (e) {
+        console.warn('Failed to load report settings:', e);
+        statusEl.textContent = 'Could not load settings (using defaults).';
+        helpEl.textContent = '';
+      }
+    }
+
+    document.getElementById('btnSaveReportSettings').addEventListener('click', async ()=>{
+      const freq = document.getElementById('reportFrequency').value;
+      const weekday = document.getElementById('reportWeekday').value;
+      const statusEl = document.getElementById('reportSettingsStatus');
+      statusEl.textContent = 'Saving…';
+      try {
+        const r = await fetch('/api/router?action=save_settings', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            REPORT_FREQUENCY: freq,
+            REPORT_WEEKDAY: weekday
+          })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || 'Save failed');
+        statusEl.textContent = 'Saved.';
+        const helpEl = document.getElementById('reportSettingsHelp');
+        helpEl.textContent =
+          `Currently set to ${document.getElementById('reportFrequency').selectedOptions[0].textContent}. ` +
+          `Weekly sends use ${document.getElementById('reportWeekday').selectedOptions[0].textContent}.`;
+      } catch (e) {
+        console.error('Save settings failed:', e);
+        statusEl.textContent = 'Save failed: ' + e.message;
+      }
+    });
+
+    // init
+    (function init(){
+      rows = loadFromLocal();
+      render();
+      // Try to refresh from server
+      loadFromServer();
+      // Load auto-report settings (if token is present)
+      loadReportSettings();
+    })();
+  </script>
 </body>
 </html>
