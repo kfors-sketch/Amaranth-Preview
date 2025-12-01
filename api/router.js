@@ -1406,6 +1406,12 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
+            // Start of current month (UTC)
+            const firstOfMonth = new Date(
+              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
+            );
+            const firstIso = firstOfMonth.toISOString();
+
             const esc = (s) =>
               String(s || "").replace(/</g, "&lt;");
 
@@ -1441,9 +1447,11 @@ export default async function handler(req, res) {
             const html = `
               <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
-                <p style="margin:2px 0;">Time (UTC): ${esc(timeStr)}</p>
-                <p style="margin:2px 0;">Scope: <b>current-month (per item frequency)</b></p>
-                <p style="margin:2px 0;"><strong>These reports include all activity from the first of the month through today.</strong></p>
+                <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
+                <p style="margin:2px 0;">Scope: <b>current-month</b></p>
+                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(
+                  firstIso
+                )} through ${esc(timeStr)}.</strong></p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
