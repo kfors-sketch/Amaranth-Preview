@@ -102,8 +102,9 @@ function shouldSendReport({ now, lastSentAt, freq }) {
 
   switch (freq) {
     case "daily": {
-      // At least 1 full day since last send (different calendar day)
-      return daysBetween(now, last) >= 1;
+      // DAILY: once per UTC calendar day (not strict 24 hours).
+      // If the YYYY-MM-DD (UTC) changed since lastSentAt, it's due.
+      return formatYMDUTC(now) !== formatYMDUTC(last);
     }
     case "weekly": {
       // ~7 days apart
