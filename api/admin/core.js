@@ -389,7 +389,7 @@ async function saveOrderFromSession(sessionLike) {
     const name = li.description || li.price?.product?.name || "Item";
     const qty = Number(li.quantity || 1);
     const unit = cents(li.price?.unit_amount || 0); // Stripe returns cents
-    const total = unit * qty;
+    the total = unit * qty;
     const meta = li.price?.product?.metadata || {};
     return {
       id: `${sid}:${li.id}`,
@@ -1176,11 +1176,19 @@ function collectAttendeesFromOrders(
 }
 
 // ---- single function that sends a chair XLSX for a given item ----
+// Supports scopes:
+//   - "current-month" (default): 1st of current month 00:00Z → now
+//   - "custom": custom start/end dates (Y-M-D) or explicit ms
+//   - "full": all orders for this item
 async function sendItemReportEmailInternal({
   kind,
   id,
   label,
   scope = "current-month",
+  startDate,
+  endDate,
+  startMs: explicitStartMs,
+  endMs: explicitEndMs,
 }) {
   if (!resend)
     return { ok: false, error: "resend-not-configured" };
@@ -1191,10 +1199,17 @@ async function sendItemReportEmailInternal({
   const orders = await loadAllOrdersWithRetry();
 
   // These window bounds are used both for filtering AND for coverage text.
-  let startMs;
-  let endMs;
+  let startMs =
+    typeof explicitStartMs === "number" && !isNaN(explicitStartMs)
+      ? explicitStartMs
+      : undefined;
+  let endMs =
+    typeof explicitEndMs === "number" && !isNaN(explicitEndMs)
+      ? explicitEndMs
+      : undefined;
 
-  if (scope === "current-month") {
+  // Month-to-date: earliest possible on the 1st (UTC) through "now"
+  if (scope === "current-month" && startMs == null && endMs == null) {
     const now = new Date();
     const start = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
@@ -1202,7 +1217,23 @@ async function sendItemReportEmailInternal({
     startMs = start.getTime();
     endMs = Date.now() + 1; // exclusive
   }
-  // scope === "full" (or other) → no explicit startMs/endMs; coverage helper will fall back to row dates.
+
+  // Custom range: startDate/endDate in Y-M-D, inclusive of the end date
+  if (scope === "custom" && startMs == null && endMs == null) {
+    if (startDate) {
+      const dStart = parseYMD(startDate);
+      if (!isNaN(dStart)) startMs = dStart;
+    }
+    if (endDate) {
+      const dEnd = parseYMD(endDate);
+      if (!isNaN(dEnd)) {
+        // end date inclusive → next day at 00:00Z as exclusive bound
+        endMs = dEnd + 24 * 60 * 60 * 1000;
+      }
+    }
+  }
+  // scope === "full" (or anything else) → no explicit startMs/endMs;
+  // coverage helper will fall back to row dates.
 
   const base = baseKey(id);
   const includeAddressForThisItem =
@@ -1379,10 +1410,12 @@ async function sendItemReportEmailInternal({
 
   const scopeLabel =
     scope === "current-month"
-      ? "current month"
+      ? "current month (month-to-date)"
       : scope === "full"
-        ? "full history"
-        : String(scope || "");
+        ? "full history (all orders for this item)"
+        : scope === "custom"
+          ? "custom date range"
+          : String(scope || "");
 
   const coverageText = formatCoverageRange({
     startMs,
@@ -1519,6 +1552,7 @@ async function maybeSendRealtimeChairEmails(order) {
 }
 
 // ------------- EXPORTS -------------
+// prettier-ignore
 export {
   // raw kv (for smoketest)
   kv,
