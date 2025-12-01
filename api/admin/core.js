@@ -22,24 +22,75 @@ const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").tr
 const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // log recipients for monthly cron summary
 const CONTACT_TO = (process.env.CONTACT_TO || "pa_sessions@yahoo.com").trim(); // contact form receiver
 
-const REQ_OK  = (res, data) => res.status(200).json(data);
-const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
+const REQ_OK = (res, data) => res.status(200).json(data);
+const REQ_ERR = (res, code, msg, extra = {}) =>
+  res.status(code).json({ error: msg, ...extra });
 
 // ---------- helpers ----------
-function cents(n) { return Math.round(Number(n || 0)); }
-function dollarsToCents(n) { return Math.round(Number(n || 0) * 100); }
+function cents(n) {
+  return Math.round(Number(n || 0));
+}
+function dollarsToCents(n) {
+  return Math.round(Number(n || 0) * 100);
+}
 function toCentsAuto(v) {
   const n = Number(v || 0);
   return n < 1000 ? Math.round(n * 100) : Math.round(n);
 }
 
-async function kvGetSafe(key, fallback = null) { try { return await kv.get(key); } catch { return fallback; } }
-async function kvHsetSafe(key, obj)          { try { await kv.hset(key, obj); return true; } catch { return false; } }
-async function kvSaddSafe(key, val)          { try { await kv.sadd(key, val); return true; } catch { return false; } }
-async function kvSetSafe(key, val)           { try { await kv.set(key, val);  return true; } catch { return false; } }
-async function kvHgetallSafe(key)            { try { return (await kv.hgetall(key)) || {}; } catch { return {}; } }
-async function kvSmembersSafe(key)           { try { return await kv.smembers(key); } catch { return []; } }
-async function kvDelSafe(key)                { try { await kv.del(key); return true; } catch { return false; } }
+async function kvGetSafe(key, fallback = null) {
+  try {
+    return await kv.get(key);
+  } catch {
+    return fallback;
+  }
+}
+async function kvHsetSafe(key, obj) {
+  try {
+    await kv.hset(key, obj);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function kvSaddSafe(key, val) {
+  try {
+    await kv.sadd(key, val);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function kvSetSafe(key, val) {
+  try {
+    await kv.set(key, val);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function kvHgetallSafe(key) {
+  try {
+    return (await kv.hgetall(key)) || {};
+  } catch {
+    return {};
+  }
+}
+async function kvSmembersSafe(key) {
+  try {
+    return await kv.smembers(key);
+  } catch {
+    return [];
+  }
+}
+async function kvDelSafe(key) {
+  try {
+    await kv.del(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Small sleep helper for retries
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,13 +208,14 @@ async function getEffectiveSettings() {
     REPLY_TO,
     // Optional reporting window
     EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
-    EVENT_END: process.env.EVENT_END || "",     // e.g. "2025-11-10"
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "" // e.g. "30"
+    EVENT_END: process.env.EVENT_END || "", // e.g. "2025-11-10"
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "", // e.g. "30"
   };
   const effective = {
     ...env,
     ...overrides,
-    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
+    MAINTENANCE_ON:
+      String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
   };
   return { env, overrides, effective };
 }
@@ -184,7 +236,9 @@ function applyItemFilters(rows, { category, item_id, item }) {
 
   if (category) {
     const cat = String(category).toLowerCase();
-    out = out.filter((r) => String(r.category || "").toLowerCase() === cat);
+    out = out.filter(
+      (r) => String(r.category || "").toLowerCase() === cat
+    );
   }
 
   if (item_id) {
@@ -208,7 +262,9 @@ function applyItemFilters(rows, { category, item_id, item }) {
     });
   } else if (item) {
     const want = String(item).toLowerCase();
-    out = out.filter((r) => String(r.item || "").toLowerCase().includes(want));
+    out = out.filter((r) =>
+      String(r.item || "").toLowerCase().includes(want)
+    );
   }
 
   return out;
@@ -220,6 +276,40 @@ async function recordMailLog(payload) {
   try {
     await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 });
   } catch {}
+}
+
+// --- Coverage text helper for chair reports ---
+// Uses explicit startMs/endMs when provided; otherwise falls back to min/max row dates.
+function formatCoverageRange({ startMs, endMs, rows }) {
+  const fmt = (ms) =>
+    new Date(ms)
+      .toISOString()
+      .replace("T", " ")
+      .replace(/\.\d+Z$/, " UTC");
+
+  let start = typeof startMs === "number" && !isNaN(startMs) ? startMs : null;
+  let end =
+    typeof endMs === "number" && !isNaN(endMs) ? endMs - 1 : null; // endMs is exclusive → subtract 1 ms
+
+  if ((start == null || end == null) && Array.isArray(rows) && rows.length) {
+    const ts = rows
+      .map((r) => parseDateISO(r.date))
+      .filter((t) => !isNaN(t));
+    if (ts.length) {
+      const min = Math.min(...ts);
+      const max = Math.max(...ts);
+      if (start == null) start = min;
+      if (end == null) end = max;
+    }
+  }
+
+  if (start == null && end == null) return "";
+
+  const startLabel =
+    start != null ? fmt(start) : "beginning of recorded orders";
+  const endLabel = end != null ? fmt(end) : "now";
+
+  return `This report covers orders from ${startLabel} through ${endLabel}.`;
 }
 
 // --- Stripe helpers: always fetch the full line item list ---
@@ -247,7 +337,9 @@ async function getChairEmailsForItemId(id) {
   try {
     const banquets = await kvGetSafe("banquets", []);
     if (Array.isArray(banquets)) {
-      const b = banquets.find((x) => String(x?.id || "") === String(id));
+      const b = banquets.find(
+        (x) => String(x?.id || "") === String(id)
+      );
       if (b) {
         const arr = Array.isArray(b.chairEmails)
           ? b.chairEmails
@@ -261,7 +353,9 @@ async function getChairEmailsForItemId(id) {
   try {
     const addons = await kvGetSafe("addons", []);
     if (Array.isArray(addons)) {
-      const a = addons.find((x) => String(x?.id || "") === String(id));
+      const a = addons.find(
+        (x) => String(x?.id || "") === String(id)
+      );
       if (a) {
         const arr = Array.isArray(a.chairEmails)
           ? a.chairEmails
@@ -284,8 +378,12 @@ async function saveOrderFromSession(sessionLike) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
 
-  const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
-  const { session: s, lineItems } = await fetchSessionAndItems(stripe, sid);
+  const sid =
+    typeof sessionLike === "string" ? sessionLike : sessionLike.id;
+  const { session: s, lineItems } = await fetchSessionAndItems(
+    stripe,
+    sid
+  );
 
   const lines = lineItems.map((li) => {
     const name = li.description || li.price?.product?.name || "Item";
@@ -349,11 +447,15 @@ async function saveOrderFromSession(sessionLike) {
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
-    customer_email: (s.customer_details?.email || purchaserFromMeta.email || "").trim(),
+    customer_email: (
+      s.customer_details?.email || purchaserFromMeta.email || ""
+    ).trim(),
     purchaser: {
       name: purchaserFromMeta.name || s.customer_details?.name || "",
-      email: purchaserFromMeta.email || s.customer_details?.email || "",
-      phone: purchaserFromMeta.phone || s.customer_details?.phone || "",
+      email:
+        purchaserFromMeta.email || s.customer_details?.email || "",
+      phone:
+        purchaserFromMeta.phone || s.customer_details?.phone || "",
       title: purchaserFromMeta.title || "",
       address1: purchaserFromMeta.address1 || "",
       address2: purchaserFromMeta.address2 || "",
@@ -374,7 +476,8 @@ async function saveOrderFromSession(sessionLike) {
     const pi = await stripe.paymentIntents
       .retrieve(piId, { expand: ["charges.data"] })
       .catch(() => null);
-    if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
+    if (pi?.charges?.data?.length)
+      order.charge = pi.charges.data[0].id;
   }
 
   await kvSetSafe(`order:${order.id}`, order);
@@ -576,14 +679,16 @@ function renderOrderEmailHTML(order) {
       return;
     }
 
-    const isBanquet = cat === "banquet" || /banquet/i.test(name);
+    const isBanquet =
+      cat === "banquet" || /banquet/i.test(name);
     const isAddon =
       cat === "addon" ||
       /addon/i.test(li.meta?.itemType || "") ||
       /addon/i.test(name);
 
     if (isBanquet || isAddon) {
-      const attName = (li.meta && li.meta.attendeeName) || purchaserName;
+      const attName =
+        (li.meta && li.meta.attendeeName) || purchaserName;
       (attendeeGroups[attName] ||= []).push(li);
     } else {
       topCatalog.push(li);
@@ -628,7 +733,8 @@ function renderOrderEmailHTML(order) {
 
     const subtotal = rows.reduce(
       (s, li) =>
-        s + Number(li.unitPrice || 0) * Number(li.qty || 1),
+        s +
+        Number(li.unitPrice || 0) * Number(li.qty || 1),
       0
     );
 
@@ -687,7 +793,9 @@ function renderOrderEmailHTML(order) {
 
       const isProcessingFee =
         itemId === "processing-fee" ||
-        ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+        ((cat === "fee" ||
+          metaType === "fee" ||
+          metaType === "other") &&
           /processing\s*fee/i.test(name));
       const isIntlFee =
         itemId === "intl-fee" ||
@@ -709,7 +817,10 @@ function renderOrderEmailHTML(order) {
       itemsSubtotal += lineCents;
     }
 
-    return { itemsSubtotalCents: itemsSubtotal, shippingCents: shipping };
+    return {
+      itemsSubtotalCents: itemsSubtotal,
+      shippingCents: shipping,
+    };
   })();
 
   const grandTotalCents =
@@ -803,7 +914,8 @@ function renderOrderEmailHTML(order) {
 }
 
 async function sendOrderReceipts(order) {
-  if (!resend) return { sent: false, reason: "resend-not-configured" };
+  if (!resend)
+    return { sent: false, reason: "resend-not-configured" };
 
   const html = renderOrderEmailHTML(order);
   const subject = `Grand Court of PA - order #${order.id}`;
@@ -977,11 +1089,10 @@ async function objectsToXlsxBuffer(
   const effectiveHeaders = Array.isArray(headers) ? headers.slice() : [];
 
   if (effectiveHeaders.length) {
-    const headerRowValues = effectiveHeaders.map(
-      (h) =>
-        headerLabels && headerLabels[h] !== undefined
-          ? headerLabels[h]
-          : h
+    const headerRowValues = effectiveHeaders.map((h) =>
+      headerLabels && headerLabels[h] !== undefined
+        ? headerLabels[h]
+        : h
     );
     worksheet.addRow(headerRowValues);
 
@@ -1011,7 +1122,12 @@ async function objectsToXlsxBuffer(
 
 function collectAttendeesFromOrders(
   orders,
-  { includeAddress = false, categories = ["banquet", "addon"], startMs, endMs } = {}
+  {
+    includeAddress = false,
+    categories = ["banquet", "addon"],
+    startMs,
+    endMs,
+  } = {}
 ) {
   const cats = new Set(
     (categories || []).map((c) => String(c || "").toLowerCase())
@@ -1028,7 +1144,8 @@ function collectAttendeesFromOrders(
       const m = li?.meta || {};
       out.push({
         date: new Date(o.created || Date.now()).toISOString(),
-        purchaser: o?.purchaser?.name || o?.customer_email || "",
+        purchaser:
+          o?.purchaser?.name || o?.customer_email || "",
         attendee: m.attendeeName || "",
         attendee_title: m.attendeeTitle || "",
         attendee_phone: m.attendeePhone || "",
@@ -1038,14 +1155,20 @@ function collectAttendeesFromOrders(
         qty: li?.qty || 1,
         notes:
           cat === "banquet"
-            ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
+            ? [m.attendeeNotes, m.dietaryNote]
+                .filter(Boolean)
+                .join("; ")
             : m.itemNote || "",
         attendee_addr1: includeAddress ? m.attendeeAddr1 || "" : "",
         attendee_addr2: includeAddress ? m.attendeeAddr2 || "" : "",
         attendee_city: includeAddress ? m.attendeeCity || "" : "",
         attendee_state: includeAddress ? m.attendeeState || "" : "",
-        attendee_postal: includeAddress ? m.attendeePostal || "" : "",
-        attendee_country: includeAddress ? m.attendeeCountry || "" : "",
+        attendee_postal: includeAddress
+          ? m.attendeePostal || ""
+          : "",
+        attendee_country: includeAddress
+          ? m.attendeeCountry || ""
+          : "",
       });
     }
   }
@@ -1059,24 +1182,31 @@ async function sendItemReportEmailInternal({
   label,
   scope = "current-month",
 }) {
-  if (!resend) return { ok: false, error: "resend-not-configured" };
-  if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
+  if (!resend)
+    return { ok: false, error: "resend-not-configured" };
+  if (!kind || !id)
+    return { ok: false, error: "missing-kind-or-id" };
 
   // NEW: load all orders with a small retry window (helps cold start / timing issues)
   const orders = await loadAllOrdersWithRetry();
 
-  let startMs, endMs;
+  // These window bounds are used both for filtering AND for coverage text.
+  let startMs;
+  let endMs;
+
   if (scope === "current-month") {
     const now = new Date();
     const start = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
     );
     startMs = start.getTime();
-    endMs = Date.now() + 1;
+    endMs = Date.now() + 1; // exclusive
   }
+  // scope === "full" (or other) → no explicit startMs/endMs; coverage helper will fall back to row dates.
 
   const base = baseKey(id);
-  const includeAddressForThisItem = base === "pre-reg" || base === "directory";
+  const includeAddressForThisItem =
+    base === "pre-reg" || base === "directory";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1160,7 +1290,8 @@ async function sendItemReportEmailInternal({
   let counter = 1;
 
   const numbered = sorted.map((r) => {
-    const hasAttendee = String(r.attendee || "").trim().length > 0;
+    const hasAttendee =
+      String(r.attendee || "").trim().length > 0;
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
@@ -1248,15 +1379,16 @@ async function sendItemReportEmailInternal({
 
   const scopeLabel =
     scope === "current-month"
-      ? "current-month (from the first of the month through today)"
+      ? "current month"
       : scope === "full"
-        ? "full (all orders for this item)"
+        ? "full history"
         : String(scope || "");
 
-  const extraScopeLine =
-    scope === "current-month"
-      ? `<p style="font-size:12px;color:#555;margin:2px 0 0;"><strong>These reports include all activity from the first of the month through today.</strong></p>`
-      : "";
+  const coverageText = formatCoverageRange({
+    startMs,
+    endMs,
+    rows: sorted,
+  });
 
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
@@ -1265,8 +1397,12 @@ async function sendItemReportEmailInternal({
         label || id
       }”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
-      <div style="font-size:12px;color:#555">Scope: ${scopeLabel}</div>
-      ${extraScopeLine}
+      <div style="font-size:12px;color:#555;margin:2px 0;">Scope: ${scopeLabel}</div>
+      ${
+        coverageText
+          ? `<p style="font-size:12px;color:#555;margin:2px 0 0;">${coverageText}</p>`
+          : ""
+      }
     </div>`;
 
   const payload = {
@@ -1300,7 +1436,12 @@ async function sendItemReportEmailInternal({
       kind: "item-report",
       status: "queued",
     });
-    return { ok: true, count: sorted.length, to: toList, bcc: bccList };
+    return {
+      ok: true,
+      count: sorted.length,
+      to: toList,
+      bcc: bccList,
+    };
   } else {
     const err = retry.error;
     await recordMailLog({
@@ -1370,7 +1511,10 @@ async function maybeSendRealtimeChairEmails(order) {
     await sendRealtimeChairEmailsForOrder(order);
     await kvSetSafe(key, new Date().toISOString());
   } catch (e) {
-    console.error("realtime-chair-email-failed", e?.message || e);
+    console.error(
+      "realtime-chair-email-failed",
+      e?.message || e
+    );
   }
 }
 
