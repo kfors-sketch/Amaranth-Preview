@@ -1342,6 +1342,12 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!requireToken(req, res)) return;
 
+      // NEW: admin-only settings fetch for reporting_main.html
+      if (action === "get_settings") {
+        const { env, overrides, effective } = await getEffectiveSettings();
+        return REQ_OK(res, { ok: true, env, overrides, effective });
+      }
+
       if (action === "send_full_report") {
         try {
           const mod = await import("./admin/send-full.js");
@@ -1761,6 +1767,7 @@ export default async function handler(req, res) {
 
       if (action === "save_settings") {
         const allow = {};
+
         [
           "RESEND_FROM",
           "REPORTS_CC",
@@ -1773,12 +1780,29 @@ export default async function handler(req, res) {
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS",
+          // NEW global auto-report controls:
+          "REPORT_FREQUENCY",
+          "REPORT_WEEKDAY",
         ].forEach((k) => {
           if (k in body) allow[k] = body[k];
         });
 
         if ("MAINTENANCE_ON" in allow) {
           allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
+        }
+
+        // Normalize frequency using the same helper we use for item config
+        if ("REPORT_FREQUENCY" in allow) {
+          allow.REPORT_FREQUENCY = normalizeReportFrequency(
+            allow.REPORT_FREQUENCY
+          );
+        }
+
+        // Clamp weekday to 1–7 and store as string
+        if ("REPORT_WEEKDAY" in allow) {
+          let wd = parseInt(allow.REPORT_WEEKDAY, 10);
+          if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
+          allow.REPORT_WEEKDAY = String(wd);
         }
 
         if (Object.keys(allow).length) {
