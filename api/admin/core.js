@@ -389,7 +389,7 @@ async function saveOrderFromSession(sessionLike) {
     const name = li.description || li.price?.product?.name || "Item";
     const qty = Number(li.quantity || 1);
     const unit = cents(li.price?.unit_amount || 0); // Stripe returns cents
-    the total = unit * qty;
+    const total = unit * qty;
     const meta = li.price?.product?.metadata || {};
     return {
       id: `${sid}:${li.id}`,
