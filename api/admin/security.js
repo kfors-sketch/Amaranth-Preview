@@ -102,7 +102,7 @@ export async function lockIP(ip) {
 export async function recordFailedAttempt(ip, userAgent = "") {
   const ipKey = failKey(ip);
 
-  // Increment per-IP failure counter and set expiry so it auto-resets.
+  // Increment per-IP failure counter and set expiration so it auto-resets.
   let count = await kv.incr(ipKey);
   if (count === 1) {
     // first failure in this window; set expiration for the window length
@@ -112,6 +112,17 @@ export async function recordFailedAttempt(ip, userAgent = "") {
   // If failures exceed the threshold, lock the IP
   if (count >= ADMIN_MAX_FAILS_PER_WINDOW) {
     await lockIP(ip);
+
+    // On the *moment* we cross the lockout threshold for this IP,
+    // send a focused alert email.
+    if (count === ADMIN_MAX_FAILS_PER_WINDOW) {
+      await sendSecurityAlert({
+        reason: "ip_lockout",
+        ip,
+        userAgent,
+        failCount: count,
+      });
+    }
   }
 
   // Also track a global rolling count to detect broader attack patterns
@@ -120,7 +131,7 @@ export async function recordFailedAttempt(ip, userAgent = "") {
     await kv.expire(ALERT_KEY, ADMIN_ALERT_WINDOW_SEC);
   }
 
-  // If we cross alert threshold, try sending an email
+  // If we cross alert threshold, try sending an aggregated alert
   if (globalCount >= ADMIN_ALERT_FAIL_THRESHOLD) {
     await sendSecurityAlert({
       reason: "multiple_failed_admin_logins",
@@ -240,18 +251,28 @@ export async function sendSecurityAlert(info) {
   try {
     if (!resend || !RESEND_FROM || !SECURITY_ALERT_TO) return;
 
-    const subject = "Amaranth Admin: Security Alert";
     const { reason, ip, userAgent, failCount } = info || {};
+    const safeReason = reason || "unknown";
+
+    const subject = (() => {
+      if (safeReason === "ip_lockout") {
+        return "Amaranth Admin: IP Locked Out";
+      }
+      if (safeReason === "multiple_failed_admin_logins") {
+        return "Amaranth Admin: Multiple Failed Login Attempts";
+      }
+      return "Amaranth Admin: Security Alert";
+    })();
 
     const lines = [
       "Security event detected on Amaranth admin login.",
       "",
-      `Reason: ${reason || "unknown"}`,
+      `Reason: ${safeReason}`,
       `IP: ${ip || "unknown"}`,
       `User-Agent: ${userAgent || "unknown"}`,
       typeof failCount === "number" ? `Recent failed attempts: ${failCount}` : "",
       "",
-      `Time (server): ${new Date().toISOString()}`,
+      `Time (server UTC): ${new Date().toISOString()}`,
     ].filter(Boolean);
 
     await resend.emails.send({
