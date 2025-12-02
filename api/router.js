@@ -1420,6 +1420,38 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
 
+      // --- SAFE ADMIN-ONLY PURGE OF ORDERS ---
+      if (action === "purge_orders") {
+        const confirm = String(body?.confirm || "");
+        if (confirm !== "PURGE ORDERS") {
+          return REQ_ERR(res, 400, "confirmation-required", {
+            expected: "PURGE ORDERS",
+            received: confirm,
+            note: "This safeguard prevents accidental data loss.",
+          });
+        }
+
+        // Collect all keys to delete (orders index + each order)
+        const index = await kvSmembersSafe("orders:index");
+        const toDelete = ["orders:index", ...index.map((id) => `order:${id}`)];
+
+        let deleted = 0;
+        for (const key of toDelete) {
+          try {
+            await kvDelSafe(key);
+            deleted++;
+          } catch (err) {
+            console.error("purge_orders failed on key:", key, err);
+          }
+        }
+
+        return REQ_OK(res, {
+          ok: true,
+          message: "Order storage purged successfully.",
+          deletedKeys: deleted,
+        });
+      }
+
       // NEW: admin-only settings fetch for reporting_main.html
       if (action === "get_settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
