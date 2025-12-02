@@ -53,7 +53,7 @@
     .badge-dot.red{background:#ef4444}
     .badge-dot.gray{background:#9ca3af}
     .status-icon{font-size:11px;border-radius:999px;border:1px solid #e5e7eb;padding:0 6px;display:inline-flex;align-items:center;gap:3px}
-    .status-icon span.dot{width:6px;height:6px;border-radius:999px;background:#9ca3af}
+    .status-icon.span{width:6px;height:6px;border-radius:999px;background:#9ca3af}
     .status-icon.paid span.dot{background:#16a34a}
     .status-icon.refunded span.dot{background:#ef4444}
     .status-icon.pending span.dot{background:#f97316}
@@ -183,61 +183,6 @@
 
       <!-- Right: tools / exports -->
       <div class="col">
-        <!-- Import / Export -->
-        <div class="card mb-12">
-          <div class="section-label">Local Tools</div>
-          <h3>Import / Export</h3>
-          <p class="muted">Work offline by importing .json or .csv. This never overwrites data on the server.</p>
-          <div class="controls mt-4">
-            <div class="group">
-              <label class="muted">Import from file</label>
-              <input id="fileImport" type="file" accept=".json,.csv" />
-            </div>
-          </div>
-          <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
-        </div>
-
-        <!-- NEW: Automated chair report settings -->
-        <div class="card mb-12">
-          <div class="section-label">Automation</div>
-          <h3>Automated Chair Reports</h3>
-          <p class="muted">
-            Control how often the cron job emails XLSX reports to all banquet, add-on, and catalog chairs.
-            The cron runs daily but only sends when a window below applies.
-          </p>
-          <div class="controls mt-4">
-            <div class="group">
-              <label class="muted">Report frequency</label>
-              <select id="reportFrequency">
-                <option value="monthly">Monthly (previous month)</option>
-                <option value="semi-monthly">1–15 &amp; 16–End</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </div>
-            <div class="group">
-              <label class="muted">Weekly send day</label>
-              <select id="reportWeekday">
-                <option value="1">Monday</option>
-                <option value="2">Tuesday</option>
-                <option value="3">Wednesday</option>
-                <option value="4">Thursday</option>
-                <option value="5">Friday</option>
-                <option value="6">Saturday</option>
-                <option value="7">Sunday</option>
-              </select>
-            </div>
-          </div>
-          <div class="controls mt-4">
-            <div class="group" style="max-width:180px">
-              <button id="btnSaveReportSettings" class="btn sm">Save Settings</button>
-            </div>
-            <div class="group">
-              <span id="reportSettingsStatus" class="muted"></span>
-            </div>
-          </div>
-          <p class="muted mt-4" id="reportSettingsHelp"></p>
-        </div>
-
         <!-- By-item download / email -->
         <div class="card mb-12">
           <div class="section-label">Per-item tools</div>
@@ -295,13 +240,68 @@
         </div>
 
         <!-- Totals -->
-        <div class="card">
+        <div class="card mb-12">
           <div class="section-label">Quick totals</div>
           <h3>By Category</h3>
           <p class="muted">Rough totals for the current filter window. For full accounting, use the exports above.</p>
           <div id="totalsByCategory" class="mt-8 text-sm muted">
             <!-- injected -->
           </div>
+        </div>
+
+        <!-- Import / Export -->
+        <div class="card mb-12">
+          <div class="section-label">Local Tools</div>
+          <h3>Import / Export</h3>
+          <p class="muted">Work offline by importing .json or .csv. This never overwrites data on the server.</p>
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Import from file</label>
+              <input id="fileImport" type="file" accept=".json,.csv" />
+            </div>
+          </div>
+          <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
+        </div>
+
+        <!-- Automated chair report settings -->
+        <div class="card">
+          <div class="section-label">Automation</div>
+          <h3>Automated Chair Reports</h3>
+          <p class="muted">
+            Control how often the cron job emails XLSX reports to all banquet, add-on, and catalog chairs.
+            The cron runs daily but only sends when a window below applies.
+          </p>
+          <div class="controls mt-4">
+            <div class="group">
+              <label class="muted">Report frequency</label>
+              <select id="reportFrequency">
+                <option value="monthly">Monthly (previous month)</option>
+                <option value="semi-monthly">1–15 &amp; 16–End</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            <div class="group">
+              <label class="muted">Weekly send day</label>
+              <select id="reportWeekday">
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+                <option value="7">Sunday</option>
+              </select>
+            </div>
+          </div>
+          <div class="controls mt-4">
+            <div class="group" style="max-width:180px">
+              <button id="btnSaveReportSettings" class="btn sm">Save Settings</button>
+            </div>
+            <div class="group">
+              <span id="reportSettingsStatus" class="muted"></span>
+            </div>
+          </div>
+          <p class="muted mt-4" id="reportSettingsHelp"></p>
         </div>
       </div>
     </div>
