@@ -6,46 +6,189 @@
   <title>Amaranth Admin — Reporting Login</title>
   <meta name="robots" content="noindex, nofollow" />
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:0;background:#f4f4f8;color:#111}
-    #loginBox{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:16px}
-    #loginBox input{padding:10px;border:1px solid #ccc;border-radius:8px;margin-top:8px;width:260px}
-    #loginBox button{margin-top:10px;padding:10px 20px;border:none;border-radius:8px;background:#111;color:#fff;font-weight:600;cursor:pointer}
-    #loginBox p{color:#6b7280;margin-top:10px}
-    .hint{font-size:12px;color:#9ca3af;margin-top:8px}
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f4f8;
+      color: #111;
+    }
+    #loginBox {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 16px;
+    }
+    #loginBox h2 {
+      margin-bottom: 8px;
+    }
+    #loginBox input {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 8px;
+      width: 260px;
+      font-size: 14px;
+    }
+    #loginBox button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      background: #111;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #loginBox button[disabled] {
+      opacity: 0.6;
+      cursor: default;
+    }
+    #loginBox p {
+      color: #6b7280;
+      margin-top: 10px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 8px;
+      max-width: 320px;
+      text-align: center;
+    }
+    .error {
+      color: #b91c1c;
+    }
+    .success {
+      color: #15803d;
+    }
   </style>
 </head>
 <body>
   <div id="loginBox">
     <h2>Amaranth Admin Access</h2>
-    <input id="pw" type="password" placeholder="Enter password" autocomplete="current-password" />
+    <input
+      id="pw"
+      type="password"
+      placeholder="Enter admin password"
+      autocomplete="current-password"
+    />
     <button id="loginBtn">Login</button>
     <p id="msg"></p>
-    <div class="hint">Password is case-sensitive.</div>
+    <div class="hint">
+      Password is case-sensitive. For security, the password itself is never stored
+      in your browser — only a temporary access token.
+    </div>
   </div>
-  <script>
-    const CORRECT_PW = 'Amaranth2026'; // ← case-sensitive
-    const msg = document.getElementById('msg');
-    const pwInput = document.getElementById('pw');
-    const btn = document.getElementById('loginBtn');
 
-    // if already logged in, go to admin hub
-    if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
-      window.location.href = 'index.html';
+  <script>
+    const TOKEN_KEY = "amaranth_report_token";
+    const TOKEN_EXP_KEY = "amaranth_report_token_exp"; // millis timestamp
+
+    const msg = document.getElementById("msg");
+    const pwInput = document.getElementById("pw");
+    const btn = document.getElementById("loginBtn");
+
+    function setMessage(text, type) {
+      msg.textContent = text || "";
+      msg.className = type ? type : "";
     }
 
-    function doLogin(){
+    // Check if we already have a valid (non-expired) token
+    (function autoRedirectIfLoggedIn() {
+      try {
+        const token = localStorage.getItem(TOKEN_KEY) || "";
+        const expRaw = localStorage.getItem(TOKEN_EXP_KEY) || "0";
+        const exp = parseInt(expRaw, 10) || 0;
+
+        if (token && Date.now() < exp) {
+          // Token exists and is not expired -> go to admin hub
+          window.location.href = "index.html";
+        } else {
+          // Clean up any stale markers from the old login system
+          localStorage.removeItem("amaranth_admin_pw_ok");
+        }
+      } catch (e) {
+        // If localStorage fails for some reason, just ignore and show login
+      }
+    })();
+
+    async function doLogin() {
       const val = pwInput.value.trim();
-      if(val === CORRECT_PW){
-        localStorage.setItem('amaranth_admin_pw_ok','1');
-        window.location.href = 'index.html';  // ← redirect to admin hub
-      } else {
-        msg.textContent = 'Incorrect password. Try again.';
-        msg.style.color = 'red';
+      if (!val) {
+        setMessage("Please enter the admin password.", "error");
+        return;
+      }
+
+      setMessage("Checking password…", "success");
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch("/api/router?action=admin_login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ password: val }),
+        });
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || !data || data.ok !== true || !data.token) {
+          // Handle specific error cases if the backend provided them
+          if (data && data.error === "invalid_password") {
+            setMessage("Incorrect password. Try again.", "error");
+          } else if (data && data.error === "locked_out") {
+            const secs = data.remainingSeconds || 0;
+            const mins = Math.max(1, Math.round(secs / 60));
+            setMessage(
+              "Too many failed attempts. Please try again in about " +
+                mins +
+                " minute(s).",
+              "error"
+            );
+          } else {
+            setMessage(
+              "Could not log in. Please try again or contact the webmaster.",
+              "error"
+            );
+          }
+          btn.disabled = false;
+          return;
+        }
+
+        // Success: store token + expiry
+        const token = data.token;
+        const ttlSeconds = Number(data.ttlSeconds || 0) || 0;
+        const exp = ttlSeconds
+          ? Date.now() + ttlSeconds * 1000
+          : Date.now() + 60 * 60 * 1000; // default 1 hour if TTL missing
+
+        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(TOKEN_EXP_KEY, String(exp));
+
+        setMessage("Login successful. Redirecting…", "success");
+
+        // Small delay so the user sees the success message
+        setTimeout(() => {
+          window.location.href = "index.html";
+        }, 400);
+      } catch (err) {
+        console.error("admin_login failed", err);
+        setMessage(
+          "Network error while logging in. Please check your connection and try again.",
+          "error"
+        );
+        btn.disabled = false;
       }
     }
 
-    btn.addEventListener('click', doLogin);
-    pwInput.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+    btn.addEventListener("click", doLogin);
+    pwInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doLogin();
+    });
   </script>
 </body>
 </html>
