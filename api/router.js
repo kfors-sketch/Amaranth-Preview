@@ -26,7 +26,7 @@ import {
   sortByDateAsc,
   baseKey,
   normalizeKey,
-  normalizeReportFrequency, // <-- NEW import
+  normalizeReportFrequency,
   getEffectiveSettings,
   filterRowsByWindow,
   applyItemFilters,
@@ -56,15 +56,51 @@ import {
   buildInternationalFeeLineItem,
 } from "./admin/fees.js";
 
-// Simple bearer auth for admin writes
-function requireToken(req, res) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token || token !== (process.env.REPORT_TOKEN || "")) {
+import {
+  handleAdminLogin,
+  verifyAdminToken,
+} from "./admin/security.js";
+
+// ---- Admin auth helper ----
+// Uses either:
+//  - legacy static REPORT_TOKEN (for backward compatibility), OR
+//  - new KV-backed admin tokens issued by handleAdminLogin()
+async function requireAdminAuth(req, res) {
+  const headers = req.headers || {};
+  const rawAuth =
+    headers.authorization ||
+    headers.Authorization ||
+    "";
+
+  const auth = String(rawAuth || "");
+  const lower = auth.toLowerCase();
+  if (!lower.startsWith("bearer ")) {
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
-  return true;
+
+  const token = auth.slice(7).trim();
+  if (!token) {
+    REQ_ERR(res, 401, "unauthorized");
+    return false;
+  }
+
+  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages still work)
+  const legacy = (process.env.REPORT_TOKEN || "").trim();
+  if (legacy && token === legacy) {
+    return true;
+  }
+
+  // 2) Check against new admin tokens stored in KV
+  try {
+    const result = await verifyAdminToken(token);
+    if (result.ok) return true;
+  } catch (e) {
+    console.error("verifyAdminToken failed:", e?.message || e);
+  }
+
+  REQ_ERR(res, 401, "unauthorized");
+  return false;
 }
 
 // -------------- main handler --------------
@@ -701,6 +737,48 @@ export default async function handler(req, res) {
         typeof req.body === "string"
           ? JSON.parse(req.body || "{}")
           : req.body || {};
+
+      // --- NEW: High-security admin login (Option 3) ---
+      if (action === "admin_login") {
+        try {
+          const ip =
+            req.headers["x-forwarded-for"] ||
+            req.headers["x-real-ip"] ||
+            req.socket?.remoteAddress ||
+            "";
+          const ua = req.headers["user-agent"] || "";
+
+          const result = await handleAdminLogin({
+            password: String(body.password || ""),
+            ip,
+            userAgent: ua,
+          });
+
+          if (result.ok) {
+            // Contains: { ok: true, token, ttlSeconds }
+            return REQ_OK(res, result);
+          }
+
+          const errCode =
+            result.error ||
+            (result.error === "locked_out"
+              ? "locked_out"
+              : "login-failed");
+
+          const status =
+            result.error === "invalid_password" ||
+            result.error === "locked_out"
+              ? 401
+              : 500;
+
+          return REQ_ERR(res, status, errCode, result);
+        } catch (e) {
+          console.error("admin_login failed:", e?.message || e);
+          return REQ_ERR(res, 500, "login-failed", {
+            message: e?.message || String(e),
+          });
+        }
+      }
 
       // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
@@ -1340,7 +1418,7 @@ export default async function handler(req, res) {
       }
 
       // -------- ADMIN (auth required below) --------
-      if (!requireToken(req, res)) return;
+      if (!(await requireAdminAuth(req, res))) return;
 
       // NEW: admin-only settings fetch for reporting_main.html
       if (action === "get_settings") {
@@ -1780,7 +1858,7 @@ export default async function handler(req, res) {
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS",
-          // NEW global auto-report controls:
+          // Global auto-report controls (UI may use only REPORT_WEEKDAY now)
           "REPORT_FREQUENCY",
           "REPORT_WEEKDAY",
         ].forEach((k) => {
