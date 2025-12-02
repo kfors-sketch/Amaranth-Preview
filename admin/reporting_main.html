@@ -152,7 +152,19 @@
               <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
             </div>
             <div class="text-right">
-              <div class="badge"><span id="totalCount">0</span>&nbsp; rows</div>
+              <div class="badge">
+                <span id="totalCount">0</span>&nbsp; rows
+              </div>
+              <div class="mt-4">
+                <label for="rowsLimit" class="muted text-xs">Rows shown</label><br/>
+                <select id="rowsLimit" class="text-xs" style="margin-top:2px;height:24px;border-radius:999px;border:1px solid #d1d5db;padding:0 6px;">
+                  <option value="10">10</option>
+                  <option value="15" selected>15</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
               <div class="mt-4 text-xs muted">
                 Total: <strong id="totalAmount">$0.00</strong><br/>
                 Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
@@ -415,14 +427,25 @@
         return ta - tb;
       });
 
-      let idx = 0;
+      // How many rows to show (dropdown)
+      let maxRows = Infinity;
+      const rowsLimitEl = document.getElementById('rowsLimit');
+      if (rowsLimitEl) {
+        const v = rowsLimitEl.value;
+        if (v && v !== 'all') {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n) && n > 0) maxRows = n;
+        }
+      }
+
+      let idx = 0;              // true index across all filtered
+      let shown = 0;            // how many we actually render
       let total = 0;
       let paid = 0, pending = 0, refunded = 0;
       const byCat = {};
 
       for (const r of filtered) {
         idx++;
-        const tr = document.createElement('tr');
 
         const dateStr = (()=>{
           const t = Date.parse(r.date || r.created || r.created_at || '');
@@ -446,6 +469,10 @@
         byCat[keyCat] = byCat[keyCat] || { total:0, count:0 };
         byCat[keyCat].total += isFinite(amount) ? amount : 0;
         byCat[keyCat].count += 1;
+
+        // limit rendered rows
+        if (shown >= maxRows) continue;
+        shown++;
 
         const tds = [];
         for (let i=0;i<8;i++) tds.push(document.createElement('td'));
@@ -488,6 +515,7 @@
         if (r.order_id || r.id) metaBits.push(`ID: ${r.order_id || r.id}`);
         tds[7].innerHTML = metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join('');
 
+        const tr = document.createElement('tr');
         tr.append(...tds);
 
         tr.addEventListener('click', ()=> {
@@ -507,7 +535,16 @@
         tbody.appendChild(tr);
       }
 
-      document.getElementById('totalCount').textContent = filtered.length;
+      // Show "shown / total" when truncated
+      const totalCountEl = document.getElementById('totalCount');
+      if (filtered.length === 0) {
+        totalCountEl.textContent = '0';
+      } else if (shown >= filtered.length || !Number.isFinite(maxRows)) {
+        totalCountEl.textContent = String(filtered.length);
+      } else {
+        totalCountEl.textContent = `${shown} / ${filtered.length}`;
+      }
+
       document.getElementById('totalAmount').textContent = '$' + total.toFixed(2);
       document.getElementById('paidCount').textContent = paid;
       document.getElementById('pendingCount').textContent = pending;
@@ -620,6 +657,12 @@
 
     document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
     ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
+
+    // React to rows-limit changes
+    const rowsLimitEl = document.getElementById('rowsLimit');
+    if (rowsLimitEl) {
+      rowsLimitEl.addEventListener('change', render);
+    }
 
     /** Populate Category -> Item dropdowns **/
     const caches = { banquet: null, addon: null, other: null };
