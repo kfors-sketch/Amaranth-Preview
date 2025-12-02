@@ -20,13 +20,26 @@
     .btn.ghost{background:#fff;color:#111}
   </style>
   <script>
-    // Require admin login for ALL admin pages
+    // Require admin login for ALL admin pages (new token-based auth)
     (function guard(){
+      const TOKEN_KEY = 'amaranth_report_token';
+      const TOKEN_EXP_KEY = 'amaranth_report_token_exp';
+
       try {
-        if (localStorage.getItem('amaranth_admin_pw_ok') !== '1') {
+        const token = localStorage.getItem(TOKEN_KEY) || '';
+        const expRaw = localStorage.getItem(TOKEN_EXP_KEY) || '0';
+        const exp = parseInt(expRaw, 10) || 0;
+
+        // No token or expired token → force login
+        if (!token || Date.now() > exp) {
+          // Clean up any stale values (new + old scheme)
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(TOKEN_EXP_KEY);
+          localStorage.removeItem('amaranth_admin_pw_ok');
           window.location.replace('/admin/reporting_login.html');
         }
       } catch (e) {
+        // If localStorage fails, force login
         window.location.replace('/admin/reporting_login.html');
       }
     })();
@@ -86,7 +99,13 @@
   <script>
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', ()=>{
-      localStorage.removeItem('amaranth_admin_pw_ok');
+      try {
+        // Clear new token + expiry
+        localStorage.removeItem('amaranth_report_token');
+        localStorage.removeItem('amaranth_report_token_exp');
+        // Clear old flag just in case
+        localStorage.removeItem('amaranth_admin_pw_ok');
+      } catch (e) {}
       location.href = '/admin/reporting_login.html';
     });
 
