@@ -78,7 +78,6 @@
       .table-wrap{max-height:none}
     }
 
-    /* Simple modal for refunds (unchanged) */
     #refundModal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:50}
     #refundModal[aria-hidden="false"]{display:flex}
     #refundModal .modal-inner{background:#fff;border-radius:16px;box-shadow:0 20px 40px rgba(15,23,42,.25);max-width:420px;width:100%;padding:16px}
@@ -142,7 +141,6 @@
     </div>
 
     <div class="row">
-      <!-- Left: Table -->
       <div class="col">
         <div class="card">
           <div class="flex between mb-8">
@@ -185,17 +183,13 @@
                   <th>Meta</th>
                 </tr>
               </thead>
-              <tbody id="tbody">
-                <!-- rows injected -->
-              </tbody>
+              <tbody id="tbody"></tbody>
             </table>
           </div>
         </div>
       </div>
 
-      <!-- Right: tools / exports -->
       <div class="col">
-        <!-- Import / Export -->
         <div class="card mb-12">
           <div class="section-label">Local Tools</div>
           <h3>Import / Export</h3>
@@ -209,23 +203,15 @@
           <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
         </div>
 
-        <!-- NEW: Automated chair report settings -->
+        <!-- WEEKLY-ONLY AUTOMATION -->
         <div class="card mb-12">
           <div class="section-label">Automation</div>
           <h3>Automated Chair Reports</h3>
           <p class="muted">
-            Control how often the cron job emails XLSX reports to all banquet, add-on, and catalog chairs.
-            The cron runs daily but only sends when a window below applies.
+            Reports are sent <strong>weekly</strong> to banquet, add-on, and catalog chairs on the day you choose below.
           </p>
+
           <div class="controls mt-4">
-            <div class="group">
-              <label class="muted">Report frequency</label>
-              <select id="reportFrequency">
-                <option value="monthly">Monthly (previous month)</option>
-                <option value="semi-monthly">1–15 &amp; 16–End</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </div>
             <div class="group">
               <label class="muted">Weekly send day</label>
               <select id="reportWeekday">
@@ -239,6 +225,7 @@
               </select>
             </div>
           </div>
+
           <div class="controls mt-4">
             <div class="group" style="max-width:180px">
               <button id="btnSaveReportSettings" class="btn sm">Save Settings</button>
@@ -247,14 +234,16 @@
               <span id="reportSettingsStatus" class="muted"></span>
             </div>
           </div>
+
           <p class="muted mt-4" id="reportSettingsHelp"></p>
         </div>
 
-        <!-- By-item download / email -->
+        <!-- Item tools -->
         <div class="card mb-12">
           <div class="section-label">Per-item tools</div>
           <h3>Download / Email by Specific Item</h3>
           <p class="muted">Pick a category and item to download a focused report or email the chair directly.</p>
+
           <div class="controls mt-4">
             <div class="group">
               <label class="muted">Category</label>
@@ -273,7 +262,6 @@
             </div>
           </div>
 
-          <!-- NEW email scope / range controls -->
           <div class="controls mt-4">
             <div class="group">
               <label class="muted">Email scope</label>
@@ -284,6 +272,7 @@
               </select>
             </div>
           </div>
+
           <div class="controls mt-4" id="scopeRangeRow" style="display:none">
             <div class="group">
               <label class="muted">Start date</label>
@@ -306,20 +295,17 @@
           <p class="muted mt-4" id="sendMsg"></p>
         </div>
 
-        <!-- Totals -->
         <div class="card">
           <div class="section-label">Quick totals</div>
           <h3>By Category</h3>
           <p class="muted">Rough totals for the current filter window. For full accounting, use the exports above.</p>
-          <div id="totalsByCategory" class="mt-8 text-sm muted">
-            <!-- injected -->
-          </div>
+          <div id="totalsByCategory" class="mt-8 text-sm muted"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Refund modal (unchanged) -->
+  <!-- Refund Modal -->
   <div id="refundModal" aria-hidden="true">
     <div class="modal-inner">
       <h4>Issue Refund</h4>
@@ -363,58 +349,53 @@
     function saveToLocal(data){
       try{
         localStorage.setItem(LS_KEY, JSON.stringify(data || []));
-      }catch(e){
-        console.warn('Failed to save local rows', e);
-      }
+      }catch(e){}
     }
 
     function buildServerQuery(extra){
       const params = new URLSearchParams();
-      const df = document.getElementById('dateFrom').value;
-      const dt = document.getElementById('dateTo').value;
-      const cat = document.getElementById('category').value;
-      const st  = document.getElementById('status').value;
-      const q   = document.getElementById('search').value.trim();
+      const df = $('#dateFrom').value;
+      const dt = $('#dateTo').value;
+      const cat = $('#category').value;
+      const st  = $('#status').value;
+      const q   = $('#search').value.trim();
       if (df) params.set('from', df);
       if (dt) params.set('to', dt);
       if (cat) params.set('category', cat);
       if (st) params.set('status', st);
       if (q) params.set('search', q);
       if (extra && typeof extra === 'object') {
-        Object.entries(extra).forEach(([k,v])=>{
-          if (v !== undefined && v !== null && v !== '') {
-            params.set(k, v);
-          }
-        });
+        for (const [k,v] of Object.entries(extra)){
+          if (v !== undefined && v !== '') params.set(k, v);
+        }
       }
-      const qs = params.toString();
-      return qs ? ('?' + qs) : '';
+      return params.toString() ? '?' + params.toString() : '';
     }
 
     function render(){
-      const tbody = document.getElementById('tbody');
+      const tbody = $('#tbody');
       tbody.innerHTML = '';
-      const df = document.getElementById('dateFrom').value;
-      const dt = document.getElementById('dateTo').value;
-      const cat = document.getElementById('category').value;
-      const st  = document.getElementById('status').value;
-      const q   = document.getElementById('search').value.trim().toLowerCase();
+      const df = $('#dateFrom').value;
+      const dt = $('#dateTo').value;
+      const cat = $('#category').value;
+      const st  = $('#status').value;
+      const q   = $('#search').value.trim().toLowerCase();
 
       const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
       const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
 
-      let filtered = (rows || []).slice();
+      let filtered = rows.slice();
       filtered = filtered.filter(r=>{
         const t = Date.parse(r.date || r.created || r.created_at || '');
-        if (!isNaN(fromMs) && !isNaN(t) && t < fromMs) return false;
-        if (!isNaN(toMs) && !isNaN(t) && t > toMs) return false;
-        if (cat && String(r.category || '').toLowerCase() !== cat.toLowerCase()) return false;
-        if (st && String(r.status || '').toLowerCase() !== st.toLowerCase()) return false;
-        if (q) {
+        if (!isNaN(fromMs) && t < fromMs) return false;
+        if (!isNaN(toMs) && t > toMs) return false;
+        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
+        if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
+        if (q){
           const hay = [
-            r.name, r.buyer, r.email, r.item, r.item_name,
-            r.address, r.city, r.state, r.zip, r.country,
-            r.phone, r.notes, r.metadata && JSON.stringify(r.metadata)
+            r.name,r.buyer,r.email,r.item,r.item_name,
+            r.address,r.city,r.state,r.zip,r.country,
+            r.phone,r.notes,r.metadata && JSON.stringify(r.metadata)
           ].join(' ').toLowerCase();
           if (!hay.includes(q)) return false;
         }
@@ -422,148 +403,113 @@
       });
 
       filtered.sort((a,b)=>{
-        const ta = Date.parse(a.date || a.created || a.created_at || '') || 0;
-        const tb = Date.parse(b.date || b.created || b.created_at || '') || 0;
+        const ta = Date.parse(a.date || a.created || a.created_at || '')||0;
+        const tb = Date.parse(b.date || b.created || b.created_at || '')||0;
         return ta - tb;
       });
 
-      // How many rows to show (dropdown)
       let maxRows = Infinity;
-      const rowsLimitEl = document.getElementById('rowsLimit');
-      if (rowsLimitEl) {
-        const v = rowsLimitEl.value;
-        if (v && v !== 'all') {
-          const n = parseInt(v, 10);
-          if (Number.isFinite(n) && n > 0) maxRows = n;
+      const limitEl = $('#rowsLimit');
+      if (limitEl){
+        if (limitEl.value !== 'all'){
+          const n = parseInt(limitEl.value,10);
+          if (n > 0) maxRows = n;
         }
       }
 
-      let idx = 0;              // true index across all filtered
-      let shown = 0;            // how many we actually render
+      let idx = 0, shown = 0;
       let total = 0;
-      let paid = 0, pending = 0, refunded = 0;
+      let paid=0,pending=0,refunded=0;
       const byCat = {};
 
-      for (const r of filtered) {
+      for (const r of filtered){
         idx++;
-
-        const dateStr = (()=>{
-          const t = Date.parse(r.date || r.created || r.created_at || '');
-          if (isNaN(t)) return '—';
-          return new Date(t).toLocaleString();
-        })();
-
-        const buyer = r.name || r.buyer || r.customer_name || '—';
-        const item  = r.item || r.item_name || r.description || '—';
-        const catVal = r.category || r.type || '—';
-        const status = (r.status || '').toLowerCase() || 'unknown';
+        const status = (r.status||'').toLowerCase();
         const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
         else if (status === 'refunded') refunded++;
 
-        total += isFinite(amount) ? amount : 0;
+        total += isFinite(amount)?amount:0;
 
-        const keyCat = String(catVal || 'other').toLowerCase();
-        byCat[keyCat] = byCat[keyCat] || { total:0, count:0 };
-        byCat[keyCat].total += isFinite(amount) ? amount : 0;
-        byCat[keyCat].count += 1;
+        const catKey = String(r.category||r.type||'other').toLowerCase();
+        byCat[catKey] = byCat[catKey] || {total:0,count:0};
+        byCat[catKey].total += isFinite(amount)?amount:0;
+        byCat[catKey].count++;
 
-        // limit rendered rows
         if (shown >= maxRows) continue;
         shown++;
 
-        const tds = [];
-        for (let i=0;i<8;i++) tds.push(document.createElement('td'));
-
-        tds[0].textContent = idx;
-        tds[0].className = 'text-xs muted';
-
-        tds[1].textContent = dateStr;
-        tds[1].className = 'text-xs';
-
-        tds[2].innerHTML = `
-          <div class="text-xs">${buyer}</div>
-          <div class="text-xs muted">${r.email || ''}</div>
-        `;
-
-        tds[3].innerHTML = `
-          <div class="text-xs">${item}</div>
-          <div class="text-xs muted">${r.notes || r.memo || ''}</div>
-        `;
-
-        tds[4].innerHTML = `<span class="badge-sm tag-muted">${catVal}</span>`;
-
-        const statusClass =
-          status === 'paid' ? 'paid' :
-          status === 'refunded' ? 'refunded' :
-          status === 'pending' ? 'pending' : '';
-        tds[5].innerHTML = `
-          <span class="status-icon ${statusClass}">
-            <span class="dot"></span>
-            <span>${status || 'unknown'}</span>
-          </span>
-        `;
-
-        tds[6].className = 'text-right text-xs';
-        tds[6].textContent = isFinite(amount) ? '$' + amount.toFixed(2) : '—';
-
-        const metaBits = [];
-        if (r.phone) metaBits.push(`📞 ${r.phone}`);
-        if (r.city || r.state) metaBits.push(`📍 ${[r.city,r.state].filter(Boolean).join(', ')}`);
-        if (r.order_id || r.id) metaBits.push(`ID: ${r.order_id || r.id}`);
-        tds[7].innerHTML = metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join('');
-
         const tr = document.createElement('tr');
-        tr.append(...tds);
 
-        tr.addEventListener('click', ()=> {
-          const payment_intent = r.payment_intent || r.pi || null;
-          const charge = r.charge || r.charge_id || null;
-          if (!payment_intent && !charge) {
-            alert('No Stripe payment info on this row.');
-            return;
-          }
-          openRefundModal({
-            payment_intent,
-            charge,
-            total: amount || 0,
-          });
+        function td(text,cls){
+          const el=document.createElement('td');
+          if(cls)el.className=cls;
+          el.innerHTML=text;
+          return el;
+        }
+
+        const t = Date.parse(r.date||r.created||r.created_at||'');
+        const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
+
+        const buyer = r.name||r.buyer||r.customer_name||'—';
+        const item  = r.item||r.item_name||r.description||'—';
+
+        const metaBits=[];
+        if(r.phone)metaBits.push(`📞 ${r.phone}`);
+        if(r.city||r.state)metaBits.push(`📍 ${[r.city,r.state].filter(Boolean).join(', ')}`);
+        if(r.order_id||r.id)metaBits.push(`ID: ${r.order_id||r.id}`);
+
+        const cells = [
+          td(idx,'text-xs muted'),
+          td(dateStr,'text-xs'),
+          td(`<div class="text-xs">${buyer}</div><div class="text-xs muted">${r.email||''}</div>`),
+          td(`<div class="text-xs">${item}</div><div class="text-xs muted">${r.notes||r.memo||''}</div>`),
+          td(`<span class="badge-sm tag-muted">${r.category||r.type||'—'}</span>`),
+          td(`<span class="status-icon ${status}">
+                <span class="dot"></span>
+                <span>${status||'unknown'}</span>
+              </span>`),
+          td(isFinite(amount)?'$'+amount.toFixed(2):'—','text-right text-xs'),
+          td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
+        ];
+        cells.forEach(c=>tr.appendChild(c));
+
+        tr.addEventListener('click',()=>{
+          const pi=r.payment_intent||r.pi;
+          const ch=r.charge||r.charge_id;
+          if(!pi&&!ch){alert('No Stripe payment info.');return;}
+          openRefundModal({payment_intent:pi,charge:ch,total:amount});
         });
 
         tbody.appendChild(tr);
       }
 
-      // Show "shown / total" when truncated
-      const totalCountEl = document.getElementById('totalCount');
-      if (filtered.length === 0) {
-        totalCountEl.textContent = '0';
-      } else if (shown >= filtered.length || !Number.isFinite(maxRows)) {
-        totalCountEl.textContent = String(filtered.length);
-      } else {
-        totalCountEl.textContent = `${shown} / ${filtered.length}`;
-      }
+      if(filtered.length===0) $('#totalCount').textContent='0';
+      else if(shown>=filtered.length || !Number.isFinite(maxRows))
+        $('#totalCount').textContent=String(filtered.length);
+      else
+        $('#totalCount').textContent=`${shown} / ${filtered.length}`;
 
-      document.getElementById('totalAmount').textContent = '$' + total.toFixed(2);
-      document.getElementById('paidCount').textContent = paid;
-      document.getElementById('pendingCount').textContent = pending;
-      document.getElementById('refundedCount').textContent = refunded;
+      $('#totalAmount').textContent='$'+total.toFixed(2);
+      $('#paidCount').textContent = paid;
+      $('#pendingCount').textContent = pending;
+      $('#refundedCount').textContent = refunded;
 
-      const totalsDiv = document.getElementById('totalsByCategory');
-      totalsDiv.innerHTML = '';
+      const totalsDiv = $('#totalsByCategory');
+      totalsDiv.innerHTML='';
       const cats = Object.entries(byCat);
-      if (!cats.length) {
-        totalsDiv.textContent = 'No rows in current filter window.';
+      if(!cats.length){
+        totalsDiv.textContent='No rows in current filter window.';
       } else {
         cats.forEach(([catKey,info])=>{
-          const line = document.createElement('div');
-          line.className = 'mb-4';
-          line.innerHTML = `
-            <span class="pill tag-muted">${catKey}</span>
-            <span class="text-xs muted">Count: ${info.count || 0}</span>
-            <span class="text-xs muted"> • Total: $${(info.total||0).toFixed(2)}</span>
-          `;
+          const line=document.createElement('div');
+          line.className='mb-4';
+          line.innerHTML=
+            `<span class="pill tag-muted">${catKey}</span>
+             <span class="text-xs muted">Count: ${info.count}</span>
+             <span class="text-xs muted"> • Total: $${info.total.toFixed(2)}</span>`;
           totalsDiv.appendChild(line);
         });
       }
@@ -572,336 +518,273 @@
     async function loadFromServer(){
       try{
         const qs = buildServerQuery();
-        const resp = await fetch('/api/router?type=orders' + qs, { cache:'no-store' });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data?.error || 'Failed to fetch');
-        const incoming = Array.isArray(data?.rows) ? data.rows : [];
-        rows = incoming;
+        const r = await fetch('/api/router?type=orders'+qs,{cache:'no-store'});
+        const j = await r.json();
+        if(!r.ok) throw new Error(j?.error||'Fetch failed');
+        rows = Array.isArray(j.rows)?j.rows:[];
         saveToLocal(rows);
         render();
       }catch(e){
-        console.error('Failed to load from server:', e);
         rows = loadFromLocal();
         render();
       }
     }
 
-    /** Import / Export **/
-    document.getElementById('fileImport').addEventListener('change', async (e)=>{
-      const file = e.target.files[0]; if(!file) return;
-      const text = await file.text();
-      let data = [];
+    document.getElementById('fileImport').addEventListener('change', async e=>{
+      const file=e.target.files[0]; if(!file)return;
+      const text=await file.text();
+      let data=[];
       try{
-        if(file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')) data = JSON.parse(text);
-        else data = csvToObjects(text);
-      }catch(err){ alert('Failed to parse file: '+err.message); return; }
-      const normalized = ingest(data);
-      if(!normalized.length){ alert('No recognizable rows found.'); return; }
-      rows = normalized;
+        if(file.name.endsWith('.json') || text.trim().startsWith('['))
+          data=JSON.parse(text);
+      }catch(err){alert('Failed to parse');return;}
+      rows = Array.isArray(data)?data:[];
       saveToLocal(rows);
       render();
-      e.target.value = '';
+      e.target.value='';
     });
 
-    // Export (top) — only date/search filters apply
     document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-      const qs = buildServerQuery();
+      const qs=buildServerQuery();
       await downloadServerCsv(qs);
     });
 
-    // Full Attendee List (title + phone + address)
     document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
-      const qs = buildServerQuery(); // honors From/To and Search
-      await downloadCsvFrom('/api/router?type=full_attendees_csv' + qs, 'amaranth-full-attendees');
+      const qs=buildServerQuery();
+      await downloadCsvFrom('/api/router?type=full_attendees_csv'+qs,'amaranth-full-attendees');
     });
 
-    async function downloadServerCsv(qsOrParams){
-      let qs = typeof qsOrParams === 'string' ? qsOrParams : buildServerQuery(qsOrParams || {});
-      const url = '/api/router?type=orders_csv' + qs;
-      return downloadCsvFrom(url, 'amaranth-report');
+    async function downloadServerCsv(qs){
+      return downloadCsvFrom('/api/router?type=orders_csv'+qs,'amaranth-report');
     }
 
-    // Generic downloader (now saves as .xlsx to match router.js)
-    async function downloadCsvFrom(url, namePrefix){
+    async function downloadCsvFrom(url,namePrefix){
       try{
-        const r = await fetch(url, { cache: 'no-store' });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-
-        const blob = await r.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        // Use .xlsx extension so Excel is happy
-        a.download = `${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        const r=await fetch(url,{cache:'no-store'});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const blob=await r.blob();
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a); a.click(); a.remove();
         return true;
       }catch(e){
-        console.error('Download failed:', e);
+        alert('Download failed');
       }
-      alert('Download failed.');
-      return false;
     }
 
-    document.getElementById('btnPrint').addEventListener('click', ()=> window.print());
+    document.getElementById('btnPrint').addEventListener('click',()=>window.print());
 
-    // Safer clear: require typing CLEAR
-    document.getElementById('btnClear').addEventListener('click', ()=>{
-      const conf = prompt('Type CLEAR to remove only local, cached rows (server data is safe).');
-      if(conf === 'CLEAR'){
+    document.getElementById('btnClear').addEventListener('click',()=>{
+      if(prompt('Type CLEAR to remove only local rows')==='CLEAR'){
         localStorage.removeItem(LS_KEY);
-        rows = [];
+        rows=[];
         render();
       }
     });
 
-    document.getElementById('btnSample').addEventListener('click', ()=>{ rows = sampleRows(); saveToLocal(rows); render(); });
-    ['dateFrom','dateTo','category','status','search'].forEach(id=> document.getElementById(id).addEventListener('input', render));
+    document.getElementById('btnSample').addEventListener('click',()=>{
+      rows=[]; // keeping sample off
+      render();
+    });
 
-    // React to rows-limit changes
-    const rowsLimitEl = document.getElementById('rowsLimit');
-    if (rowsLimitEl) {
-      rowsLimitEl.addEventListener('change', render);
-    }
+    ['dateFrom','dateTo','category','status','search','rowsLimit']
+      .forEach(id=>document.getElementById(id)?.addEventListener('input',render));
 
-    /** Populate Category -> Item dropdowns **/
-    const caches = { banquet: null, addon: null, other: null };
+    const caches={banquet:null,addon:null,other:null};
 
-    function normalizeList(kind, rawList) {
-      return (rawList || []).map(x => ({
-        id: (x.id || x.itemId || x.slug || x.code || x.name || "").toString(),
-        name: (x.name || x.title || x.label || x.slug || x.id || "(unnamed)").toString(),
-        chairEmails: Array.isArray(x.chairEmails) ? x.chairEmails
-                     : Array.isArray(x.chairs) ? x.chairs
-                     : (x.chairEmails || x.chairs || "").toString().split(",").map(s=>s.trim()).filter(Boolean)
-      })).filter(it => it.id || it.name);
+    function normalizeList(kind,list){
+      return (list||[]).map(x=>({
+        id:String(x.id||x.itemId||x.slug||x.code||x.name||''),
+        name:String(x.name||x.title||x.label||x.slug||x.id||'(unnamed)'),
+        chairEmails:Array.isArray(x.chairEmails)?x.chairEmails
+          :String(x.chairEmails||x.chairs||'').split(',').map(s=>s.trim()).filter(Boolean)
+      }));
     }
 
     async function fetchList(kind){
-      if (caches[kind]) return caches[kind];
-      const typeMap = { banquet: 'banquets', addon: 'addons', other: 'products' };
-      const t = typeMap[kind];
-      let list = [];
-      try {
-        const r = await fetch(`/api/router?type=${t}`, { cache: 'no-store' });
-        if (r.ok) {
-          const j = await r.json();
-          list = normalizeList(kind, j[t]);
+      if(caches[kind]) return caches[kind];
+      const typeMap={banquet:'banquets',addon:'addons',other:'products'};
+      const listType=typeMap[kind];
+      let list=[];
+      try{
+        const r=await fetch(`/api/router?type=${listType}`,{cache:'no-store'});
+        if(r.ok){
+          const j=await r.json();
+          list=normalizeList(kind,j[listType]);
         }
-      } catch {}
-      // Fall back to static global lists if API isn’t populated
-      if (!list.length) {
-        if (kind === 'banquet' && Array.isArray(window.BANQUETS)) list = normalizeList(kind, window.BANQUETS);
-        if (kind === 'addon'   && Array.isArray(window.ADDONS))   list = normalizeList(kind, window.ADDONS);
-        if (kind === 'other'   && Array.isArray(window.PRODUCTS)) list = normalizeList(kind, window.PRODUCTS);
-      }
-      // Dedupe by id/name (case-insensitive)
-      const seen = new Set(); const deduped = [];
-      for (const it of list) {
-        const key = (it.id || it.name).toLowerCase();
-        if (!seen.has(key)) { seen.add(key); deduped.push(it); }
-      }
-      caches[kind] = deduped;
-      return deduped;
+      }catch{}
+      caches[kind]=list;
+      return list;
     }
 
-    document.getElementById('actCategory').addEventListener('change', async ()=>{
-      const kind = document.getElementById('actCategory').value;
-      const list = await fetchList(kind);
-      const sel = document.getElementById('actChoice');
-      sel.innerHTML = '<option value="" selected disabled>Choose…</option>';
+    document.getElementById('actCategory').addEventListener('change',async()=>{
+      const kind=$('#actCategory').value;
+      const list=await fetchList(kind);
+      const sel=$('#actChoice');
+      sel.innerHTML='<option value="" disabled selected>Choose…</option>';
       list.forEach(it=>{
-        const opt = document.createElement('option');
-        opt.value = it.id || it.name;
-        opt.dataset.label = it.name;
-        opt.textContent = it.name + (it.chairEmails?.length ? ' — ' + it.chairEmails.join(', ') : '');
+        const opt=document.createElement('option');
+        opt.value=it.id;
+        opt.dataset.label=it.name;
+        opt.textContent=it.name+(it.chairEmails.length?' — '+it.chairEmails.join(', '):'');
         sel.appendChild(opt);
       });
     });
 
-    // --- NEW: toggle custom date range UI for chair emails ---
-    const scopeModeEl = document.getElementById('scopeMode');
-    const scopeRangeRow = document.getElementById('scopeRangeRow');
-    if (scopeModeEl && scopeRangeRow) {
-      scopeModeEl.addEventListener('change', () => {
-        scopeRangeRow.style.display = scopeModeEl.value === 'custom' ? 'flex' : 'none';
-      });
-    }
-
-    /** Item Download / Email **/
-    document.getElementById('btnActDownload').addEventListener('click', async ()=>{
-      const kind  = document.getElementById('actCategory').value;
-      const opt   = document.getElementById('actChoice').selectedOptions[0];
-      if (!kind) return alert('Choose a category.');
-      if (!opt)  return alert('Choose an item.');
-      const id    = opt.value;
-      const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
-      const params = { category: kind, item_id: id, item: label };
-      await downloadServerCsv(params);
+    $('#scopeMode').addEventListener('change',()=>{
+      $('#scopeRangeRow').style.display =
+        $('#scopeMode').value==='custom' ? 'flex' : 'none';
     });
 
-    document.getElementById('btnActEmail').addEventListener('click', async ()=>{
-      const kind  = document.getElementById('actCategory').value;
-      const opt   = document.getElementById('actChoice').selectedOptions[0];
-      const scopeMode = document.getElementById('scopeMode').value || 'full';
-      if (!kind) return alert('Choose a category.');
-      if (!opt)  return alert('Choose an item.');
-      const id    = opt.value;
-      const label = opt.dataset.label || opt.textContent.split(' — ')[0] || id;
+    document.getElementById('btnActDownload').addEventListener('click',async()=>{
+      const kind=$('#actCategory').value;
+      const opt=$('#actChoice').selectedOptions[0];
+      if(!kind)return alert('Choose category');
+      if(!opt)return alert('Choose item');
+      const id=opt.value;
+      const label=opt.dataset.label;
+      await downloadServerCsv({category:kind,item_id:id,item:label});
+    });
 
-      const payload = { kind, id, label, scope: scopeMode };
+    document.getElementById('btnActEmail').addEventListener('click',async()=>{
+      const kind=$('#actCategory').value;
+      const opt=$('#actChoice').selectedOptions[0];
+      if(!kind)return alert('Choose category');
+      if(!opt)return alert('Choose item');
+      const id=opt.value;
+      const label=opt.dataset.label;
+      const scopeMode=$('#scopeMode').value;
 
-      if (scopeMode === 'custom') {
-        const start = document.getElementById('scopeStart').value;
-        const end   = document.getElementById('scopeEnd').value;
-        if (!start || !end) {
-          alert('Choose both a start date and an end date for the custom range.');
-          return;
-        }
-        payload.startYMD = start;
-        payload.endYMD   = end;
+      const payload={kind,id,label,scope:scopeMode};
+      if(scopeMode==='custom'){
+        const s=$('#scopeStart').value;
+        const e=$('#scopeEnd').value;
+        if(!s||!e)return alert('Both dates required');
+        payload.startYMD=s; payload.endYMD=e;
       }
 
-      document.getElementById('sendMsg').textContent = 'Sending…';
+      $('#sendMsg').textContent='Sending…';
       try{
-        const r = await fetch('/api/router?action=send_item_report', {
+        const r=await fetch('/api/router?action=send_item_report',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
+          body:JSON.stringify(payload)
         });
-        const j = await r.json();
-        if(!r.ok) throw new Error(j?.error || j?.message || 'Send failed');
-        document.getElementById('sendMsg').textContent = `Email queued. (${j.count || 0} rows)`;
+        const j=await r.json();
+        if(!r.ok) throw new Error(j?.error||j?.message||'Failed');
+        $('#sendMsg').textContent=`Email queued. (${j.count||0} rows)`;
       }catch(e){
-        document.getElementById('sendMsg').textContent = 'Send failed: ' + e.message;
+        $('#sendMsg').textContent='Send failed: '+e.message;
       }
-    });
-
-    /** CSV helpers (safe stubs if csv.js isn’t present) **/
-    function csvToObjects(csv){ return []; }
-    function splitCSVLine(line){ return []; }
-    function cryptoRandom(){ return Math.random().toString(36).slice(2) }
-    function sampleRows(){ return []; }
-    function ingest(d){ return Array.isArray(d)? d: [] }
-
-    /** Refund modal **/
-    const modal = document.getElementById('refundModal');
-    const rfType = document.getElementById('rfType');
-    const rfAmtWrap = document.getElementById('rfAmtWrap');
-    const rfAmount = document.getElementById('rfAmount');
-    const rfInfo = document.getElementById('rfInfo');
-    let currentRefundCtx = null;
-
-    rfType.addEventListener('change', ()=>{ rfAmtWrap.style.display = rfType.value === 'partial' ? 'block' : 'none'; });
-
-    document.getElementById('rfCancel').addEventListener('click', ()=> closeRefundModal());
-    document.getElementById('rfSubmit').addEventListener('click', async ()=>{
-      if (!currentRefundCtx) return;
-      const token = localStorage.getItem('amaranth_report_token') || '';
-      const headers = { 'Content-Type':'application/json' };
-      if (token) headers.Authorization = 'Bearer ' + token;
-
-      let amount_cents;
-      if (rfType.value === 'partial') {
-        const v = Number(rfAmount.value || 0);
-        if (!isFinite(v) || v <= 0) { alert('Enter a positive amount'); return; }
-        amount_cents = Math.round(v * 100);
-      }
-
-      const payload = {
-        payment_intent: currentRefundCtx.payment_intent || undefined,
-        charge: currentRefundCtx.charge || undefined,
-        ...(amount_cents ? { amount_cents } : {})
-      };
-
-      try{
-        const r = await fetch('/api/router?action=create_refund', { method: 'POST', headers, body: JSON.stringify(payload) });
-        const j = await r.json();
-        if(!r.ok) throw new Error(j?.error || 'Refund failed');
-        alert('Refund created.'); closeRefundModal(); loadFromServer();
-      }catch(e){ alert('Refund failed: ' + e.message); }
     });
 
     function openRefundModal(ctx){
-      currentRefundCtx = ctx;
-      rfType.value = 'full'; rfAmount.value = ''; rfAmtWrap.style.display = 'none';
-      rfInfo.textContent = `PI: ${ctx.payment_intent || '—'}  Charge: ${ctx.charge || '—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
-      modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false');
-    }
-    function closeRefundModal(){ modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); currentRefundCtx = null; }
-
-    /** NEW: Auto-report settings helpers **/
-    function getAuthHeaders() {
-      const token = localStorage.getItem('amaranth_report_token') || '';
-      const headers = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = 'Bearer ' + token;
-      return headers;
+      currentRefundCtx=ctx;
+      $('#rfType').value='full';
+      $('#rfAmount').value='';
+      $('#rfAmtWrap').style.display='none';
+      $('#rfInfo').textContent=`PI: ${ctx.payment_intent||'—'}  Charge: ${ctx.charge||'—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+      $('#refundModal').style.display='flex';
+      $('#refundModal').setAttribute('aria-hidden','false');
     }
 
-    async function loadReportSettings() {
-      const statusEl = document.getElementById('reportSettingsStatus');
-      const helpEl = document.getElementById('reportSettingsHelp');
-      try {
-        const r = await fetch('/api/router?action=get_settings', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({})
-        });
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || 'Failed');
-        const effective = j.effective || {};
-        const freq = String(effective.REPORT_FREQUENCY || 'monthly').toLowerCase();
-        const weekday = String(effective.REPORT_WEEKDAY || '1');
+    function closeRefundModal(){
+      $('#refundModal').style.display='none';
+      $('#refundModal').setAttribute('aria-hidden','true');
+      currentRefundCtx=null;
+    }
 
-        document.getElementById('reportFrequency').value =
-          (freq === 'bi-weekly' || freq === 'biweekly') ? 'semi-monthly' : freq;
-        document.getElementById('reportWeekday').value = weekday;
+    $('#rfType').addEventListener('change',()=>{
+      $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
+    });
+    $('#rfCancel').addEventListener('click',closeRefundModal);
+    $('#rfSubmit').addEventListener('click',async()=>{
+      if(!currentRefundCtx)return;
+      const headers={'Content-Type':'application/json'};
+      const token=localStorage.getItem('amaranth_report_token');
+      if(token)headers.Authorization='Bearer '+token;
 
-        statusEl.textContent = '';
-        helpEl.textContent =
-          `Currently set to ${document.getElementById('reportFrequency').selectedOptions[0].textContent}. ` +
-          `Weekly sends use ${document.getElementById('reportWeekday').selectedOptions[0].textContent}.`;
-      } catch (e) {
-        console.warn('Failed to load report settings:', e);
-        statusEl.textContent = 'Could not load settings (using defaults).';
-        helpEl.textContent = '';
+      let amount_cents;
+      if($('#rfType').value==='partial'){
+        const v=Number($('#rfAmount').value||0);
+        if(!isFinite(v)||v<=0)return alert('Enter amount');
+        amount_cents=Math.round(v*100);
       }
-    }
+      const payload={
+        payment_intent:currentRefundCtx.payment_intent,
+        charge:currentRefundCtx.charge,
+        ...(amount_cents?{amount_cents}:{})
+      };
 
-    document.getElementById('btnSaveReportSettings').addEventListener('click', async ()=>{
-      const freq = document.getElementById('reportFrequency').value;
-      const weekday = document.getElementById('reportWeekday').value;
-      const statusEl = document.getElementById('reportSettingsStatus');
-      statusEl.textContent = 'Saving…';
-      try {
-        const r = await fetch('/api/router?action=save_settings', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            REPORT_FREQUENCY: freq,
-            REPORT_WEEKDAY: weekday
-          })
+      try{
+        const r=await fetch('/api/router?action=create_refund',{
+          method:'POST',headers,body:JSON.stringify(payload)
         });
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || 'Save failed');
-        statusEl.textContent = 'Saved.';
-        const helpEl = document.getElementById('reportSettingsHelp');
-        helpEl.textContent =
-          `Currently set to ${document.getElementById('reportFrequency').selectedOptions[0].textContent}. ` +
-          `Weekly sends use ${document.getElementById('reportWeekday').selectedOptions[0].textContent}.`;
-      } catch (e) {
-        console.error('Save settings failed:', e);
-        statusEl.textContent = 'Save failed: ' + e.message;
+        const j=await r.json();
+        if(!r.ok) throw new Error(j?.error||'Failed');
+        alert('Refund created');
+        closeRefundModal();
+        loadFromServer();
+      }catch(e){
+        alert('Refund failed: '+e.message);
       }
     });
 
-    // init
+    function getAuthHeaders(){
+      const token=localStorage.getItem('amaranth_report_token')||'';
+      const headers={'Content-Type':'application/json'};
+      if(token) headers.Authorization='Bearer '+token;
+      return headers;
+    }
+
+    async function loadReportSettings(){
+      const statusEl=$('#reportSettingsStatus');
+      const helpEl=$('#reportSettingsHelp');
+      try{
+        const r=await fetch('/api/router?action=get_settings',{
+          method:'POST',headers:getAuthHeaders(),body:JSON.stringify({})
+        });
+        const j=await r.json();
+        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+
+        const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
+        $('#reportWeekday').value=weekday;
+        statusEl.textContent='';
+        helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+      }catch{
+        statusEl.textContent='Could not load settings.';
+        helpEl.textContent='';
+      }
+    }
+
+    $('#btnSaveReportSettings').addEventListener('click',async()=>{
+      const weekday=$('#reportWeekday').value;
+      const statusEl=$('#reportSettingsStatus');
+      statusEl.textContent='Saving…';
+      try{
+        const r=await fetch('/api/router?action=save_settings',{
+          method:'POST',
+          headers:getAuthHeaders(),
+          body:JSON.stringify({
+            REPORT_FREQUENCY:'weekly',
+            REPORT_WEEKDAY:weekday
+          })
+        });
+        const j=await r.json();
+        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+        statusEl.textContent='Saved.';
+        $('#reportSettingsHelp').textContent=
+          `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+      }catch(e){
+        statusEl.textContent='Save failed: '+e.message;
+      }
+    });
+
     (function init(){
-      rows = loadFromLocal();
+      rows=loadFromLocal();
       render();
-      // Try to refresh from server
       loadFromServer();
-      // Load auto-report settings (if token is present)
       loadReportSettings();
     })();
   </script>
