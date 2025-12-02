@@ -73,9 +73,12 @@
     .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
     .heading-row h2{margin:0;font-size:20px;color:#111827}
     .heading-row .muted{font-size:12px;max-width:420px}
+    .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
     @media (max-width:768px){
       .row{flex-direction:column}
       .table-wrap{max-height:none}
+      .heading-row{flex-direction:column;align-items:flex-start}
+      .heading-actions{justify-content:flex-start}
     }
 
     #refundModal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:50}
@@ -93,7 +96,12 @@
         <h2>Reporting Dashboard</h2>
         <p class="muted">Download, email, and inspect registration data. Filters at the top affect most exports.</p>
       </div>
-      <button id="btnPrint" class="btn secondary sm">Print</button>
+      <div class="heading-actions">
+        <!-- Match the two link-style buttons from admin/banquets.html -->
+        <a href="index.html" class="btn secondary sm">← Admin Hub</a>
+        <a href="banquets.html" class="btn secondary sm">Banquet Manager</a>
+        <button id="btnPrint" class="btn secondary sm">Print</button>
+      </div>
     </div>
 
     <!-- Top filters + tools -->
@@ -368,6 +376,10 @@
         for (const [k,v] of Object.entries(extra)){
           if (v !== undefined && v !== '') params.set(k, v);
         }
+      }
+      if (typeof extra === 'string' && extra) {
+        // allow passing pre-built query strings from per-item tools
+        return extra.startsWith('?') ? extra : ('?' + extra);
       }
       return params.toString() ? '?' + params.toString() : '';
     }
@@ -644,7 +656,12 @@
       if(!opt)return alert('Choose item');
       const id=opt.value;
       const label=opt.dataset.label;
-      await downloadServerCsv({category:kind,item_id:id,item:label});
+      const extra = new URLSearchParams({
+        category:kind,
+        item_id:id,
+        item:label
+      }).toString();
+      await downloadServerCsv(extra);
     });
 
     document.getElementById('btnActEmail').addEventListener('click',async()=>{
@@ -678,6 +695,8 @@
         $('#sendMsg').textContent='Send failed: '+e.message;
       }
     });
+
+    let currentRefundCtx=null;
 
     function openRefundModal(ctx){
       currentRefundCtx=ctx;
