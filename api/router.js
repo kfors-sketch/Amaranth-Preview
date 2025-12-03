@@ -61,8 +61,6 @@ import {
   verifyAdminToken,
 } from "./admin/security.js";
 
-import { getYearSummary } from "./admin/yearly-reports.js";
-
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -452,23 +450,6 @@ export default async function handler(req, res) {
           `attachment; filename="orders.xlsx"`
         );
         return res.status(200).send(buf);
-      }
-
-      // --- NEW: Yearly buyer / purchase stats ---
-      // GET /api/router?type=yearly_stats&year=2026
-      if (type === "yearly_stats") {
-        let year = Number(url.searchParams.get("year") || "");
-        const currentYear = new Date().getFullYear();
-
-        if (!Number.isFinite(year) || year <= 0) {
-          year = currentYear;
-        }
-        if (year < 2026) {
-          year = 2026;
-        }
-
-        const summary = await getYearSummary(year);
-        return REQ_OK(res, summary);
       }
 
       if (type === "attendee_roster_csv") {
@@ -985,7 +966,7 @@ export default async function handler(req, res) {
               </tbody>
             </table>
             <p style="margin-top:10px;font-size:12px;color:#555;">
-              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
+              Technical details: IP=${esc(ip)} Â· User-Agent=${esc(ua)}
             </p>
           </div>
         `;
@@ -1019,7 +1000,7 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "resend-not-configured");
         }
 
-        const subject = `Website contact — ${topicLabel}`;
+        const subject = `Website contact â€” ${topicLabel}`;
 
         const payload = {
           from: RESEND_FROM || "onboarding@resend.dev",
@@ -1613,7 +1594,7 @@ export default async function handler(req, res) {
               </div>
             `;
 
-            const subject = `Scheduled chair report log — ${dateStr}`;
+            const subject = `Scheduled chair report log â€” ${dateStr}`;
 
             const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
@@ -1927,7 +1908,7 @@ export default async function handler(req, res) {
           );
         }
 
-        // Clamp weekday to 1–7 and store as string
+        // Clamp weekday to 1â€“7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
