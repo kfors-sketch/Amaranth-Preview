@@ -7,6 +7,7 @@
 // - Failed-attempt tracking + simple rate limiting
 // - IP lockouts
 // - Optional security alert emails via Resend
+// - TEMP unlock helper (clearAdminLockout) so you can recover if locked out
 
 import crypto from "crypto";
 import {
@@ -24,7 +25,7 @@ const ADMIN_TOKEN_TTL_SEC = 12 * 60 * 60; // 12 hours
 
 // Rate limiting window and thresholds
 const ADMIN_LOGIN_WINDOW_SEC = 10 * 60; // 10 minutes
-const ADMIN_MAX_FAILS_PER_WINDOW = 5;   // lock IP after this many failures in window
+const ADMIN_MAX_FAILS_PER_WINDOW = 5; // lock IP after this many failures in window
 
 // Lockout duration after too many failures
 const ADMIN_LOCKOUT_SEC = 30 * 60; // 30 minutes
@@ -72,6 +73,8 @@ function tokenKey(token) {
 }
 
 const ALERT_KEY = "admin:login:fail:recent";
+// TEMP override key: when present, skip IP lock checks for a short time
+const OVERRIDE_KEY = "admin:login:override";
 
 // --- Core helpers ---
 
@@ -90,6 +93,14 @@ export async function isIPLocked(ip) {
 export async function lockIP(ip) {
   const key = lockKey(ip);
   await kv.set(key, "1", { ex: ADMIN_LOCKOUT_SEC });
+}
+
+/**
+ * Check if a temporary override is active that bypasses IP lock checks.
+ */
+async function isOverrideActive() {
+  const v = await kv.get(OVERRIDE_KEY);
+  return !!v;
 }
 
 /**
@@ -213,8 +224,12 @@ export async function handleAdminLogin({ password, ip, userAgent }) {
     return { ok: false, error: "server_not_configured" };
   }
 
-  // If this IP is locked, deny immediately
-  if (await isIPLocked(safeIP)) {
+  // Check if a temporary override is active (e.g., via clearAdminLockout).
+  // If override is active, we skip IP lock checks so you can log back in.
+  const overrideActive = await isOverrideActive();
+
+  // If this IP is locked and no override is active, deny immediately
+  if (!overrideActive && (await isIPLocked(safeIP))) {
     return {
       ok: false,
       error: "locked_out",
@@ -226,7 +241,7 @@ export async function handleAdminLogin({ password, ip, userAgent }) {
   // Compare password (case-sensitive)
   if (!password || password !== pwEnv) {
     const { locked } = await recordFailedAttempt(safeIP, userAgent);
-    if (locked) {
+    if (locked && !overrideActive) {
       return {
         ok: false,
         error: "locked_out",
@@ -284,5 +299,48 @@ export async function sendSecurityAlert(info) {
   } catch (err) {
     // We never want alert failures to break login logic
     console.error("Failed to send security alert:", err);
+  }
+}
+
+/**
+ * TEMPORARY UNLOCK HELPER
+ *
+ * This is meant to be called from /api/router via a POST action like:
+ *   action=admin_clear_lockout
+ *
+ * It:
+ *  - clears the failure counter and lock key for the provided IP (if any)
+ *  - clears the global alert rolling counter
+ *  - sets a short-lived override flag so login is allowed even if a stale lock exists
+ */
+export async function clearAdminLockout(rawIp) {
+  try {
+    const safeIP = normalizeIP(rawIp || "");
+    const keysToDelete = [ALERT_KEY];
+
+    if (safeIP && safeIP !== "unknown") {
+      keysToDelete.push(failKey(safeIP), lockKey(safeIP));
+    }
+
+    // Best-effort delete; kv.del can take multiple keys
+    try {
+      await kv.del(...keysToDelete);
+    } catch {
+      // ignore individual delete errors; override below will still let you in
+    }
+
+    // Set a temporary override so handleAdminLogin skips IP lock checks
+    await kv.set(OVERRIDE_KEY, "1", { ex: ADMIN_LOCKOUT_SEC });
+
+    return {
+      ok: true,
+      overrideActive: true,
+      clearedIP: safeIP,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e?.message || String(e),
+    };
   }
 }
