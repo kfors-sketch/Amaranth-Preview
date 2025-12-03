@@ -192,9 +192,20 @@
   <script src="/assets/js/admin.js"></script>
 
   <script>
-  // --- Auth & small helpers ---
-  Admin.ensureAuth();
-  Admin.attachLogout('#logoutBtn');
+  // --- Logout only (auth is now token-based like reporting_main.html) ---
+  (function () {
+    const btn = document.getElementById('logoutBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      try {
+        // New token-based auth
+        localStorage.removeItem('amaranth_report_token');
+        // Legacy flag, just in case something still checks it
+        localStorage.removeItem('amaranth_admin_ok');
+      } catch (e) {}
+      window.location.href = '/admin/login.html';
+    });
+  })();
 
   const $  = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
@@ -300,15 +311,26 @@
       reportFrequency: normalizeFreq(a.reportFrequency || a.report_frequency || "monthly")
     })).filter(x => x.id && x.name);
 
+    if (!payloads.length) return { attempted: 0, ok: 0 };
+
+    // include admin token header, same as other admin endpoints
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
     const results = await Promise.all(payloads.map(async cfg => {
       try {
         const r = await fetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(cfg)
         });
-        return r.ok;
-      } catch {
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          console.warn("register_item failed for", cfg.id, r.status, txt);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn("register_item error for", cfg.id, err);
         return false;
       }
     }));
@@ -643,9 +665,701 @@
     renderList();
 
     try{
-      const headers = { "Content-Type": "application/json" };
-      const t = localStorage.getItem("amaranth_report_token");
-      if (t) headers.Authorization = "Bearer " + t;
+      // Use the same token header helper as other admin pages
+      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
+      const payload = normalizeAll(model);
+
+      $('#editMsg').textContent = 'Saving…';
+      const res = await fetch("/api/router?action=save_addons", {
+        method: "POST", headers, body: JSON.stringify({ addons: payload })
+      });
+      if (!res.ok) throw new Error("server rejected");
+
+      // After saving, sync chair emails + freq to itemcfg
+      $('#editMsg').textContent = 'Saved. Syncing report routing…';
+      const { attempted, ok } = await syncChairEmailConfigs(payload);
+
+      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
+    }catch{
+      $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
+    }
+  });
+
+  // Kick off
+  loadInitial();
+  </script>
+</body>
+</html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Add-Ons Manager — Amaranth</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+    .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+    .col.left{flex:2 1 640px;min-width:520px}
+    .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
+    h1{margin:0 0 10px}
+    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
+    .btn.ghost{background:#fff;color:#111}
+    .btn.warn{background:#b91c1c;border-color:#991b1b}
+    .btn.success{background:#065f46;border-color:#064e3b}
+    input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
+    textarea{min-height:80px}
+    label{font-weight:600;margin-top:8px;display:block}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
+    tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
+    .muted{color:#6b7280}
+    .rules{background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;padding:10px;margin:8px 0 12px}
+    .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .right .toolbar{margin-bottom:8px}
+    .hint{font-size:12px;color:#6b7280;margin-top:4px}
+    .danger{color:#b91c1c}
+    .ok{color:#065f46}
+    code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
+    .inline{display:flex;gap:10px;align-items:center}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div>
+        <h1>Add-Ons Manager</h1>
+        <div class="muted">Create, edit, or retire registration add-ons (directories, pre-reg, love gifts, etc.)</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
+        <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
+      </div>
+    </header>
+
+    <!-- Rules -->
+    <section class="col rules">
+      <strong>Rules & Tips</strong>
+      <ul class="muted" style="margin:8px 0 0 16px">
+        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>pre-reg</code>, <code>directory</code>).</li>
+        <li><b>Type</b>:
+          <code>fixed</code> (one per person),
+          <code>qty</code> (choose quantity),
+          <code>amount</code> (open dollar amount),
+          <code>variantQty</code> (choose from labeled variants).
+        </li>
+        <li><b>Chair Emails</b>: comma-separated. Leave blank if unknown.</li>
+        <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the add-on is visible.</li>
+        <li><b>Limit/attendee</b>: optional max a single attendee can purchase for this add-on.</li>
+        <li><b>Report Frequency</b>: controls how often chair reports are sent for this add-on.</li>
+      </ul>
+    </section>
+
+    <div class="row">
+      <!-- List -->
+      <section class="col left">
+        <div class="toolbar">
+          <button id="btnAddNew" class="btn success">+ New Add-On</button>
+          <button id="btnExport" class="btn ghost">Export JSON</button>
+          <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
+          <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
+          <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
+          <span id="listMsg" class="muted"></span>
+        </div>
+
+        <div style="overflow:auto;max-height:65vh;margin-top:8px">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:160px">Name</th>
+                <th style="min-width:160px">ID</th>
+                <th>Type</th>
+                <th>Active</th>
+                <th>Reports</th>
+                <th>Publish Window</th>
+                <th>Chair</th>
+                <th style="min-width:160px">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Editor -->
+      <aside class="col right">
+        <div class="toolbar">
+          <span class="chip" id="modeChip">New</span>
+          <span id="editMsg" class="muted"></span>
+        </div>
+
+        <label for="f_name">Name</label>
+        <input id="f_name" type="text" placeholder="Pre-Registration" />
+
+        <label for="f_id">ID</label>
+        <input id="f_id" type="text" placeholder="pre-reg" />
+        <div class="hint">lowercase letters, numbers, dashes. Example: <code>printed-directory</code></div>
+
+        <div class="row">
+          <div>
+            <label for="f_type">Type</label>
+            <select id="f_type">
+              <option value="fixed">fixed</option>
+              <option value="qty">qty</option>
+              <option value="amount">amount</option>
+              <option value="variantQty">variantQty</option>
+            </select>
+          </div>
+          <div>
+            <label for="f_active">Active</label>
+            <select id="f_active">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="row_price">
+          <label for="f_price">Price (USD)</label>
+          <input id="f_price" type="number" step="0.01" min="0" placeholder="15.00" />
+          <div class="hint">Used for <code>fixed</code> and <code>qty</code> types. Ignored for <code>amount</code> and <code>variantQty</code>.</div>
+        </div>
+
+        <div id="row_variants" style="display:none">
+          <label for="f_variants">Variants (one per line, format: <code>Label:Price</code>)</label>
+          <textarea id="f_variants" placeholder="Small Ad:25&#10;Half Page:50&#10;Full Page:100"></textarea>
+          <div class="hint">Only for <code>variantQty</code>. Example above will create labeled price options.</div>
+        </div>
+
+        <label for="f_limit">Limit per attendee (optional)</label>
+        <input id="f_limit" type="number" step="1" min="0" placeholder="1" />
+
+        <label for="f_chair_name">Chairperson Name</label>
+        <input id="f_chair_name" type="text" placeholder="Jane Smith" />
+
+        <label for="f_chair_emails">Chair Emails (comma-separated)</label>
+        <input id="f_chair_emails" type="text" placeholder="chair@example.com, cochair@example.com" />
+
+        <label for="f_report_freq">Report Frequency</label>
+        <select id="f_report_freq">
+          <option value="monthly">Monthly (default)</option>
+          <option value="biweekly">Twice per month</option>
+          <option value="weekly">Weekly</option>
+          <option value="daily">Daily</option>
+          <option value="none">Do not auto-send</option>
+        </select>
+        <div class="hint">Used by automated chair reports for this add-on.</div>
+
+        <div class="row">
+          <div>
+            <label for="f_start">Publish Start</label>
+            <input id="f_start" type="datetime-local" />
+          </div>
+          <div>
+            <label for="f_end">Publish End</label>
+            <input id="f_end" type="datetime-local" />
+          </div>
+        </div>
+
+        <label for="f_notes">Notes / Description</label>
+        <textarea id="f_notes" placeholder="Optional description shown on the page."></textarea>
+
+        <div class="toolbar" style="margin-top:10px">
+          <button id="btnSave" class="btn">Save</button>
+          <button id="btnReset" class="btn ghost">Reset</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Static fallback hook -->
+  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
+  <script src="/assets/js/grand-court-addons.js"></script>
+
+  <!-- Admin shared helpers -->
+  <script src="/assets/js/admin.js"></script>
+
+  <script>
+  // --- Logout only (auth is now token-based like reporting_main.html) ---
+  (function () {
+    const btn = document.getElementById('logoutBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      try {
+        // New token-based auth
+        localStorage.removeItem('amaranth_report_token');
+        // Legacy flag, just in case something still checks it
+        localStorage.removeItem('amaranth_admin_ok');
+      } catch (e) {}
+      window.location.href = '/admin/login.html';
+    });
+  })();
+
+  const $  = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const idOK = id => /^[a-z0-9-]+$/.test(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pad = n => String(n).padStart(2,'0');
+  const prettyDate = d => d instanceof Date && !isNaN(d)
+    ? d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
+    : '—';
+
+  function toLocalDT(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    if(isNaN(d)) return '';
+    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
+    return `${y}-${m}-${day}T${hh}:${mm}`;
+  }
+  function fromLocalDT(local){
+    if(!local) return '';
+    const d = new Date(local);
+    return isNaN(d) ? '' : d.toISOString();
+  }
+
+  // ---- Frequency helpers ----
+  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
+
+  function normalizeFreq(raw){
+    const v = String(raw || "").trim().toLowerCase();
+    if (!v) return "monthly";
+    if (VALID_FREQS.includes(v)) return v;
+    return "monthly";
+  }
+
+  function describeFreq(freq){
+    const f = normalizeFreq(freq);
+    switch (f) {
+      case "daily":    return "Daily";
+      case "weekly":   return "Weekly";
+      case "biweekly": return "Twice per month";
+      case "monthly":  return "Monthly";
+      case "none":     return "—";
+      default:         return "Monthly";
+    }
+  }
+
+  // ---- Normalization helpers for add-ons ----
+  function normalizeAddon(a){
+    const out = { ...(a || {}) };
+
+    // price
+    if (out.type === "fixed" || out.type === "qty") {
+      out.price = Number(out.price || 0) || 0;
+    } else {
+      if (out.price == null) delete out.price;
+    }
+
+    // active flag
+    out.active = (out.active !== false);
+
+    // ensure ISO-ish fields are strings or empty
+    out.publishStart = out.publishStart || "";
+    out.publishEnd   = out.publishEnd   || "";
+
+    // chairEmails array
+    if (!Array.isArray(out.chairEmails)) {
+      const e = out.chairEmails || (out.chair && out.chair.email) || "";
+      out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
+    }
+
+    // chair object in sync
+    out.chair = out.chair || {};
+    if (!out.chair.name) out.chair.name = "";
+    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
+
+    // limit
+    if (out.limitPerAttendee == null && out.limit != null) {
+      out.limitPerAttendee = out.limit;
+    }
+
+    // report frequency
+    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+
+    // type default
+    if (!out.type) out.type = "fixed";
+
+    return out;
+  }
+
+  function normalizeAll(list){
+    return (Array.isArray(list) ? list : []).map(normalizeAddon);
+  }
+
+  // NEW: sync each add-on's chair emails + freq to backend register_item
+  async function syncChairEmailConfigs(list){
+    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
+
+    const payloads = (list || []).map(a => ({
+      id: a.id || "",
+      name: a.name || "",
+      chairEmails: Array.isArray(a.chairEmails) ? a.chairEmails : (a.chair?.email ? [a.chair.email] : []),
+      publishStart: a.publishStart || "",
+      publishEnd: a.publishEnd || "",
+      reportFrequency: normalizeFreq(a.reportFrequency || a.report_frequency || "monthly")
+    })).filter(x => x.id && x.name);
+
+    if (!payloads.length) return { attempted: 0, ok: 0 };
+
+    // include admin token header, same as other admin endpoints
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
+    const results = await Promise.all(payloads.map(async cfg => {
+      try {
+        const r = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(cfg)
+        });
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          console.warn("register_item failed for", cfg.id, r.status, txt);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn("register_item error for", cfg.id, err);
+        return false;
+      }
+    }));
+
+    const ok = results.filter(Boolean).length;
+    return { attempted: payloads.length, ok };
+  }
+
+  let model = [];
+  let current = null;
+  let isNew = true;
+
+  // ---- Initial Load (with empty-array fallback fix) ----
+  async function loadInitial(){
+    let loaded = false;
+    try {
+      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.addons) && j.addons.length > 0) {
+          model = normalizeAll(j.addons);
+          loaded = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Server addons fetch failed:', e);
+    }
+
+    if (!loaded) {
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      $('#listMsg').textContent = 'Using static list (fallback).';
+    } else {
+      $('#listMsg').textContent = 'Loaded from server.';
+    }
+
+    renderList();
+    startNew();
+    syncTypeFields();
+  }
+
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    $('#listMsg').textContent = 'Refreshing…';
+    let loaded = false;
+    try{
+      const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j?.addons) && j.addons.length > 0){
+          model = normalizeAll(j.addons); loaded = true;
+          $('#listMsg').textContent = 'Loaded from server.';
+        }
+      }
+    }catch(err){ console.warn('Refresh server error:', err); }
+    if(!loaded){
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
+    }
+    renderList(); startNew(); syncTypeFields();
+  });
+
+  // Show/hide price vs variants based on type
+  const typeEl = $('#f_type');
+  const rowPrice = $('#row_price');
+  const rowVariants = $('#row_variants');
+  function syncTypeFields(){
+    const t = typeEl.value;
+    if (t === 'variantQty'){
+      rowPrice.style.display = 'none';
+      rowVariants.style.display = '';
+    } else if (t === 'amount'){
+      rowPrice.style.display = 'none';
+      rowVariants.style.display = 'none';
+    } else {
+      rowPrice.style.display = '';
+      rowVariants.style.display = 'none';
+    }
+  }
+  typeEl.addEventListener('change', syncTypeFields);
+
+  // ---------- List Rendering ----------
+  function renderList(){
+    const tb = $('#tbody'); tb.innerHTML = '';
+    if(!model.length){
+      tb.innerHTML = '<tr><td colspan="8" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
+    }
+    for(const a of model){
+      const start = a.publishStart ? new Date(a.publishStart).toLocaleString() : '—';
+      const end   = a.publishEnd ? new Date(a.publishEnd).toLocaleString() : '—';
+      const chair = (a.chair && a.chair.name) ? a.chair.name : (a.chair?.email || '—');
+      const freqLabel = describeFreq(a.reportFrequency || a.report_frequency || "monthly");
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${esc(a.name||'')}</strong></td>
+        <td><code>${esc(a.id||'')}</code></td>
+        <td>${esc(a.type||'fixed')}</td>
+        <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
+        <td><span class="muted">${esc(freqLabel)}</span></td>
+        <td><div class="muted">${start} → ${end}</div></td>
+        <td>${esc(chair)}</td>
+        <td>
+          <button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button>
+          <button class="btn ghost btnCopy" data-id="${esc(a.id)}">Duplicate</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+    tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
+    tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+  }
+
+  // ---------- Form helpers ----------
+  function startNew(){
+    isNew = true;
+    current = null;
+    $('#modeChip').textContent = 'New';
+    $('#editMsg').textContent = '';
+
+    $('#f_name').value = '';
+    $('#f_id').value = '';
+    $('#f_type').value = 'fixed';
+    $('#f_active').value = 'true';
+    $('#f_price').value = '';
+    $('#f_variants').value = '';
+    $('#f_limit').value = '';
+    $('#f_chair_name').value = '';
+    $('#f_chair_emails').value = '';
+    $('#f_report_freq').value = 'monthly';
+    $('#f_start').value = '';
+    $('#f_end').value = '';
+    $('#f_notes').value = '';
+    syncTypeFields();
+  }
+
+  function fillForm(a){
+    const n = normalizeAddon(a);
+    isNew = false;
+    current = n;
+    $('#modeChip').textContent = 'Edit';
+    $('#editMsg').textContent = '';
+
+    $('#f_name').value = n.name || '';
+    $('#f_id').value = n.id || '';
+    $('#f_type').value = n.type || 'fixed';
+    $('#f_active').value = String(n.active !== false);
+
+    // price (only for fixed/qty)
+    const price = Number(n.price || 0);
+    $('#f_price').value = price > 0 ? price.toFixed(2) : '';
+
+    // variants textarea for variantQty
+    if (Array.isArray(n.variants) && n.variants.length){
+      $('#f_variants').value = n.variants.map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`).join('\n');
+    } else {
+      $('#f_variants').value = '';
+    }
+
+    $('#f_limit').value = (n.limitPerAttendee || n.limit || '') || '';
+
+    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
+    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
+
+    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
+    $('#f_start').value = toLocalDT(n.publishStart || '');
+    $('#f_end').value = toLocalDT(n.publishEnd || '');
+    $('#f_notes').value = n.description || n.notes || '';
+
+    syncTypeFields();
+  }
+
+  function parseVariants(text){
+    const out = [];
+    String(text||'').split(/\r?\n/).forEach(line=>{
+      const s = line.trim();
+      if (!s) return;
+      const m = s.split(':');
+      const label = (m[0]||'').trim();
+      const price = Number((m[1]||'').trim());
+      if (!label) return;
+      if (!isFinite(price) || price < 0) return;
+      out.push({ id: label.toLowerCase().replace(/[^a-z0-9-]+/g,'-'), label, price });
+    });
+    return out;
+  }
+
+  function readForm(){
+    const name = $('#f_name').value.trim();
+    const id   = $('#f_id').value.trim();
+    const type = $('#f_type').value;
+    const active = $('#f_active').value === 'true';
+
+    const price = parseFloat($('#f_price').value || '0') || 0;
+    const variants = parseVariants($('#f_variants').value);
+    const limitPerAttendee = parseInt($('#f_limit').value || '0', 10) || 0;
+
+    const chairName = $('#f_chair_name').value.trim();
+    const chairEmailsRaw = $('#f_chair_emails').value.trim();
+    const startISO = fromLocalDT($('#f_start').value);
+    const endISO = fromLocalDT($('#f_end').value);
+    const notes = $('#f_notes').value.trim();
+    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
+
+    const chairEmails = chairEmailsRaw
+      ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean)
+      : [];
+
+    const base = {
+      id, name, type, active,
+      publishStart: startISO,
+      publishEnd: endISO,
+      description: notes,
+      chair: { name: chairName, email: chairEmails[0] || '' },
+      chairEmails,
+      reportFrequency: freq
+    };
+
+    if (limitPerAttendee > 0) base.limitPerAttendee = limitPerAttendee;
+
+    if (type === 'variantQty'){
+      base.variants = variants;     // array of {id,label,price}
+      delete base.price;
+    } else if (type === 'amount'){
+      delete base.price;            // open amount, UI sets at checkout
+      delete base.variants;
+    } else {
+      base.price = Math.round(price * 100) / 100; // dollars in file
+      delete base.variants;
+    }
+
+    return base;
+  }
+
+  function validate(o){
+    if (!o.name) return 'Name is required.';
+    if (!o.id) return 'ID is required.';
+    if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
+    if (o.type === 'fixed' || o.type === 'qty'){
+      const p = Number(o.price || 0);
+      if (!isFinite(p) || p < 0) return 'Price cannot be negative.';
+    }
+    if (o.type === 'variantQty'){
+      if (!Array.isArray(o.variants) || o.variants.length === 0) return 'Add at least one variant.';
+    }
+    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
+      return 'Publish End must be after Publish Start.';
+    for (const em of (o.chairEmails || [])){
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+    }
+    return '';
+  }
+
+  function onEdit(e){
+    const id = e.currentTarget.dataset.id;
+    const a = model.find(x => x.id === id);
+    if (!a) { $('#editMsg').textContent = 'Item not found.'; return; }
+    fillForm(a);
+  }
+
+  function uniqueId(base){
+    let i = 1, candidate = base;
+    while (model.some(x => x.id === candidate)) {
+      i += 1;
+      candidate = `${base}-${i}`;
+    }
+    return candidate;
+  }
+
+  function onCopy(e){
+    const id = e.currentTarget.dataset.id;
+    const a = model.find(x => x.id === id);
+    if (!a) { $('#editMsg').textContent = 'Item not found.'; return; }
+    const copy = normalizeAddon(JSON.parse(JSON.stringify(a)));
+    copy.name = (copy.name || '') + ' (copy)';
+    const baseId = (copy.id || 'addon') + '-copy';
+    copy.id = uniqueId(baseId);
+    // reset dates on copy
+    copy.publishStart = '';
+    copy.publishEnd = '';
+    startNew();
+    fillForm(copy);
+    isNew = true;
+    $('#modeChip').textContent = 'New (from copy)';
+  }
+
+  // Buttons wired
+  $('#btnAddNew').addEventListener('click', startNew);
+  $('#btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
+
+  // Export / Import
+  $('#btnExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'addons-export.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  $('#fileImport').addEventListener('change', async (ev)=>{
+    const f = ev.target.files[0];
+    if (!f) return;
+    try{
+      const txt = await f.text();
+      const data = JSON.parse(txt);
+      if (!Array.isArray(data)) throw new Error('JSON must be an array');
+      model = normalizeAll(data);
+      renderList();
+      startNew();
+      $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
+    }catch(err){
+      alert('Import failed: ' + (err?.message || String(err)));
+    }finally{
+      ev.target.value = '';
+    }
+  });
+
+  // Save
+  $('#btnSave').addEventListener('click', async ()=>{
+    const o = readForm();
+    const err = validate(o);
+    if(err){ $('#editMsg').textContent = err; return; }
+
+    const idx = model.findIndex(x => x.id === o.id);
+    if(idx >= 0){
+      model[idx] = {...model[idx], ...o};
+    }else{
+      model.push(o);
+      isNew = false;
+      current = o;
+      $('#modeChip').textContent = 'Edit';
+    }
+    renderList();
+
+    try{
+      // Use the same token header helper as other admin pages
+      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
 
       const payload = normalizeAll(model);
 
