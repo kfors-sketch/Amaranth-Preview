@@ -224,9 +224,18 @@
 
   <!-- Page logic -->
   <script>
-  // --- Auth & small helpers ---
-  Admin.ensureAuth();
-  Admin.attachLogout('#logoutBtn');
+  // --- Logout only (auth is token-based now, like reporting_main/banquets/addons) ---
+  (function () {
+    const btn = document.getElementById('logoutBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      try {
+        localStorage.removeItem('amaranth_report_token'); // new token
+        localStorage.removeItem('amaranth_admin_ok');     // legacy flag
+      } catch (e) {}
+      window.location.href = '/admin/login.html';
+    });
+  })();
 
   const $  = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
@@ -421,15 +430,26 @@
       reportFrequency: normalizeFreq(p.reportFrequency || p.report_frequency || "monthly")
     })).filter(x => x.id && x.name);
 
+    if (!payloads.length) return { attempted: 0, ok: 0 };
+
+    // include admin token header (same pattern as banquets/addons)
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+
     const results = await Promise.all(payloads.map(async cfg => {
       try {
         const r = await fetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(cfg)
         });
-        return r.ok;
-      } catch {
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          console.warn("register_item failed for", cfg.id, r.status, txt);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn("register_item error for", cfg.id, err);
         return false;
       }
     }));
