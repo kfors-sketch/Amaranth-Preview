@@ -25,7 +25,6 @@
     .btn{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
     .btn.secondary{background:#fff;color:#111}
     .btn.sm{height:28px;font-size:12px;padding:0 10px}
-    .btn.danger{background:#b91c1c;color:#fff;border-color:#b91c1c}
     .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center}
     .toolbar .spacer{flex:1 1 auto}
     table{width:100%;border-collapse:collapse;font-size:12px}
@@ -210,22 +209,6 @@
             </div>
           </div>
           <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
-
-          <div class="border-top mt-4">
-            <div class="section-label">Danger zone</div>
-            <p class="muted">
-              Permanently delete <strong>all saved orders</strong> from KV for this site. Stripe payments are not affected.
-              You must type <code>PURGE ORDERS</code> to confirm.
-            </p>
-            <div class="controls mt-4">
-              <div class="group" style="max-width:200px">
-                <button id="btnPurgeOrders" class="btn sm danger">Purge Order Storage</button>
-              </div>
-              <div class="group">
-                <span id="purgeStatus" class="muted"></span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- WEEKLY-ONLY AUTOMATION -->
@@ -276,7 +259,7 @@
                 <option value="" selected disabled>Choose…</option>
                 <option value="banquet">Banquets</option>
                 <option value="addon">Add-ons</option>
-                <option value="catalog">Catalog</option>
+                <option value="other">Catalog</option>
               </select>
             </div>
             <div class="group">
@@ -377,35 +360,28 @@
       }catch(e){}
     }
 
-    // Build query string for /api/router?type=orders / orders_csv / full_attendees_csv
-    // Match server-side param names: start, end, category, q
     function buildServerQuery(extra){
-      if (typeof extra === 'string' && extra) {
-        // allow passing pre-built query strings from per-item tools
-        return extra.startsWith('?') ? extra : ('?' + extra);
-      }
-
       const params = new URLSearchParams();
       const df = $('#dateFrom').value;
       const dt = $('#dateTo').value;
       const cat = $('#category').value;
-      const st  = $('#status').value; // used client-side only
+      const st  = $('#status').value;
       const q   = $('#search').value.trim();
-
-      if (df) params.set('start', df);
-      if (dt) params.set('end', dt);
+      if (df) params.set('from', df);
+      if (dt) params.set('to', dt);
       if (cat) params.set('category', cat);
-      if (q) params.set('q', q);
-      // status is not currently supported server-side; we filter it client-side
-
+      if (st) params.set('status', st);
+      if (q) params.set('search', q);
       if (extra && typeof extra === 'object') {
         for (const [k,v] of Object.entries(extra)){
           if (v !== undefined && v !== '') params.set(k, v);
         }
       }
-
-      const qs = params.toString();
-      return qs ? '?' + qs : '';
+      if (typeof extra === 'string' && extra) {
+        // allow passing pre-built query strings from per-item tools
+        return extra.startsWith('?') ? extra : ('?' + extra);
+      }
+      return params.toString() ? '?' + params.toString() : '';
     }
 
     function render(){
@@ -461,7 +437,7 @@
       for (const r of filtered){
         idx++;
         const status = (r.status||'').toLowerCase();
-        const amount = Number(r.amount || r.total || (r.amount_cents!=null ? r.amount_cents/100 : 0));
+        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
@@ -627,7 +603,7 @@
     ['dateFrom','dateTo','category','status','search','rowsLimit']
       .forEach(id=>document.getElementById(id)?.addEventListener('input',render));
 
-    const caches={banquet:null,addon:null,catalog:null};
+    const caches={banquet:null,addon:null,other:null};
 
     function normalizeList(kind,list){
       return (list||[]).map(x=>({
@@ -640,7 +616,7 @@
 
     async function fetchList(kind){
       if(caches[kind]) return caches[kind];
-      const typeMap={banquet:'banquets',addon:'addons',catalog:'products'};
+      const typeMap={banquet:'banquets',addon:'addons',other:'products'};
       const listType=typeMap[kind];
       let list=[];
       try{
@@ -685,7 +661,7 @@
         item_id:id,
         item:label
       }).toString();
-      await downloadServerCsv(extra.startsWith('?') ? extra : '?' + extra);
+      await downloadServerCsv(extra);
     });
 
     document.getElementById('btnActEmail').addEventListener('click',async()=>{
@@ -821,39 +797,6 @@
           `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
       }catch(e){
         statusEl.textContent='Save failed: '+e.message;
-      }
-    });
-
-    // Admin-only purge of orders
-    document.getElementById('btnPurgeOrders').addEventListener('click', async ()=>{
-      const confirmText = prompt(
-        'This will permanently delete ALL saved orders from KV for this site.\n' +
-        'Stripe charges are NOT affected.\n\n' +
-        'Type PURGE ORDERS to confirm:'
-      );
-      if (confirmText !== 'PURGE ORDERS') {
-        if (confirmText !== null) alert('Purge cancelled.');
-        return;
-      }
-
-      const statusEl = $('#purgeStatus');
-      statusEl.textContent = 'Purging…';
-
-      try{
-        const r = await fetch('/api/router?action=purge_orders',{
-          method:'POST',
-          headers:getAuthHeaders(),
-          body:JSON.stringify({ confirm: confirmText })
-        });
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || 'Failed');
-
-        statusEl.textContent = j.message || 'Order storage purged.';
-        rows = [];
-        saveToLocal([]);
-        render();
-      }catch(e){
-        statusEl.textContent = 'Purge failed: ' + e.message;
       }
     });
 
