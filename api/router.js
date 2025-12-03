@@ -61,6 +61,8 @@ import {
   verifyAdminToken,
 } from "./admin/security.js";
 
+import { getYearSummary } from "./admin/yearly-reports.js";
+
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -450,6 +452,23 @@ export default async function handler(req, res) {
           `attachment; filename="orders.xlsx"`
         );
         return res.status(200).send(buf);
+      }
+
+      // --- NEW: Yearly buyer / purchase stats ---
+      // GET /api/router?type=yearly_stats&year=2026
+      if (type === "yearly_stats") {
+        let year = Number(url.searchParams.get("year") || "");
+        const currentYear = new Date().getFullYear();
+
+        if (!Number.isFinite(year) || year <= 0) {
+          year = currentYear;
+        }
+        if (year < 2026) {
+          year = 2026;
+        }
+
+        const summary = await getYearSummary(year);
+        return REQ_OK(res, summary);
       }
 
       if (type === "attendee_roster_csv") {
