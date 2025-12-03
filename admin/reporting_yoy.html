@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amaranth Admin — Year-over-Year Dashboard</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
+    a{color:inherit;text-decoration:none}
+    button{cursor:pointer}
+    .hide{display:none}
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
+    .card h3{margin:0 0 8px;font-size:15px;color:#374151}
+    .card p{margin:4px 0 8px;font-size:13px;color:#4b5563}
+    .muted{color:#6b7280;font-size:12px}
+    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+    .col{flex:1 1 0;min-width:260px}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+    .controls label{font-size:12px;color:#4b5563}
+    .controls input,.controls select{width:100%;height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px;background:#fff}
+    .controls .group{flex:1 1 140px;min-width:140px}
+    .btn{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+    .btn.secondary{background:#fff;color:#111}
+    .btn.sm{height:28px;font-size:12px;padding:0 10px}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center}
+    .toolbar .spacer{flex:1 1 auto}
+    .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
+    .heading-row h2{margin:0;font-size:20px;color:#111827}
+    .heading-row .muted{font-size:12px;max-width:480px}
+    .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+    .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid #e5e7eb;background:#f9fafb}
+    .pill.green{border-color:#16a34a;color:#166534;background:#ecfdf3}
+    .pill.red{border-color:#dc2626;color:#b91c1c;background:#fef2f2}
+    .pill.gray{border-color:#d1d5db;color:#4b5563;background:#f9fafb}
+    .pill-blue{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}
+    .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:8px}
+    .summary-item{padding:8px 10px;border-radius:10px;border:1px solid #e5e7eb;background:#f9fafb}
+    .summary-item .label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+    .summary-item .value{font-size:16px;font-weight:600}
+    .summary-item .sub{font-size:11px;color:#6b7280;margin-top:2px}
+    .chart-wrap{margin-top:8px}
+    .chart-wrap canvas{width:100%;max-height:260px}
+    .table-wrap{max-height:260px;overflow:auto;border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-top:8px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left;vertical-align:top}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;background:#f9fafb;position:sticky;top:0;z-index:1}
+    tr:nth-child(even){background:#f9fafb}
+    .text-right{text-align:right}
+    .text-xs{font-size:11px}
+    .mb-4{margin-bottom:4px}
+    .mb-8{margin-bottom:8px}
+    .mb-12{margin-bottom:12px}
+    .mb-16{margin-bottom:16px}
+    .mt-4{margin-top:4px}
+    .mt-8{margin-top:8px}
+    .mt-12{margin-top:12px}
+    .badge{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:1px 7px;font-size:11px;color:#374151;background:#f9fafb}
+    .status-note{font-size:11px;color:#6b7280;margin-top:4px}
+    .small-muted{font-size:11px;color:#9ca3af}
+    .yoy-up{color:#16a34a}
+    .yoy-down{color:#b91c1c}
+    .yoy-flat{color:#6b7280}
+    @media (max-width:768px){
+      .row{flex-direction:column}
+      .heading-row{flex-direction:column;align-items:flex-start}
+      .heading-actions{justify-content:flex-start}
+    }
+  </style>
+
+  <!-- Chart.js via CDN (for graphs) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="heading-row">
+      <div>
+        <h2>Year-over-Year Dashboard</h2>
+        <p class="muted">
+          Compare totals across years for banquets, add-ons, and catalog items. Use this for big-picture
+          YOY trends; use the main Reporting Dashboard for detailed row exports and refunds.
+        </p>
+      </div>
+      <div class="heading-actions">
+        <a href="index.html" class="btn secondary sm">← Admin Hub</a>
+        <a href="reporting_main.html" class="btn secondary sm">Reporting Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Top controls -->
+    <div class="card mb-16">
+      <h3>Comparison Setup</h3>
+      <p class="muted">
+        Choose a base year, comparison year, and optional category / specific item. Data comes from server-side
+        yearly summaries (no individual order rows here).
+      </p>
+      <div class="controls mt-4">
+        <div class="group">
+          <label class="muted">Base Year</label>
+          <select id="yBase"></select>
+        </div>
+        <div class="group">
+          <label class="muted">Compare To</label>
+          <select id="yCompare"></select>
+        </div>
+        <div class="group">
+          <label class="muted">Category</label>
+          <select id="yCategory">
+            <option value="all">All (combined)</option>
+            <option value="banquet">Banquets only</option>
+            <option value="addon">Add-ons only</option>
+            <option value="catalog">Catalog only</option>
+          </select>
+        </div>
+        <div class="group">
+          <label class="muted">Item / Slot</label>
+          <select id="ySlot">
+            <option value="all">All items in category</option>
+          </select>
+        </div>
+        <div class="group" style="max-width:160px">
+          <label class="muted">Metric</label>
+          <select id="yMetric">
+            <option value="amount">Amount (USD)</option>
+            <option value="count">Order count</option>
+          </select>
+        </div>
+        <div class="spacer"></div>
+        <div class="group" style="max-width:180px">
+          <label class="muted">&nbsp;</label>
+          <button id="btnRefresh" class="btn sm">Refresh</button>
+        </div>
+      </div>
+      <div class="status-note" id="yStatus"></div>
+    </div>
+
+    <div class="row">
+      <!-- Left column: headline + yearly bar -->
+      <div class="col">
+        <div class="card mb-12">
+          <h3>Headline Year-over-Year</h3>
+          <div class="summary-grid">
+            <div class="summary-item">
+              <div class="label">Base year total</div>
+              <div class="value" id="sumBaseAmt">$0.00</div>
+              <div class="sub small-muted" id="sumBaseYear">Year —</div>
+            </div>
+            <div class="summary-item">
+              <div class="label">Compare year total</div>
+              <div class="value" id="sumCmpAmt">$0.00</div>
+              <div class="sub small-muted" id="sumCmpYear">Year —</div>
+            </div>
+            <div class="summary-item">
+              <div class="label">Change ($)</div>
+              <div class="value" id="sumDiffAmt">—</div>
+              <div class="sub small-muted" id="sumDiffAmtHelp">vs base year</div>
+            </div>
+            <div class="summary-item">
+              <div class="label">Change (%)</div>
+              <div class="value" id="sumDiffPct">—</div>
+              <div class="sub small-muted" id="sumDiffPctHelp">vs base year</div>
+            </div>
+          </div>
+          <p class="status-note mt-8">
+            <span class="pill pill-blue" id="sumScopeLabel">Scope: All categories</span>
+            <span class="small-muted" id="sumScopeDetail"></span>
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Yearly Totals</h3>
+          <p class="muted">Bar comparison between the two selected years for the current scope.</p>
+          <div class="chart-wrap">
+            <canvas id="yearBar"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column: monthly line + breakdown table -->
+      <div class="col">
+        <div class="card mb-12">
+          <h3>Monthly Trend</h3>
+          <p class="muted">
+            Month-by-month comparison for the selected years. Months with no activity appear as zero.
+          </p>
+          <div class="chart-wrap">
+            <canvas id="monthLine"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Breakdown by Category / Item</h3>
+          <p class="muted">
+            Rough breakdown of totals inside the selected scope. Use the main Reporting Dashboard for
+            exact accounting and exports.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th class="text-right">Base year</th>
+                  <th class="text-right">Compare year</th>
+                  <th class="text-right">Δ $</th>
+                  <th class="text-right">Δ %</th>
+                </tr>
+              </thead>
+              <tbody id="yBreakdownBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="small-muted mt-12">
+      Note: This page uses pre-aggregated yearly data from the API
+      (<code>type=years_index</code> and <code>type=year_multi</code>) and does
+      not load raw individual orders.
+    </p>
+  </div>
+
+  <script>
+    // ---- Simple helpers ----
+    function money(n){
+      const v = Math.round((Number(n) || 0) * 100) / 100;
+      return v.toLocaleString(undefined,{style:'currency',currency:'USD'});
+    }
+    function pct(delta, base){
+      const d = Number(delta)||0, b = Number(base)||0;
+      if (!isFinite(d) || !isFinite(b) || b === 0) return null;
+      return (d / b) * 100;
+    }
+    function centsToDollarsMaybe(obj){
+      if (!obj) return 0;
+      if (obj.totalCents != null) return (Number(obj.totalCents)||0) / 100;
+      if (obj.total != null) return Number(obj.total)||0;
+      return 0;
+    }
+    function countFromObj(obj){
+      if (!obj) return 0;
+      if (obj.count != null) return Number(obj.count)||0;
+      if (obj.orders != null) return Number(obj.orders)||0;
+      return 0;
+    }
+    function getAuthHeaders(){
+      const token = localStorage.getItem('amaranth_report_token') || '';
+      const headers = {};
+      if (token) headers.Authorization = 'Bearer ' + token;
+      return headers;
+    }
+
+    // ---- State ----
+    const state = {
+      index: null,
+      years: [],
+      slots: { all: [], banquet: [], addon: [], catalog: [] },
+      baseYear: null,
+      compareYear: null,
+      category: 'all',
+      slot: 'all',
+      metric: 'amount',
+      charts: { yearBar: null, monthLine: null }
+    };
+
+    const $ = sel => document.querySelector(sel);
+
+    // ---- Populate selectors from index endpoint ----
+    async function loadIndex(){
+      const statusEl = $('#yStatus');
+      statusEl.textContent = 'Loading years and items…';
+
+      try{
+        const r = await fetch('/api/router?type=years_index', {
+          cache: 'no-store',
+          headers: getAuthHeaders()
+        });
+        const j = await r.json();
+        if (!r.ok || !j || j.ok === false) {
+          throw new Error(j && (j.error || j.message) || 'Failed');
+        }
+
+        // Expected shape (you can match this in router.js):
+        // {
+        //   years: [2025, 2024, 2023],
+        //   slots: {
+        //     banquet: [{id:"trails-feast", name:"Trails & Treasures Feast"}, ...],
+        //     addon:   [{id:"pre-reg", name:"Pre-Registration"}, ...],
+        //     catalog: [{id:"sunflower-pendant", name:"Sunflower Pendant"}, ...]
+        //   }
+        // }
+        state.index = j;
+        state.years = Array.isArray(j.years) ? j.years.slice().sort((a,b)=>b-a) : [];
+        state.slots.banquet = Array.isArray(j.slots?.banquet) ? j.slots.banquet : [];
+        state.slots.addon   = Array.isArray(j.slots?.addon)   ? j.slots.addon   : [];
+        state.slots.catalog = Array.isArray(j.slots?.catalog) ? j.slots.catalog : [];
+
+        const baseSel = $('#yBase');
+        const cmpSel  = $('#yCompare');
+        baseSel.innerHTML = '';
+        cmpSel.innerHTML  = '';
+
+        if (!state.years.length){
+          baseSel.innerHTML = '<option value="">No years</option>';
+          cmpSel.innerHTML  = '<option value="">No years</option>';
+          statusEl.textContent = 'No yearly data yet.';
+          return;
+        }
+
+        state.years.forEach((yr, idx)=>{
+          const o1 = document.createElement('option');
+          o1.value = String(yr);
+          o1.textContent = String(yr);
+          baseSel.appendChild(o1);
+
+          const o2 = document.createElement('option');
+          o2.value = String(yr);
+          o2.textContent = String(yr);
+          cmpSel.appendChild(o2);
+        });
+
+        // Defaults: newest as base, previous as compare
+        state.baseYear    = state.baseYear    || state.years[0];
+        state.compareYear = state.compareYear || state.years[Math.min(1, state.years.length-1)];
+
+        baseSel.value = String(state.baseYear);
+        cmpSel.value  = String(state.compareYear);
+
+        syncSlotOptions();
+        statusEl.textContent = '';
+      }catch(e){
+        console.warn('years_index error', e);
+        $('#yBase').innerHTML    = '<option value="">Error</option>';
+        $('#yCompare').innerHTML = '<option value="">Error</option>';
+        $('#yStatus').textContent = 'Could not load yearly index.';
+      }
+    }
+
+    function syncSlotOptions(){
+      const cat = state.category || 'all';
+      const sel = $('#ySlot');
+      sel.innerHTML = '';
+
+      const baseOpt = document.createElement('option');
+      baseOpt.value = 'all';
+      baseOpt.textContent = 'All items in category';
+      sel.appendChild(baseOpt);
+
+      if (cat === 'all'){
+        state.slot = 'all';
+        return;
+      }
+
+      const list = state.slots[cat] || [];
+      list.forEach(x=>{
+        const opt = document.createElement('option');
+        opt.value = String(x.id || x.code || x.slug || '');
+        opt.textContent = String(x.name || x.label || x.id || '');
+        sel.appendChild(opt);
+      });
+
+      // Keep current selection if still valid
+      if (state.slot && state.slot !== 'all' && list.some(x=>String(x.id)===String(state.slot))){
+        sel.value = String(state.slot);
+      }else{
+        sel.value = 'all';
+        state.slot = 'all';
+      }
+    }
+
+    // ---- Charts ----
+    function ensureCharts(){
+      const ctxYear  = document.getElementById('yearBar').getContext('2d');
+      const ctxMonth = document.getElementById('monthLine').getContext('2d');
+
+      if (!state.charts.yearBar){
+        state.charts.yearBar = new Chart(ctxYear, {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: [{
+              label: 'Totals',
+              data: []
+            }]
+          },
+          options: {
+            responsive:true,
+            plugins:{legend:{display:false}},
+            scales:{y:{beginAtZero:true}}
+          }
+        });
+      }
+      if (!state.charts.monthLine){
+        state.charts.monthLine = new Chart(ctxMonth, {
+          type: 'line',
+          data: {
+            labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+            datasets: [
+              {label:'Base year', data:[]},
+              {label:'Compare year', data:[]}
+            ]
+          },
+          options: {
+            responsive:true,
+            scales:{y:{beginAtZero:true}}
+          }
+        });
+      }
+    }
+
+    function updateCharts(yoy){
+      ensureCharts();
+
+      const metric = state.metric || 'amount';
+
+      const baseAmt = metric === 'amount'
+        ? centsToDollarsMaybe(yoy.base)
+        : countFromObj(yoy.base);
+      const cmpAmt  = metric === 'amount'
+        ? centsToDollarsMaybe(yoy.compare)
+        : countFromObj(yoy.compare);
+
+      // Year bar chart
+      const bar = state.charts.yearBar;
+      bar.data.labels = [String(yoy.base?.year || state.baseYear || ''), String(yoy.compare?.year || state.compareYear || '')];
+      bar.data.datasets[0].data = [baseAmt, cmpAmt];
+      bar.update();
+
+      // Monthly line chart
+      const monthsBase = new Array(12).fill(0);
+      const monthsCmp  = new Array(12).fill(0);
+
+      (Array.isArray(yoy.base?.monthly) ? yoy.base.monthly : []).forEach(m=>{
+        const idx = (Number(m.month)||0) - 1;
+        if (idx < 0 || idx > 11) return;
+        monthsBase[idx] = metric === 'amount'
+          ? ((Number(m.totalCents)||0)/100)
+          : (Number(m.count)||0);
+      });
+      (Array.isArray(yoy.compare?.monthly) ? yoy.compare.monthly : []).forEach(m=>{
+        const idx = (Number(m.month)||0) - 1;
+        if (idx < 0 || idx > 11) return;
+        monthsCmp[idx] = metric === 'amount'
+          ? ((Number(m.totalCents)||0)/100)
+          : (Number(m.count)||0);
+      });
+
+      const line = state.charts.monthLine;
+      line.data.datasets[0].label = `Base ${yoy.base?.year || state.baseYear}`;
+      line.data.datasets[1].label = `Compare ${yoy.compare?.year || state.compareYear}`;
+      line.data.datasets[0].data  = monthsBase;
+      line.data.datasets[1].data  = monthsCmp;
+      line.update();
+    }
+
+    // ---- Headline + breakdown ----
+    function updateHeadline(yoy){
+      const metric = state.metric || 'amount';
+      const baseAmt = metric === 'amount'
+        ? centsToDollarsMaybe(yoy.base)
+        : countFromObj(yoy.base);
+      const cmpAmt  = metric === 'amount'
+        ? centsToDollarsMaybe(yoy.compare)
+        : countFromObj(yoy.compare);
+
+      const diff = cmpAmt - baseAmt;
+      const pc   = pct(diff, baseAmt);
+
+      const baseLabel = metric === 'amount' ? money(baseAmt) : String(baseAmt);
+      const cmpLabel  = metric === 'amount' ? money(cmpAmt)  : String(cmpAmt);
+      const diffLabel = metric === 'amount' ? money(diff) : String(diff);
+
+      document.getElementById('sumBaseAmt').textContent = baseLabel;
+      document.getElementById('sumCmpAmt').textContent  = cmpLabel;
+      document.getElementById('sumBaseYear').textContent = `Year ${yoy.base?.year || state.baseYear || '—'}`;
+      document.getElementById('sumCmpYear').textContent  = `Year ${yoy.compare?.year || state.compareYear || '—'}`;
+
+      const diffEl = document.getElementById('sumDiffAmt');
+      const pctEl  = document.getElementById('sumDiffPct');
+
+      let cls = 'yoy-flat';
+      if (diff > 0) cls = 'yoy-up';
+      else if (diff < 0) cls = 'yoy-down';
+
+      diffEl.className = 'value ' + cls;
+      pctEl.className  = 'value ' + cls;
+
+      diffEl.textContent = (diff === 0 ? 'No change' : (diff > 0 ? '+' : '') + diffLabel);
+
+      if (pc == null){
+        pctEl.textContent = '—';
+      }else{
+        const s = (pc > 0 ? '+' : '') + pc.toFixed(1) + '%';
+        pctEl.textContent = s;
+      }
+
+      document.getElementById('sumDiffAmtHelp').textContent =
+        metric === 'amount' ? 'Compare − base (USD)' : 'Compare − base (count)';
+      document.getElementById('sumDiffPctHelp').textContent = 'Relative to base year';
+
+      // Scope label
+      let scopePieces = [];
+      if (state.category === 'all') {
+        scopePieces.push('All categories');
+      } else if (state.category === 'banquet') {
+        scopePieces.push('Banquets only');
+      } else if (state.category === 'addon') {
+        scopePieces.push('Add-ons only');
+      } else if (state.category === 'catalog') {
+        scopePieces.push('Catalog only');
+      }
+      if (state.slot && state.slot !== 'all' && yoy.slotLabel){
+        scopePieces.push(`Item: ${yoy.slotLabel}`);
+      }
+      document.getElementById('sumScopeLabel').textContent =
+        'Scope: ' + (scopePieces.join(' — ') || 'All categories');
+      document.getElementById('sumScopeDetail').textContent =
+        metric === 'amount' ? 'Metric: Amount in USD' : 'Metric: Order counts';
+    }
+
+    function updateBreakdown(yoy){
+      const body = document.getElementById('yBreakdownBody');
+      body.innerHTML = '';
+
+      const metric = state.metric || 'amount';
+      const list = Array.isArray(yoy.breakdown) ? yoy.breakdown : [];
+
+      if (!list.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'text-xs';
+        td.textContent = 'No breakdown data for this scope.';
+        tr.appendChild(td);
+        body.appendChild(tr);
+        return;
+      }
+
+      list.forEach(item=>{
+        const label = item.label || item.id || '—';
+
+        const baseAmt = metric === 'amount'
+          ? ((Number(item.baseTotalCents)||0)/100 || Number(item.baseTotal)||0)
+          : (Number(item.baseCount)||0);
+        const cmpAmt  = metric === 'amount'
+          ? ((Number(item.compareTotalCents)||0)/100 || Number(item.compareTotal)||0)
+          : (Number(item.compareCount)||0);
+        const diff = cmpAmt - baseAmt;
+        const pc   = pct(diff, baseAmt);
+
+        const tr = document.createElement('tr');
+
+        function td(html, cls){
+          const el = document.createElement('td');
+          if (cls) el.className = cls;
+          el.innerHTML = html;
+          return el;
+        }
+
+        const cls = diff > 0 ? 'yoy-up' : diff < 0 ? 'yoy-down' : 'yoy-flat';
+        const diffLabel = metric === 'amount' ? money(diff) : String(diff);
+        const pctLabel  = pc == null ? '—' : ((pc>0?'+':'') + pc.toFixed(1) + '%');
+
+        tr.appendChild(td(label));
+        tr.appendChild(td(metric === 'amount' ? money(baseAmt) : String(baseAmt), 'text-right text-xs'));
+        tr.appendChild(td(metric === 'amount' ? money(cmpAmt)  : String(cmpAmt),  'text-right text-xs'));
+        tr.appendChild(td(diff === 0 ? '—' : diffLabel, 'text-right text-xs ' + cls));
+        tr.appendChild(td(pctLabel, 'text-right text-xs ' + cls));
+        body.appendChild(tr);
+      });
+    }
+
+    // ---- Fetch YOY data ----
+    async function loadYoy(){
+      const statusEl = $('#yStatus');
+      const baseSel = $('#yBase');
+      const cmpSel  = $('#yCompare');
+
+      const baseYear    = Number(baseSel.value || state.baseYear || 0);
+      const compareYear = Number(cmpSel.value || state.compareYear || 0);
+      if (!baseYear || !compareYear){
+        statusEl.textContent = 'Choose both base and compare years.';
+        return;
+      }
+
+      state.baseYear    = baseYear;
+      state.compareYear = compareYear;
+      state.category    = $('#yCategory').value || 'all';
+      state.slot        = $('#ySlot').value || 'all';
+      state.metric      = $('#yMetric').value || 'amount';
+
+      statusEl.textContent = 'Loading comparison…';
+
+      const params = new URLSearchParams({
+        baseYear: String(state.baseYear),
+        compareYear: String(state.compareYear),
+        category: state.category,
+        metric: state.metric
+      });
+      if (state.slot && state.slot !== 'all'){
+        params.set('slot', state.slot);
+      }
+
+      try{
+        const r = await fetch('/api/router?type=year_multi&' + params.toString(), {
+          cache: 'no-store',
+          headers: getAuthHeaders()
+        });
+        const j = await r.json();
+        if (!r.ok || !j || j.ok === false){
+          throw new Error(j && (j.error || j.message) || 'Failed');
+        }
+
+        // Expected shape (you can mirror this in router.js):
+        // {
+        //   ok: true,
+        //   base: { year:2025, totalCents:..., count:..., monthly:[{month:1,totalCents,count},...] },
+        //   compare: { year:2024, totalCents:..., count:..., monthly:[...] },
+        //   breakdown: [
+        //     { label:"Banquets", baseTotalCents:..., compareTotalCents:..., baseCount:..., compareCount:... },
+        //     ...
+        //   ],
+        //   slotLabel: "Trails & Treasures Feast" // optional, for narrow scopes
+        // }
+        const yoy = j;
+
+        updateHeadline(yoy);
+        updateCharts(yoy);
+        updateBreakdown(yoy);
+
+        statusEl.textContent = '';
+      }catch(e){
+        console.warn('year_multi error', e);
+        statusEl.textContent = 'Could not load year-over-year summary.';
+      }
+    }
+
+    // ---- Wire events ----
+    document.getElementById('yCategory').addEventListener('change', ()=>{
+      state.category = $('#yCategory').value || 'all';
+      syncSlotOptions();
+    });
+    document.getElementById('ySlot').addEventListener('change', ()=>{
+      state.slot = $('#ySlot').value || 'all';
+    });
+    document.getElementById('yBase').addEventListener('change', ()=>{
+      state.baseYear = Number($('#yBase').value||0) || state.baseYear;
+    });
+    document.getElementById('yCompare').addEventListener('change', ()=>{
+      state.compareYear = Number($('#yCompare').value||0) || state.compareYear;
+    });
+    document.getElementById('yMetric').addEventListener('change', ()=>{
+      state.metric = $('#yMetric').value || 'amount';
+      loadYoy();
+    });
+    document.getElementById('btnRefresh').addEventListener('click', loadYoy);
+
+    // ---- Init ----
+    (async function init(){
+      await loadIndex();
+      await loadYoy();
+    })();
+  </script>
+</body>
+</html>
