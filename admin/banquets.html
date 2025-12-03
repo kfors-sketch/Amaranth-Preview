@@ -180,9 +180,11 @@
   <script src="/assets/js/admin.js"></script>
 
   <script>
-  // --- Auth & small helpers ---
-  Admin.ensureAuth();
-  Admin.attachLogout('#logoutBtn');
+  // --- Auth & small helpers (aligned with reporting_main.html) ---
+  // Do NOT hard-block entry with Admin.ensureAuth(). We just offer logout.
+  if (window.Admin && typeof Admin.attachLogout === 'function') {
+    Admin.attachLogout('#logoutBtn');
+  }
 
   const $  = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
