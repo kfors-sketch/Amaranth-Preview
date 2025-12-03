@@ -61,6 +61,13 @@ import {
   verifyAdminToken,
 } from "./admin/security.js";
 
+// NEW: Year-over-year helpers (orders / purchasers / people / amount)
+import {
+  listIndexedYears,
+  getYearSummary,
+  getMultiYearSummary,
+} from "./admin/yearly-reports.js";
+
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -142,6 +149,81 @@ export default async function handler(req, res) {
           note: "no recent email log",
         });
         return REQ_OK(res, data);
+      }
+
+      // NEW: list all years we have indexed (for dropdowns / filters)
+      if (type === "years_index") {
+        const years = await listIndexedYears();
+        return REQ_OK(res, { years });
+      }
+
+      // NEW: full summary for a single year (orders, purchasers, people, amount)
+      if (type === "year_summary") {
+        const yParam = url.searchParams.get("year");
+        const year = Number(yParam);
+        if (!Number.isFinite(year)) {
+          return REQ_ERR(res, 400, "invalid-year", {
+            year: yParam,
+          });
+        }
+
+        const summary = await getYearSummary(year);
+        return REQ_OK(res, summary);
+      }
+
+      // NEW: multi-year summary for graphs (2-graph feature)
+      // Accepts:
+      //   ?type=year_multi&year=2024&year=2025
+      //   or ?type=year_multi&years=2024,2025,2026
+      if (type === "year_multi") {
+        let yearsParams = url.searchParams.getAll("year");
+        if (!yearsParams.length) {
+          const csv = url.searchParams.get("years") || "";
+          if (csv) {
+            yearsParams = csv
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        }
+
+        let years = yearsParams
+          .map((s) => Number(s))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+
+        // If no years explicitly provided, just return available years with empty points
+        if (!years.length) {
+          const allYears = await listIndexedYears();
+          return REQ_OK(res, {
+            years: allYears,
+            points: [],
+            raw: [],
+          });
+        }
+
+        const raw = await getMultiYearSummary(years);
+
+        // Lightweight structure for graphs:
+        // - totalOrders
+        // - uniqueBuyers
+        // - repeatBuyers
+        // - totalPeople
+        // - totalCents
+        const points = raw.map((r) => ({
+          year: r.year,
+          totalOrders: r.totalOrders || 0,
+          uniqueBuyers: r.uniqueBuyers || 0,
+          repeatBuyers: r.repeatBuyers || 0,
+          totalPeople: r.totalPeople || 0,
+          totalCents: r.totalCents || 0,
+        }));
+
+        return REQ_OK(res, {
+          years,
+          points,
+          raw,
+        });
       }
 
       if (type === "banquets")
@@ -1493,7 +1575,7 @@ export default async function handler(req, res) {
         } catch (e) {
           console.error("Failed to load ./admin/report-scheduler.js", e);
           return REQ_ERR(res, 500, "scheduler-missing", {
-            message: e?.message || String(e),
+            message: e?.message || e,
           });
         }
 
