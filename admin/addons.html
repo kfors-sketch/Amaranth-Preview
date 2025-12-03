@@ -64,6 +64,7 @@
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the add-on is visible.</li>
         <li><b>Limit/attendee</b>: optional max a single attendee can purchase for this add-on.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this add-on.</li>
+        <li><b>Year-over-year Slot</b>: optional label (e.g. <code>Session Directory</code>) to group similar add-ons across years.</li>
       </ul>
     </section>
 
@@ -85,6 +86,7 @@
               <tr>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:160px">ID</th>
+                <th style="min-width:140px">YoY Slot</th>
                 <th>Type</th>
                 <th>Active</th>
                 <th>Reports</th>
@@ -162,6 +164,11 @@
         </select>
         <div class="hint">Used by automated chair reports for this add-on.</div>
 
+        <!-- NEW: YoY slot selection -->
+        <label for="f_slot_label">Year-over-year Slot (optional)</label>
+        <select id="f_slot_label"></select>
+        <div class="hint">Choose a label (e.g. “Session Directory”) to compare this add-on with the same slot in other years.</div>
+
         <div class="row">
           <div>
             <label for="f_start">Publish Start</label>
@@ -186,6 +193,8 @@
 
   <!-- Static fallback hook -->
   <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
+  <!-- Slot keys helper for YoY grouping -->
+  <script src="/assets/js/slotkeys.js"></script>
   <script src="/assets/js/grand-court-addons.js"></script>
 
   <!-- Admin shared helpers -->
@@ -250,6 +259,108 @@
     }
   }
 
+  // ---- Slot key helpers (YoY bucket for add-ons) ----
+  const SLOT_KIND = "addon";
+  const SLOT_NONE_VALUE = "";
+  const SLOT_ADD_VALUE = "__add__";
+
+  function makeSlotKeyFromLabel(label) {
+    const base = String(label || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return base || "";
+  }
+
+  function getSlotList() {
+    if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
+      const arr = SlotKeys.getSlots(SLOT_KIND) || [];
+      return arr
+        .map(s => ({
+          key: s.key || makeSlotKeyFromLabel(s.label || s.name),
+          label: s.label || s.name || "",
+          scope: s.scope || SLOT_KIND
+        }))
+        .filter(s => s.label);
+    }
+    return [];
+  }
+
+  function ensureSlot(kind, label) {
+    const trimmed = String(label || "").trim();
+    if (!trimmed) return { key: "", label: "", scope: kind };
+    if (window.SlotKeys && typeof SlotKeys.ensureSlot === "function") {
+      try {
+        return SlotKeys.ensureSlot(kind, trimmed);
+      } catch (e) {
+        console.warn("SlotKeys.ensureSlot failed:", e);
+      }
+    }
+    return {
+      key: makeSlotKeyFromLabel(trimmed),
+      label: trimmed,
+      scope: kind
+    };
+  }
+
+  function populateSlotSelect(selectedLabel) {
+    const sel = document.getElementById('f_slot_label');
+    if (!sel) return;
+
+    const current = selectedLabel == null ? sel.value : selectedLabel;
+    sel.innerHTML = "";
+
+    // None
+    const optNone = document.createElement("option");
+    optNone.value = SLOT_NONE_VALUE;
+    optNone.textContent = "— None (no YoY bucket) —";
+    sel.appendChild(optNone);
+
+    // Known slots
+    const slots = getSlotList();
+    slots.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.label;
+      opt.textContent = s.label;
+      sel.appendChild(opt);
+    });
+
+    // Add-new sentinel
+    const optAdd = document.createElement("option");
+    optAdd.value = SLOT_ADD_VALUE;
+    optAdd.textContent = "➕ Add new label…";
+    sel.appendChild(optAdd);
+
+    if (current && current !== SLOT_ADD_VALUE) {
+      const exists = slots.some(s => s.label === current);
+      if (!exists && current !== SLOT_NONE_VALUE) {
+        const opt = document.createElement("option");
+        opt.value = current;
+        opt.textContent = current;
+        sel.insertBefore(opt, optAdd);
+      }
+      sel.value = current;
+    } else {
+      sel.value = SLOT_NONE_VALUE;
+    }
+  }
+
+  function onSlotChange(e) {
+    const sel = e.currentTarget;
+    if (!sel) return;
+    const val = sel.value;
+    if (val === SLOT_ADD_VALUE) {
+      const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Session Directory'):");
+      if (!label) {
+        sel.value = SLOT_NONE_VALUE;
+        return;
+      }
+      const slot = ensureSlot(SLOT_KIND, label);
+      populateSlotSelect(slot.label);
+      sel.value = slot.label;
+    }
+  }
+
   // ---- Normalization helpers for add-ons ----
   function normalizeAddon(a){
     const out = { ...(a || {}) };
@@ -289,6 +400,11 @@
 
     // type default
     if (!out.type) out.type = "fixed";
+
+    // YoY slot fields
+    out.slotScope = out.slotScope || SLOT_KIND;
+    out.slotKey = out.slotKey || "";
+    out.slotLabel = out.slotLabel || out.slotKey || "";
 
     return out;
   }
@@ -368,6 +484,7 @@
       if (listMsgEl) listMsgEl.textContent = 'Loaded from server.';
     }
 
+    populateSlotSelect();
     renderList();
     startNew();
     syncTypeFields();
@@ -392,6 +509,7 @@
       model = normalizeAll(JSON.parse(JSON.stringify(src)));
       if (listMsgEl) listMsgEl.textContent = 'Server empty/unavailable — using fallback.';
     }
+    populateSlotSelect();
     renderList(); startNew(); syncTypeFields();
   });
 
@@ -419,17 +537,19 @@
     const tb = document.getElementById('tbody');
     tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="8" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="9" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
     }
     for(const a of model){
       const start = a.publishStart ? new Date(a.publishStart).toLocaleString() : '—';
       const end   = a.publishEnd ? new Date(a.publishEnd).toLocaleString() : '—';
       const chair = (a.chair && a.chair.name) ? a.chair.name : (a.chair?.email || '—');
       const freqLabel = describeFreq(a.reportFrequency || a.report_frequency || "monthly");
+      const slotLabel = a.slotLabel || "";
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(a.name||'')}</strong></td>
         <td><code>${esc(a.id||'')}</code></td>
+        <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
         <td>${esc(a.type||'fixed')}</td>
         <td>${a.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><span class="muted">${esc(freqLabel)}</span></td>
@@ -465,6 +585,7 @@
     document.getElementById('f_start').value = '';
     document.getElementById('f_end').value = '';
     document.getElementById('f_notes').value = '';
+    populateSlotSelect();
     syncTypeFields();
   }
 
@@ -474,6 +595,8 @@
     current = n;
     document.getElementById('modeChip').textContent = 'Edit';
     document.getElementById('editMsg').textContent = '';
+
+    populateSlotSelect(n.slotLabel || "");
 
     document.getElementById('f_name').value = n.name || '';
     document.getElementById('f_id').value = n.id || '';
@@ -540,6 +663,18 @@
       ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean)
       : [];
 
+    const slotLabelRaw = document.getElementById('f_slot_label').value || "";
+    let slotKey = "";
+    let slotLabel = "";
+    let slotScope = SLOT_KIND;
+
+    if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
+      const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
+      slotKey = slot.key || "";
+      slotLabel = slot.label || "";
+      slotScope = slot.scope || SLOT_KIND;
+    }
+
     const base = {
       id, name, type, active,
       publishStart: startISO,
@@ -547,7 +682,10 @@
       description: notes,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
-      reportFrequency: freq
+      reportFrequency: freq,
+      slotKey,
+      slotLabel,
+      slotScope
     };
 
     if (limitPerAttendee > 0) base.limitPerAttendee = limitPerAttendee;
@@ -640,6 +778,7 @@
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
       model = normalizeAll(data);
+      populateSlotSelect();
       renderList();
       startNew();
       const listMsgEl = document.getElementById('listMsg');
@@ -689,6 +828,12 @@
       document.getElementById('editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
+
+  // Wire slot change
+  const slotSel = document.getElementById('f_slot_label');
+  if (slotSel) {
+    slotSel.addEventListener('change', onSlotChange);
+  }
 
   // Kick off
   loadInitial();
