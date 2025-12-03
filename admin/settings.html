@@ -32,7 +32,7 @@
       <h1 style="margin:0">Admin Settings</h1>
       <div class="row" style="align-items:center;gap:8px">
         <span id="adminPill" class="pill">Admin Mode</span>
-        <!-- NEW: Admin Hub button to match addons.html -->
+        <!-- Admin Hub button to match other admin pages -->
         <a class="btn ghost" href="/admin/index.html" style="height:32px;padding:0 10px;font-size:13px">← Admin Hub</a>
         <button id="logoutBtn" class="btn ghost" style="height:32px;padding:0 10px;font-size:13px">Log Out</button>
       </div>
@@ -107,51 +107,67 @@
     </section>
   </main>
 
-<script>
-/* ---------- Auth guard ---------- */
-(function(){
-  if(localStorage.getItem('amaranth_admin_pw_ok') !== '1'){
-    location.replace('/admin/reporting_login.html');
-  }
-})();
+  <!-- Shared admin helpers -->
+  <script src="/assets/js/admin.js"></script>
 
+<script>
 /* ---------- UI helpers ---------- */
 const $ = s => document.querySelector(s);
 const tokenKey = 'amaranth_report_token';
 
 function setMsg(el, text, ok){
   el.textContent = text || '';
-  el.className = ok ? 'ok' : (text ? 'err' : 'muted');
+  if (!text) {
+    el.className = 'muted';
+  } else {
+    el.className = ok ? 'ok' : 'err';
+  }
 }
 
 /* ---------- Token UI ---------- */
 $('#saveToken').addEventListener('click', () => {
   const t = $('#token').value.trim();
-  if(!t){ setMsg($('#tokenMsg'), 'Enter a token first'); return; }
-  localStorage.setItem(tokenKey, t);
+  if(!t){
+    setMsg($('#tokenMsg'), 'Enter a token first', false);
+    return;
+  }
+  try {
+    localStorage.setItem(tokenKey, t);
+  } catch(e){}
   setMsg($('#tokenMsg'), 'Token saved for this browser', true);
 });
+
 $('#clearToken').addEventListener('click', () => {
-  localStorage.removeItem(tokenKey);
+  try {
+    localStorage.removeItem(tokenKey);
+  } catch(e){}
   $('#token').value = '';
   setMsg($('#tokenMsg'), 'Token cleared', true);
 });
 
 /* ---------- Logout ---------- */
 $('#logoutBtn').addEventListener('click', ()=>{
-  localStorage.removeItem('amaranth_admin_pw_ok');
-  location.href = '/admin/reporting_login.html';
+  try{
+    localStorage.removeItem('amaranth_report_token');
+    localStorage.removeItem('amaranth_admin_ok');    // legacy
+    localStorage.removeItem('amaranth_admin_pw_ok'); // legacy
+  }catch(e){}
+  location.href = '/admin/login.html';
 });
 
 /* ---------- Load current settings (router) ---------- */
 async function loadSettings(){
   $('#currentJson').textContent = 'Loading…';
   try{
-    // LOAD
-    const r = await fetch('/api/router?type=settings');
-    const j = await r.json(); // { env, overrides, effective }
+    const res = await fetch('/api/router?type=settings', {
+      method: 'GET',
+      headers: {
+        ...Admin.tokenHeader()
+      }
+    });
+    const j = await res.json();
 
-    if(!r.ok) throw new Error((j && j.error) || r.statusText);
+    if(!res.ok) throw new Error((j && j.error) || res.statusText);
 
     // Fill form from returned values (prefer overrides, then env, fall back to empty)
     $('#fromEmail').value = j.overrides?.RESEND_FROM ?? j.env?.RESEND_FROM ?? '';
@@ -175,15 +191,19 @@ $('#saveAll').addEventListener('click', async ()=>{
   const MAINTENANCE_MESSAGE = $('#maintMsg').value;
 
   try{
-    // SAVE
-    await fetch('/api/router?action=save_settings', {
+    const res = await fetch('/api/router?action=save_settings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + (localStorage.getItem('amaranth_report_token') || '')
+        ...Admin.tokenHeader()
       },
       body: JSON.stringify({ RESEND_FROM, REPORTS_CC, MAINTENANCE_ON, MAINTENANCE_MESSAGE })
     });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      throw new Error(j?.error || res.statusText || 'Save failed');
+    }
 
     setMsg($('#saveMsg'), 'Saved!', true);
     // refresh view of effective/env/overrides
