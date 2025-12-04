@@ -1,16 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amaranth Admin — Year-over-Year Dashboard</title>
+  <title>Amaranth Admin — Year-over-Year</title>
   <meta name="robots" content="noindex, nofollow" />
   <style>
     *,*::before,*::after{box-sizing:border-box}
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
     a{color:inherit;text-decoration:none}
     button{cursor:pointer}
-    .hide{display:none}
     .container{max-width:1200px;margin:24px auto;padding:0 16px}
     .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     .card h3{margin:0 0 8px;font-size:15px;color:#374151}
@@ -20,35 +19,21 @@
     .col{flex:1 1 0;min-width:260px}
     .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
     .controls label{font-size:12px;color:#4b5563}
-    .controls input,.controls select{width:100%;height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px;background:#fff}
-    .controls .group{flex:1 1 140px;min-width:140px}
-    .btn{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+    .controls input,.controls select{width:100%;height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px}
+    .controls .group{flex:1 1 120px;min-width:120px}
+    .btn{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
     .btn.secondary{background:#fff;color:#111}
     .btn.sm{height:28px;font-size:12px;padding:0 10px}
     .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center}
     .toolbar .spacer{flex:1 1 auto}
+    .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:4px}
     .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
     .heading-row h2{margin:0;font-size:20px;color:#111827}
-    .heading-row .muted{font-size:12px;max-width:480px}
+    .heading-row .muted{font-size:12px;max-width:420px}
     .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
-    .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid #e5e7eb;background:#f9fafb}
-    .pill.green{border-color:#16a34a;color:#166534;background:#ecfdf3}
-    .pill.red{border-color:#dc2626;color:#b91c1c;background:#fef2f2}
-    .pill.gray{border-color:#d1d5db;color:#4b5563;background:#f9fafb}
-    .pill-blue{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}
-    .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:8px}
-    .summary-item{padding:8px 10px;border-radius:10px;border:1px solid #e5e7eb;background:#f9fafb}
-    .summary-item .label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
-    .summary-item .value{font-size:16px;font-weight:600}
-    .summary-item .sub{font-size:11px;color:#6b7280;margin-top:2px}
-    .chart-wrap{margin-top:8px}
-    .chart-wrap canvas{width:100%;max-height:260px}
-    .table-wrap{max-height:260px;overflow:auto;border-radius:12px;border:1px solid #e5e7eb;background:#fff;margin-top:8px}
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left;vertical-align:top}
-    th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;background:#f9fafb;position:sticky;top:0;z-index:1}
-    tr:nth-child(even){background:#f9fafb}
-    .text-right{text-align:right}
+    .metric-chip{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:2px 8px;font-size:11px;background:#f9fafb;color:#374151;margin-right:4px;margin-bottom:4px}
+    .metric-chip span{opacity:.7;margin-left:4px}
+    .text-sm{font-size:12px}
     .text-xs{font-size:11px}
     .mb-4{margin-bottom:4px}
     .mb-8{margin-bottom:8px}
@@ -57,153 +42,167 @@
     .mt-4{margin-top:4px}
     .mt-8{margin-top:8px}
     .mt-12{margin-top:12px}
-    .badge{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:1px 7px;font-size:11px;color:#374151;background:#f9fafb}
-    .status-note{font-size:11px;color:#6b7280;margin-top:4px}
-    .small-muted{font-size:11px;color:#9ca3af}
-    .yoy-up{color:#16a34a}
-    .yoy-down{color:#b91c1c}
-    .yoy-flat{color:#6b7280}
-    @media (max-width:768px){
+    .text-right{text-align:right}
+    .table-wrap{max-height:480px;overflow:auto;border-radius:12px;border:1px solid #e5e7eb;background:#fff}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left;vertical-align:top}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;background:#f9fafb;position:sticky;top:0;z-index:1}
+    tr:nth-child(even){background:#f9fafb}
+    .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid #e5e7eb;background:#f9fafb}
+    .pill.green{border-color:#16a34a;color:#166534;background:#ecfdf3}
+    .pill.red{border-color:#dc2626;color:#b91c1c;background:#fef2f2}
+    .pill.gray{border-color:#9ca3af;color:#4b5563;background:#f3f4f6}
+    .chart-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
+    .chart-box{flex:1 1 260px;min-height:140px;border-radius:12px;border:1px dashed #e5e7eb;padding:10px;background:#f9fafb;font-size:11px;color:#4b5563}
+    .chart-title{font-weight:600;margin-bottom:6px}
+    .bar-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+    .bar-label{flex:0 0 70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bar-track{flex:1 1 auto;height:8px;border-radius:999px;background:#e5e7eb;overflow:hidden}
+    .bar-fill{height:100%;border-radius:999px;background:#2563eb}
+    .bar-fill.compare{background:#f97316}
+    .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:11px}
+    .legend span{display:inline-flex;align-items:center;gap:4px}
+    .legend-swatch{width:10px;height:10px;border-radius:999px;background:#2563eb}
+    .legend-swatch.compare{background:#f97316}
+    .legend-swatch.delta{background:#16a34a}
+    @media(max-width:768px){
       .row{flex-direction:column}
       .heading-row{flex-direction:column;align-items:flex-start}
       .heading-actions{justify-content:flex-start}
+      .table-wrap{max-height:none}
+    }
+    @media print{
+      .heading-actions,.toolbar{display:none !important}
+      body{background:#fff}
+      .container{margin:0 auto;padding:8px}
+      .card{box-shadow:none}
     }
   </style>
-
-  <!-- Chart.js via CDN (for graphs) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <div class="container">
     <div class="heading-row">
       <div>
-        <h2>Year-over-Year Dashboard</h2>
+        <h2>Year-over-Year Overview</h2>
         <p class="muted">
-          Compare totals across years for banquets, add-ons, and catalog items. Use this for big-picture
-          YOY trends; use the main Reporting Dashboard for detailed row exports and refunds.
+          Compare totals between two years by category and slot (banquets, add-ons, catalog).
         </p>
       </div>
       <div class="heading-actions">
-        <a href="index.html" class="btn secondary sm">← Admin Hub</a>
-        <a href="reporting_main.html" class="btn secondary sm">Reporting Dashboard</a>
+        <a href="/admin/index.html" class="btn secondary sm">← Admin Hub</a>
+        <a href="/admin/reporting_main.html" class="btn secondary sm">Reporting Dashboard</a>
+        <button id="btnYoYPrint" class="btn secondary sm">Print</button>
+        <button id="btnYoYExport" class="btn sm">Export (.csv)</button>
       </div>
     </div>
 
-    <!-- Top controls -->
+    <!-- Filters -->
     <div class="card mb-16">
-      <h3>Comparison Setup</h3>
-      <p class="muted">
-        Choose a base year, comparison year, and optional category / specific item. Data comes from server-side
-        yearly summaries (no individual order rows here).
-      </p>
+      <div class="section-label">Filters</div>
+      <h3>Choose years and view</h3>
+      <p class="muted">These options control the charts and table below.</p>
       <div class="controls mt-4">
-        <div class="group">
-          <label class="muted">Base Year</label>
-          <select id="yBase"></select>
-        </div>
-        <div class="group">
-          <label class="muted">Compare To</label>
-          <select id="yCompare"></select>
-        </div>
         <div class="group">
           <label class="muted">Category</label>
           <select id="yCategory">
-            <option value="all">All (combined)</option>
-            <option value="banquet">Banquets only</option>
-            <option value="addon">Add-ons only</option>
-            <option value="catalog">Catalog only</option>
+            <option value="">All</option>
+            <option value="banquet">Banquets</option>
+            <option value="addon">Add-ons</option>
+            <option value="catalog">Catalog</option>
           </select>
         </div>
         <div class="group">
-          <label class="muted">Item / Slot</label>
+          <label class="muted">Slot</label>
           <select id="ySlot">
-            <option value="all">All items in category</option>
+            <!-- populated from index endpoint -->
           </select>
         </div>
-        <div class="group" style="max-width:160px">
+        <div class="group">
+          <label class="muted">Base year</label>
+          <select id="yBase">
+            <!-- populated from index endpoint -->
+          </select>
+        </div>
+        <div class="group">
+          <label class="muted">Compare to year</label>
+          <select id="yCompare">
+            <!-- populated from index endpoint -->
+          </select>
+        </div>
+        <div class="group">
           <label class="muted">Metric</label>
           <select id="yMetric">
-            <option value="amount">Amount (USD)</option>
-            <option value="count">Order count</option>
+            <option value="amount">Total amount</option>
+            <option value="orders">Order count</option>
+            <option value="purchasers">Purchasers</option>
+            <option value="items">Items sold</option>
           </select>
         </div>
-        <div class="spacer"></div>
-        <div class="group" style="max-width:180px">
-          <label class="muted">&nbsp;</label>
-          <button id="btnRefresh" class="btn sm">Refresh</button>
-        </div>
       </div>
-      <div class="status-note" id="yStatus"></div>
+      <p class="muted mt-4" id="yStatus"></p>
     </div>
 
     <div class="row">
-      <!-- Left column: headline + yearly bar -->
+      <!-- LEFT: Headline + charts -->
       <div class="col">
         <div class="card mb-12">
-          <h3>Headline Year-over-Year</h3>
-          <div class="summary-grid">
-            <div class="summary-item">
-              <div class="label">Base year total</div>
-              <div class="value" id="sumBaseAmt">$0.00</div>
-              <div class="sub small-muted" id="sumBaseYear">Year —</div>
+          <div class="section-label">Headline</div>
+          <h3 id="yHeadline">No data loaded yet</h3>
+          <p class="muted" id="ySubheadline">
+            Adjust filters above, then the dashboard will summarize the comparison here.
+          </p>
+          <div class="mt-8 text-sm">
+            <div class="metric-chip">
+              Base year <span id="yLabelBase">—</span>
             </div>
-            <div class="summary-item">
-              <div class="label">Compare year total</div>
-              <div class="value" id="sumCmpAmt">$0.00</div>
-              <div class="sub small-muted" id="sumCmpYear">Year —</div>
+            <div class="metric-chip">
+              Compare year <span id="yLabelCompare">—</span>
             </div>
-            <div class="summary-item">
-              <div class="label">Change ($)</div>
-              <div class="value" id="sumDiffAmt">—</div>
-              <div class="sub small-muted" id="sumDiffAmtHelp">vs base year</div>
-            </div>
-            <div class="summary-item">
-              <div class="label">Change (%)</div>
-              <div class="value" id="sumDiffPct">—</div>
-              <div class="sub small-muted" id="sumDiffPctHelp">vs base year</div>
+            <div class="metric-chip">
+              Metric <span id="yLabelMetric">amount</span>
             </div>
           </div>
-          <p class="status-note mt-8">
-            <span class="pill pill-blue" id="sumScopeLabel">Scope: All categories</span>
-            <span class="small-muted" id="sumScopeDetail"></span>
-          </p>
         </div>
 
         <div class="card">
-          <h3>Yearly Totals</h3>
-          <p class="muted">Bar comparison between the two selected years for the current scope.</p>
-          <div class="chart-wrap">
-            <canvas id="yearBar"></canvas>
+          <div class="section-label">Charts</div>
+          <h3>Change by year</h3>
+          <p class="muted">Bars show totals for each year; line shows difference between them.</p>
+          <div class="chart-row" id="yCharts">
+            <div class="chart-box">
+              <div class="chart-title">Totals</div>
+              <div id="yChartTotals"></div>
+              <div class="legend">
+                <span><span class="legend-swatch"></span> Base year</span>
+                <span><span class="legend-swatch compare"></span> Compare year</span>
+              </div>
+            </div>
+            <div class="chart-box">
+              <div class="chart-title">Difference</div>
+              <div id="yChartDelta"></div>
+              <div class="legend">
+                <span><span class="legend-swatch delta"></span> Δ vs base</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Right column: monthly line + breakdown table -->
+      <!-- RIGHT: Breakdown table -->
       <div class="col">
-        <div class="card mb-12">
-          <h3>Monthly Trend</h3>
-          <p class="muted">
-            Month-by-month comparison for the selected years. Months with no activity appear as zero.
-          </p>
-          <div class="chart-wrap">
-            <canvas id="monthLine"></canvas>
-          </div>
-        </div>
-
         <div class="card">
-          <h3>Breakdown by Category / Item</h3>
-          <p class="muted">
-            Rough breakdown of totals inside the selected scope. Use the main Reporting Dashboard for
-            exact accounting and exports.
-          </p>
-          <div class="table-wrap">
+          <div class="section-label">Breakdown</div>
+          <h3>Per slot / category</h3>
+          <p class="muted">Rough breakdown of totals for each slot. Export button downloads this as .csv.</p>
+          <div class="table-wrap mt-8">
             <table>
               <thead>
                 <tr>
-                  <th>Label</th>
-                  <th class="text-right">Base year</th>
-                  <th class="text-right">Compare year</th>
-                  <th class="text-right">Δ $</th>
+                  <th>Slot</th>
+                  <th>Category</th>
+                  <th class="text-right">Base</th>
+                  <th class="text-right">Compare</th>
+                  <th class="text-right">Δ</th>
                   <th class="text-right">Δ %</th>
                 </tr>
               </thead>
@@ -213,450 +212,417 @@
         </div>
       </div>
     </div>
-
-    <p class="small-muted mt-12">
-      Note: This page uses pre-aggregated yearly data from the API
-      (<code>type=years_index</code> and <code>type=year_multi</code>) and does
-      not load raw individual orders.
-    </p>
   </div>
 
   <script>
-    // ---- Simple helpers ----
+    // simple helpers
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
     function money(n){
-      const v = Math.round((Number(n) || 0) * 100) / 100;
-      return v.toLocaleString(undefined,{style:'currency',currency:'USD'});
+      const v = Math.round(Number(n || 0) * 100) / 100;
+      return v.toLocaleString(undefined,{
+        style:'currency',
+        currency:'USD',
+        minimumFractionDigits:2,
+        maximumFractionDigits:2
+      });
     }
     function pct(delta, base){
-      const d = Number(delta)||0, b = Number(base)||0;
-      if (!isFinite(d) || !isFinite(b) || b === 0) return null;
-      return (d / b) * 100;
-    }
-    function centsToDollarsMaybe(obj){
-      if (!obj) return 0;
-      if (obj.totalCents != null) return (Number(obj.totalCents)||0) / 100;
-      if (obj.total != null) return Number(obj.total)||0;
-      return 0;
-    }
-    function countFromObj(obj){
-      if (!obj) return 0;
-      if (obj.count != null) return Number(obj.count)||0;
-      if (obj.orders != null) return Number(obj.orders)||0;
-      return 0;
-    }
-    function getAuthHeaders(){
-      const token = localStorage.getItem('amaranth_report_token') || '';
-      const headers = {};
-      if (token) headers.Authorization = 'Bearer ' + token;
-      return headers;
+      const b = Number(base || 0);
+      if (!b) return '—';
+      const v = (Number(delta || 0) / b) * 100;
+      return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
     }
 
-    // ---- State ----
     const state = {
-      index: null,
-      years: [],
-      slots: { all: [], banquet: [], addon: [], catalog: [] },
-      baseYear: null,
-      compareYear: null,
-      category: 'all',
-      slot: 'all',
-      metric: 'amount',
-      charts: { yearBar: null, monthLine: null }
+      index:null,
+      yoy:null,
+      category:'',
+      slot:'all',
+      baseYear:null,
+      compareYear:null,
+      metric:'amount',
     };
 
-    const $ = sel => document.querySelector(sel);
-
-    // ---- Populate selectors from index endpoint ----
+    // ---------- Load index (years + slots) ----------
     async function loadIndex(){
-      const statusEl = $('#yStatus');
-      statusEl.textContent = 'Loading years and items…';
-
       try{
-        const r = await fetch('/api/router?type=years_index', {
-          cache: 'no-store',
-          headers: getAuthHeaders()
-        });
+        const r = await fetch('/api/router?type=year_index',{cache:'no-store'});
         const j = await r.json();
-        if (!r.ok || !j || j.ok === false) {
-          throw new Error(j && (j.error || j.message) || 'Failed');
-        }
+        if(!r.ok) throw new Error(j?.error || 'index failed');
+        state.index = j || {};
 
-        // Expected shape (you can match this in router.js):
-        // {
-        //   years: [2025, 2024, 2023],
-        //   slots: {
-        //     banquet: [{id:"trails-feast", name:"Trails & Treasures Feast"}, ...],
-        //     addon:   [{id:"pre-reg", name:"Pre-Registration"}, ...],
-        //     catalog: [{id:"sunflower-pendant", name:"Sunflower Pendant"}, ...]
-        //   }
-        // }
-        state.index = j;
-        state.years = Array.isArray(j.years) ? j.years.slice().sort((a,b)=>b-a) : [];
-        state.slots.banquet = Array.isArray(j.slots?.banquet) ? j.slots.banquet : [];
-        state.slots.addon   = Array.isArray(j.slots?.addon)   ? j.slots.addon   : [];
-        state.slots.catalog = Array.isArray(j.slots?.catalog) ? j.slots.catalog : [];
-
+        const years = Array.isArray(j.years) ? j.years.slice().sort((a,b)=>a-b) : [];
         const baseSel = $('#yBase');
         const cmpSel  = $('#yCompare');
         baseSel.innerHTML = '';
-        cmpSel.innerHTML  = '';
-
-        if (!state.years.length){
-          baseSel.innerHTML = '<option value="">No years</option>';
-          cmpSel.innerHTML  = '<option value="">No years</option>';
-          statusEl.textContent = 'No yearly data yet.';
-          return;
+        cmpSel .innerHTML = '';
+        years.forEach(y=>{
+          const opt1 = document.createElement('option');
+          opt1.value = opt1.textContent = y;
+          baseSel.appendChild(opt1);
+          const opt2 = document.createElement('option');
+          opt2.value = opt2.textContent = y;
+          cmpSel.appendChild(opt2);
+        });
+        if(years.length){
+          baseSel.value = years[years.length-2] || years[0];
+          cmpSel.value  = years[years.length-1];
+          state.baseYear = Number(baseSel.value);
+          state.compareYear = Number(cmpSel.value);
         }
 
-        state.years.forEach((yr, idx)=>{
-          const o1 = document.createElement('option');
-          o1.value = String(yr);
-          o1.textContent = String(yr);
-          baseSel.appendChild(o1);
+        const slotSel = $('#ySlot');
+        slotSel.innerHTML = '';
+        const allOpt = document.createElement('option');
+        allOpt.value = 'all';
+        allOpt.textContent = 'All slots';
+        slotSel.appendChild(allOpt);
 
-          const o2 = document.createElement('option');
-          o2.value = String(yr);
-          o2.textContent = String(yr);
-          cmpSel.appendChild(o2);
+        const slots = Array.isArray(j.slots) ? j.slots : [];
+        slots.forEach(s=>{
+          const opt = document.createElement('option');
+          opt.value = s.key || s.slotKey || '';
+          opt.textContent = s.label || s.name || opt.value || '(unnamed)';
+          slotSel.appendChild(opt);
         });
+        state.slot = 'all';
 
-        // Defaults: newest as base, previous as compare
-        state.baseYear    = state.baseYear    || state.years[0];
-        state.compareYear = state.compareYear || state.years[Math.min(1, state.years.length-1)];
-
-        baseSel.value = String(state.baseYear);
-        cmpSel.value  = String(state.compareYear);
-
-        syncSlotOptions();
-        statusEl.textContent = '';
       }catch(e){
-        console.warn('years_index error', e);
-        $('#yBase').innerHTML    = '<option value="">Error</option>';
-        $('#yCompare').innerHTML = '<option value="">Error</option>';
-        $('#yStatus').textContent = 'Could not load yearly index.';
+        console.warn('year_index error', e);
+        $('#yStatus').textContent = 'Could not load year index.';
       }
     }
 
-    function syncSlotOptions(){
-      const cat = state.category || 'all';
-      const sel = $('#ySlot');
-      sel.innerHTML = '';
-
-      const baseOpt = document.createElement('option');
-      baseOpt.value = 'all';
-      baseOpt.textContent = 'All items in category';
-      sel.appendChild(baseOpt);
-
-      if (cat === 'all'){
-        state.slot = 'all';
-        return;
-      }
-
-      const list = state.slots[cat] || [];
-      list.forEach(x=>{
-        const opt = document.createElement('option');
-        opt.value = String(x.id || x.code || x.slug || '');
-        opt.textContent = String(x.name || x.label || x.id || '');
-        sel.appendChild(opt);
-      });
-
-      // Keep current selection if still valid
-      if (state.slot && state.slot !== 'all' && list.some(x=>String(x.id)===String(state.slot))){
-        sel.value = String(state.slot);
-      }else{
-        sel.value = 'all';
-        state.slot = 'all';
-      }
-    }
-
-    // ---- Charts ----
-    function ensureCharts(){
-      const ctxYear  = document.getElementById('yearBar').getContext('2d');
-      const ctxMonth = document.getElementById('monthLine').getContext('2d');
-
-      if (!state.charts.yearBar){
-        state.charts.yearBar = new Chart(ctxYear, {
-          type: 'bar',
-          data: {
-            labels: [],
-            datasets: [{
-              label: 'Totals',
-              data: []
-            }]
-          },
-          options: {
-            responsive:true,
-            plugins:{legend:{display:false}},
-            scales:{y:{beginAtZero:true}}
-          }
-        });
-      }
-      if (!state.charts.monthLine){
-        state.charts.monthLine = new Chart(ctxMonth, {
-          type: 'line',
-          data: {
-            labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
-            datasets: [
-              {label:'Base year', data:[]},
-              {label:'Compare year', data:[]}
-            ]
-          },
-          options: {
-            responsive:true,
-            scales:{y:{beginAtZero:true}}
-          }
-        });
-      }
-    }
-
-    function updateCharts(yoy){
-      ensureCharts();
-
-      const metric = state.metric || 'amount';
-
-      const baseAmt = metric === 'amount'
-        ? centsToDollarsMaybe(yoy.base)
-        : countFromObj(yoy.base);
-      const cmpAmt  = metric === 'amount'
-        ? centsToDollarsMaybe(yoy.compare)
-        : countFromObj(yoy.compare);
-
-      // Year bar chart
-      const bar = state.charts.yearBar;
-      bar.data.labels = [String(yoy.base?.year || state.baseYear || ''), String(yoy.compare?.year || state.compareYear || '')];
-      bar.data.datasets[0].data = [baseAmt, cmpAmt];
-      bar.update();
-
-      // Monthly line chart
-      const monthsBase = new Array(12).fill(0);
-      const monthsCmp  = new Array(12).fill(0);
-
-      (Array.isArray(yoy.base?.monthly) ? yoy.base.monthly : []).forEach(m=>{
-        const idx = (Number(m.month)||0) - 1;
-        if (idx < 0 || idx > 11) return;
-        monthsBase[idx] = metric === 'amount'
-          ? ((Number(m.totalCents)||0)/100)
-          : (Number(m.count)||0);
-      });
-      (Array.isArray(yoy.compare?.monthly) ? yoy.compare.monthly : []).forEach(m=>{
-        const idx = (Number(m.month)||0) - 1;
-        if (idx < 0 || idx > 11) return;
-        monthsCmp[idx] = metric === 'amount'
-          ? ((Number(m.totalCents)||0)/100)
-          : (Number(m.count)||0);
-      });
-
-      const line = state.charts.monthLine;
-      line.data.datasets[0].label = `Base ${yoy.base?.year || state.baseYear}`;
-      line.data.datasets[1].label = `Compare ${yoy.compare?.year || state.compareYear}`;
-      line.data.datasets[0].data  = monthsBase;
-      line.data.datasets[1].data  = monthsCmp;
-      line.update();
-    }
-
-    // ---- Headline + breakdown ----
-    function updateHeadline(yoy){
-      const metric = state.metric || 'amount';
-      const baseAmt = metric === 'amount'
-        ? centsToDollarsMaybe(yoy.base)
-        : countFromObj(yoy.base);
-      const cmpAmt  = metric === 'amount'
-        ? centsToDollarsMaybe(yoy.compare)
-        : countFromObj(yoy.compare);
-
-      const diff = cmpAmt - baseAmt;
-      const pc   = pct(diff, baseAmt);
-
-      const baseLabel = metric === 'amount' ? money(baseAmt) : String(baseAmt);
-      const cmpLabel  = metric === 'amount' ? money(cmpAmt)  : String(cmpAmt);
-      const diffLabel = metric === 'amount' ? money(diff) : String(diff);
-
-      document.getElementById('sumBaseAmt').textContent = baseLabel;
-      document.getElementById('sumCmpAmt').textContent  = cmpLabel;
-      document.getElementById('sumBaseYear').textContent = `Year ${yoy.base?.year || state.baseYear || '—'}`;
-      document.getElementById('sumCmpYear').textContent  = `Year ${yoy.compare?.year || state.compareYear || '—'}`;
-
-      const diffEl = document.getElementById('sumDiffAmt');
-      const pctEl  = document.getElementById('sumDiffPct');
-
-      let cls = 'yoy-flat';
-      if (diff > 0) cls = 'yoy-up';
-      else if (diff < 0) cls = 'yoy-down';
-
-      diffEl.className = 'value ' + cls;
-      pctEl.className  = 'value ' + cls;
-
-      diffEl.textContent = (diff === 0 ? 'No change' : (diff > 0 ? '+' : '') + diffLabel);
-
-      if (pc == null){
-        pctEl.textContent = '—';
-      }else{
-        const s = (pc > 0 ? '+' : '') + pc.toFixed(1) + '%';
-        pctEl.textContent = s;
-      }
-
-      document.getElementById('sumDiffAmtHelp').textContent =
-        metric === 'amount' ? 'Compare − base (USD)' : 'Compare − base (count)';
-      document.getElementById('sumDiffPctHelp').textContent = 'Relative to base year';
-
-      // Scope label
-      let scopePieces = [];
-      if (state.category === 'all') {
-        scopePieces.push('All categories');
-      } else if (state.category === 'banquet') {
-        scopePieces.push('Banquets only');
-      } else if (state.category === 'addon') {
-        scopePieces.push('Add-ons only');
-      } else if (state.category === 'catalog') {
-        scopePieces.push('Catalog only');
-      }
-      if (state.slot && state.slot !== 'all' && yoy.slotLabel){
-        scopePieces.push(`Item: ${yoy.slotLabel}`);
-      }
-      document.getElementById('sumScopeLabel').textContent =
-        'Scope: ' + (scopePieces.join(' — ') || 'All categories');
-      document.getElementById('sumScopeDetail').textContent =
-        metric === 'amount' ? 'Metric: Amount in USD' : 'Metric: Order counts';
-    }
-
-    function updateBreakdown(yoy){
-      const body = document.getElementById('yBreakdownBody');
-      body.innerHTML = '';
-
-      const metric = state.metric || 'amount';
-      const list = Array.isArray(yoy.breakdown) ? yoy.breakdown : [];
-
-      if (!list.length){
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 5;
-        td.className = 'text-xs';
-        td.textContent = 'No breakdown data for this scope.';
-        tr.appendChild(td);
-        body.appendChild(tr);
-        return;
-      }
-
-      list.forEach(item=>{
-        const label = item.label || item.id || '—';
-
-        const baseAmt = metric === 'amount'
-          ? ((Number(item.baseTotalCents)||0)/100 || Number(item.baseTotal)||0)
-          : (Number(item.baseCount)||0);
-        const cmpAmt  = metric === 'amount'
-          ? ((Number(item.compareTotalCents)||0)/100 || Number(item.compareTotal)||0)
-          : (Number(item.compareCount)||0);
-        const diff = cmpAmt - baseAmt;
-        const pc   = pct(diff, baseAmt);
-
-        const tr = document.createElement('tr');
-
-        function td(html, cls){
-          const el = document.createElement('td');
-          if (cls) el.className = cls;
-          el.innerHTML = html;
-          return el;
-        }
-
-        const cls = diff > 0 ? 'yoy-up' : diff < 0 ? 'yoy-down' : 'yoy-flat';
-        const diffLabel = metric === 'amount' ? money(diff) : String(diff);
-        const pctLabel  = pc == null ? '—' : ((pc>0?'+':'') + pc.toFixed(1) + '%');
-
-        tr.appendChild(td(label));
-        tr.appendChild(td(metric === 'amount' ? money(baseAmt) : String(baseAmt), 'text-right text-xs'));
-        tr.appendChild(td(metric === 'amount' ? money(cmpAmt)  : String(cmpAmt),  'text-right text-xs'));
-        tr.appendChild(td(diff === 0 ? '—' : diffLabel, 'text-right text-xs ' + cls));
-        tr.appendChild(td(pctLabel, 'text-right text-xs ' + cls));
-        body.appendChild(tr);
-      });
-    }
-
-    // ---- Fetch YOY data ----
+    // ---------- Load YoY data ----------
     async function loadYoy(){
-      const statusEl = $('#yStatus');
-      const baseSel = $('#yBase');
-      const cmpSel  = $('#yCompare');
-
-      const baseYear    = Number(baseSel.value || state.baseYear || 0);
-      const compareYear = Number(cmpSel.value || state.compareYear || 0);
-      if (!baseYear || !compareYear){
-        statusEl.textContent = 'Choose both base and compare years.';
-        return;
-      }
-
-      state.baseYear    = baseYear;
-      state.compareYear = compareYear;
-      state.category    = $('#yCategory').value || 'all';
-      state.slot        = $('#ySlot').value || 'all';
-      state.metric      = $('#yMetric').value || 'amount';
-
-      statusEl.textContent = 'Loading comparison…';
-
-      const params = new URLSearchParams({
-        baseYear: String(state.baseYear),
-        compareYear: String(state.compareYear),
-        category: state.category,
-        metric: state.metric
-      });
-      if (state.slot && state.slot !== 'all'){
-        params.set('slot', state.slot);
-      }
-
+      $('#yStatus').textContent = 'Loading…';
       try{
-        const r = await fetch('/api/router?type=year_multi&' + params.toString(), {
-          cache: 'no-store',
-          headers: getAuthHeaders()
-        });
+        const params = new URLSearchParams();
+        if(state.category) params.set('category', state.category);
+        if(state.slot && state.slot !== 'all') params.set('slot', state.slot);
+        if(state.baseYear) params.set('baseYear', state.baseYear);
+        if(state.compareYear) params.set('compareYear', state.compareYear);
+
+        const r = await fetch('/api/router?type=year_multi&' + params.toString(), {cache:'no-store'});
         const j = await r.json();
-        if (!r.ok || !j || j.ok === false){
-          throw new Error(j && (j.error || j.message) || 'Failed');
-        }
+        if(!r.ok) throw new Error(j?.error || 'year_multi failed');
 
-        // Expected shape (you can mirror this in router.js):
-        // {
-        //   ok: true,
-        //   base: { year:2025, totalCents:..., count:..., monthly:[{month:1,totalCents,count},...] },
-        //   compare: { year:2024, totalCents:..., count:..., monthly:[...] },
-        //   breakdown: [
-        //     { label:"Banquets", baseTotalCents:..., compareTotalCents:..., baseCount:..., compareCount:... },
-        //     ...
-        //   ],
-        //   slotLabel: "Trails & Treasures Feast" // optional, for narrow scopes
-        // }
-        const yoy = j;
+        state.yoy = j || {};
+        updateHeadline(j);
+        updateCharts(j);
+        updateBreakdown(j);
 
-        updateHeadline(yoy);
-        updateCharts(yoy);
-        updateBreakdown(yoy);
-
-        statusEl.textContent = '';
+        $('#yStatus').textContent = '';
       }catch(e){
         console.warn('year_multi error', e);
-        statusEl.textContent = 'Could not load year-over-year summary.';
+        $('#yStatus').textContent = 'Could not load year-over-year data.';
       }
     }
 
-    // ---- Wire events ----
+    // ---------- Headline ----------
+    function updateHeadline(yoy){
+      const metric = state.metric || 'amount';
+      const base = (yoy && yoy.summary && yoy.summary.base) || {};
+      const cmp  = (yoy && yoy.summary && yoy.summary.compare) || {};
+
+      const baseVal = pickMetric(base, metric);
+      const cmpVal  = pickMetric(cmp, metric);
+      const delta   = (cmpVal || 0) - (baseVal || 0);
+
+      $('#yLabelBase').textContent    = String(state.baseYear || '—');
+      $('#yLabelCompare').textContent = String(state.compareYear || '—');
+      $('#yLabelMetric').textContent  = metricLabel(metric);
+
+      if(baseVal == null && cmpVal == null){
+        $('#yHeadline').textContent = 'No data for selected years.';
+        $('#ySubheadline').textContent = 'Try a different category, slot, or year range.';
+        return;
+      }
+
+      const niceBase  = metric === 'amount' ? money(baseVal) : baseVal.toLocaleString();
+      const niceCmp   = metric === 'amount' ? money(cmpVal) : cmpVal.toLocaleString();
+      const niceDelta = metric === 'amount' ? money(delta) : delta.toLocaleString();
+
+      let direction = 'unchanged';
+      if(delta > 0) direction = 'increased';
+      else if(delta < 0) direction = 'decreased';
+
+      $('#yHeadline').textContent =
+        `${metricLabel(metric)} ${direction} by ${niceDelta} in ${state.compareYear} vs ${state.baseYear}.`;
+
+      $('#ySubheadline').textContent =
+        `Base year: ${state.baseYear} = ${niceBase}.  Compare year: ${state.compareYear} = ${niceCmp}.`;
+    }
+
+    function metricLabel(m){
+      switch(m){
+        case 'orders': return 'Order count';
+        case 'purchasers': return 'Purchasers';
+        case 'items': return 'Items sold';
+        default: return 'Total amount';
+      }
+    }
+
+    function pickMetric(obj, m){
+      if(!obj) return 0;
+      switch(m){
+        case 'orders': return Number(obj.orders || obj.orderCount || 0);
+        case 'purchasers': return Number(obj.purchasers || obj.buyerCount || 0);
+        case 'items': return Number(obj.items || obj.itemCount || 0);
+        default: return Number(obj.amount || obj.totalAmount || 0);
+      }
+    }
+
+    // ---------- Charts ----------
+    function updateCharts(yoy){
+      const rows = Array.isArray(yoy?.rows) ? yoy.rows : [];
+      const metric = state.metric || 'amount';
+
+      const totalsEl = $('#yChartTotals');
+      const deltaEl  = $('#yChartDelta');
+      totalsEl.innerHTML = '';
+      deltaEl.innerHTML  = '';
+
+      if(!rows.length){
+        totalsEl.textContent = 'No data.';
+        deltaEl.textContent  = 'No data.';
+        return;
+      }
+
+      // For chart rows, combine by slot (or whole dataset if slot==all)
+      const map = new Map();
+      for(const r of rows){
+        const key = r.slotLabel || r.slot || r.slotKey || 'All';
+        const rec = map.get(key) || {base:0, cmp:0, label:key};
+        const year = Number(r.year || r.yr || 0);
+        const val = pickMetric(r, metric);
+        if(year === state.baseYear)  rec.base += val;
+        if(year === state.compareYear) rec.cmp += val;
+        map.set(key, rec);
+      }
+      const series = Array.from(map.values());
+
+      // scale for bars
+      let maxVal = 0;
+      series.forEach(s=>{
+        maxVal = Math.max(maxVal, s.base, s.cmp, Math.abs((s.cmp||0)-(s.base||0)));
+      });
+      if(!maxVal) maxVal = 1;
+
+      // totals chart
+      series.forEach(s=>{
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+
+        const label = document.createElement('div');
+        label.className = 'bar-label';
+        label.textContent = s.label;
+        row.appendChild(label);
+
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+
+        const baseBar = document.createElement('div');
+        baseBar.className = 'bar-fill';
+        baseBar.style.width = (s.base / maxVal * 100) + '%';
+
+        const cmpBar = document.createElement('div');
+        cmpBar.className = 'bar-fill compare';
+        cmpBar.style.width = (s.cmp / maxVal * 100) + '%';
+
+        track.appendChild(baseBar);
+        track.appendChild(cmpBar);
+        row.appendChild(track);
+
+        totalsEl.appendChild(row);
+      });
+
+      // delta chart
+      series.forEach(s=>{
+        const delta = (s.cmp || 0) - (s.base || 0);
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+
+        const label = document.createElement('div');
+        label.className = 'bar-label';
+        label.textContent = s.label;
+        row.appendChild(label);
+
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+
+        const bar = document.createElement('div');
+        bar.className = 'bar-fill';
+        bar.style.width = (Math.abs(delta) / maxVal * 100) + '%';
+        bar.style.background = delta >= 0 ? '#16a34a' : '#dc2626';
+
+        track.appendChild(bar);
+        row.appendChild(track);
+
+        deltaEl.appendChild(row);
+      });
+    }
+
+    // ---------- Breakdown table ----------
+    function updateBreakdown(yoy){
+      const tb = $('#yBreakdownBody');
+      tb.innerHTML = '';
+      const rows = Array.isArray(yoy?.rows) ? yoy.rows : [];
+      const metric = state.metric || 'amount';
+
+      if(!rows.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 6;
+        td.className = 'text-xs muted';
+        td.textContent = 'No rows for selected filters.';
+        tr.appendChild(td);
+        tb.appendChild(tr);
+        return;
+      }
+
+      // group by slot+category
+      const map = new Map();
+      for(const r of rows){
+        const key = (r.slotLabel || r.slot || r.slotKey || 'All') + '|' + (r.category || r.cat || 'all');
+        const rec = map.get(key) || {
+          slotLabel: r.slotLabel || r.slot || r.slotKey || 'All',
+          category: r.category || r.cat || 'all',
+          base:0, cmp:0
+        };
+        const year = Number(r.year || r.yr || 0);
+        const val = pickMetric(r, metric);
+        if(year === state.baseYear) rec.base += val;
+        if(year === state.compareYear) rec.cmp += val;
+        map.set(key, rec);
+      }
+
+      const series = Array.from(map.values()).sort((a,b)=>{
+        if(a.slotLabel === b.slotLabel){
+          return String(a.category).localeCompare(String(b.category));
+        }
+        return String(a.slotLabel).localeCompare(String(b.slotLabel));
+      });
+
+      for(const s of series){
+        const tr = document.createElement('tr');
+        const delta = (s.cmp || 0) - (s.base || 0);
+        const pctStr = pct(delta, s.base);
+
+        const baseTxt = state.metric === 'amount' ? money(s.base) : (s.base || 0).toLocaleString();
+        const cmpTxt  = state.metric === 'amount' ? money(s.cmp) : (s.cmp || 0).toLocaleString();
+        const deltaTxt = state.metric === 'amount' ? money(delta) : delta.toLocaleString();
+
+        const pillClass =
+          delta > 0 ? 'pill green' :
+          delta < 0 ? 'pill red' :
+          'pill gray';
+
+        tr.innerHTML = `
+          <td class="text-xs">${s.slotLabel}</td>
+          <td class="text-xs">${s.category}</td>
+          <td class="text-xs text-right">${baseTxt}</td>
+          <td class="text-xs text-right">${cmpTxt}</td>
+          <td class="text-xs text-right">${deltaTxt}</td>
+          <td class="text-xs text-right"><span class="${pillClass}">${pctStr}</span></td>
+        `;
+        tb.appendChild(tr);
+      }
+    }
+
+    // ---------- EXPORT + PRINT ----------
+    function exportYoYCsv(){
+      const yoy = state.yoy;
+      const rows = Array.isArray(yoy?.rows) ? yoy.rows : [];
+      if(!rows.length){
+        alert('No data to export yet.');
+        return;
+      }
+      const metric = state.metric || 'amount';
+      const header = [
+        'year',
+        'slotKey',
+        'slotLabel',
+        'category',
+        'metric',
+        'value',
+        'orders',
+        'purchasers',
+        'items'
+      ];
+      const lines = [header.join(',')];
+
+      for(const r of rows){
+        const year = r.year || r.yr || '';
+        const slotKey = r.slotKey || r.slot || '';
+        const slotLabel = (r.slotLabel || '').replace(/"/g,'""');
+        const category = r.category || r.cat || '';
+
+        const value = pickMetric(r, metric);
+        const orders = Number(r.orders || r.orderCount || 0);
+        const purchasers = Number(r.purchasers || r.buyerCount || 0);
+        const items = Number(r.items || r.itemCount || 0);
+
+        const rowCsv = [
+          year,
+          `"${slotKey}"`,
+          `"${slotLabel}"`,
+          `"${category}"`,
+          metric,
+          value,
+          orders,
+          purchasers,
+          items
+        ].join(',');
+        lines.push(rowCsv);
+      }
+
+      const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().split('T')[0];
+      a.href = url;
+      a.download = `amaranth-yoy-${today}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // ---------- Wire events ----------
     document.getElementById('yCategory').addEventListener('change', ()=>{
-      state.category = $('#yCategory').value || 'all';
-      syncSlotOptions();
+      state.category = $('#yCategory').value || '';
+      loadYoy();
     });
     document.getElementById('ySlot').addEventListener('change', ()=>{
       state.slot = $('#ySlot').value || 'all';
+      loadYoy();
     });
     document.getElementById('yBase').addEventListener('change', ()=>{
-      state.baseYear = Number($('#yBase').value||0) || state.baseYear;
+      state.baseYear = Number($('#yBase').value || 0) || null;
+      loadYoy();
     });
     document.getElementById('yCompare').addEventListener('change', ()=>{
-      state.compareYear = Number($('#yCompare').value||0) || state.compareYear;
+      state.compareYear = Number($('#yCompare').value || 0) || null;
+      loadYoy();
     });
     document.getElementById('yMetric').addEventListener('change', ()=>{
       state.metric = $('#yMetric').value || 'amount';
-      loadYoy();
+      if(state.yoy){
+        updateHeadline(state.yoy);
+        updateCharts(state.yoy);
+        updateBreakdown(state.yoy);
+      }
     });
-    document.getElementById('btnRefresh').addEventListener('click', loadYoy);
 
-    // ---- Init ----
+    document.getElementById('btnYoYPrint').addEventListener('click', ()=>{
+      window.print();
+    });
+    document.getElementById('btnYoYExport').addEventListener('click', exportYoYCsv);
+
+    // ---------- Init ----------
     (async function init(){
       await loadIndex();
       await loadYoy();
