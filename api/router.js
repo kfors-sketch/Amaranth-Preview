@@ -68,6 +68,9 @@ import {
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
+// NEW: scheduler debug helper
+import { debugScheduleForItem } from "./admin/debug.js";
+
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -1501,6 +1504,29 @@ export default async function handler(req, res) {
 
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
+
+      // --- NEW: scheduler debug endpoint (admin-only) ---
+      if (action === "debug_schedule") {
+        const id = String(
+          body?.id || url.searchParams.get("id") || ""
+        ).trim();
+
+        if (!id) {
+          return REQ_ERR(res, 400, "missing-id", {
+            message: "Missing id (body.id or ?id=)",
+          });
+        }
+
+        try {
+          const result = await debugScheduleForItem(id);
+          return REQ_OK(res, result);
+        } catch (e) {
+          console.error("debug_schedule failed:", e?.message || e);
+          return REQ_ERR(res, 500, "debug-failed", {
+            message: e?.message || String(e),
+          });
+        }
+      }
 
       // --- SAFE ADMIN-ONLY PURGE OF ORDERS ---
       if (action === "purge_orders") {
