@@ -86,6 +86,20 @@
     </div>
 
     <div class="card">
+      <h3>Item Schedule Debug <span class="badge">POST action=debug_schedule&amp;id=&lt;itemId&gt;</span></h3>
+      <p>
+        Calls the <code>debug_schedule</code> endpoint in <code>/api/router</code> to inspect
+        the current report schedule and publish window for a specific item ID.
+      </p>
+      <label for="debugItemId">Item ID to debug</label>
+      <input type="text" id="debugItemId" placeholder="e.g. banquet_trails, addon_directory, product_coin" />
+      <small>Uses your current admin token for authorization.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnDebugSchedule" class="primary">Run Schedule Debug</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Output</h3>
       <p>
         Results from the selected action will appear here as formatted JSON.
@@ -107,7 +121,10 @@
     const btnSmoketest = document.getElementById("btnSmoketest");
     const btnLastMail = document.getElementById("btnLastMail");
     const btnTestResend = document.getElementById("btnTestResend");
+    const btnDebugSchedule = document.getElementById("btnDebugSchedule");
+
     const resendToInput = document.getElementById("resendTo");
+    const debugItemIdInput = document.getElementById("debugItemId");
 
     function getToken() {
       try {
@@ -125,7 +142,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      [btnSmoketest, btnLastMail, btnTestResend].forEach((b) => {
+      [btnSmoketest, btnLastMail, btnTestResend, btnDebugSchedule].forEach((b) => {
         if (!b) return;
         b.disabled = disabled;
       });
@@ -230,10 +247,50 @@
       }
     }
 
+    async function runDebugSchedule() {
+      const id = (debugItemIdInput.value || "").trim();
+      if (!id) {
+        showError("Please enter an item ID first.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running schedule debug…";
+      outputEl.textContent = "";
+
+      try {
+        const url = API_BASE + "?action=debug_schedule&id=" + encodeURIComponent(id);
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            ...authHeaders(),
+          },
+          body: "{}"
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            (data && (data.message || data.error)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Schedule debug for " + id, data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
     // Wire up events
     btnSmoketest.addEventListener("click", runSmoketest);
     btnLastMail.addEventListener("click", loadLastMail);
     btnTestResend.addEventListener("click", runTestResend);
+    btnDebugSchedule.addEventListener("click", runDebugSchedule);
 
     // Init auth status
     (function initAuthStatus() {
