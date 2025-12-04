@@ -30,16 +30,13 @@
         const expRaw = localStorage.getItem(TOKEN_EXP_KEY) || '0';
         const exp = parseInt(expRaw, 10) || 0;
 
-        // No token or expired token → force login
         if (!token || Date.now() > exp) {
-          // Clean up any stale values (new + old scheme)
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(TOKEN_EXP_KEY);
           localStorage.removeItem('amaranth_admin_pw_ok');
           window.location.replace('/admin/reporting_login.html');
         }
       } catch (e) {
-        // If localStorage fails, force login
         window.location.replace('/admin/reporting_login.html');
       }
     })();
@@ -54,7 +51,6 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="pill">Admin Mode</span>
-        <!-- Main site button -->
         <a class="btn ghost" href="/index.html" style="height:34px;display:inline-flex;align-items:center">← Main Site</a>
         <button id="logoutBtn" class="btn ghost" style="height:34px;">Log Out</button>
       </div>
@@ -68,7 +64,6 @@
         <a class="btn" href="/admin/reporting_main.html">Open Reporting</a>
       </div>
 
-      <!-- NEW: Year-over-Year Reporting card -->
       <div class="card">
         <h2>Year-over-Year Reports</h2>
         <p>Compare totals by year, category, and time slot with charts and breakdowns.</p>
@@ -83,23 +78,29 @@
 
       <div class="card">
         <h2>Banquet Manager</h2>
-        <p>Edit IDs, chairs, emails, meal choices, publish window, price, location, and notes for each banquet or add-on.</p>
+        <p>Edit IDs, chairs, emails, meal choices, publish window, price, location, and notes.</p>
         <a class="btn" href="/admin/banquets.html">Open Banquet Manager</a>
       </div>
 
-      <!-- Grand Court Add-Ons -->
       <div class="card">
          <h2>Add-Ons Manager</h2>
          <p>Create and edit add-ons (price, active, publish window, notes).</p>
          <a class="btn" href="/admin/addons.html">Open Add-Ons</a>
       </div>
 
-      <!-- Product Catalog -->
       <div class="card">
         <h2>Catalog Manager</h2>
         <p>Manage product catalog (SKU, price, stock, image, options, description).</p>
         <a class="btn" href="/admin/catalog.html">Open Catalog</a>
       </div>
+
+      <!-- ⭐ NEW DEBUG TOOLS CARD ⭐ -->
+      <div class="card">
+        <h2>Debug Tools</h2>
+        <p>Run smoketests, check mail logs, and send test emails.</p>
+        <a class="btn" href="/admin/debug.html">Open Debug Tools</a>
+      </div>
+
     </section>
   </main>
 
@@ -107,16 +108,14 @@
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', ()=>{
       try {
-        // Clear new token + expiry
         localStorage.removeItem('amaranth_report_token');
         localStorage.removeItem('amaranth_report_token_exp');
-        // Clear old flag just in case
         localStorage.removeItem('amaranth_admin_pw_ok');
       } catch (e) {}
       location.href = '/admin/reporting_login.html';
     });
 
-    // Maintenance status pill (use router settings endpoint)
+    // Maintenance status pill
     (async function(){
       const pill = document.getElementById('maintPill');
       try{
@@ -140,7 +139,6 @@
         }
         pill.style.display = 'inline-flex';
       }catch(e){
-        // If settings fail, just hide the pill quietly
         pill.style.display = 'none';
       }
     })();
