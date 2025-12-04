@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amaranth Admin — Debug Tools</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:900px;margin:24px auto;padding:0 16px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    h1{margin:0;font-size:22px}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;font-weight:600;font-size:12px;border-radius:999px;padding:4px 10px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px;margin-bottom:16px}
+    .card h3{margin:0 0 8px;font-size:15px}
+    .card p{margin:0 0 8px;font-size:13px;color:#4b5563}
+    .btn-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+    button{cursor:pointer;border-radius:999px;border:1px solid #d1d5db;background:#f9fafb;font-size:13px;padding:6px 12px;display:inline-flex;align-items:center;gap:6px}
+    button.primary{background:#4f46e5;color:#fff;border-color:#4f46e5}
+    button.danger{background:#b91c1c;color:#fff;border-color:#b91c1c}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    label{font-size:13px;color:#374151;display:block;margin-bottom:4px}
+    input[type="email"],input[type="text"]{
+      width:100%;max-width:320px;padding:6px 8px;border-radius:8px;border:1px solid #d1d5db;font-size:13px;
+    }
+    small{font-size:11px;color:#6b7280}
+    pre{
+      background:#020617;color:#e5e7eb;border-radius:8px;
+      padding:10px;font-size:12px;overflow:auto;max-height:360px;
+      border:1px solid #0f172a;
+    }
+    .badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 8px;font-size:11px;background:#eef2ff;color:#3730a3;margin-left:6px}
+    .status-ok{color:#166534}
+    .status-bad{color:#b91c1c}
+    .token-warning{font-size:12px;color:#b91c1c;margin-top:6px}
+    a.admin-link{font-size:13px;color:#4f46e5;text-decoration:none}
+    a.admin-link:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Debug Tools</h1>
+        <div class="pill">Danger — use on production with care</div>
+      </div>
+      <nav>
+        <a class="admin-link" href="/admin/index.html">← Admin Hub</a>
+      </nav>
+    </header>
+
+    <div class="card">
+      <h3>Auth / Context</h3>
+      <p id="authStatus">Checking admin token…</p>
+      <p class="token-warning" id="tokenWarning" style="display:none;">
+        No admin token found. Please log in via <a href="/admin/login.html" class="admin-link">Admin Login</a> first.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Environment Smoketest <span class="badge">GET ?type=smoketest</span></h3>
+      <p>Checks Node version, Stripe keys, Resend, and KV connectivity in one shot.</p>
+      <div class="btn-row">
+        <button id="btnSmoketest" class="primary">Run Smoketest</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Last Mail Log <span class="badge">GET ?type=lastmail</span></h3>
+      <p>Fetches the most recent mail log entry stored under <code>MAIL_LOG_KEY</code>.</p>
+      <div class="btn-row">
+        <button id="btnLastMail">Load Last Mail Log</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Manual Resend Test <span class="badge">POST action=test_resend</span></h3>
+      <p>Queues a simple test email via Resend to confirm outgoing mail is working.</p>
+      <label for="resendTo">Send test email to</label>
+      <input type="email" id="resendTo" placeholder="someone@example.com" />
+      <small>If left blank, it will use the first address from REPORTS_BCC / REPORTS_CC.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnTestResend" class="primary">Send Test Email</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Output</h3>
+      <p>
+        Results from the selected action will appear here as formatted JSON.
+        <span id="outputStatus" class="status-ok"></span>
+      </p>
+      <pre id="output">{ }</pre>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "/api/router";
+    const TOKEN_KEY = "amaranth_report_token";
+
+    const authStatusEl = document.getElementById("authStatus");
+    const tokenWarningEl = document.getElementById("tokenWarning");
+    const outputEl = document.getElementById("output");
+    const outputStatusEl = document.getElementById("outputStatus");
+
+    const btnSmoketest = document.getElementById("btnSmoketest");
+    const btnLastMail = document.getElementById("btnLastMail");
+    const btnTestResend = document.getElementById("btnTestResend");
+    const resendToInput = document.getElementById("resendTo");
+
+    function getToken() {
+      try {
+        return localStorage.getItem(TOKEN_KEY) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    function authHeaders() {
+      const token = getToken();
+      const h = {};
+      if (token) h["Authorization"] = "Bearer " + token;
+      return h;
+    }
+
+    function setButtonsDisabled(disabled) {
+      [btnSmoketest, btnLastMail, btnTestResend].forEach((b) => {
+        if (!b) return;
+        b.disabled = disabled;
+      });
+    }
+
+    function showJSON(label, data) {
+      outputStatusEl.textContent = label ? " – " + label : "";
+      try {
+        outputEl.textContent = JSON.stringify(data, null, 2);
+      } catch {
+        outputEl.textContent = String(data);
+      }
+    }
+
+    function showError(err) {
+      outputStatusEl.textContent = " – Error";
+      outputStatusEl.classList.remove("status-ok");
+      outputStatusEl.classList.add("status-bad");
+      outputEl.textContent = String(err && err.message ? err.message : err);
+    }
+
+    async function runSmoketest() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running smoketest…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=smoketest", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data && data.error ? data.error : "HTTP " + res.status);
+        }
+        showJSON("Smoketest OK", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function loadLastMail() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Loading last mail log…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=lastmail", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data && data.error ? data.error : "HTTP " + res.status);
+        }
+        showJSON("Last mail log", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runTestResend() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Sending test email…";
+      outputEl.textContent = "";
+
+      const to = (resendToInput.value || "").trim();
+
+      try {
+        const res = await fetch(API_BASE + "?action=test_resend", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+          body: JSON.stringify(to ? { to } : {}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data && data.message ? data.message : "HTTP " + res.status);
+        }
+        showJSON("Test email queued", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    // Wire up events
+    btnSmoketest.addEventListener("click", runSmoketest);
+    btnLastMail.addEventListener("click", loadLastMail);
+    btnTestResend.addEventListener("click", runTestResend);
+
+    // Init auth status
+    (function initAuthStatus() {
+      const token = getToken();
+      if (token) {
+        authStatusEl.innerHTML = `Admin token: <span class="status-ok">present</span>`;
+        tokenWarningEl.style.display = "none";
+      } else {
+        authStatusEl.innerHTML = `Admin token: <span class="status-bad">missing</span>`;
+        tokenWarningEl.style.display = "block";
+      }
+    })();
+  </script>
+</body>
+</html>
