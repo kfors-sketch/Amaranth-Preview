@@ -69,8 +69,16 @@ import {
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
-// NEW: scheduler debug helper (moved out of /api to /admin)
-import { debugScheduleForItem } from "../admin/debug.js";
+// NEW: debug helpers (smoketest, mail, token, stripe, resend, scheduler)
+import {
+  handleSmoketest,
+  handleLastMail,
+  debugScheduleForItem,
+  handleTokenTest,
+  handleStripeTest,
+  handleResendTest,
+  handleSchedulerDiagnostic,
+} from "../admin/debug.js";
 
 // ---- Admin auth helper ----
 // Uses KV-backed admin tokens issued by handleAdminLogin()
@@ -116,36 +124,40 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
+      // DEBUG: smoketest (uses admin/debug.js)
       if (type === "smoketest") {
-        const out = {
-          ok: true,
-          node: process.versions?.node || "unknown",
-          runtime: process.env.VERCEL ? "vercel" : "local",
-          hasSecret: !!process.env.STRIPE_SECRET_KEY,
-          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
-          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
-          hasResendEnv: !!process.env.RESEND_API_KEY,
-          hasResendClient: !!resend,
-          fromTrimmed: RESEND_FROM,
-          kvSetGetOk: false,
-        };
-        try {
-          await kv.set("smoketest:key", "ok", { ex: 30 });
-        } catch {}
-        try {
-          const v = await kv.get("smoketest:key");
-          out.kvSetGetOk = v === "ok";
-        } catch (e) {
-          out.kvError = String(e?.message || e);
-        }
+        const out = await handleSmoketest();
         return REQ_OK(res, out);
       }
 
+      // DEBUG: last mail log (uses admin/debug.js)
       if (type === "lastmail") {
-        const data = await kvGetSafe(MAIL_LOG_KEY, {
-          note: "no recent email log",
-        });
-        return REQ_OK(res, data);
+        const out = await handleLastMail();
+        return REQ_OK(res, out);
+      }
+
+      // NEW DEBUG: token test (checks REPORT_TOKEN vs Authorization header)
+      if (type === "debug_token") {
+        const out = await handleTokenTest(req);
+        return REQ_OK(res, out);
+      }
+
+      // NEW DEBUG: stripe connectivity check
+      if (type === "debug_stripe") {
+        const out = await handleStripeTest();
+        return REQ_OK(res, out);
+      }
+
+      // NEW DEBUG: resend test (optional ?to=email)
+      if (type === "debug_resend") {
+        const out = await handleResendTest(req);
+        return REQ_OK(res, out);
+      }
+
+      // NEW DEBUG: scheduler diagnostic (all windows + normalization)
+      if (type === "debug_scheduler") {
+        const out = await handleSchedulerDiagnostic();
+        return REQ_OK(res, out);
       }
 
       // NEW: list all years we have indexed (for dropdowns / filters)
