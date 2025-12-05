@@ -71,10 +71,18 @@ import {
 // NEW: scheduler debug helper
 import { debugScheduleForItem } from "./admin/debug.js";
 
+// Static admin secret from env (fallback / legacy)
+// Prefers ADMIN_PASSWORD, falls back to REPORT_TOKEN if present.
+const STATIC_ADMIN_SECRET = (
+  process.env.ADMIN_PASSWORD ||
+  process.env.REPORT_TOKEN ||
+  ""
+).trim();
+
 // ---- Admin auth helper ----
-// Uses either:
-//  - legacy static REPORT_TOKEN or ADMIN_PASSWORD (for backward compatibility), OR
-//  - new KV-backed admin tokens issued by handleAdminLogin()
+// Accepts either:
+//  - STATIC_ADMIN_SECRET (ADMIN_PASSWORD / REPORT_TOKEN), OR
+//  - KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
   const rawAuth =
@@ -95,23 +103,15 @@ async function requireAdminAuth(req, res) {
     return false;
   }
 
-  // 1) Allow legacy static tokens for now:
-  //    - REPORT_TOKEN (old env)
-  //    - ADMIN_PASSWORD (your current env)
-  const legacy = (
-    process.env.REPORT_TOKEN ||
-    process.env.ADMIN_PASSWORD ||
-    ""
-  ).trim();
-
-  if (legacy && token === legacy) {
+  // 1) Static secret (ADMIN_PASSWORD / REPORT_TOKEN)
+  if (STATIC_ADMIN_SECRET && token === STATIC_ADMIN_SECRET) {
     return true;
   }
 
   // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
-    if (result.ok) return true;
+    if (result && result.ok) return true;
   } catch (e) {
     console.error("verifyAdminToken failed:", e?.message || e);
   }
@@ -443,46 +443,52 @@ export default async function handler(req, res) {
           ? JSON.parse(req.body || "{}")
           : req.body || {};
 
-      // --- NEW: High-security admin login (Option 3) ---
+      // --- High-security admin login with static fallback ---
       if (action === "admin_login") {
-        try {
-          const ip =
-            req.headers["x-forwarded-for"] ||
-            req.headers["x-real-ip"] ||
-            req.socket?.remoteAddress ||
-            "";
-          const ua = req.headers["user-agent"] || "";
+        const password = String(body.password || "");
+        const ip =
+          req.headers["x-forwarded-for"] ||
+          req.headers["x-real-ip"] ||
+          req.socket?.remoteAddress ||
+          "";
+        const ua = req.headers["user-agent"] || "";
 
+        // 1) Try the full security.js flow first
+        try {
           const result = await handleAdminLogin({
-            password: String(body.password || ""),
+            password,
             ip,
             userAgent: ua,
           });
 
-          if (result.ok) {
-            // Contains: { ok: true, token, ttlSeconds }
+          if (result && result.ok && result.token) {
+            // KV-backed token from security.js
             return REQ_OK(res, result);
           }
 
-          const errCode =
-            result.error ||
-            (result.error === "locked_out"
-              ? "locked_out"
-              : "login-failed");
-
-          const status =
-            result.error === "invalid_password" ||
-            result.error === "locked_out"
-              ? 401
-              : 500;
-
-          return REQ_ERR(res, status, errCode, result);
+          // If security.js says clearly "invalid password", honor that
+          if (result && result.error === "invalid_password") {
+            return REQ_ERR(res, 401, "invalid_password", result);
+          }
         } catch (e) {
-          console.error("admin_login failed:", e?.message || e);
-          return REQ_ERR(res, 500, "login-failed", {
-            message: e?.message || String(e),
-          });
+          console.error("admin_login via security.js failed:", e?.message || e);
+          // We'll try static fallback below.
         }
+
+        // 2) Static fallback using ADMIN_PASSWORD / REPORT_TOKEN
+        if (!STATIC_ADMIN_SECRET) {
+          return REQ_ERR(res, 500, "admin-password-not-configured");
+        }
+        if (password !== STATIC_ADMIN_SECRET) {
+          return REQ_ERR(res, 401, "invalid_password");
+        }
+
+        // Token is just the static secret; admin pages will send it as Bearer
+        return REQ_OK(res, {
+          ok: true,
+          token: STATIC_ADMIN_SECRET,
+          ttlSeconds: 24 * 60 * 60, // cosmetic; token is static
+        });
       }
 
       // --- Quick manual Resend test (no auth) ---
@@ -1636,7 +1642,7 @@ export default async function handler(req, res) {
           );
         }
 
-        // Clamp weekday to 1â€“7 and store as string
+        // Clamp weekday to 1–7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
