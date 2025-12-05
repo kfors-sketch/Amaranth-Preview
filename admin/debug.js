@@ -1,4 +1,4 @@
-// /api/admin/debug.js
+// admin/debug.js
 import { kv } from "@vercel/kv";
 import {
   normalizeFrequency,
@@ -14,7 +14,7 @@ import {
 } from "./core.js";
 
 /* -------------------------------------------------------------------------- */
-/* 1. Smoketest — verifies KV, runtime, environment                           */
+/* 1. Smoketest — verifies KV, runtime, and key env vars                      */
 /* -------------------------------------------------------------------------- */
 export async function handleSmoketest() {
   const out = {
@@ -25,6 +25,7 @@ export async function handleSmoketest() {
       SITE_BASE_URL: process.env.SITE_BASE_URL ? "set" : "missing",
       REPORT_TOKEN: process.env.REPORT_TOKEN ? "set" : "missing",
     },
+    kv: "not-tested",
   };
 
   try {
@@ -32,6 +33,7 @@ export async function handleSmoketest() {
     const read = await kv.get("debug:smoketest");
     out.kv = read === "ok" ? "ok" : "unexpected-value";
   } catch (err) {
+    out.kv = "error";
     out.kvError = String(err?.message || err);
   }
 
@@ -48,12 +50,16 @@ export async function handleLastMail() {
     });
     return { ok: true, mail: data };
   } catch (err) {
-    return { ok: false, error: "mail-log-failed", message: String(err) };
+    return {
+      ok: false,
+      error: "mail-log-failed",
+      message: String(err?.message || err),
+    };
   }
 }
 
 /* -------------------------------------------------------------------------- */
-/* 3. Debug schedule — existing window computation logic                     */
+/* 3. Debug schedule — window computation for a single item                   */
 /* -------------------------------------------------------------------------- */
 export async function debugScheduleForItem(id) {
   const cfg = (await kv.hgetall(`itemcfg:${id}`)) || {};
@@ -103,31 +109,4 @@ export async function debugScheduleForItem(id) {
     nowUTC: now.toISOString(),
     debugWindow,
   };
-}
-
-/* -------------------------------------------------------------------------- */
-/* 4. Router-facing dispatcher — clean import into router.js                  */
-/* -------------------------------------------------------------------------- */
-export async function handleDebugRoute(type, body, url) {
-  switch (type) {
-    case "smoketest":
-      return await handleSmoketest();
-
-    case "lastmail":
-      return await handleLastMail();
-
-    case "debug_schedule": {
-      const id =
-        body?.id ||
-        url.searchParams.get("id") ||
-        null;
-      if (!id) {
-        return { ok: false, error: "missing-id" };
-      }
-      return await debugScheduleForItem(String(id));
-    }
-
-    default:
-      return { ok: false, error: "unknown-debug-action", type };
-  }
 }
