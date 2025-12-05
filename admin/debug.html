@@ -67,6 +67,40 @@
     </div>
 
     <div class="card">
+      <h3>Admin Token Test <span class="badge">GET ?type=debug_token</span></h3>
+      <p>
+        Asks the server to compare your current <code>Authorization</code> header
+        (from <code>localStorage.amaranth_report_token</code>) against
+        <code>REPORT_TOKEN</code> and report if they match.
+      </p>
+      <div class="btn-row">
+        <button id="btnTokenTest">Run Token Test</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Stripe Connectivity <span class="badge">GET ?type=debug_stripe</span></h3>
+      <p>Lightweight, public-safe check that Stripe is configured and reachable using <code>STRIPE_SECRET_KEY</code>.</p>
+      <div class="btn-row">
+        <button id="btnStripeTest">Run Stripe Test</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Resend API Debug <span class="badge">GET ?type=debug_resend</span></h3>
+      <p>
+        Sends a simple debug email via the <code>admin/debug.js</code> handler using <code>RESEND_API_KEY</code>.
+        Uses <code>?to=</code> if provided, otherwise falls back to <code>REPORTS_LOG_TO</code> / <code>RESEND_FROM</code>.
+      </p>
+      <label for="resendDebugTo">Send debug email to</label>
+      <input type="email" id="resendDebugTo" placeholder="someone@example.com (optional)" />
+      <small>Leave blank to use REPORTS_LOG_TO / RESEND_FROM defaults.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnResendDebug">Run Resend Debug</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Last Mail Log <span class="badge">GET ?type=lastmail</span></h3>
       <p>Fetches the most recent mail log entry stored under <code>MAIL_LOG_KEY</code>.</p>
       <div class="btn-row">
@@ -75,13 +109,27 @@
     </div>
 
     <div class="card">
+      <h3>Scheduler Diagnostic <span class="badge">GET ?type=debug_scheduler</span></h3>
+      <p>
+        Shows daily / weekly / twice-per-month / monthly windows and how various
+        frequency strings normalize via <code>normalizeReportFrequency</code>.
+      </p>
+      <div class="btn-row">
+        <button id="btnSchedulerDiag">Run Scheduler Diagnostic</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Manual Resend Test <span class="badge">POST action=test_resend</span></h3>
-      <p>Queues a simple test email via Resend to confirm outgoing mail is working.</p>
+      <p>
+        Queues a simple test email via the main router
+        (<code>action=test_resend</code>) to confirm outgoing mail is working.
+      </p>
       <label for="resendTo">Send test email to</label>
       <input type="email" id="resendTo" placeholder="someone@example.com" />
       <small>If left blank, it will use the first address from REPORTS_BCC / REPORTS_CC.</small>
       <div class="btn-row" style="margin-top:8px;">
-        <button id="btnTestResend" class="primary">Send Test Email</button>
+        <button id="btnTestResend" class="primary">Send Test Email (router)</button>
       </div>
     </div>
 
@@ -119,11 +167,16 @@
     const outputStatusEl = document.getElementById("outputStatus");
 
     const btnSmoketest = document.getElementById("btnSmoketest");
+    const btnTokenTest = document.getElementById("btnTokenTest");
+    const btnStripeTest = document.getElementById("btnStripeTest");
+    const btnResendDebug = document.getElementById("btnResendDebug");
     const btnLastMail = document.getElementById("btnLastMail");
+    const btnSchedulerDiag = document.getElementById("btnSchedulerDiag");
     const btnTestResend = document.getElementById("btnTestResend");
     const btnDebugSchedule = document.getElementById("btnDebugSchedule");
 
     const resendToInput = document.getElementById("resendTo");
+    const resendDebugToInput = document.getElementById("resendDebugTo");
     const debugItemIdInput = document.getElementById("debugItemId");
 
     function getToken() {
@@ -142,7 +195,16 @@
     }
 
     function setButtonsDisabled(disabled) {
-      [btnSmoketest, btnLastMail, btnTestResend, btnDebugSchedule].forEach((b) => {
+      [
+        btnSmoketest,
+        btnTokenTest,
+        btnStripeTest,
+        btnResendDebug,
+        btnLastMail,
+        btnSchedulerDiag,
+        btnTestResend,
+        btnDebugSchedule
+      ].forEach((b) => {
         if (!b) return;
         b.disabled = disabled;
       });
@@ -150,6 +212,8 @@
 
     function showJSON(label, data) {
       outputStatusEl.textContent = label ? " – " + label : "";
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
       try {
         outputEl.textContent = JSON.stringify(data, null, 2);
       } catch {
@@ -190,6 +254,94 @@
       }
     }
 
+    async function runTokenTest() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running token test…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_token", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            (data && (data.message || data.error)) || "HTTP " + res.status
+          );
+        }
+        const label = data && data.ok ? "Token matches REPORT_TOKEN" : "Token mismatch / error";
+        showJSON(label, data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runStripeTest() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running Stripe test…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_stripe", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Stripe connectivity OK", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runResendDebug() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running Resend debug…";
+      outputEl.textContent = "";
+
+      const to = (resendDebugToInput.value || "").trim();
+      const qs = to ? "?type=debug_resend&to=" + encodeURIComponent(to) : "?type=debug_resend";
+
+      try {
+        const res = await fetch(API_BASE + qs, {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Resend debug email sent", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
     async function loadLastMail() {
       setButtonsDisabled(true);
       outputStatusEl.classList.remove("status-bad");
@@ -216,11 +368,39 @@
       }
     }
 
+    async function runSchedulerDiag() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running scheduler diagnostic…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_scheduler", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Scheduler diagnostic", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
     async function runTestResend() {
       setButtonsDisabled(true);
       outputStatusEl.classList.remove("status-bad");
       outputStatusEl.classList.add("status-ok");
-      outputStatusEl.textContent = " – Sending test email…";
+      outputStatusEl.textContent = " – Sending test email (router)…";
       outputEl.textContent = "";
 
       const to = (resendToInput.value || "").trim();
@@ -239,7 +419,7 @@
         if (!res.ok) {
           throw new Error(data && data.message ? data.message : "HTTP " + res.status);
         }
-        showJSON("Test email queued", data);
+        showJSON("Test email queued (router)", data);
       } catch (e) {
         showError(e);
       } finally {
@@ -288,11 +468,15 @@
 
     // Wire up events
     btnSmoketest.addEventListener("click", runSmoketest);
+    btnTokenTest.addEventListener("click", runTokenTest);
+    btnStripeTest.addEventListener("click", runStripeTest);
+    btnResendDebug.addEventListener("click", runResendDebug);
     btnLastMail.addEventListener("click", loadLastMail);
+    btnSchedulerDiag.addEventListener("click", runSchedulerDiag);
     btnTestResend.addEventListener("click", runTestResend);
     btnDebugSchedule.addEventListener("click", runDebugSchedule);
 
-    // Init auth status
+    // Init auth status (client-side quick check)
     (function initAuthStatus() {
       const token = getToken();
       if (token) {
