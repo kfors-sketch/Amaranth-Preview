@@ -2,16 +2,59 @@
 import { kv } from "@vercel/kv";
 import {
   normalizeFrequency,
-} from "./report-scheduler.js";
-
-import {
   computeDailyWindow,
   computeWeeklyWindow,
   computeTwicePerMonthWindow,
-  computeMonthlyWindow
+  computeMonthlyWindow,
 } from "./report-scheduler.js";
 
-// Exposed function to be called from router.js
+import {
+  MAIL_LOG_KEY,
+  kvGetSafe,
+} from "./core.js";
+
+/* -------------------------------------------------------------------------- */
+/* 1. Smoketest — verifies KV, runtime, environment                           */
+/* -------------------------------------------------------------------------- */
+export async function handleSmoketest() {
+  const out = {
+    ok: true,
+    runtime: process.env.VERCEL ? "vercel" : "local",
+    node: process.versions?.node || "unknown",
+    env: {
+      SITE_BASE_URL: process.env.SITE_BASE_URL ? "set" : "missing",
+      REPORT_TOKEN: process.env.REPORT_TOKEN ? "set" : "missing",
+    },
+  };
+
+  try {
+    await kv.set("debug:smoketest", "ok", { ex: 30 });
+    const read = await kv.get("debug:smoketest");
+    out.kv = read === "ok" ? "ok" : "unexpected-value";
+  } catch (err) {
+    out.kvError = String(err?.message || err);
+  }
+
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 2. Last mail log — returns recent email metadata                           */
+/* -------------------------------------------------------------------------- */
+export async function handleLastMail() {
+  try {
+    const data = await kvGetSafe(MAIL_LOG_KEY, {
+      note: "No recent email log found",
+    });
+    return { ok: true, mail: data };
+  } catch (err) {
+    return { ok: false, error: "mail-log-failed", message: String(err) };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 3. Debug schedule — existing window computation logic                     */
+/* -------------------------------------------------------------------------- */
 export async function debugScheduleForItem(id) {
   const cfg = (await kv.hgetall(`itemcfg:${id}`)) || {};
 
@@ -21,9 +64,9 @@ export async function debugScheduleForItem(id) {
   const freqRaw = cfg.reportFrequency ?? cfg.report_frequency;
   const freq = normalizeFrequency(freqRaw);
 
-  // pointer
   const lastWindowEndKey = `itemcfg:${id}:last_window_end_ms`;
   const lastWindowEndRaw = await kv.get(lastWindowEndKey);
+
   let lastWindowEndMs = null;
   if (lastWindowEndRaw != null && lastWindowEndRaw !== "") {
     const n = Number(lastWindowEndRaw);
@@ -31,9 +74,8 @@ export async function debugScheduleForItem(id) {
   }
 
   const now = new Date();
-
-  // Decide window
   let debugWindow;
+
   switch (freq) {
     case "daily":
       debugWindow = computeDailyWindow(now, lastWindowEndMs);
@@ -59,6 +101,33 @@ export async function debugScheduleForItem(id) {
     freqNormalized: freq,
     lastWindowEndMs,
     nowUTC: now.toISOString(),
-    debugWindow
+    debugWindow,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 4. Router-facing dispatcher — clean import into router.js                  */
+/* -------------------------------------------------------------------------- */
+export async function handleDebugRoute(type, body, url) {
+  switch (type) {
+    case "smoketest":
+      return await handleSmoketest();
+
+    case "lastmail":
+      return await handleLastMail();
+
+    case "debug_schedule": {
+      const id =
+        body?.id ||
+        url.searchParams.get("id") ||
+        null;
+      if (!id) {
+        return { ok: false, error: "missing-id" };
+      }
+      return await debugScheduleForItem(String(id));
+    }
+
+    default:
+      return { ok: false, error: "unknown-debug-action", type };
+  }
 }
