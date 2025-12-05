@@ -44,9 +44,22 @@ function normalizeFrequency(raw) {
   return "monthly"; // fallback
 }
 
+// Backwards-compatible alias used by older code (debug.js, router, etc.)
+function normalizeReportFrequency(raw) {
+  return normalizeFrequency(raw);
+}
+
 // Basic UTC date helpers (we do everything in UTC to avoid TZ gaps)
 function startOfUTCDay(d) {
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
+  return Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function addDays(ms, days) {
@@ -81,24 +94,36 @@ function startOfPreviousMonthUTC(now) {
 
 // ISO-week (Mon–Sun) helpers
 function startOfISOWeekUTC(date) {
-  const d = new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate()
-  ));
+  const d = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate()
+    )
+  );
   const day = d.getUTCDay() || 7;
   if (day !== 1) {
     d.setUTCDate(d.getUTCDate() - (day - 1));
   }
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
+  return Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function isoWeekIdUTC(date) {
-  const d = new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate()
-  ));
+  const d = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate()
+    )
+  );
 
   const day = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - day);
@@ -127,7 +152,9 @@ function computePeriodId(freq, now, windowStartMs, windowEndMs) {
   if (f === "weekly") return isoWeekIdUTC(start);
 
   if (f === "twice-per-month") {
-    const ym = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`;
+    const ym = `${start.getUTCFullYear()}-${String(
+      start.getUTCMonth() + 1
+    ).padStart(2, "0")}`;
     const half = start.getUTCDate() <= 15 ? "1" : "2";
     return `${ym}-${half}`;
   }
@@ -163,7 +190,12 @@ function computeWeeklyWindow(now, lastWindowEndMs) {
 
   if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
 
-  return { skip: false, startMs, endMs, label: "Weekly (previous ISO week)" };
+  return {
+    skip: false,
+    startMs,
+    endMs,
+    label: "Weekly (previous ISO week)",
+  };
 }
 
 function computeTwicePerMonthWindow(now, lastWindowEndMs) {
@@ -174,7 +206,12 @@ function computeTwicePerMonthWindow(now, lastWindowEndMs) {
 
   if (lastWindowEndMs == null) {
     if (nowMs < midPoint) return { skip: true, reason: "Not due yet" };
-    return { skip: false, startMs: monthStart, endMs: midPoint, label: "Twice-per-month (1st–15th)" };
+    return {
+      skip: false,
+      startMs: monthStart,
+      endMs: midPoint,
+      label: "Twice-per-month (1st–15th)",
+    };
   }
 
   const lastEnd = lastWindowEndMs;
@@ -184,7 +221,12 @@ function computeTwicePerMonthWindow(now, lastWindowEndMs) {
     const startMs = lastEnd;
     const endMs = midPoint;
     if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
-    return { skip: false, startMs, endMs, label: "Twice-per-month (1st–15th, catch-up)" };
+    return {
+      skip: false,
+      startMs,
+      endMs,
+      label: "Twice-per-month (1st–15th, catch-up)",
+    };
   }
 
   if (lastEnd < nextMonthStart) {
@@ -192,7 +234,12 @@ function computeTwicePerMonthWindow(now, lastWindowEndMs) {
     const startMs = lastEnd;
     const endMs = nextMonthStart;
     if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
-    return { skip: false, startMs, endMs, label: "Twice-per-month (16th–end)" };
+    return {
+      skip: false,
+      startMs,
+      endMs,
+      label: "Twice-per-month (16th–end)",
+    };
   }
 
   return { skip: true, reason: "Not due yet" };
@@ -210,7 +257,12 @@ function computeMonthlyWindow(now, lastWindowEndMs) {
 
   if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
 
-  return { skip: false, startMs, endMs, label: "Monthly (previous calendar month)" };
+  return {
+    skip: false,
+    startMs,
+    endMs,
+    label: "Monthly (previous calendar month)",
+  };
 }
 
 // ---- Main scheduler ----
@@ -252,8 +304,12 @@ export async function runScheduledChairReports({
     const id = item.id;
     const cfg = await kvHgetallSafe(`itemcfg:${id}`);
 
-    const publishStartMs = cfg?.publishStart ? Date.parse(cfg.publishStart) : NaN;
-    const publishEndMs = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
+    const publishStartMs = cfg?.publishStart
+      ? Date.parse(cfg.publishStart)
+      : NaN;
+    const publishEndMs = cfg?.publishEnd
+      ? Date.parse(cfg.publishEnd)
+      : NaN;
 
     const label = cfg?.name || item.label || id;
     const kind = String(cfg?.kind || "").toLowerCase() || item.kind;
@@ -382,9 +438,10 @@ export async function runScheduledChairReports({
   return { sent, skipped, errors, itemsLog };
 }
 
-// ---- REQUIRED BY debug.js (missing before) ----
+// ---- REQUIRED BY debug.js (and any other imports) ----
 export {
   normalizeFrequency,
+  normalizeReportFrequency,
   computeDailyWindow,
   computeWeeklyWindow,
   computeTwicePerMonthWindow,
