@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Amaranth Admin — Reporting Dashboard</title>
   <meta name="robots" content="noindex, nofollow" />
+  <!-- Shared styles (includes .help-btn and modal styles) -->
+  <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
     *,*::before,*::after{box-sizing:border-box}
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
@@ -71,7 +73,15 @@
     .pill-blue{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}
     .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:4px}
     .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
-    .heading-row h2{margin:0;font-size:20px;color:#111827}
+    .heading-row h2{
+      margin:0;
+      font-size:20px;
+      color:#111827;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
     .heading-row .muted{font-size:12px;max-width:420px}
     .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
     @media (max-width:768px){
@@ -93,7 +103,15 @@
   <div class="container">
     <div class="heading-row">
       <div>
-        <h2>Reporting Dashboard</h2>
+        <h2>
+          Reporting Dashboard
+          <button
+            type="button"
+            class="help-btn"
+            data-help-id="reporting_main"
+            aria-label="Help for Reporting Dashboard"
+          >?</button>
+        </h2>
         <p class="muted">Download, email, and inspect registration data. Filters at the top affect most exports.</p>
       </div>
       <div class="heading-actions">
@@ -154,7 +172,15 @@
           <div class="flex between mb-8">
             <div>
               <div class="section-label">Overview</div>
-              <h3>Orders &amp; Payments</h3>
+              <h3>
+                Orders &amp; Payments
+                <button
+                  type="button"
+                  class="help-btn"
+                  data-help-id="reporting_orders"
+                  aria-label="Help for Orders and Payments"
+                >?</button>
+              </h3>
               <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
             </div>
             <div class="text-right">
@@ -200,7 +226,15 @@
       <div class="col">
         <div class="card mb-12">
           <div class="section-label">Local Tools</div>
-          <h3>Import / Export</h3>
+          <h3>
+            Import / Export
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="reporting_import"
+              aria-label="Help for Import and Export"
+            >?</button>
+          </h3>
           <p class="muted">Work offline by importing .json or .csv. This never overwrites data on the server.</p>
           <div class="controls mt-4">
             <div class="group">
@@ -214,7 +248,15 @@
         <!-- WEEKLY-ONLY AUTOMATION -->
         <div class="card mb-12">
           <div class="section-label">Automation</div>
-          <h3>Automated Chair Reports</h3>
+          <h3>
+            Automated Chair Reports
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="reporting_automation"
+              aria-label="Help for Automated Chair Reports"
+            >?</button>
+          </h3>
           <p class="muted">
             Reports are sent <strong>weekly</strong> to banquet, add-on, and catalog chairs on the day you choose below.
           </p>
@@ -249,7 +291,15 @@
         <!-- Item tools -->
         <div class="card mb-12">
           <div class="section-label">Per-item tools</div>
-          <h3>Download / Email by Specific Item</h3>
+          <h3>
+            Download / Email by Specific Item
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="reporting_item_tools"
+              aria-label="Help for Per-item Tools"
+            >?</button>
+          </h3>
           <p class="muted">Pick a category and item to download a focused report or email the chair directly.</p>
 
           <div class="controls mt-4">
@@ -305,7 +355,15 @@
 
         <div class="card">
           <div class="section-label">Quick totals</div>
-          <h3>By Category</h3>
+          <h3>
+            By Category
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="reporting_totals"
+              aria-label="Help for Category Totals"
+            >?</button>
+          </h3>
           <p class="muted">Rough totals for the current filter window. For full accounting, use the exports above.</p>
           <div id="totalsByCategory" class="mt-8 text-sm muted"></div>
         </div>
@@ -563,7 +621,9 @@
 
     document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
       const qs=buildServerQuery();
-      await downloadCsvFrom('/api/router?type=full_attendees_csv'+qs,'amaranth-full-attendees');
+      await downloadServerCsv(qs + (qs ? '&' : '?') + 'full_attendees=1');
+      // or keep your separate endpoint if preferred
+      // await downloadCsvFrom('/api/router?type=full_attendees_csv'+qs,'amaranth-full-attendees');
     });
 
     async function downloadServerCsv(qs){
@@ -807,5 +867,7 @@
       loadReportSettings();
     })();
   </script>
+  <!-- Shared help popup logic -->
+  <script src="/assets/js/admin-help.js"></script>
 </body>
 </html>
