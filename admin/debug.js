@@ -8,6 +8,12 @@
 // - Stripe test
 // - Resend test
 // - Scheduler full diagnostic
+// - Orders index health
+// - Itemcfg index health
+// - Scheduler dry run (no emails)
+// - Chair report preview (per item)
+// - Order preview (per orderId)
+// - Webhook session preview (per Stripe sessionId)
 //
 // NOTE: report-scheduler.js and core.js live in /api/admin, so we import
 // them with ../api/admin/...
@@ -24,10 +30,14 @@ import {
 import {
   MAIL_LOG_KEY,
   kvGetSafe,
+  kvSmembersSafe,
+  kvHgetallSafe,
   resend,
   RESEND_FROM,
   REPORTS_LOG_TO,
   getStripe,
+  flattenOrderToRows,
+  filterRowsByWindow,
 } from "../api/admin/core.js";
 
 /* -------------------------------------------------------------------------- */
@@ -299,4 +309,386 @@ export async function handleSchedulerDiagnostic() {
     windows,
     normalized,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 8. Orders Health — sanity check for orders:index and order:<id>            */
+/* -------------------------------------------------------------------------- */
+export async function handleOrdersHealth() {
+  const ids = await kvSmembersSafe("orders:index");
+  const missing = [];
+  const sampleRows = [];
+  let earliest = null;
+  let latest = null;
+
+  for (const oid of ids) {
+    const o = await kvGetSafe(`order:${oid}`, null);
+    if (!o) {
+      missing.push(oid);
+      continue;
+    }
+
+    const rows = flattenOrderToRows(o);
+    for (const r of rows) {
+      const ts = Date.parse(r.date);
+      if (Number.isFinite(ts)) {
+        if (earliest == null || ts < earliest) earliest = ts;
+        if (latest == null || ts > latest) latest = ts;
+      }
+    }
+
+    if (sampleRows.length < 5) {
+      sampleRows.push(...rows.slice(0, 2));
+    }
+  }
+
+  return {
+    ok: true,
+    totalIndex: ids.length,
+    missingCount: missing.length,
+    missing,
+    earliestISO: earliest ? new Date(earliest).toISOString() : null,
+    latestISO: latest ? new Date(latest).toISOString() : null,
+    sampleRows,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 9. Itemcfg Health — sanity check for itemcfg:index and itemcfg:<id>        */
+/* -------------------------------------------------------------------------- */
+export async function handleItemcfgHealth() {
+  const ids = await kvSmembersSafe("itemcfg:index");
+  const items = [];
+
+  for (const id of ids) {
+    const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+    if (!cfg) {
+      items.push({
+        id,
+        missing: true,
+      });
+      continue;
+    }
+
+    const freq = normalizeReportFrequency(
+      cfg.reportFrequency ?? cfg.report_frequency
+    );
+
+    const chairEmails = Array.isArray(cfg.chairEmails)
+      ? cfg.chairEmails
+      : [];
+
+    items.push({
+      id,
+      name: cfg.name || "",
+      kind: cfg.kind || "",
+      chairCount: chairEmails.length,
+      publishStart: cfg.publishStart || "",
+      publishEnd: cfg.publishEnd || "",
+      reportFrequencyRaw: cfg.reportFrequency ?? cfg.report_frequency ?? "",
+      reportFrequency: freq,
+      missing: false,
+    });
+  }
+
+  return {
+    ok: true,
+    count: items.length,
+    items,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 10. Scheduler Dry Run — what *would* send, no emails                       */
+/* -------------------------------------------------------------------------- */
+export async function handleSchedulerDryRun() {
+  const now = new Date();
+  const nowMs = now.getTime();
+
+  // Load all orders into flat rows once
+  const orderIds = await kvSmembersSafe("orders:index");
+  const allRows = [];
+  for (const oid of orderIds) {
+    const o = await kvGetSafe(`order:${oid}`, null);
+    if (o) {
+      allRows.push(...flattenOrderToRows(o));
+    }
+  }
+
+  // Load all item configs
+  const itemIds = await kvSmembersSafe("itemcfg:index");
+  const itemsLog = [];
+
+  for (const id of itemIds) {
+    const cfg = (await kvHgetallSafe(`itemcfg:${id}`)) || {};
+
+    const freqRaw = cfg.reportFrequency ?? cfg.report_frequency ?? "monthly";
+    const freq = normalizeReportFrequency(freqRaw);
+
+    const publishStart = cfg.publishStart || "";
+    const publishEnd = cfg.publishEnd || "";
+
+    const lastWindowEndKey = `itemcfg:${id}:last_window_end_ms`;
+    const lastWindowEndRaw = await kv.get(lastWindowEndKey);
+    let lastWindowEndMs = null;
+    if (lastWindowEndRaw != null && lastWindowEndRaw !== "") {
+      const n = Number(lastWindowEndRaw);
+      if (Number.isFinite(n)) lastWindowEndMs = n;
+    }
+
+    let windowObj;
+    switch (freq) {
+      case "daily":
+        windowObj = computeDailyWindow(now, lastWindowEndMs);
+        break;
+      case "weekly":
+        windowObj = computeWeeklyWindow(now, lastWindowEndMs);
+        break;
+      case "twice-per-month":
+        windowObj = computeTwicePerMonthWindow(now, lastWindowEndMs);
+        break;
+      case "monthly":
+      default:
+        windowObj = computeMonthlyWindow(now, lastWindowEndMs);
+        break;
+    }
+
+    const startMs = Number.isFinite(windowObj?.startMs)
+      ? windowObj.startMs
+      : null;
+    const endMs = Number.isFinite(windowObj?.endMs)
+      ? windowObj.endMs
+      : null;
+
+    // Rows for this item
+    const idLower = String(id || "").toLowerCase();
+    let rowsForItem = allRows.filter((r) => {
+      const rid = String(r._itemId || r.item_id || "").toLowerCase();
+      return rid === idLower;
+    });
+    const totalRows = rowsForItem.length;
+
+    // Apply window
+    let rowsInWindow = rowsForItem;
+    if (startMs != null || endMs != null) {
+      rowsInWindow = filterRowsByWindow(rowsForItem, {
+        startMs: startMs ?? undefined,
+        endMs: endMs ?? undefined,
+      });
+    }
+
+    // Publish window gating
+    const pubStartMs = publishStart ? Date.parse(publishStart) : NaN;
+    const pubEndMs = publishEnd ? Date.parse(publishEnd) : NaN;
+    const outsidePub =
+      (!isNaN(pubStartMs) && nowMs < pubStartMs) ||
+      (!isNaN(pubEndMs) && nowMs > pubEndMs);
+
+    let reason = "";
+    let wouldSend = false;
+
+    if (outsidePub) {
+      reason = "outside-publish-window";
+    } else if (!rowsInWindow.length) {
+      reason = "no-rows-in-window";
+    } else {
+      wouldSend = true;
+      reason = "ok";
+    }
+
+    const chairEmails = Array.isArray(cfg.chairEmails)
+      ? cfg.chairEmails
+      : [];
+
+    itemsLog.push({
+      id,
+      name: cfg.name || "",
+      kind: cfg.kind || "",
+      freqRaw,
+      freqNormalized: freq,
+      publishStart,
+      publishEnd,
+      lastWindowEndMs,
+      window: windowObj,
+      totalRows,
+      rowsInWindow: rowsInWindow.length,
+      wouldSend,
+      reason,
+      chairEmails,
+    });
+  }
+
+  return {
+    ok: true,
+    nowUTC: now.toISOString(),
+    items: itemsLog,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 11. Chair Report Preview — per-item dry run (no email)                     */
+/* -------------------------------------------------------------------------- */
+export async function handleChairPreview({ id, scope = "full" }) {
+  const itemId = String(id || "").trim();
+  if (!itemId) {
+    return {
+      ok: false,
+      error: "missing-id",
+      message: "Item id is required.",
+    };
+  }
+
+  const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+  if (!cfg) {
+    return {
+      ok: false,
+      error: "itemcfg-not-found",
+      message: `No itemcfg found for ${itemId}`,
+    };
+  }
+
+  const chairEmails = Array.isArray(cfg.chairEmails)
+    ? cfg.chairEmails
+    : [];
+
+  const orderIds = await kvSmembersSafe("orders:index");
+  const allRows = [];
+  for (const oid of orderIds) {
+    const o = await kvGetSafe(`order:${oid}`, null);
+    if (o) allRows.push(...flattenOrderToRows(o));
+  }
+
+  const idLower = itemId.toLowerCase();
+  let rowsForItem = allRows.filter((r) => {
+    const rid = String(r._itemId || r.item_id || "").toLowerCase();
+    return rid === idLower;
+  });
+
+  const totalRows = rowsForItem.length;
+
+  const now = new Date();
+  let rowsInScope = rowsForItem;
+  let scopeInfo = {};
+
+  if (scope === "current-month") {
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
+    );
+    const end = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0)
+    );
+    rowsInScope = filterRowsByWindow(rowsForItem, {
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+    });
+    scopeInfo = {
+      startUTC: start.toISOString(),
+      endUTC: end.toISOString(),
+    };
+  } else if (scope === "full" || !scope) {
+    scope = "full";
+    scopeInfo = { note: "No date filtering applied." };
+  } else {
+    return {
+      ok: false,
+      error: "unsupported-scope",
+      message: `Scope '${scope}' is not supported yet. Use 'full' or 'current-month'.`,
+    };
+  }
+
+  return {
+    ok: true,
+    id: itemId,
+    kind: cfg.kind || "",
+    scope,
+    scopeInfo,
+    chairEmails,
+    totalRows,
+    rowsInScope: rowsInScope.length,
+    sampleRows: rowsInScope.slice(0, 25),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 12. Order Preview — inspect a stored order and its flattened rows          */
+/* -------------------------------------------------------------------------- */
+export async function handleOrderPreview(orderId) {
+  const oid = String(orderId || "").trim();
+  if (!oid) {
+    return {
+      ok: false,
+      error: "missing-id",
+      message: "Order id is required.",
+    };
+  }
+
+  const order = await kvGetSafe(`order:${oid}`, null);
+  if (!order) {
+    return {
+      ok: false,
+      error: "order-not-found",
+      message: `No order stored as order:${oid}`,
+    };
+  }
+
+  const rows = flattenOrderToRows(order);
+
+  return {
+    ok: true,
+    orderId: oid,
+    status: order.status || null,
+    createdAt: order.createdAt || order.created || null,
+    rowCount: rows.length,
+    rows,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 13. Webhook Session Preview — Stripe checkout.session details              */
+/* -------------------------------------------------------------------------- */
+export async function handleWebhookPreview(sessionId) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) {
+    return {
+      ok: false,
+      error: "missing-session-id",
+      message: "Stripe checkout session id is required.",
+    };
+  }
+
+  const stripe = await getStripe();
+  if (!stripe) {
+    return {
+      ok: false,
+      error: "stripe-not-configured",
+      message: "Stripe client is not available.",
+    };
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sid, {
+      expand: ["payment_intent", "line_items"],
+    });
+
+    return {
+      ok: true,
+      session: {
+        id: session.id,
+        payment_status: session.payment_status,
+        amount_total: session.amount_total,
+        currency: session.currency,
+        customer_details: session.customer_details || null,
+        metadata: session.metadata || null,
+        line_items: session.line_items
+          ? session.line_items.data
+          : undefined,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "session-retrieve-failed",
+      message: String(err?.message || err),
+    };
+  }
 }
