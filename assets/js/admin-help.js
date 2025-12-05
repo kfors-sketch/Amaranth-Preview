@@ -1,61 +1,113 @@
 // /assets/js/admin-help.js
-// Lightweight shared help-popup system for all admin pages.
+// Shared help popup system for all admin pages
 (function () {
   "use strict";
 
-  // --- Central help text registry -----------------------------------------
-  // You can edit / expand this later without touching the logic.
-  // Keys are the values you put in data-help-id on your buttons.
+  // -------------------------------------------------------------------------
+  // HELP TEXT REGISTRY
+  // Each key matches a data-help-id="..."
+  // -------------------------------------------------------------------------
   const HELP_TEXT = {
-    // Examples / placeholders — customize these later:
-    banquets: `
-      <p><strong>Banquet Manager</strong> lets you create and edit banquet events,
-      prices, meal choices, and visibility windows. These items appear on the public
-      registration pages when they are marked as active.</p>
+
+    // -------------------------
+    // Reporting Main Page
+    // -------------------------
+
+    reporting_main: `
+      <p><strong>Reporting Dashboard</strong> gives you access to all orders,
+      payments, exports, and automated chair reporting tools.</p>
+      <p>The filters at the top affect most exported files and what you see in
+      the table. Nothing you do here deletes server data — only your local 
+      temporary copy.</p>
+    `,
+
+    reporting_orders: `
+      <p><strong>Orders & Payments</strong> shows individual orders with their
+      payment status, item purchased, buyer information, and amount paid.</p>
       <ul>
-        <li><strong>Status</strong>: Controls whether this banquet is visible to the public.</li>
-        <li><strong>Dates</strong>: Limit when guests can register.</li>
-        <li><strong>Chair email</strong>: Where detailed reports for this item are sent.</li>
+        <li><strong>Click any row</strong> to open the refund window.</li>
+        <li>Status icons show Paid, Pending, or Refunded.</li>
+        <li>The row count and totals update based on your filters.</li>
+      </ul>
+      <p>Use the “Rows shown” menu to limit visible rows for easier scrolling.</p>
+    `,
+
+    reporting_import: `
+      <p><strong>Import & Export</strong> tools allow you to work offline.</p>
+      <ul>
+        <li>You can import a <code>.json</code> or <code>.csv</code> file to 
+        temporarily load data — this does <strong>not</strong> overwrite server 
+        data.</li>
+        <li>“Export Filtered (.xlsx)” downloads a spreadsheet directly from the
+        server, applying whatever filters you have set above.</li>
+        <li>This section is safe to experiment with — you can always reload 
+        fresh data from the server.</li>
       </ul>
     `,
-    addons: `
-      <p><strong>Add-Ons Manager</strong> manages optional items such as charms,
-      pins, program books, and other extras. These can be attached to any order
-      and will be included in reports sent to the assigned chair.</p>
+
+    reporting_automation: `
+      <p><strong>Automated Chair Reports</strong> send weekly email reports to the
+      banquet, add-on, and catalog chairs.</p>
+      <ul>
+        <li>Choose the weekday you want reports sent.</li>
+        <li>These reports contain <strong>per-item data</strong> for each chair’s
+        assigned banquet or add-on.</li>
+        <li>Saving updates both the dashboard and the server settings.</li>
+      </ul>
+      <p>The content of these weekly emails is identical to what chairs get when 
+      you manually use “Email Chair(s)” in the Per-Item Tools section.</p>
     `,
-    reporting_main: `
-      <p><strong>Reporting Dashboard</strong> is the main hub for downloading CSV / Excel
-      reports and sending scheduled email reports to chairs. Use this screen to see
-      orders by item, by date range, and by attendee.</p>
+
+    reporting_item_tools: `
+      <p><strong>Per-item Tools</strong> allow you to download or email reports for
+      a single banquet, add-on, or catalog product.</p>
+      <ul>
+        <li>Select a category, then choose the specific item.</li>
+        <li><strong>Download .xlsx</strong> produces a spreadsheet filtered to 
+        only that item.</li>
+        <li><strong>Email Chair(s)</strong> sends the selected report to the 
+        chair email(s) configured for that item.</li>
+        <li>The “Email scope” menu lets you limit the email to:
+          <ul>
+            <li><strong>Full</strong> — all orders for that item</li>
+            <li><strong>Current month</strong> — 1st to today</li>
+            <li><strong>Custom range</strong> — your chosen dates</li>
+          </ul>
+        </li>
+      </ul>
     `,
-    reporting_yoy: `
-      <p><strong>Year-over-Year Reporting</strong> compares banquet registration and
-      add-on performance across multiple years to help you see trends.</p>
+
+    reporting_totals: `
+      <p><strong>Quick Totals</strong> give a fast summary of how many orders and 
+      how much money each category produced inside your current filter window.</p>
+      <ul>
+        <li>Totals update automatically as you change the filters above.</li>
+        <li>For exact accounting reports, use the exports at the top.</li>
+        <li>This section is meant for quick reference and verifying trends.</li>
+      </ul>
     `,
-    debug_tools: `
-      <p><strong>Debug / Tools</strong> is intended for technical checks such as verifying
-      email configuration, Stripe keys, KV access, and cron status. Use with caution.</p>
-    `,
-    // Fallback if you forget to define something:
+
+    // -------------------------
+    // Fallback text
+    // -------------------------
     _default: `
       <p>No help text has been configured for this item yet.</p>
-      <p>Please ask the site admin to update <code>HELP_TEXT</code> in
+      <p>Please ask the admin to update <code>HELP_TEXT</code> inside 
       <code>/assets/js/admin-help.js</code>.</p>
     `,
   };
 
-  // Expose a tiny hook so you (or future scripts) can extend help from anywhere.
-  // Example in the console:
-  //   window.AdminHelp.register('my_new_id', '<p>Help text...</p>');
-  const AdminHelp = {
+  // Provide a global hook for future pages to add new help entries dynamically
+  window.AdminHelp = {
     register(id, html) {
       if (!id) return;
       HELP_TEXT[id] = String(html || "");
     },
   };
-  window.AdminHelp = AdminHelp;
 
-  // --- DOM helpers ---------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // CREATE/ENSURE MODAL ELEMENT
+  // -------------------------------------------------------------------------
   function ensureModal() {
     let modal = document.getElementById("adminHelpModal");
     if (modal) return modal;
@@ -66,9 +118,9 @@
     modal.setAttribute("aria-hidden", "true");
 
     modal.innerHTML = `
-      <div class="help-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="adminHelpTitle">
+      <div class="help-modal-dialog" role="dialog" aria-modal="true">
         <button type="button" class="help-close" aria-label="Close help">&times;</button>
-        <h2 id="adminHelpTitle" class="help-title">Help</h2>
+        <h2 class="help-title">Help</h2>
         <div class="help-modal-body"></div>
       </div>
     `;
@@ -79,33 +131,20 @@
 
   function openHelpModal(id, overrideTitle) {
     const modal = ensureModal();
-    const dialog = modal.querySelector(".help-modal-dialog");
     const body = modal.querySelector(".help-modal-body");
     const titleEl = modal.querySelector(".help-title");
 
-    const html = HELP_TEXT[id] || HELP_TEXT._default || "";
+    const html = HELP_TEXT[id] || HELP_TEXT._default;
     const title =
       overrideTitle ||
-      guessTitleFromId(id) ||
-      "Help";
+      id.replace(/[_-]+/g, " ").replace(/\b\w/g, m => m.toUpperCase());
 
-    if (titleEl) {
-      titleEl.textContent = title;
-    }
-    if (body) {
-      body.innerHTML = html;
-    }
+    titleEl.textContent = title;
+    body.innerHTML = html;
 
     modal.classList.remove("hide");
     modal.setAttribute("aria-hidden", "false");
-    // prevent background scroll while open
     document.body.classList.add("help-modal-open");
-
-    // focus close button for keyboard users
-    const closeBtn = modal.querySelector(".help-close");
-    if (closeBtn) {
-      closeBtn.focus();
-    }
   }
 
   function closeHelpModal() {
@@ -116,39 +155,31 @@
     document.body.classList.remove("help-modal-open");
   }
 
-  function guessTitleFromId(id) {
-    if (!id) return "";
-    // Turn "reporting_main" into "Reporting Main", etc.
-    return String(id)
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (m) => m.toUpperCase());
-  }
-
-  // --- Event wiring --------------------------------------------------------
-
-  // Delegate clicks for any .help-btn
+  // -------------------------------------------------------------------------
+  // CLICK HANDLERS
+  // -------------------------------------------------------------------------
   document.addEventListener("click", function (evt) {
+    // Open modal
     const btn = evt.target.closest(".help-btn");
     if (btn) {
       const id = btn.getAttribute("data-help-id") || "_default";
       const title =
         btn.getAttribute("data-help-title") ||
         btn.getAttribute("aria-label") ||
-        btn.getAttribute("title") ||
         "";
       openHelpModal(id, title);
       evt.preventDefault();
       return;
     }
 
-    // Close if clicking the close button
+    // Close modal
     if (evt.target.classList.contains("help-close")) {
       closeHelpModal();
       evt.preventDefault();
       return;
     }
 
-    // Close if clicking on the backdrop (outside dialog)
+    // Click outside the dialog closes
     const modal = document.getElementById("adminHelpModal");
     if (modal && evt.target === modal) {
       closeHelpModal();
@@ -157,13 +188,11 @@
     }
   });
 
-  // Close on ESC key
+  // ESC key to close
   document.addEventListener("keydown", function (evt) {
-    if (evt.key === "Escape" || evt.key === "Esc") {
-      const modal = document.getElementById("adminHelpModal");
-      if (modal && !modal.classList.contains("hide")) {
-        closeHelpModal();
-      }
+    if (evt.key === "Escape") {
+      closeHelpModal();
     }
   });
+
 })();
