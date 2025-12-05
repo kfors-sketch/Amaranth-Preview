@@ -59,6 +59,7 @@ import {
 import {
   handleAdminLogin,
   verifyAdminToken,
+  clearAdminLockout,
 } from "./admin/security.js";
 
 // NEW: Year-over-year helpers (orders / purchasers / people / amount)
@@ -71,18 +72,8 @@ import {
 // NEW: scheduler debug helper
 import { debugScheduleForItem } from "./admin/debug.js";
 
-// Static admin secret from env (fallback / legacy)
-// Prefers ADMIN_PASSWORD, falls back to REPORT_TOKEN if present.
-const STATIC_ADMIN_SECRET = (
-  process.env.ADMIN_PASSWORD ||
-  process.env.REPORT_TOKEN ||
-  ""
-).trim();
-
 // ---- Admin auth helper ----
-// Accepts either:
-//  - STATIC_ADMIN_SECRET (ADMIN_PASSWORD / REPORT_TOKEN), OR
-//  - KV-backed admin tokens issued by handleAdminLogin()
+// Uses KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
   const rawAuth =
@@ -103,15 +94,11 @@ async function requireAdminAuth(req, res) {
     return false;
   }
 
-  // 1) Static secret (ADMIN_PASSWORD / REPORT_TOKEN)
-  if (STATIC_ADMIN_SECRET && token === STATIC_ADMIN_SECRET) {
-    return true;
-  }
-
-  // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
-    if (result && result.ok) return true;
+    if (result && result.ok) {
+      return true;
+    }
   } catch (e) {
     console.error("verifyAdminToken failed:", e?.message || e);
   }
@@ -181,7 +168,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, summary);
       }
 
-      // NEW: multi-year summary for graphs (2-graph feature)
+      // NEW: multi-year summary for graphs
       // Accepts:
       //   ?type=year_multi&year=2024&year=2025
       //   or ?type=year_multi&years=2024,2025,2026
@@ -214,12 +201,6 @@ export default async function handler(req, res) {
 
         const raw = await getMultiYearSummary(years);
 
-        // Lightweight structure for graphs:
-        // - totalOrders
-        // - uniqueBuyers
-        // - repeatBuyers
-        // - totalPeople
-        // - totalCents
         const points = raw.map((r) => ({
           year: r.year,
           totalOrders: r.totalOrders || 0,
@@ -443,52 +424,60 @@ export default async function handler(req, res) {
           ? JSON.parse(req.body || "{}")
           : req.body || {};
 
-      // --- High-security admin login with static fallback ---
+      // --- High-security admin login (security.js) ---
       if (action === "admin_login") {
-        const password = String(body.password || "");
+        try {
+          const ip =
+            req.headers["x-forwarded-for"] ||
+            req.headers["x-real-ip"] ||
+            req.socket?.remoteAddress ||
+            "";
+          const ua = req.headers["user-agent"] || "";
+
+          const result = await handleAdminLogin({
+            password: String(body.password || ""),
+            ip,
+            userAgent: ua,
+          });
+
+          if (result.ok) {
+            // { ok: true, token, ttlSeconds }
+            return REQ_OK(res, result);
+          }
+
+          const status =
+            result.error === "invalid_password" ||
+            result.error === "locked_out"
+              ? 401
+              : 500;
+
+          return REQ_ERR(res, status, result.error || "login-failed", result);
+        } catch (e) {
+          console.error("admin_login failed:", e?.message || e);
+          return REQ_ERR(res, 500, "login-failed", {
+            message: e?.message || String(e),
+          });
+        }
+      }
+
+      // OPTIONAL: emergency lockout clear (must be protected somehow if you use it)
+      if (action === "admin_clear_lockout") {
+        // For safety, require the same password as ADMIN_PASSWORD in the body.
+        const pw = String(body.password || "");
+        const pwEnv = (process.env.ADMIN_PASSWORD || "").trim();
+        if (!pwEnv || pw !== pwEnv) {
+          return REQ_ERR(res, 401, "invalid_password");
+        }
         const ip =
           req.headers["x-forwarded-for"] ||
           req.headers["x-real-ip"] ||
           req.socket?.remoteAddress ||
           "";
-        const ua = req.headers["user-agent"] || "";
-
-        // 1) Try the full security.js flow first
-        try {
-          const result = await handleAdminLogin({
-            password,
-            ip,
-            userAgent: ua,
-          });
-
-          if (result && result.ok && result.token) {
-            // KV-backed token from security.js
-            return REQ_OK(res, result);
-          }
-
-          // If security.js says clearly "invalid password", honor that
-          if (result && result.error === "invalid_password") {
-            return REQ_ERR(res, 401, "invalid_password", result);
-          }
-        } catch (e) {
-          console.error("admin_login via security.js failed:", e?.message || e);
-          // We'll try static fallback below.
+        const result = await clearAdminLockout(ip);
+        if (!result.ok) {
+          return REQ_ERR(res, 500, "unlock-failed", result);
         }
-
-        // 2) Static fallback using ADMIN_PASSWORD / REPORT_TOKEN
-        if (!STATIC_ADMIN_SECRET) {
-          return REQ_ERR(res, 500, "admin-password-not-configured");
-        }
-        if (password !== STATIC_ADMIN_SECRET) {
-          return REQ_ERR(res, 401, "invalid_password");
-        }
-
-        // Token is just the static secret; admin pages will send it as Bearer
-        return REQ_OK(res, {
-          ok: true,
-          token: STATIC_ADMIN_SECRET,
-          ttlSeconds: 24 * 60 * 60, // cosmetic; token is static
-        });
+        return REQ_OK(res, result);
       }
 
       // --- Quick manual Resend test (no auth) ---
@@ -677,7 +666,7 @@ export default async function handler(req, res) {
               </tbody>
             </table>
             <p style="margin-top:10px;font-size:12px;color:#555;">
-              Technical details: IP=${esc(ip)} Â· User-Agent=${esc(ua)}
+              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
             </p>
           </div>
         `;
@@ -711,7 +700,7 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "resend-not-configured");
         }
 
-        const subject = `Website contact â€” ${topicLabel}`;
+        const subject = `Website contact — ${topicLabel}`;
 
         const payload = {
           from: RESEND_FROM || "onboarding@resend.dev",
@@ -867,7 +856,6 @@ export default async function handler(req, res) {
           const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
 
-          // Subtotal of cart items (no processing / intl fees yet)
           const subtotalCents = lines.reduce((s, l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle =
@@ -884,7 +872,6 @@ export default async function handler(req, res) {
             }
           }, 0);
 
-          // Base processing fee (your normal pct + flat)
           const feeAmount = Math.max(
             0,
             Math.round(subtotalCents * (pct / 100)) + flatCents
@@ -906,7 +893,6 @@ export default async function handler(req, res) {
             });
           }
 
-          // --- NEW: International card processing fee (3%) ---
           const purchaserCountry = (
             purchaser.country ||
             purchaser.addressCountry ||
@@ -934,7 +920,6 @@ export default async function handler(req, res) {
               "usd"
             );
             if (intlLine && intlLine.price_data?.product_data) {
-              // Ensure a clear label + fee metadata
               intlLine.price_data.product_data.name =
                 intlLine.price_data.product_data.name ||
                 "International Card Processing Fee (3%)";
@@ -945,7 +930,6 @@ export default async function handler(req, res) {
               };
               line_items.push(intlLine);
             } else if (intlLine) {
-              // Fallback if helper didn't build product_data as expected
               line_items.push(intlLine);
             }
           }
@@ -1087,7 +1071,6 @@ export default async function handler(req, res) {
         if (!id || !name)
           return REQ_ERR(res, 400, "id-and-name-required");
 
-        // normalize chair emails
         const emails = Array.isArray(chairEmails)
           ? chairEmails
           : String(chairEmails || "")
@@ -1095,7 +1078,6 @@ export default async function handler(req, res) {
               .map((s) => s.trim())
               .filter(Boolean);
 
-        // merge with existing cfg so we don't lose kind, etc.
         const existing = await kvHgetallSafe(`itemcfg:${id}`);
 
         const freq = normalizeReportFrequency(
@@ -1109,7 +1091,7 @@ export default async function handler(req, res) {
           ...existing,
           id,
           name,
-          kind: kind || existing?.kind || "", // don't guess; keep existing if any
+          kind: kind || existing?.kind || "",
           chairEmails: emails,
           publishStart,
           publishEnd,
@@ -1165,7 +1147,6 @@ export default async function handler(req, res) {
           });
         }
 
-        // Collect all keys to delete (orders index + each order)
         const index = await kvSmembersSafe("orders:index");
         const toDelete = ["orders:index", ...index.map((id) => `order:${id}`)];
 
@@ -1216,11 +1197,8 @@ export default async function handler(req, res) {
       }
 
       if (action === "send_monthly_chair_reports") {
-        // Warm up orders cache once so the helper can reuse it
         await loadAllOrdersWithRetry();
 
-        // Dynamically import the scheduler helper so a problem there
-        // does NOT break normal /api/router traffic (addons, banquets, etc.)
         let schedulerMod;
         try {
           schedulerMod = await import("./admin/report-scheduler.js");
@@ -1237,15 +1215,12 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "scheduler-invalid");
         }
 
-        // Delegate which items to send/skip to the helper
         const { sent, skipped, errors, itemsLog } =
           await runScheduledChairReports({
             now: new Date(),
             sendItemReportEmailInternal,
           });
 
-        // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
-        // including skipped ones and any errors.
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
             .map((s) => s.trim())
@@ -1256,7 +1231,6 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
-            // Start of current month (UTC)
             const firstOfMonth = new Date(
               Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
             );
@@ -1328,7 +1302,7 @@ export default async function handler(req, res) {
               </div>
             `;
 
-            const subject = `Scheduled chair report log â€” ${dateStr}`;
+            const subject = `Scheduled chair report log — ${dateStr}`;
 
             const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
@@ -1624,7 +1598,6 @@ export default async function handler(req, res) {
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS",
-          // Global auto-report controls (UI may use only REPORT_WEEKDAY now)
           "REPORT_FREQUENCY",
           "REPORT_WEEKDAY",
         ].forEach((k) => {
@@ -1635,14 +1608,12 @@ export default async function handler(req, res) {
           allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         }
 
-        // Normalize frequency using the same helper we use for item config
         if ("REPORT_FREQUENCY" in allow) {
           allow.REPORT_FREQUENCY = normalizeReportFrequency(
             allow.REPORT_FREQUENCY
           );
         }
 
-        // Clamp weekday to 1–7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
