@@ -4,6 +4,10 @@
 // - Smoketest for KV + env
 // - Last mail log
 // - Schedule window debugger for a single item
+// - Token test
+// - Stripe test
+// - Resend test
+// - Scheduler full diagnostic
 //
 // NOTE: report-scheduler.js and core.js live in /api/admin, so we import
 // them with ../api/admin/...
@@ -20,6 +24,10 @@ import {
 import {
   MAIL_LOG_KEY,
   kvGetSafe,
+  resend,
+  RESEND_FROM,
+  REPORTS_LOG_TO,
+  getStripe,
 } from "../api/admin/core.js";
 
 /* -------------------------------------------------------------------------- */
@@ -33,6 +41,9 @@ export async function handleSmoketest() {
     env: {
       SITE_BASE_URL: process.env.SITE_BASE_URL ? "set" : "missing",
       REPORT_TOKEN: process.env.REPORT_TOKEN ? "set" : "missing",
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "set" : "missing",
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? "set" : "missing",
+      RESEND_FROM: RESEND_FROM ? "set" : "missing",
     },
     kv: "not-tested",
   };
@@ -44,6 +55,7 @@ export async function handleSmoketest() {
   } catch (err) {
     out.kv = "error";
     out.kvError = String(err?.message || err);
+    out.ok = false;
   }
 
   return out;
@@ -117,5 +129,160 @@ export async function debugScheduleForItem(id) {
     lastWindowEndMs,
     nowUTC: now.toISOString(),
     debugWindow,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 4. Token Test — verifies Authorization bearer matches REPORT_TOKEN         */
+/* -------------------------------------------------------------------------- */
+export async function handleTokenTest(request) {
+  const auth = request.headers.get("authorization") || "";
+  const envToken = (process.env.REPORT_TOKEN || "").trim();
+
+  let providedToken = null;
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    providedToken = auth.slice(7).trim();
+  }
+
+  const matches =
+    !!providedToken && !!envToken && providedToken === envToken;
+
+  return {
+    ok: matches,
+    provided: providedToken ? "yes" : "no",
+    hasHeader: !!auth,
+    hasEnvToken: !!envToken,
+    matches,
+    note: matches
+      ? "Token matches."
+      : "Token mismatch or missing.",
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* 5. Stripe Test — lightweight connectivity (public safe)                    */
+/* -------------------------------------------------------------------------- */
+export async function handleStripeTest() {
+  const out = {
+    ok: true,
+    hasKey: !!process.env.STRIPE_SECRET_KEY,
+    reachable: false,
+    error: null,
+  };
+
+  if (!out.hasKey) {
+    out.ok = false;
+    out.error = "STRIPE_SECRET_KEY missing";
+    return out;
+  }
+
+  try {
+    const stripe = await getStripe();
+    if (!stripe) {
+      out.ok = false;
+      out.error = "Stripe client unavailable";
+      return out;
+    }
+
+    // Simple safe ping
+    await stripe.paymentIntents.list({ limit: 1 });
+    out.reachable = true;
+  } catch (err) {
+    out.ok = false;
+    out.error = String(err?.message || err);
+  }
+
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 6. Resend Test — optional real test email                                  */
+/* -------------------------------------------------------------------------- */
+export async function handleResendTest(request) {
+  const { searchParams } = new URL(request.url);
+  const to =
+    (searchParams.get("to") ||
+      REPORTS_LOG_TO ||
+      RESEND_FROM ||
+      "").trim();
+
+  const out = {
+    ok: true,
+    hasClient: !!resend,
+    hasFrom: !!RESEND_FROM,
+    to,
+    sent: false,
+    error: null,
+  };
+
+  if (!resend) {
+    out.ok = false;
+    out.error = "RESEND_API_KEY missing";
+    return out;
+  }
+  if (!RESEND_FROM) {
+    out.ok = false;
+    out.error = "RESEND_FROM missing";
+    return out;
+  }
+  if (!to) {
+    out.ok = false;
+    out.error = "Recipient missing";
+    return out;
+  }
+
+  try {
+    await resend.emails.send({
+      from: RESEND_FROM,
+      to,
+      subject: "Amaranth Debug — Resend API Test",
+      html: "<p>This is a debug test message.</p>",
+    });
+    out.sent = true;
+  } catch (err) {
+    out.ok = false;
+    out.error = String(err?.message || err);
+  }
+
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 7. Scheduler Diagnostic — all windows + normalization tests                */
+/* -------------------------------------------------------------------------- */
+export async function handleSchedulerDiagnostic() {
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown";
+
+  const windows = {
+    daily: computeDailyWindow(now),
+    weekly: computeWeeklyWindow(now),
+    twicePerMonth: computeTwicePerMonthWindow(now),
+    monthly: computeMonthlyWindow(now),
+  };
+
+  const samples = [
+    "",
+    "daily",
+    "week",
+    "weekly",
+    "twice",
+    "twice-per-month",
+    "monthly",
+    "month",
+    "weird-value",
+  ];
+
+  const normalized = samples.map((s) => ({
+    raw: s,
+    normalized: normalizeReportFrequency(s),
+  }));
+
+  return {
+    ok: true,
+    nowUTC: now.toISOString(),
+    timezone: tz,
+    windows,
+    normalized,
   };
 }
