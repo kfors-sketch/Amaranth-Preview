@@ -1,17 +1,26 @@
 // admin/debug.js
+//
+// Server-side debug helpers used by /api/router:
+// - Smoketest for KV + env
+// - Last mail log
+// - Schedule window debugger for a single item
+//
+// NOTE: report-scheduler.js and core.js live in /api/admin, so we import
+// them with ../api/admin/...
+
 import { kv } from "@vercel/kv";
 import {
-  normalizeFrequency,
+  normalizeReportFrequency,
   computeDailyWindow,
   computeWeeklyWindow,
   computeTwicePerMonthWindow,
   computeMonthlyWindow,
-} from "./report-scheduler.js";
+} from "../api/admin/report-scheduler.js";
 
 import {
   MAIL_LOG_KEY,
   kvGetSafe,
-} from "./core.js";
+} from "../api/admin/core.js";
 
 /* -------------------------------------------------------------------------- */
 /* 1. Smoketest — verifies KV, runtime, and key env vars                      */
@@ -68,7 +77,7 @@ export async function debugScheduleForItem(id) {
   const publishEnd   = cfg.publishEnd   || null;
 
   const freqRaw = cfg.reportFrequency ?? cfg.report_frequency;
-  const freq = normalizeFrequency(freqRaw);
+  const freq = normalizeReportFrequency(freqRaw);
 
   const lastWindowEndKey = `itemcfg:${id}:last_window_end_ms`;
   const lastWindowEndRaw = await kv.get(lastWindowEndKey);
