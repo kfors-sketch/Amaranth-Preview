@@ -68,46 +68,47 @@ import {
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
-// NEW: scheduler debug helper
-import { debugScheduleForItem } from "./admin/debug.js";
+// NEW: debug helpers moved here
+import {
+  handleSmoketest,
+  handleLastMail,
+  debugScheduleForItem,
+} from "./admin/debug.js";
 
 // ---- Admin auth helper ----
 // Uses either:
-//  - legacy static REPORT_TOKEN (for backward compatibility / cron / simple admin), OR
+//  - legacy static REPORT_TOKEN (for backward compatibility), OR
 //  - new KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
-
-  const rawHeader =
-    headers["x-report-token"] ||
-    headers["x-admin-token"] ||
+  const rawAuth =
     headers.authorization ||
     headers.Authorization ||
     "";
 
-  let token = String(rawHeader || "");
-  const lower = token.toLowerCase();
-  if (lower.startsWith("bearer ")) {
-    token = token.slice(7).trim();
-  } else {
-    token = token.trim();
+  const auth = String(rawAuth || "");
+  const lower = auth.toLowerCase();
+  if (!lower.startsWith("bearer ")) {
+    REQ_ERR(res, 401, "unauthorized");
+    return false;
   }
 
+  const token = auth.slice(7).trim();
   if (!token) {
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
 
-  // 1) Allow legacy static REPORT_TOKEN (cron + simple admin pages)
+  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages still work)
   const legacy = (process.env.REPORT_TOKEN || "").trim();
   if (legacy && token === legacy) {
     return true;
   }
 
-  // 2) Check against new admin tokens stored in KV (issued by admin_login)
+  // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
-    if (result?.ok) return true;
+    if (result.ok) return true;
   } catch (e) {
     console.error("verifyAdminToken failed:", e?.message || e);
   }
@@ -125,35 +126,15 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
+      // Moved smoketest into admin/debug.js
       if (type === "smoketest") {
-        const out = {
-          ok: true,
-          node: process.versions?.node || "unknown",
-          runtime: process.env.VERCEL ? "vercel" : "local",
-          hasSecret: !!process.env.STRIPE_SECRET_KEY,
-          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
-          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
-          hasResendEnv: !!process.env.RESEND_API_KEY,
-          hasResendClient: !!resend,
-          fromTrimmed: RESEND_FROM,
-          kvSetGetOk: false,
-        };
-        try {
-          await kv.set("smoketest:key", "ok", { ex: 30 });
-        } catch {}
-        try {
-          const v = await kv.get("smoketest:key");
-          out.kvSetGetOk = v === "ok";
-        } catch (e) {
-          out.kvError = String(e?.message || e);
-        }
+        const out = await handleSmoketest();
         return REQ_OK(res, out);
       }
 
+      // Moved lastmail into admin/debug.js
       if (type === "lastmail") {
-        const data = await kvGetSafe(MAIL_LOG_KEY, {
-          note: "no recent email log",
-        });
+        const data = await handleLastMail();
         return REQ_OK(res, data);
       }
 
@@ -1054,7 +1035,7 @@ export default async function handler(req, res) {
               </tbody>
             </table>
             <p style="margin-top:10px;font-size:12px;color:#555;">
-              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
+              Technical details: IP=${esc(ip)} Â· User-Agent=${esc(ua)}
             </p>
           </div>
         `;
@@ -1088,7 +1069,7 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "resend-not-configured");
         }
 
-        const subject = `Website contact — ${topicLabel}`;
+        const subject = `Website contact â€” ${topicLabel}`;
 
         const payload = {
           from: RESEND_FROM || "onboarding@resend.dev",
@@ -1576,7 +1557,7 @@ export default async function handler(req, res) {
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-full-failed", {
-            message: e?.message || e,
+            message: e?.message || String(e),
           });
         }
       }
@@ -1587,78 +1568,75 @@ export default async function handler(req, res) {
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
           return REQ_ERR(res, 500, "send-mtd-failed", {
-            message: e?.message || e,
+            message: e?.message || String(e),
           });
         }
       }
 
       if (action === "send_monthly_chair_reports") {
-        console.log("send_monthly_chair_reports: starting");
+        // Warm up orders cache once so the helper can reuse it
+        await loadAllOrdersWithRetry();
+
+        // Dynamically import the scheduler helper so a problem there
+        // does NOT break normal /api/router traffic (addons, banquets, etc.)
+        let schedulerMod;
         try {
-          // Warm up orders cache once so the helper can reuse it
-          await loadAllOrdersWithRetry();
+          schedulerMod = await import("./admin/report-scheduler.js");
+        } catch (e) {
+          console.error("Failed to load ./admin/report-scheduler.js", e);
+          return REQ_ERR(res, 500, "scheduler-missing", {
+            message: e?.message || e,
+          });
+        }
 
-          // Dynamically import the scheduler helper so a problem there
-          // does NOT break normal /api/router traffic (addons, banquets, etc.)
-          let schedulerMod;
-          try {
-            schedulerMod = await import("./admin/report-scheduler.js");
-          } catch (e) {
-            console.error("Failed to load ./admin/report-scheduler.js", e);
-            return REQ_ERR(res, 500, "scheduler-missing", {
-              message: e?.message || e,
-            });
-          }
+        const { runScheduledChairReports } = schedulerMod || {};
+        if (typeof runScheduledChairReports !== "function") {
+          console.error("runScheduledChairReports is not a function");
+          return REQ_ERR(res, 500, "scheduler-invalid");
+        }
 
-          const { runScheduledChairReports } = schedulerMod || {};
-          if (typeof runScheduledChairReports !== "function") {
-            console.error("runScheduledChairReports is not a function");
-            return REQ_ERR(res, 500, "scheduler-invalid");
-          }
+        // Delegate which items to send/skip to the helper
+        const { sent, skipped, errors, itemsLog } =
+          await runScheduledChairReports({
+            now: new Date(),
+            sendItemReportEmailInternal,
+          });
 
-          // Delegate which items to send/skip to the helper
-          const { sent, skipped, errors, itemsLog } =
-            await runScheduledChairReports({
-              now: new Date(),
-              sendItemReportEmailInternal,
-            });
+        // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
+        // including skipped ones and any errors.
+        try {
+          const logRecipients = REPORTS_LOG_TO.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
 
-          // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
-          // including skipped ones and any errors.
-          try {
-            const logRecipients = (REPORTS_LOG_TO || "")
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
+          if (resend && logRecipients.length) {
+            const ts = new Date();
+            const dateStr = ts.toISOString().slice(0, 10);
+            const timeStr = ts.toISOString();
 
-            if (resend && logRecipients.length) {
-              const ts = new Date();
-              const dateStr = ts.toISOString().slice(0, 10);
-              const timeStr = ts.toISOString();
+            // Start of current month (UTC)
+            const firstOfMonth = new Date(
+              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
+            );
+            const firstIso = firstOfMonth.toISOString();
 
-              // Start of current month (UTC)
-              const firstOfMonth = new Date(
-                Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
-              );
-              const firstIso = firstOfMonth.toISOString();
+            const esc = (s) =>
+              String(s || "").replace(/</g, "&lt;");
 
-              const esc = (s) =>
-                String(s || "").replace(/</g, "&lt;");
+            const rowsHtml = (itemsLog || []).length
+              ? itemsLog
+                  .map((it, idx) => {
+                    const status = it.skipped
+                      ? "SKIPPED"
+                      : it.ok
+                        ? "OK"
+                        : "ERROR";
+                    const rowsLabel = it.skipped ? "-" : it.count;
+                    const errorText = it.skipped
+                      ? it.skipReason || ""
+                      : it.error || "";
 
-              const rowsHtml = (itemsLog || []).length
-                ? itemsLog
-                    .map((it, idx) => {
-                      const status = it.skipped
-                        ? "SKIPPED"
-                        : it.ok
-                          ? "OK"
-                          : "ERROR";
-                      const rowsLabel = it.skipped ? "-" : it.count;
-                      const errorText = it.skipped
-                        ? it.skipReason || ""
-                        : it.error || "";
-
-                      return `
+                    return `
               <tr>
                 <td style="padding:4px;border:1px solid #ddd;">${idx + 1}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(it.id)}</td>
@@ -1670,11 +1648,11 @@ export default async function handler(req, res) {
                 <td style="padding:4px;border:1px solid #ddd;">${esc((it.bcc || []).join(", "))}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(errorText)}</td>
               </tr>`;
-                    })
-                    .join("")
-                : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
+                  })
+                  .join("")
+              : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
 
-              const html = `
+            const html = `
               <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
@@ -1708,72 +1686,57 @@ export default async function handler(req, res) {
               </div>
             `;
 
-              const subject = `Scheduled chair report log — ${dateStr}`;
+            const subject = `Scheduled chair report log â€” ${dateStr}`;
 
-              const payload = {
-                from: RESEND_FROM || "onboarding@resend.dev",
+            const payload = {
+              from: RESEND_FROM || "onboarding@resend.dev",
+              to: logRecipients,
+              subject,
+              html,
+              reply_to: REPLY_TO || undefined,
+            };
+
+            const retry = await sendWithRetry(
+              () => resend.emails.send(payload),
+              "monthly-log"
+            );
+
+            if (retry.ok) {
+              const sendResult = retry.result;
+              await recordMailLog({
+                ts: Date.now(),
+                from: payload.from,
                 to: logRecipients,
                 subject,
-                html,
-                reply_to: REPLY_TO || undefined,
-              };
-
-              const retry = await sendWithRetry(
-                () => resend.emails.send(payload),
-                "monthly-log"
-              );
-
-              if (retry.ok) {
-                const sendResult = retry.result;
-                await recordMailLog({
-                  ts: Date.now(),
-                  from: payload.from,
-                  to: logRecipients,
-                  subject,
-                  resultId: sendResult?.id || null,
-                  kind: "monthly-log",
-                  status: "queued",
-                });
-              } else {
-                const err = retry.error;
-                await recordMailLog({
-                  ts: Date.now(),
-                  from: payload.from,
-                  to: logRecipients,
-                  subject,
-                  resultId: null,
-                  kind: "monthly-log",
-                  status: "error",
-                  error: String(err?.message || err),
-                });
-              }
+                resultId: sendResult?.id || null,
+                kind: "monthly-log",
+                status: "queued",
+              });
+            } else {
+              const err = retry.error;
+              await recordMailLog({
+                ts: Date.now(),
+                from: payload.from,
+                to: logRecipients,
+                subject,
+                resultId: null,
+                kind: "monthly-log",
+                status: "error",
+                error: String(err?.message || err),
+              });
             }
-          } catch (e) {
-            console.error("monthly_log_email_failed", e?.message || e);
           }
-
-          console.log("send_monthly_chair_reports: done", {
-            sent,
-            skipped,
-            errors,
-          });
-
-          return REQ_OK(res, {
-            ok: true,
-            sent,
-            skipped,
-            errors,
-            scope: "current-month",
-          });
         } catch (e) {
-          console.error(
-            "send_monthly_chair_reports crashed:",
-            e?.message || e
-          );
-          return REQ_ERR(res, 500, "scheduler-run-failed", {
-            message: e?.message || String(e),
-          });
+          console.error("monthly_log_email_failed", e?.message || e);
         }
+
+        return REQ_OK(res, {
+          ok: true,
+          sent,
+          skipped,
+          errors,
+          scope: "current-month",
+        });
       }
 
       if (action === "send_end_of_event_reports") {
@@ -2037,7 +2000,7 @@ export default async function handler(req, res) {
           );
         }
 
-        // Clamp weekday to 1–7 and store as string
+        // Clamp weekday to 1â€“7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
