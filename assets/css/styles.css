@@ -114,4 +114,111 @@ nav a{ font-weight:500; }
   }
 }
 
+/* =========================
+   Admin Help Popups
+========================= */
 
+/* Prevent background scroll while a help modal is open */
+body.help-modal-open{
+  overflow:hidden;
+}
+
+/* Small round help button that sits in card headers, etc. */
+.help-btn{
+  border:none;
+  background:rgba(37,99,235,0.10);
+  color:#1d4ed8;
+  border-radius:999px;
+  width:24px;
+  height:24px;
+  font-size:.85rem;
+  font-weight:600;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+  margin-left:.25rem;
+}
+.help-btn:hover{
+  background:rgba(37,99,235,0.18);
+}
+.help-btn:focus-visible{
+  outline:2px solid #1d4ed8;
+  outline-offset:2px;
+}
+
+/* Full-screen overlay container created by admin-help.js */
+.help-modal{
+  position:fixed;
+  inset:0;
+  padding:1rem;
+  background:rgba(15,23,42,0.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:50;
+}
+.help-modal.hide{
+  display:none;
+}
+
+/* Centered help dialog */
+.help-modal-dialog{
+  position:relative;
+  max-width:480px;
+  width:100%;
+  background:#ffffff;
+  border-radius:.9rem;
+  box-shadow:0 10px 40px rgba(15,23,42,0.40);
+  padding:1.25rem 1.5rem 1.4rem;
+}
+
+/* Title inside modal */
+.help-title{
+  margin:0 0 .5rem 0;
+  font-size:1.1rem;
+  font-weight:700;
+  color:#111827;
+}
+
+/* Scrollable content area if help text is long */
+.help-modal-body{
+  margin-top:.35rem;
+  font-size:.95rem;
+  line-height:1.5;
+  color:#111827;
+  max-height:60vh;
+  overflow:auto;
+}
+.help-modal-body p{
+  margin:.3rem 0;
+}
+.help-modal-body ul{
+  margin:.4rem 0 .4rem 1.25rem;
+  padding:0;
+}
+.help-modal-body li{
+  margin:.2rem 0;
+}
+
+/* Close “X” button in top-right */
+.help-close{
+  position:absolute;
+  top:.45rem;
+  right:.55rem;
+  border:none;
+  background:transparent;
+  font-size:1.4rem;
+  line-height:1;
+  cursor:pointer;
+  padding:0;
+  color:#6b7280;
+}
+.help-close:hover{
+  color:#111827;
+}
+.help-close:focus-visible{
+  outline:2px solid #1d4ed8;
+  outline-offset:2px;
+}
