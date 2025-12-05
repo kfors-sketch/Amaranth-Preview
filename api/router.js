@@ -73,7 +73,7 @@ import { debugScheduleForItem } from "./admin/debug.js";
 
 // ---- Admin auth helper ----
 // Uses either:
-//  - legacy static REPORT_TOKEN (for backward compatibility), OR
+//  - legacy static REPORT_TOKEN or ADMIN_PASSWORD (for backward compatibility), OR
 //  - new KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
@@ -95,8 +95,15 @@ async function requireAdminAuth(req, res) {
     return false;
   }
 
-  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages still work)
-  const legacy = (process.env.REPORT_TOKEN || "").trim();
+  // 1) Allow legacy static tokens for now:
+  //    - REPORT_TOKEN (old env)
+  //    - ADMIN_PASSWORD (your current env)
+  const legacy = (
+    process.env.REPORT_TOKEN ||
+    process.env.ADMIN_PASSWORD ||
+    ""
+  ).trim();
+
   if (legacy && token === legacy) {
     return true;
   }
