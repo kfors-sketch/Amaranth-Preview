@@ -135,8 +135,14 @@ export async function debugScheduleForItem(id) {
 /* -------------------------------------------------------------------------- */
 /* 4. Token Test — verifies Authorization bearer matches REPORT_TOKEN         */
 /* -------------------------------------------------------------------------- */
-export async function handleTokenTest(request) {
-  const auth = request.headers.get("authorization") || "";
+export async function handleTokenTest(req) {
+  const headers = (req && req.headers) || {};
+  const rawAuth =
+    headers.authorization ||
+    headers.Authorization ||
+    "";
+
+  const auth = String(rawAuth || "");
   const envToken = (process.env.REPORT_TOKEN || "").trim();
 
   let providedToken = null;
@@ -149,12 +155,12 @@ export async function handleTokenTest(request) {
 
   return {
     ok: matches,
-    provided: providedToken ? "yes" : "no",
+    providedToken: providedToken || "(none)",
     hasHeader: !!auth,
     hasEnvToken: !!envToken,
     matches,
     note: matches
-      ? "Token matches."
+      ? "Token matches REPORT_TOKEN"
       : "Token mismatch or missing.",
   };
 }
@@ -198,10 +204,18 @@ export async function handleStripeTest() {
 /* -------------------------------------------------------------------------- */
 /* 6. Resend Test — optional real test email                                  */
 /* -------------------------------------------------------------------------- */
-export async function handleResendTest(request) {
-  const { searchParams } = new URL(request.url);
+export async function handleResendTest(req, urlLike) {
+  // Support either a pre-parsed URL (from router) or build from req.url/host
+  let url;
+  if (urlLike && urlLike.searchParams) {
+    url = urlLike;
+  } else {
+    const base = `http://${(req && req.headers && req.headers.host) || "localhost"}`;
+    url = new URL(req.url || "/api/router", base);
+  }
+
   const to =
-    (searchParams.get("to") ||
+    (url.searchParams.get("to") ||
       REPORTS_LOG_TO ||
       RESEND_FROM ||
       "").trim();
