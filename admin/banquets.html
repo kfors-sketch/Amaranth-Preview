@@ -59,7 +59,7 @@
         <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this banquet.</li>
-        <li><b>Year-over-year Slot</b>: optional label (e.g. <code>Sunday Night Banquet</code>) to group with similar events across years.</li>
+        <li><b>Year-over-year Slot</b>: label (e.g. <code>Sunday Night Banquet</code>) to group with similar events across years.</li>
       </ul>
     </section>
 
@@ -142,8 +142,8 @@
         </select>
         <div class="hint">Used by automated chair reports for this banquet.</div>
 
-        <!-- NEW: YoY slot selector -->
-        <label for="f_slot_label">Year-over-year Slot (optional)</label>
+        <!-- YoY slot selector (now required) -->
+        <label for="f_slot_label">Year-over-year Slot</label>
         <select id="f_slot_label"></select>
         <div class="hint">Choose a label (e.g. “Sunday Night Banquet”) to compare this banquet against the same slot in other years.</div>
 
@@ -390,7 +390,7 @@
     // normalize reportFrequency
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // YoY slot fields (all optional)
+    // YoY slot fields
     out.slotScope = out.slotScope || SLOT_KIND;
     out.slotKey = out.slotKey || "";
     out.slotLabel = out.slotLabel || out.slotKey || "";
@@ -644,9 +644,20 @@
     if (!o.name) return 'Name is required.';
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-    if (Number(o.price) < 0) return 'Price cannot be negative.';
-    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
+    if (!o.slotLabel) return 'Year-over-year Slot is required.';
+    if (!o.chair || !o.chair.name) return 'Chairperson Name is required.';
+    if (!o.chairEmails || !o.chairEmails.length) return 'At least one Chair Email is required.';
+    if (!o.eventAt) return 'Event Date/Time is required.';
+
+    const priceNum = Number(o.price);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      return 'Ticket Price must be greater than zero.';
+    }
+
+    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) {
       return 'Publish End must be after Publish Start.';
+    }
+
     for (const em of (o.chairEmails || [])){
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
