@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Amaranth Admin — Year-over-Year</title>
   <meta name="robots" content="noindex, nofollow" />
+
+  <!-- Shared styles (includes .help-btn and modal styles) -->
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+
   <style>
     *,*::before,*::after{box-sizing:border-box}
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f7f7fb;color:#111}
@@ -28,7 +32,15 @@
     .toolbar .spacer{flex:1 1 auto}
     .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:4px}
     .heading-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:12px}
-    .heading-row h2{margin:0;font-size:20px;color:#111827}
+    .heading-row h2{
+      margin:0;
+      font-size:20px;
+      color:#111827;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
     .heading-row .muted{font-size:12px;max-width:420px}
     .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
     .metric-chip{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:2px 8px;font-size:11px;background:#f9fafb;color:#374151;margin-right:4px;margin-bottom:4px}
@@ -83,7 +95,15 @@
   <div class="container">
     <div class="heading-row">
       <div>
-        <h2>Year-over-Year Overview</h2>
+        <h2>
+          Year-over-Year Overview
+          <button
+            type="button"
+            class="help-btn"
+            data-help-id="yoy_main"
+            aria-label="Help for Year-over-Year Overview"
+          >?</button>
+        </h2>
         <p class="muted">
           Compare totals between two years by category and slot (banquets, add-ons, catalog).
         </p>
@@ -99,7 +119,15 @@
     <!-- Filters -->
     <div class="card mb-16">
       <div class="section-label">Filters</div>
-      <h3>Choose years and view</h3>
+      <h3>
+        Choose years and view
+        <button
+          type="button"
+          class="help-btn"
+          data-help-id="yoy_filters"
+          aria-label="Help for Year-over-Year filters"
+        >?</button>
+      </h3>
       <p class="muted">These options control the charts and table below.</p>
       <div class="controls mt-4">
         <div class="group">
@@ -147,7 +175,15 @@
       <div class="col">
         <div class="card mb-12">
           <div class="section-label">Headline</div>
-          <h3 id="yHeadline">No data loaded yet</h3>
+          <h3>
+            <span id="yHeadline">No data loaded yet</span>
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="yoy_headline"
+              aria-label="Help for Year-over-Year headline summary"
+            >?</button>
+          </h3>
           <p class="muted" id="ySubheadline">
             Adjust filters above, then the dashboard will summarize the comparison here.
           </p>
@@ -166,7 +202,15 @@
 
         <div class="card">
           <div class="section-label">Charts</div>
-          <h3>Change by year</h3>
+          <h3>
+            Change by year
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="yoy_charts"
+              aria-label="Help for Year-over-Year charts"
+            >?</button>
+          </h3>
           <p class="muted">Bars show totals for each year; line shows difference between them.</p>
           <div class="chart-row" id="yCharts">
             <div class="chart-box">
@@ -192,7 +236,15 @@
       <div class="col">
         <div class="card">
           <div class="section-label">Breakdown</div>
-          <h3>Per slot / category</h3>
+          <h3>
+            Per slot / category
+            <button
+              type="button"
+              class="help-btn"
+              data-help-id="yoy_breakdown"
+              aria-label="Help for Year-over-Year breakdown table"
+            >?</button>
+          </h3>
           <p class="muted">Rough breakdown of totals for each slot. Export button downloads this as .csv.</p>
           <div class="table-wrap mt-8">
             <table>
@@ -628,5 +680,8 @@
       await loadYoy();
     })();
   </script>
+
+  <!-- Shared help popup logic -->
+  <script src="/assets/js/admin-help.js"></script>
 </body>
 </html>
