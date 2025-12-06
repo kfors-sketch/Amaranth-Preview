@@ -3,6 +3,8 @@
 (function () {
   "use strict";
 
+  console.log("[admin-help] script loaded");
+
   // -------------------------------------------------------------------------
   // HELP TEXT REGISTRY
   // Each key matches a data-help-id="..."
@@ -97,13 +99,22 @@
     `,
   };
 
-  // Provide a global hook for future pages to add new help entries dynamically
+  // Global hook for future pages
+  function showAdminHelp(id, titleOverride) {
+    const idSafe = id || "_default";
+    openHelpModal(idSafe, titleOverride);
+  }
+
   window.AdminHelp = {
     register(id, html) {
       if (!id) return;
       HELP_TEXT[id] = String(html || "");
     },
+    show: showAdminHelp,
   };
+
+  // Also expose a simple global function for inline onclick as a backup
+  window.showAdminHelp = showAdminHelp;
 
   // -------------------------------------------------------------------------
   // CREATE/ENSURE MODAL ELEMENT
@@ -145,6 +156,8 @@
     modal.classList.remove("hide");
     modal.setAttribute("aria-hidden", "false");
     document.body.classList.add("help-modal-open");
+
+    console.log("[admin-help] opened", id);
   }
 
   function closeHelpModal() {
@@ -156,30 +169,27 @@
   }
 
   // -------------------------------------------------------------------------
-  // CLICK HANDLERS
+  // CLICK HANDLERS (delegated)
   // -------------------------------------------------------------------------
   document.addEventListener("click", function (evt) {
-    // Open modal
-    const btn = evt.target.closest(".help-btn");
+    const btn = evt.target.closest && evt.target.closest(".help-btn");
     if (btn) {
       const id = btn.getAttribute("data-help-id") || "_default";
       const title =
         btn.getAttribute("data-help-title") ||
         btn.getAttribute("aria-label") ||
         "";
-      openHelpModal(id, title);
+      showAdminHelp(id, title);
       evt.preventDefault();
       return;
     }
 
-    // Close modal
     if (evt.target.classList.contains("help-close")) {
       closeHelpModal();
       evt.preventDefault();
       return;
     }
 
-    // Click outside the dialog closes
     const modal = document.getElementById("adminHelpModal");
     if (modal && evt.target === modal) {
       closeHelpModal();
