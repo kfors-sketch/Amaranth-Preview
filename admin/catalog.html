@@ -65,7 +65,7 @@
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
         <li><b>Additional Images</b>: put one URL per line for extra gallery images.</li>
-        <li><b>Year-over-year Slot</b>: optional label (e.g. <code>Session Coin</code>) to group similar products across years.</li>
+        <li><b>Year-over-year Slot</b>: <strong>required</strong> label (e.g. <code>Session Coin</code>) to group similar products across years.</li>
       </ul>
     </section>
 
@@ -174,9 +174,9 @@
         <div class="hint">Used by automated chair reports for this product.</div>
 
         <!-- NEW: YoY slot selection -->
-        <label for="f_slot_label">Year-over-year Slot (optional)</label>
+        <label for="f_slot_label">Year-over-year Slot</label>
         <select id="f_slot_label"></select>
-        <div class="hint">Choose a label (e.g. “Session Coin”) to compare this product with the same slot in other years.</div>
+        <div class="hint">Required: choose a label (e.g. “Session Coin”) to compare this product with the same slot in other years.</div>
 
         <div class="row">
           <div>
@@ -339,10 +339,10 @@
     const current = selectedLabel == null ? sel.value : selectedLabel;
     sel.innerHTML = "";
 
-    // None
+    // Placeholder / required choice
     const optNone = document.createElement("option");
     optNone.value = SLOT_NONE_VALUE;
-    optNone.textContent = "— None (no YoY bucket) —";
+    optNone.textContent = "— Choose a YoY slot —";
     sel.appendChild(optNone);
 
     // Known slots
@@ -360,16 +360,20 @@
     optAdd.textContent = "➕ Add new label…";
     sel.appendChild(optAdd);
 
-    if (current && current !== SLOT_ADD_VALUE) {
+    if (current && current !== SLOT_ADD_VALUE && current !== SLOT_NONE_VALUE) {
       const exists = slots.some(s => s.label === current);
-      if (!exists && current !== SLOT_NONE_VALUE) {
+      if (!exists) {
         const opt = document.createElement("option");
         opt.value = current;
         opt.textContent = current;
         sel.insertBefore(opt, optAdd);
       }
       sel.value = current;
+    } else if (slots.length > 0) {
+      // Default to first real slot if we have any
+      sel.value = slots[0].label;
     } else {
+      // No slots yet: leave placeholder selected
       sel.value = SLOT_NONE_VALUE;
     }
   }
@@ -647,7 +651,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(p.name||'')}</strong></td>
-        <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
+        <td>${slotLabel ? esc(slotLabel) : '<span class="danger">Required</span>'}</td>
         <td><code>${esc(p.id||'')}</code></td>
         <td>${esc(p.type || 'fixed')}</td>
         <td>$${Number(p.price||0).toFixed(2)}</td>
@@ -788,6 +792,11 @@
       slotKey = slot.key || "";
       slotLabel = slot.label || "";
       slotScope = slot.scope || SLOT_KIND;
+    } else {
+      // Placeholder or invalid selection clears slot so validation will fail
+      slotKey = "";
+      slotLabel = "";
+      slotScope = SLOT_KIND;
     }
 
     const out = {
@@ -857,6 +866,7 @@
     for (const em of (o.chairEmails || [])){
       if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
+    if (!o.slotLabel) return 'Year-over-year Slot is required.';
     return '';
   }
 
