@@ -219,9 +219,6 @@
   <!-- Static fallback for products -->
   <script src="/assets/js/items.js"></script>
 
-  <!-- Slot keys helper (admin version) -->
-  <script src="/assets/js/admin-slotkeys.js"></script>
-
   <!-- Admin shared helpers -->
   <script src="/assets/js/admin.js"></script>
 
@@ -675,6 +672,7 @@
     if (type === 'variantQty') {
       // Save variants
       out.variants = variants; // [{id,label,price}, ...]
+
       // Also keep legacy tiered/pricing in sync for the public catalog
       out.tiered = true;
       out.pricing = variants.map(v => {
@@ -686,6 +684,7 @@
           price: Number(v.price || 0) || 0
         };
       });
+
       delete out.price; // bundle prices come from variants/pricing
     } else if (type === 'amount') {
       // Open amount / donation-style — no fixed price here
@@ -708,28 +707,13 @@
     if (!o.name) return 'Name is required.';
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-
-    if (!o.type) return 'Type is required.';
-    const allowedTypes = ['fixed', 'qty', 'amount', 'variantQty'];
-    if (!allowedTypes.includes(o.type)) return 'Type is invalid.';
-
-    // For fixed/qty, price must be > 0
-    if (o.type === 'fixed' || o.type === 'qty') {
-      const priceNum = Number(o.price);
-      if (!Number.isFinite(priceNum) || priceNum <= 0) {
-        return 'Price must be greater than zero for fixed/qty items.';
-      }
-    }
-
+    if ((o.type === 'fixed' || o.type === 'qty') && Number(o.price) < 0) return 'Price cannot be negative.';
     if (Number(o.shippingCents) < 0) return 'Shipping cannot be negative.';
-
     if (o.type === 'variantQty'){
       if (!Array.isArray(o.variants) || o.variants.length === 0) return 'Add at least one variant.';
     }
-
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
-
     for (const em of (o.chairEmails || [])){
       if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
