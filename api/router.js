@@ -69,7 +69,7 @@ import {
 } from "./admin/yearly-reports.js";
 
 // NEW: scheduler debug helper
-import { debugScheduleForItem } from "./admin/debug.js";
+import { debugScheduleForItem } from "../admin/debug.js";
 
 // ---- Admin auth helper ----
 // Uses either:
