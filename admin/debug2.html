@@ -197,7 +197,7 @@
         <small>All admin-only actions on this page use <code>Authorization: Bearer &lt;token&gt;</code>.</small>
       </div>
 
-      <!-- Effective Settings Snapshot -------------------------------------- -->
+      <!-- Settings & KV ---------------------------------------------------- -->
       <div class="card">
         <h3>Effective Settings Snapshot <span class="badge">POST action=get_settings</span></h3>
         <p>
@@ -209,7 +209,6 @@
         </div>
       </div>
 
-      <!-- KV Peek ---------------------------------------------------------- -->
       <div class="card">
         <h3>KV Peek <span class="badge">GET ?type=debug_kv_peek</span></h3>
         <p>
@@ -237,7 +236,7 @@
         </div>
       </div>
 
-      <!-- Manual Scheduler / Cron ------------------------------------------ -->
+      <!-- Scheduler / Chair & Cron ---------------------------------------- -->
       <div class="card">
         <h3>Scheduler / Cron Triggers <span class="badge">POST actions</span></h3>
         <p>
@@ -257,39 +256,6 @@
         </small>
       </div>
 
-      <!-- Mail Log History -------------------------------------------------- -->
-      <div class="card">
-        <h3>Mail Log History <span class="badge">GET ?type=debug_mail_recent</span></h3>
-        <p>
-          Returns the most recent N entries from the mail log
-          (chair reports, contact forms, test messages, etc.).
-        </p>
-        <label for="mailLimit">Max entries</label>
-        <input type="text" id="mailLimit" value="20" />
-        <small>Requires a handler like <code>?type=debug_mail_recent&amp;limit=20</code>.</small>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btnMailRecent" class="primary">Load Recent Mail Log</button>
-        </div>
-      </div>
-
-      <!-- Order Search ------------------------------------------------------ -->
-      <div class="card">
-        <h3>Order Search <span class="badge">GET ?type=debug_find_orders</span></h3>
-        <p>
-          Finds recent orders by purchaser, attendee, email, or partial ID.
-          Returns a small list with IDs and basic info.
-        </p>
-        <label for="orderSearchQuery">Search query</label>
-        <input type="text" id="orderSearchQuery" placeholder="email, name, or part of order ID" />
-        <label for="orderSearchLimit" style="margin-top:8px;">Max results</label>
-        <input type="text" id="orderSearchLimit" value="20" />
-        <small>Requires <code>?type=debug_find_orders&amp;q=...&amp;limit=...</code>.</small>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btnOrderSearch" class="primary">Search Orders</button>
-        </div>
-      </div>
-
-      <!-- Chair Routing Snapshot ------------------------------------------- -->
       <div class="card">
         <h3>Chair Routing Snapshot <span class="badge">GET ?type=debug_chair_routing</span></h3>
         <p>
@@ -305,7 +271,21 @@
         </div>
       </div>
 
-      <!-- Contact Form Simulator ------------------------------------------- -->
+      <!-- Mail & Contact --------------------------------------------------- -->
+      <div class="card">
+        <h3>Mail Log History <span class="badge">GET ?type=debug_mail_recent</span></h3>
+        <p>
+          Returns the most recent N entries from the mail log
+          (chair reports, contact forms, test messages, etc.).
+        </p>
+        <label for="mailLimit">Max entries</label>
+        <input type="text" id="mailLimit" value="20" />
+        <small>Requires a handler like <code>?type=debug_mail_recent&amp;limit=20</code>.</small>
+        <div class="btn-row" style="margin-top:8px;">
+          <button id="btnMailRecent" class="primary">Load Recent Mail Log</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Contact Form Simulator <span class="badge">POST action=contact_form</span></h3>
         <p>
@@ -341,7 +321,23 @@
         </div>
       </div>
 
-      <!-- Stripe PaymentIntent Preview ------------------------------------- -->
+      <!-- Orders & Payments ------------------------------------------------- -->
+      <div class="card">
+        <h3>Order Search <span class="badge">GET ?type=debug_find_orders</span></h3>
+        <p>
+          Finds recent orders by purchaser, attendee, email, or partial ID.
+          Returns a small list with IDs and basic info.
+        </p>
+        <label for="orderSearchQuery">Search query</label>
+        <input type="text" id="orderSearchQuery" placeholder="email, name, or part of order ID" />
+        <label for="orderSearchLimit" style="margin-top:8px;">Max results</label>
+        <input type="text" id="orderSearchLimit" value="20" />
+        <small>Requires <code>?type=debug_find_orders&amp;q=...&amp;limit=...</code>.</small>
+        <div class="btn-row" style="margin-top:8px;">
+          <button id="btnOrderSearch" class="primary">Search Orders</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Stripe PaymentIntent Preview <span class="badge">GET ?type=debug_pi_preview</span></h3>
         <p>
@@ -355,7 +351,6 @@
         </div>
       </div>
 
-      <!-- Refund / Order + Refunds Preview --------------------------------- -->
       <div class="card">
         <h3>Order + Refunds Preview <span class="badge">GET ?type=debug_order_refunds</span></h3>
         <p>

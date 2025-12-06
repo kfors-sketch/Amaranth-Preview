@@ -37,7 +37,7 @@
     a.admin-link{font-size:13px;color:#4f46e5;text-decoration:none}
     a.admin-link:hover{text-decoration:underline}
 
-    /* NEW: grid layout for cards (2 across on wider screens) */
+    /* grid layout for cards (2 across on wider screens) */
     .cards-grid{
       display:grid;
       grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
@@ -58,22 +58,13 @@
     </header>
 
     <div class="cards-grid">
-      <!-- Auth / Context ----------------------------------------------------- -->
+      <!-- Auth / Environment ------------------------------------------------- -->
       <div class="card">
         <h3>Auth / Context</h3>
         <p id="authStatus">Checking admin token…</p>
         <p class="token-warning" id="tokenWarning" style="display:none;">
           No admin token found. Please log in via <a href="/admin/login.html" class="admin-link">Admin Login</a> first.
         </p>
-      </div>
-
-      <!-- Basic Environment / Connectivity ----------------------------------- -->
-      <div class="card">
-        <h3>Environment Smoketest <span class="badge">GET ?type=smoketest</span></h3>
-        <p>Checks Node version, Stripe keys, Resend, and KV connectivity in one shot.</p>
-        <div class="btn-row">
-          <button id="btnSmoketest" class="primary">Run Smoketest</button>
-        </div>
       </div>
 
       <div class="card">
@@ -85,6 +76,14 @@
         </p>
         <div class="btn-row">
           <button id="btnTokenTest">Run Token Test</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Environment Smoketest <span class="badge">GET ?type=smoketest</span></h3>
+        <p>Checks Node version, Stripe keys, Resend, and KV connectivity in one shot.</p>
+        <div class="btn-row">
+          <button id="btnSmoketest" class="primary">Run Smoketest</button>
         </div>
       </div>
 
@@ -110,25 +109,7 @@
         </div>
       </div>
 
-      <div class="card">
-        <h3>Last Mail Log <span class="badge">GET ?type=lastmail</span></h3>
-        <p>Fetches the most recent mail log entry stored under <code>MAIL_LOG_KEY</code>.</p>
-        <div class="btn-row">
-          <button id="btnLastMail">Load Last Mail Log</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Scheduler Diagnostic <span class="badge">GET ?type=debug_scheduler</span></h3>
-        <p>
-          Shows daily / weekly / twice-per-month / monthly windows and how various
-          frequency strings normalize via <code>normalizeReportFrequency</code>.
-        </p>
-        <div class="btn-row">
-          <button id="btnSchedulerDiag">Run Scheduler Diagnostic</button>
-        </div>
-      </div>
-
+      <!-- Email & Mail Logs -------------------------------------------------- -->
       <div class="card">
         <h3>Manual Resend Test <span class="badge">POST action=test_resend</span></h3>
         <p>
@@ -143,7 +124,71 @@
         </div>
       </div>
 
-      <!-- Data Health -------------------------------------------------------- -->
+      <div class="card">
+        <h3>Last Mail Log <span class="badge">GET ?type=lastmail</span></h3>
+        <p>Fetches the most recent mail log entry stored under <code>MAIL_LOG_KEY</code>.</p>
+        <div class="btn-row">
+          <button id="btnLastMail">Load Last Mail Log</button>
+        </div>
+      </div>
+
+      <!-- Scheduler & Chair Reports ----------------------------------------- -->
+      <div class="card">
+        <h3>Scheduler Diagnostic <span class="badge">GET ?type=debug_scheduler</span></h3>
+        <p>
+          Shows daily / weekly / twice-per-month / monthly windows and how various
+          frequency strings normalize via <code>normalizeReportFrequency</code>.
+        </p>
+        <div class="btn-row">
+          <button id="btnSchedulerDiag">Run Scheduler Diagnostic</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Scheduler Dry Run <span class="badge">GET ?type=debug_scheduler_dry_run</span></h3>
+        <p>
+          Simulates the scheduler without sending any emails. For each item shows
+          report window, row counts, and whether it <em>would</em> send now and why.
+        </p>
+        <div class="btn-row">
+          <button id="btnSchedulerDryRun">Run Scheduler Dry Run</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Chair Report Preview <span class="badge">GET ?type=debug_chair_preview</span></h3>
+        <p>
+          Shows which rows a chair report <em>would</em> include for a specific item,
+          either full history or just the current calendar month.
+        </p>
+        <label for="chairItemId">Item ID</label>
+        <input type="text" id="chairItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
+        <label for="chairScope" style="margin-top:8px;">Scope</label>
+        <select id="chairScope">
+          <option value="full">Full history</option>
+          <option value="current-month">Current month only</option>
+        </select>
+        <small>Uses <code>admin/debug.js</code> <code>handleChairPreview()</code> under the hood.</small>
+        <div class="btn-row" style="margin-top:8px;">
+          <button id="btnChairPreview" class="primary">Run Chair Preview</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Item Schedule Debug <span class="badge">POST action=debug_schedule&amp;id=&lt;itemId&gt;</span></h3>
+        <p>
+          Calls the <code>debug_schedule</code> endpoint in <code>/api/router</code> to inspect
+          the current report schedule and publish window for a specific item ID.
+        </p>
+        <label for="debugItemId">Item ID to debug</label>
+        <input type="text" id="debugItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
+        <small>Uses your current admin token for authorization.</small>
+        <div class="btn-row" style="margin-top:8px;">
+          <button id="btnDebugSchedule" class="primary">Run Schedule Debug</button>
+        </div>
+      </div>
+
+      <!-- Orders & Item Health ---------------------------------------------- -->
       <div class="card">
         <h3>Orders Index Health <span class="badge">GET ?type=debug_orders_health</span></h3>
         <p>
@@ -163,37 +208,6 @@
         </p>
         <div class="btn-row">
           <button id="btnItemcfgHealth">Run Itemcfg Health Check</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Scheduler Dry Run <span class="badge">GET ?type=debug_scheduler_dry_run</span></h3>
-        <p>
-          Simulates the scheduler without sending any emails. For each item shows
-          report window, row counts, and whether it <em>would</em> send now and why.
-        </p>
-        <div class="btn-row">
-          <button id="btnSchedulerDryRun">Run Scheduler Dry Run</button>
-        </div>
-      </div>
-
-      <!-- Targeted Previews -------------------------------------------------- -->
-      <div class="card">
-        <h3>Chair Report Preview <span class="badge">GET ?type=debug_chair_preview</span></h3>
-        <p>
-          Shows which rows a chair report <em>would</em> include for a specific item,
-          either full history or just the current calendar month.
-        </p>
-        <label for="chairItemId">Item ID</label>
-        <input type="text" id="chairItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
-        <label for="chairScope" style="margin-top:8px;">Scope</label>
-        <select id="chairScope">
-          <option value="full">Full history</option>
-          <option value="current-month">Current month only</option>
-        </select>
-        <small>Uses <code>admin/debug.js</code> <code>handleChairPreview()</code> under the hood.</small>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btnChairPreview" class="primary">Run Chair Preview</button>
         </div>
       </div>
 
@@ -221,21 +235,6 @@
         <small>Use the <code>checkout.session.completed</code> IDs from Stripe's dashboard/logs.</small>
         <div class="btn-row" style="margin-top:8px;">
           <button id="btnWebhookPreview">Run Webhook Session Preview</button>
-        </div>
-      </div>
-
-      <!-- Item Schedule Debug ----------------------------------------------- -->
-      <div class="card">
-        <h3>Item Schedule Debug <span class="badge">POST action=debug_schedule&amp;id=&lt;itemId&gt;</span></h3>
-        <p>
-          Calls the <code>debug_schedule</code> endpoint in <code>/api/router</code> to inspect
-          the current report schedule and publish window for a specific item ID.
-        </p>
-        <label for="debugItemId">Item ID to debug</label>
-        <input type="text" id="debugItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
-        <small>Uses your current admin token for authorization.</small>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btnDebugSchedule" class="primary">Run Schedule Debug</button>
         </div>
       </div>
 
