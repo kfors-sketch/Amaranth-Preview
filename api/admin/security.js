@@ -113,6 +113,12 @@ async function isOverrideActive() {
 export async function recordFailedAttempt(ip, userAgent = "") {
   const ipKey = failKey(ip);
 
+  console.warn("[admin-login] recordFailedAttempt start", {
+    ip,
+    userAgent,
+    ipKey,
+  });
+
   // Increment per-IP failure counter and set expiration so it auto-resets.
   let count = await kv.incr(ipKey);
   if (count === 1) {
@@ -153,7 +159,16 @@ export async function recordFailedAttempt(ip, userAgent = "") {
     // Let the TTL handle reset; no need to manually reset the counter
   }
 
-  return { locked: count >= ADMIN_MAX_FAILS_PER_WINDOW, failCount: count };
+  const locked = count >= ADMIN_MAX_FAILS_PER_WINDOW;
+
+  console.warn("[admin-login] recordFailedAttempt done", {
+    ip,
+    failCount: count,
+    locked,
+    globalFailCount: globalCount,
+  });
+
+  return { locked, failCount: count };
 }
 
 /**
@@ -219,41 +234,101 @@ export async function handleAdminLogin({ password, ip, userAgent }) {
   const safeIP = normalizeIP(ip);
   const pwEnv = (process.env.ADMIN_PASSWORD || "").trim();
 
+  console.log("[admin-login] START", {
+    ip: safeIP,
+    hasPwEnv: !!pwEnv,
+    pwEnvLen: pwEnv.length,
+    hasPasswordInBody: !!password,
+    userAgent: userAgent || "",
+  });
+
   if (!pwEnv) {
-    // Misconfiguration – no server-side password set
+    console.error("[admin-login] ADMIN_PASSWORD not configured in env");
     return { ok: false, error: "server_not_configured" };
   }
 
-  // Check if a temporary override is active (e.g., via clearAdminLockout).
-  // If override is active, we skip IP lock checks so you can log back in.
-  const overrideActive = await isOverrideActive();
+  let overrideActive = false;
+  try {
+    overrideActive = await isOverrideActive();
+  } catch (err) {
+    console.error("[admin-login] isOverrideActive threw", err);
+  }
+  console.log("[admin-login] overrideActive =", overrideActive);
 
   // If this IP is locked and no override is active, deny immediately
-  if (!overrideActive && (await isIPLocked(safeIP))) {
-    return {
-      ok: false,
-      error: "locked_out",
-      // client can optionally use this to show a message like "Try again later"
-      retryAfter: ADMIN_LOCKOUT_SEC,
-    };
+  if (!overrideActive) {
+    let ipLocked = false;
+    try {
+      ipLocked = await isIPLocked(safeIP);
+    } catch (err) {
+      console.error("[admin-login] isIPLocked threw", err);
+    }
+    console.log("[admin-login] ipLocked =", ipLocked);
+
+    if (ipLocked) {
+      console.warn("[admin-login] IP is locked", { ip: safeIP });
+      return {
+        ok: false,
+        error: "locked_out",
+        // client can optionally use this to show a message like "Try again later"
+        retryAfter: ADMIN_LOCKOUT_SEC,
+      };
+    }
   }
 
   // Compare password (case-sensitive)
   if (!password || password !== pwEnv) {
-    const { locked } = await recordFailedAttempt(safeIP, userAgent);
-    if (locked && !overrideActive) {
-      return {
-        ok: false,
-        error: "locked_out",
-        retryAfter: ADMIN_LOCKOUT_SEC,
-      };
+    console.warn("[admin-login] invalid_password attempt", {
+      ip: safeIP,
+      userAgent: userAgent || "",
+      hasPasswordInBody: !!password,
+    });
+
+    try {
+      const { locked, failCount } = await recordFailedAttempt(safeIP, userAgent);
+      console.warn("[admin-login] recordFailedAttempt result", {
+        ip: safeIP,
+        locked,
+        failCount,
+      });
+
+      if (locked && !overrideActive) {
+        console.warn("[admin-login] locking out IP after failures", {
+          ip: safeIP,
+          failCount,
+        });
+        return {
+          ok: false,
+          error: "locked_out",
+          retryAfter: ADMIN_LOCKOUT_SEC,
+        };
+      }
+    } catch (err) {
+      console.error("[admin-login] recordFailedAttempt threw", err);
     }
+
     return { ok: false, error: "invalid_password" };
   }
 
-  // Successful login — issue token and (optionally) clear failure counters
-  const token = await issueAdminToken(safeIP, userAgent);
+  console.log("[admin-login] password match; issuing token", {
+    ip: safeIP,
+  });
 
+  let token;
+  try {
+    token = await issueAdminToken(safeIP, userAgent);
+  } catch (err) {
+    console.error("[admin-login] issueAdminToken failed", err);
+    return { ok: false, error: "token_issue_failed" };
+  }
+
+  console.log("[admin-login] SUCCESS", {
+    ip: safeIP,
+    tokenPrefix: token ? token.slice(0, 12) : null,
+    ttlSeconds: ADMIN_TOKEN_TTL_SEC,
+  });
+
+  // Successful login — issue token and (optionally) clear failure counters
   // We could clear failKey(safeIP) here if desired, but the expiry will clean it up anyway.
 
   return { ok: true, token, ttlSeconds: ADMIN_TOKEN_TTL_SEC };
