@@ -105,6 +105,89 @@
     `,
 
     // -------------------------
+    // Year-over-Year Page
+    // -------------------------
+
+    yoy_main: `
+      <p><strong>Year-over-Year Overview</strong> lets you compare session results
+      between two different years.</p>
+      <ul>
+        <li>Pick a <strong>base year</strong> and a <strong>compare year</strong>
+        to see how totals changed.</li>
+        <li>Use <strong>Category</strong> and <strong>Slot</strong> to narrow the
+        comparison (for example, just banquets or a specific banquet slot).</li>
+        <li>Change the <strong>metric</strong> (amount, orders, purchasers, items)
+        to see the data from different angles.</li>
+      </ul>
+      <p>This page summarizes data that is already stored in the reporting system –
+      nothing here changes or deletes orders.</p>
+    `,
+
+    yoy_filters: `
+      <p><strong>Year-over-Year Filters</strong> control which years and which part
+      of the session you are comparing.</p>
+      <ul>
+        <li><strong>Category</strong> – limit to Banquets, Add-ons, or Catalog,
+        or leave as “All” to include everything.</li>
+        <li><strong>Slot</strong> – pick a specific banquet/add-on slot, or leave
+        as “All slots” for a full-session view.</li>
+        <li><strong>Base year</strong> – the “starting” year you are comparing
+        <em>from</em>.</li>
+        <li><strong>Compare to year</strong> – the year you are comparing
+        <em>against</em> the base year.</li>
+        <li><strong>Metric</strong> – switch between total money, order count,
+        unique purchasers, or items sold.</li>
+      </ul>
+      <p>When you change a filter, the headline, charts, and breakdown table all
+      refresh to match your choices.</p>
+    `,
+
+    yoy_headline: `
+      <p><strong>Headline</strong> summarizes the overall change between the base
+      year and the compare year.</p>
+      <ul>
+        <li>Shows whether the chosen metric <strong>increased</strong> or 
+        <strong>decreased</strong>, and by how much.</li>
+        <li>The smaller line explains the exact totals for each year.</li>
+        <li>The chips underneath remind you which years and metric are currently
+        selected.</li>
+      </ul>
+      <p>Use this section as a quick “at a glance” answer for how the session is
+      trending year over year.</p>
+    `,
+
+    yoy_charts: `
+      <p><strong>Charts</strong> give a visual comparison between the two years.</p>
+      <ul>
+        <li><strong>Totals</strong> – blue bars show the base year, orange bars
+        show the compare year for each slot.</li>
+        <li><strong>Difference</strong> – green bars indicate an increase vs. base;
+        red bars indicate a decrease.</li>
+        <li>The charts automatically adjust when you change the metric, category,
+        slot, or years.</li>
+      </ul>
+      <p>Use this section to spot which banquets or add-ons changed the most
+      between years.</p>
+    `,
+
+    yoy_breakdown: `
+      <p><strong>Per slot / category breakdown</strong> lists detailed numbers for
+      each slot and category combination.</p>
+      <ul>
+        <li><strong>Base</strong> and <strong>Compare</strong> columns show the
+        actual values for each year.</li>
+        <li><strong>Δ</strong> shows the raw difference, and <strong>Δ %</strong>
+        shows the percentage change.</li>
+        <li>The colored pill makes it easy to see increases (green), decreases
+        (red), or little change (gray).</li>
+        <li>Use the <strong>Export (.csv)</strong> button at the top of the page
+        to download this breakdown for spreadsheets.</li>
+      </ul>
+      <p>This is the best place to get a printable or exportable summary of how
+      each banquet/add-on slot is performing across years.</p>
+    `,
+
+    // -------------------------
     // Fallback text
     // -------------------------
     _default: `
