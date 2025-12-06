@@ -99,9 +99,15 @@
     `,
   };
 
+  // Remember which button opened the modal (for focus return)
+  let lastHelpTrigger = null;
+
   // Simple global hook you can call from HTML or console:
-  function showAdminHelp(id, titleOverride) {
+  function showAdminHelp(id, titleOverride, triggerEl) {
     const idSafe = id || "_default";
+    if (triggerEl) {
+      lastHelpTrigger = triggerEl;
+    }
     openHelpModal(idSafe, titleOverride);
   }
 
@@ -134,7 +140,7 @@
       </div>
     `;
 
-    // 🔥 Inline emergency styles so it always shows even if CSS is missing
+    // Inline emergency styles so it always shows even if CSS is missing
     modal.style.position = "fixed";
     modal.style.left = "0";
     modal.style.top = "0";
@@ -145,7 +151,7 @@
     modal.style.display = "flex";
     modal.style.alignItems = "center";
     modal.style.justifyContent = "center";
-    modal.style.zIndex = "9999"; // be on top
+    modal.style.zIndex = "9999";
 
     const dialog = modal.querySelector(".help-modal-dialog");
     if (dialog) {
@@ -211,14 +217,33 @@
     document.body.classList.add("help-modal-open");
 
     console.log("[admin-help] opened", id);
+
+    // Move focus to the close button for keyboard users
+    const closeBtn = modal.querySelector(".help-close");
+    if (closeBtn) {
+      closeBtn.focus();
+    }
   }
 
   function closeHelpModal() {
     const modal = document.getElementById("adminHelpModal");
     if (!modal) return;
+
+    // Blur the element with focus so we're not hiding a focused node
+    if (document.activeElement && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     modal.classList.add("hide");
     modal.setAttribute("aria-hidden", "true");
     document.body.classList.remove("help-modal-open");
+
+    // Return focus to the button that opened the help, if we know it
+    if (lastHelpTrigger && typeof lastHelpTrigger.focus === "function") {
+      lastHelpTrigger.focus();
+    }
+
+    console.log("[admin-help] closed");
   }
 
   // -------------------------------------------------------------------------
@@ -232,7 +257,8 @@
         btn.getAttribute("data-help-title") ||
         btn.getAttribute("aria-label") ||
         "";
-      showAdminHelp(id, title);
+      lastHelpTrigger = btn;
+      showAdminHelp(id, title, btn);
       evt.preventDefault();
       return;
     }
