@@ -59,7 +59,6 @@
         <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this banquet.</li>
-        <li><b>Year-over-year Slot</b>: optional label (e.g. <code>Sunday Night Banquet</code>) to group with similar events across years.</li>
       </ul>
     </section>
 
@@ -81,7 +80,6 @@
               <tr>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:120px">ID</th>
-                <th style="min-width:140px">YoY Slot</th>
                 <th>Event Date</th>
                 <th>Active</th>
                 <th>Reports</th>
@@ -142,11 +140,6 @@
         </select>
         <div class="hint">Used by automated chair reports for this banquet.</div>
 
-        <!-- NEW: YoY slot selector -->
-        <label for="f_slot_label">Year-over-year Slot (optional)</label>
-        <select id="f_slot_label"></select>
-        <div class="hint">Choose a label (e.g. “Sunday Night Banquet”) to compare this banquet against the same slot in other years.</div>
-
         <label for="f_location">Location</label>
         <input id="f_location" type="text" placeholder="Grand Ballroom, Hershey Lodge" />
 
@@ -181,12 +174,13 @@
 
   <!-- Data source (static fallback) -->
   <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
-  <!-- Slot keys helper for YoY grouping -->
-  <script src="/assets/js/slotkeys.js"></script>
   <script src="/assets/js/banquets.js"></script>
 
   <!-- Admin shared helpers -->
   <script src="/assets/js/admin.js"></script>
+
+  <!-- Admin hotkeys / slotkeys -->
+  <script src="/assets/js/admin-slotkeys.js"></script>
 
   <script>
   // --- Auth & small helpers (aligned with reporting_main.html) ---
@@ -240,116 +234,6 @@
     }
   }
 
-  // ---- Slot key helpers (YoY bucket) ----
-  const SLOT_KIND = "banquet";
-  const SLOT_NONE_VALUE = "";
-  const SLOT_ADD_VALUE = "__add__";
-
-  function makeSlotKeyFromLabel(label) {
-    const base = String(label || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    return base || "";
-  }
-
-  function getSlotList() {
-    // If slotkeys.js defines SlotKeys.getSlots(kind), use that
-    if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
-      const arr = SlotKeys.getSlots(SLOT_KIND) || [];
-      return arr
-        .map(s => ({
-          key: s.key || makeSlotKeyFromLabel(s.label || s.name),
-          label: s.label || s.name || "",
-          scope: s.scope || SLOT_KIND
-        }))
-        .filter(s => s.label);
-    }
-    // Fallback: empty list; we'll still allow ad-hoc labels per banquet
-    return [];
-  }
-
-  function ensureSlot(kind, label) {
-    const trimmed = String(label || "").trim();
-    if (!trimmed) return { key: "", label: "", scope: kind };
-    if (window.SlotKeys && typeof SlotKeys.ensureSlot === "function") {
-      try {
-        return SlotKeys.ensureSlot(kind, trimmed);
-      } catch (e) {
-        console.warn("SlotKeys.ensureSlot failed:", e);
-      }
-    }
-    // Fallback: derive key locally
-    return {
-      key: makeSlotKeyFromLabel(trimmed),
-      label: trimmed,
-      scope: kind
-    };
-  }
-
-  function populateSlotSelect(selectedLabel) {
-    const sel = $('#f_slot_label');
-    if (!sel) return;
-
-    const current = selectedLabel == null ? sel.value : selectedLabel;
-    sel.innerHTML = "";
-
-    // None
-    const optNone = document.createElement("option");
-    optNone.value = SLOT_NONE_VALUE;
-    optNone.textContent = "— None (no YoY bucket) —";
-    sel.appendChild(optNone);
-
-    // Known slots (from SlotKeys, if available)
-    const slots = getSlotList();
-    slots.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s.label;
-      opt.textContent = s.label;
-      sel.appendChild(opt);
-    });
-
-    // Add-new sentinel
-    const optAdd = document.createElement("option");
-    optAdd.value = SLOT_ADD_VALUE;
-    optAdd.textContent = "➕ Add new label…";
-    sel.appendChild(optAdd);
-
-    if (current && current !== SLOT_ADD_VALUE) {
-      const exists = slots.some(s => s.label === current);
-      if (!exists && current !== SLOT_NONE_VALUE) {
-        const opt = document.createElement("option");
-        opt.value = current;
-        opt.textContent = current;
-        sel.insertBefore(opt, optAdd);
-      }
-      sel.value = current;
-    } else {
-      sel.value = SLOT_NONE_VALUE;
-    }
-  }
-
-  function onSlotChange(e) {
-    const sel = e.currentTarget;
-    if (!sel) return;
-    const val = sel.value;
-    if (val === SLOT_ADD_VALUE) {
-      const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Sunday Night Banquet'):");
-      if (!label) {
-        sel.value = SLOT_NONE_VALUE;
-        return;
-      }
-      const slot = ensureSlot(SLOT_KIND, label);
-      // Rebuild list with this label in it, then select it
-      populateSlotSelect(slot.label);
-      sel.value = slot.label;
-    }
-  }
-
-  let model = [];
-  let current = null;
-  let isNew = true;
-
   // ---- Normalization helpers (migrate legacy -> new) ----
   function normalizeBanquet(b){
     const out = {...b};
@@ -389,11 +273,6 @@
 
     // normalize reportFrequency
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
-
-    // YoY slot fields (all optional)
-    out.slotScope = out.slotScope || SLOT_KIND;
-    out.slotKey = out.slotKey || "";
-    out.slotLabel = out.slotLabel || out.slotKey || "";
 
     // remove legacy options to avoid writing them back out
     delete out.options;
@@ -446,6 +325,10 @@
     return { attempted: payloads.length, ok };
   }
 
+  let model = [];
+  let current = null;
+  let isNew = true;
+
   // ---- Initial Load (server first, fallback to static) ----
   async function loadInitial(){
     let loaded = false;
@@ -470,7 +353,6 @@
       $('#listMsg').textContent = 'Loaded from server.';
     }
 
-    populateSlotSelect(); // fill YoY slot dropdown
     renderList();
     startNew();
   }
@@ -493,7 +375,6 @@
       model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
-    populateSlotSelect();
     renderList(); startNew();
   });
 
@@ -501,7 +382,7 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="8" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
     }
     for(const b of model){
       const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
@@ -509,12 +390,10 @@
       const chair = (b.chair && b.chair.name) ? b.chair.name : (b.chair?.email || '—');
       const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
       const freqLabel = describeFreq(b.reportFrequency || b.report_frequency || "monthly");
-      const slotLabel = b.slotLabel || "";
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(b.name||'')}</strong></td>
         <td><code>${esc(b.id||'')}</code></td>
-        <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
         <td>${esc(eventPretty)}</td>
         <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><span class="muted">${esc(freqLabel)}</span></td>
@@ -550,7 +429,6 @@
     $('#f_start').value = '';
     $('#f_end').value = '';
     $('#f_notes').value = '';
-    populateSlotSelect(); // reset slot to "None"
   }
 
   function fillForm(b){
@@ -559,8 +437,6 @@
     current = n;
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = '';
-
-    populateSlotSelect(n.slotLabel || "");
 
     $('#f_name').value = n.name || '';
     $('#f_id').value = n.id || '';
@@ -606,18 +482,6 @@
 
     const datetimePretty = eventAtISO ? new Date(eventAtISO).toLocaleString() : '';
 
-    const slotLabelRaw = $('#f_slot_label').value || "";
-    let slotKey = "";
-    let slotLabel = "";
-    let slotScope = SLOT_KIND;
-
-    if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
-      const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
-      slotKey = slot.key || "";
-      slotLabel = slot.label || "";
-      slotScope = slot.scope || SLOT_KIND;
-    }
-
     // New schema with top-level price (no options)
     return {
       id,
@@ -633,10 +497,7 @@
       description: notes,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
-      reportFrequency: freq,
-      slotKey,
-      slotLabel,
-      slotScope
+      reportFrequency: freq
     };
   }
 
@@ -711,7 +572,6 @@
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
       model = normalizeAll(data);
-      populateSlotSelect();
       renderList();
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
@@ -743,7 +603,7 @@
       // include admin token
       const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
 
-      // Always write new schema (price, reportFrequency, slot fields), never legacy options
+      // Always write new schema (price, reportFrequency), never legacy options
       const payload = normalizeAll(model).map(it => {
         const { options, ...rest } = it;
         return rest;
@@ -766,12 +626,6 @@
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
-
-  // Wire slot change
-  const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) {
-    slotSel.addEventListener('change', onSlotChange);
-  }
 
   // Kick off
   loadInitial();
