@@ -59,7 +59,6 @@ import {
 import {
   handleAdminLogin,
   verifyAdminToken,
-  clearAdminLockout,
 } from "./admin/security.js";
 
 // NEW: Year-over-year helpers (orders / purchasers / people / amount)
@@ -69,19 +68,13 @@ import {
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
-// NEW: debug helpers (smoketest, mail, token, stripe, resend, scheduler)
-import {
-  handleSmoketest,
-  handleLastMail,
-  debugScheduleForItem,
-  handleTokenTest,
-  handleStripeTest,
-  handleResendTest,
-  handleSchedulerDiagnostic,
-} from "../admin/debug.js";
+// NEW: scheduler debug helper
+import { debugScheduleForItem } from "./admin/debug.js";
 
-// ---- Admin auth helper ----
-// Uses KV-backed admin tokens issued by handleAdminLogin()
+// ---- Admin auth helper (with debug logging) ----
+// Uses either:
+//  - legacy static REPORT_TOKEN (for backward compatibility), OR
+//  - new KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
   const rawAuth =
@@ -91,24 +84,57 @@ async function requireAdminAuth(req, res) {
 
   const auth = String(rawAuth || "");
   const lower = auth.toLowerCase();
+
+  console.log(
+    "requireAdminAuth debug: rawAuth =",
+    auth ? auth.slice(0, 80) : "(empty)"
+  );
+
   if (!lower.startsWith("bearer ")) {
+    console.error("requireAdminAuth: missing Bearer prefix");
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
 
   const token = auth.slice(7).trim();
   if (!token) {
+    console.error("requireAdminAuth: empty token after Bearer");
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
 
+  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages + cron still work)
+  const legacy = (process.env.REPORT_TOKEN || "").trim();
+  console.log(
+    "requireAdminAuth debug: haveLegacy =",
+    !!legacy,
+    "legacyLen =",
+    legacy.length
+  );
+
+  if (legacy && token === legacy) {
+    console.log("requireAdminAuth: matched legacy REPORT_TOKEN");
+    return true;
+  } else if (legacy) {
+    console.log("requireAdminAuth: token did NOT match legacy REPORT_TOKEN");
+  } else {
+    console.log("requireAdminAuth: no legacy REPORT_TOKEN configured");
+  }
+
+  // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
+    console.log("requireAdminAuth debug: verifyAdminToken result =", result);
     if (result && result.ok) {
+      console.log("requireAdminAuth: KV admin token OK");
       return true;
     }
+    console.error("requireAdminAuth: KV admin token rejected", result);
   } catch (e) {
-    console.error("verifyAdminToken failed:", e?.message || e);
+    console.error(
+      "requireAdminAuth: verifyAdminToken threw",
+      e?.message || e
+    );
   }
 
   REQ_ERR(res, 401, "unauthorized");
@@ -124,40 +150,36 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
-      // DEBUG: smoketest (uses admin/debug.js)
       if (type === "smoketest") {
-        const out = await handleSmoketest();
+        const out = {
+          ok: true,
+          node: process.versions?.node || "unknown",
+          runtime: process.env.VERCEL ? "vercel" : "local",
+          hasSecret: !!process.env.STRIPE_SECRET_KEY,
+          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
+          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
+          hasResendEnv: !!process.env.RESEND_API_KEY,
+          hasResendClient: !!resend,
+          fromTrimmed: RESEND_FROM,
+          kvSetGetOk: false,
+        };
+        try {
+          await kv.set("smoketest:key", "ok", { ex: 30 });
+        } catch {}
+        try {
+          const v = await kv.get("smoketest:key");
+          out.kvSetGetOk = v === "ok";
+        } catch (e) {
+          out.kvError = String(e?.message || e);
+        }
         return REQ_OK(res, out);
       }
 
-      // DEBUG: last mail log (uses admin/debug.js)
       if (type === "lastmail") {
-        const out = await handleLastMail();
-        return REQ_OK(res, out);
-      }
-
-      // NEW DEBUG: token test (checks REPORT_TOKEN vs Authorization header)
-      if (type === "debug_token") {
-        const out = await handleTokenTest(req);
-        return REQ_OK(res, out);
-      }
-
-      // NEW DEBUG: stripe connectivity check
-      if (type === "debug_stripe") {
-        const out = await handleStripeTest();
-        return REQ_OK(res, out);
-      }
-
-      // NEW DEBUG: resend test (optional ?to=email)
-      if (type === "debug_resend") {
-        const out = await handleResendTest(req);
-        return REQ_OK(res, out);
-      }
-
-      // NEW DEBUG: scheduler diagnostic (all windows + normalization)
-      if (type === "debug_scheduler") {
-        const out = await handleSchedulerDiagnostic();
-        return REQ_OK(res, out);
+        const data = await kvGetSafe(MAIL_LOG_KEY, {
+          note: "no recent email log",
+        });
+        return REQ_OK(res, data);
       }
 
       // NEW: list all years we have indexed (for dropdowns / filters)
@@ -180,7 +202,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, summary);
       }
 
-      // NEW: multi-year summary for graphs
+      // NEW: multi-year summary for graphs (2-graph feature)
       // Accepts:
       //   ?type=year_multi&year=2024&year=2025
       //   or ?type=year_multi&years=2024,2025,2026
@@ -213,6 +235,12 @@ export default async function handler(req, res) {
 
         const raw = await getMultiYearSummary(years);
 
+        // Lightweight structure for graphs:
+        // - totalOrders
+        // - uniqueBuyers
+        // - repeatBuyers
+        // - totalPeople
+        // - totalCents
         const points = raw.map((r) => ({
           year: r.year,
           totalOrders: r.totalOrders || 0,
@@ -386,15 +414,402 @@ export default async function handler(req, res) {
         return REQ_OK(res, { rows });
       }
 
-      // NEW: CSV/XLSX exports moved to admin/csv-reports.js
-      if (
-        type === "orders_csv" ||
-        type === "attendee_roster_csv" ||
-        type === "directory_csv" ||
-        type === "full_attendees_csv"
-      ) {
-        const { handleCsvExport } = await import("./admin/csv-reports.js");
-        return await handleCsvExport(type, url, res);
+      if (type === "orders_csv") {
+        const ids = await kvSmembersSafe("orders:index");
+        const all = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) all.push(...flattenOrderToRows(o));
+        }
+
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
+
+        const { effective } = await getEffectiveSettings();
+        const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgStart = effective.EVENT_START || "";
+        const cfgEnd = effective.EVENT_END || "";
+
+        let startMs = NaN;
+        let endMs = NaN;
+
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs = parseYMD(endParam);
+        } else if (cfgStart || cfgEnd || cfgDays) {
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs =
+              endMs -
+              Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs = parseYMD(cfgEnd);
+          }
+        }
+
+        let rows = all;
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs: isNaN(endMs) ? undefined : endMs,
+          });
+        }
+
+        const q = (url.searchParams.get("q") || "")
+          .trim()
+          .toLowerCase();
+        if (q) {
+          rows = rows.filter(
+            (r) =>
+              String(r.purchaser || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.attendee || "").toLowerCase().includes(q) ||
+              String(r.item || "").toLowerCase().includes(q) ||
+              String(r.category || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(r.status || "").toLowerCase().includes(q) ||
+              String(r.notes || "").toLowerCase().includes(q)
+          );
+        }
+
+        const catParam = (
+          url.searchParams.get("category") || ""
+        ).toLowerCase();
+        const itemIdParam = (
+          url.searchParams.get("item_id") || ""
+        ).toLowerCase();
+        const itemParam = (
+          url.searchParams.get("item") || ""
+        ).toLowerCase();
+
+        if (catParam) {
+          rows = rows.filter(
+            (r) =>
+              String(r.category || "").toLowerCase() === catParam
+          );
+        }
+
+        if (itemIdParam) {
+          const wantRaw = itemIdParam;
+          const wantBase = baseKey(wantRaw);
+          const wantNorm = normalizeKey(wantRaw);
+          rows = rows.filter((r) => {
+            const raw = String(r._itemId || r.item_id || "").toLowerCase();
+            const rawNorm = normalizeKey(raw);
+            const keyBase = baseKey(raw);
+            const rowBase = r._itemBase || keyBase;
+            return (
+              raw === wantRaw ||
+              rawNorm === wantNorm ||
+              keyBase === wantBase ||
+              rowBase === wantBase ||
+              String(r._itemKey || "").toLowerCase() === wantNorm
+            );
+          });
+        } else if (itemParam) {
+          const want = itemParam;
+          rows = rows.filter((r) =>
+            String(r.item || "").toLowerCase().includes(want)
+          );
+        }
+
+        const sorted = sortByDateAsc(rows, "date");
+        const headers = Object.keys(
+          sorted[0] || {
+            id: "",
+            date: "",
+            purchaser: "",
+            attendee: "",
+            category: "",
+            item: "",
+            item_id: "",
+            qty: 0,
+            price: 0,
+            gross: 0,
+            fees: 0,
+            net: 0,
+            status: "",
+            notes: "",
+            _itemId: "",
+            _itemBase: "",
+            _itemKey: "",
+            _pi: "",
+            _charge: "",
+            _session: "",
+          }
+        );
+
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Orders"
+        );
+
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="orders.xlsx"`
+        );
+        return res.status(200).send(buf);
+      }
+
+      if (type === "attendee_roster_csv") {
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const roster = collectAttendeesFromOrders(orders, {
+          includeAddress: false,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs: isNaN(endMs) ? undefined : endMs,
+        });
+
+        const sorted = sortByDateAsc(roster, "date");
+        const headers = [
+          "date",
+          "purchaser",
+          "attendee",
+          "attendee_title",
+          "attendee_phone",
+          "attendee_email",
+          "item",
+          "item_id",
+          "qty",
+          "notes",
+        ];
+
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Attendees"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="attendee-roster.xlsx"`
+        );
+        return res.status(200).send(buf);
+      }
+
+      if (type === "directory_csv") {
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const roster = collectAttendeesFromOrders(orders, {
+          includeAddress: true,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs: isNaN(endMs) ? undefined : endMs,
+        });
+
+        const sorted = sortByDateAsc(roster, "date");
+        const headers = [
+          "attendee",
+          "attendee_title",
+          "attendee_email",
+          "attendee_phone",
+          "attendee_addr1",
+          "attendee_addr2",
+          "attendee_city",
+          "attendee_state",
+          "attendee_postal",
+          "attendee_country",
+          "item",
+          "qty",
+          "notes",
+          "purchaser",
+          "date",
+        ];
+
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          sorted,
+          null,
+          "Directory"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="directory.xlsx"`
+        );
+        return res.status(200).send(buf);
+      }
+
+      if (type === "full_attendees_csv") {
+        const ids = await kvSmembersSafe("orders:index");
+        const orders = [];
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (o) orders.push(o);
+        }
+
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
+        let startMs = NaN,
+          endMs = NaN;
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs = parseYMD(endParam);
+        }
+
+        const cats = (url.searchParams.get("category") || "banquet,addon")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const rosterAll = collectAttendeesFromOrders(orders, {
+          includeAddress: true,
+          categories: cats,
+          startMs: isNaN(startMs) ? undefined : startMs,
+          endMs: isNaN(endMs) ? undefined : endMs,
+        });
+
+        const withAttendee = rosterAll.filter(
+          (r) => String(r.attendee || "").trim().length > 0
+        );
+
+        const norm = (s) => String(s || "").trim().toLowerCase();
+        const normPhone = (s) => String(s || "").replace(/\D+/g, "");
+        const map = new Map();
+        for (const r of withAttendee) {
+          const key = `${norm(r.attendee)}|${norm(
+            r.attendee_email
+          )}|${normPhone(r.attendee_phone)}`;
+          const prev = map.get(key);
+          if (!prev) {
+            map.set(key, r);
+          } else {
+            const tPrev = parseDateISO(prev.date);
+            const tNew = parseDateISO(r.date);
+            if (
+              !isNaN(tNew) &&
+              !isNaN(tPrev) &&
+              tNew < tPrev
+            ) {
+              map.set(key, r);
+            }
+          }
+        }
+
+        const unique = sortByDateAsc(
+          Array.from(map.values()),
+          "date"
+        );
+
+        const headers = [
+          "#",
+          "date",
+          "attendee",
+          "attendee_title",
+          "attendee_phone",
+          "attendee_email",
+          "attendee_addr1",
+          "attendee_addr2",
+          "attendee_city",
+          "attendee_state",
+          "attendee_postal",
+          "attendee_country",
+        ];
+        const numbered = unique.map((r, idx) => ({
+          "#": idx + 1,
+          date: r.date,
+          attendee: r.attendee,
+          attendee_title: r.attendee_title,
+          attendee_phone: r.attendee_phone,
+          attendee_email: r.attendee_email,
+          attendee_addr1: r.attendee_addr1,
+          attendee_addr2: r.attendee_addr2,
+          attendee_city: r.attendee_city,
+          attendee_state: r.attendee_state,
+          attendee_postal: r.attendee_postal,
+          attendee_country: r.attendee_country,
+        }));
+
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          numbered,
+          null,
+          "Full Attendees"
+        );
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="full-attendees.xlsx"`
+        );
+        return res.status(200).send(buf);
       }
 
       if (type === "finalize_order") {
@@ -436,7 +851,7 @@ export default async function handler(req, res) {
           ? JSON.parse(req.body || "{}")
           : req.body || {};
 
-      // --- High-security admin login (security.js) ---
+      // --- NEW: High-security admin login (Option 3) ---
       if (action === "admin_login") {
         try {
           const ip =
@@ -453,9 +868,15 @@ export default async function handler(req, res) {
           });
 
           if (result.ok) {
-            // { ok: true, token, ttlSeconds }
+            // Contains: { ok: true, token, ttlSeconds }
             return REQ_OK(res, result);
           }
+
+          const errCode =
+            result.error ||
+            (result.error === "locked_out"
+              ? "locked_out"
+              : "login-failed");
 
           const status =
             result.error === "invalid_password" ||
@@ -463,32 +884,13 @@ export default async function handler(req, res) {
               ? 401
               : 500;
 
-          return REQ_ERR(res, status, result.error || "login-failed", result);
+          return REQ_ERR(res, status, errCode, result);
         } catch (e) {
           console.error("admin_login failed:", e?.message || e);
           return REQ_ERR(res, 500, "login-failed", {
             message: e?.message || String(e),
           });
         }
-      }
-
-      // OPTIONAL: emergency lockout clear
-      if (action === "admin_clear_lockout") {
-        const pw = String(body.password || "");
-        const pwEnv = (process.env.ADMIN_PASSWORD || "").trim();
-        if (!pwEnv || pw !== pwEnv) {
-          return REQ_ERR(res, 401, "invalid_password");
-        }
-        const ip =
-          req.headers["x-forwarded-for"] ||
-          req.headers["x-real-ip"] ||
-          req.socket?.remoteAddress ||
-          "";
-        const result = await clearAdminLockout(ip);
-        if (!result.ok) {
-          return REQ_ERR(res, 500, "unlock-failed", result);
-        }
-        return REQ_OK(res, result);
       }
 
       // --- Quick manual Resend test (no auth) ---
@@ -677,7 +1079,7 @@ export default async function handler(req, res) {
               </tbody>
             </table>
             <p style="margin-top:10px;font-size:12px;color:#555;">
-              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
+              Technical details: IP=${esc(ip)} Â· User-Agent=${esc(ua)}
             </p>
           </div>
         `;
@@ -711,7 +1113,7 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "resend-not-configured");
         }
 
-        const subject = `Website contact — ${topicLabel}`;
+        const subject = `Website contact â€” ${topicLabel}`;
 
         const payload = {
           from: RESEND_FROM || "onboarding@resend.dev",
@@ -867,6 +1269,7 @@ export default async function handler(req, res) {
           const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
 
+          // Subtotal of cart items (no processing / intl fees yet)
           const subtotalCents = lines.reduce((s, l) => {
             const priceMode = (l.priceMode || "").toLowerCase();
             const isBundle =
@@ -883,6 +1286,7 @@ export default async function handler(req, res) {
             }
           }, 0);
 
+          // Base processing fee (your normal pct + flat)
           const feeAmount = Math.max(
             0,
             Math.round(subtotalCents * (pct / 100)) + flatCents
@@ -904,6 +1308,7 @@ export default async function handler(req, res) {
             });
           }
 
+          // --- NEW: International card processing fee (3%) ---
           const purchaserCountry = (
             purchaser.country ||
             purchaser.addressCountry ||
@@ -931,6 +1336,7 @@ export default async function handler(req, res) {
               "usd"
             );
             if (intlLine && intlLine.price_data?.product_data) {
+              // Ensure a clear label + fee metadata
               intlLine.price_data.product_data.name =
                 intlLine.price_data.product_data.name ||
                 "International Card Processing Fee (3%)";
@@ -941,6 +1347,7 @@ export default async function handler(req, res) {
               };
               line_items.push(intlLine);
             } else if (intlLine) {
+              // Fallback if helper didn't build product_data as expected
               line_items.push(intlLine);
             }
           }
@@ -1082,6 +1489,7 @@ export default async function handler(req, res) {
         if (!id || !name)
           return REQ_ERR(res, 400, "id-and-name-required");
 
+        // normalize chair emails
         const emails = Array.isArray(chairEmails)
           ? chairEmails
           : String(chairEmails || "")
@@ -1089,6 +1497,7 @@ export default async function handler(req, res) {
               .map((s) => s.trim())
               .filter(Boolean);
 
+        // merge with existing cfg so we don't lose kind, etc.
         const existing = await kvHgetallSafe(`itemcfg:${id}`);
 
         const freq = normalizeReportFrequency(
@@ -1102,7 +1511,7 @@ export default async function handler(req, res) {
           ...existing,
           id,
           name,
-          kind: kind || existing?.kind || "",
+          kind: kind || existing?.kind || "", // don't guess; keep existing if any
           chairEmails: emails,
           publishStart,
           publishEnd,
@@ -1158,6 +1567,7 @@ export default async function handler(req, res) {
           });
         }
 
+        // Collect all keys to delete (orders index + each order)
         const index = await kvSmembersSafe("orders:index");
         const toDelete = ["orders:index", ...index.map((id) => `order:${id}`)];
 
@@ -1208,8 +1618,11 @@ export default async function handler(req, res) {
       }
 
       if (action === "send_monthly_chair_reports") {
+        // Warm up orders cache once so the helper can reuse it
         await loadAllOrdersWithRetry();
 
+        // Dynamically import the scheduler helper so a problem there
+        // does NOT break normal /api/router traffic (addons, banquets, etc.)
         let schedulerMod;
         try {
           schedulerMod = await import("./admin/report-scheduler.js");
@@ -1226,12 +1639,15 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "scheduler-invalid");
         }
 
+        // Delegate which items to send/skip to the helper
         const { sent, skipped, errors, itemsLog } =
           await runScheduledChairReports({
             now: new Date(),
             sendItemReportEmailInternal,
           });
 
+        // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
+        // including skipped ones and any errors.
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
             .map((s) => s.trim())
@@ -1242,6 +1658,7 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
+            // Start of current month (UTC)
             const firstOfMonth = new Date(
               Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
             );
@@ -1313,7 +1730,7 @@ export default async function handler(req, res) {
               </div>
             `;
 
-            const subject = `Scheduled chair report log — ${dateStr}`;
+            const subject = `Scheduled chair report log â€” ${dateStr}`;
 
             const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
@@ -1609,6 +2026,7 @@ export default async function handler(req, res) {
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS",
+          // Global auto-report controls (UI may use only REPORT_WEEKDAY now)
           "REPORT_FREQUENCY",
           "REPORT_WEEKDAY",
         ].forEach((k) => {
@@ -1619,12 +2037,14 @@ export default async function handler(req, res) {
           allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
         }
 
+        // Normalize frequency using the same helper we use for item config
         if ("REPORT_FREQUENCY" in allow) {
           allow.REPORT_FREQUENCY = normalizeReportFrequency(
             allow.REPORT_FREQUENCY
           );
         }
 
+        // Clamp weekday to 1â€“7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
