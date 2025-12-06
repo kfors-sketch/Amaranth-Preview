@@ -71,7 +71,7 @@ import {
 // NEW: scheduler debug helper
 import { debugScheduleForItem } from "./admin/debug.js";
 
-// ---- Admin auth helper (with debug logging) ----
+// ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
 //  - new KV-backed admin tokens issued by handleAdminLogin()
@@ -84,57 +84,29 @@ async function requireAdminAuth(req, res) {
 
   const auth = String(rawAuth || "");
   const lower = auth.toLowerCase();
-
-  console.log(
-    "requireAdminAuth debug: rawAuth =",
-    auth ? auth.slice(0, 80) : "(empty)"
-  );
-
   if (!lower.startsWith("bearer ")) {
-    console.error("requireAdminAuth: missing Bearer prefix");
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
 
   const token = auth.slice(7).trim();
   if (!token) {
-    console.error("requireAdminAuth: empty token after Bearer");
     REQ_ERR(res, 401, "unauthorized");
     return false;
   }
 
-  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages + cron still work)
+  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages still work)
   const legacy = (process.env.REPORT_TOKEN || "").trim();
-  console.log(
-    "requireAdminAuth debug: haveLegacy =",
-    !!legacy,
-    "legacyLen =",
-    legacy.length
-  );
-
   if (legacy && token === legacy) {
-    console.log("requireAdminAuth: matched legacy REPORT_TOKEN");
     return true;
-  } else if (legacy) {
-    console.log("requireAdminAuth: token did NOT match legacy REPORT_TOKEN");
-  } else {
-    console.log("requireAdminAuth: no legacy REPORT_TOKEN configured");
   }
 
   // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
-    console.log("requireAdminAuth debug: verifyAdminToken result =", result);
-    if (result && result.ok) {
-      console.log("requireAdminAuth: KV admin token OK");
-      return true;
-    }
-    console.error("requireAdminAuth: KV admin token rejected", result);
+    if (result.ok) return true;
   } catch (e) {
-    console.error(
-      "requireAdminAuth: verifyAdminToken threw",
-      e?.message || e
-    );
+    console.error("verifyAdminToken failed:", e?.message || e);
   }
 
   REQ_ERR(res, 401, "unauthorized");
