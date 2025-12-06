@@ -21,7 +21,7 @@
     button.danger{background:#b91c1c;color:#fff;border-color:#b91c1c}
     button:disabled{opacity:.6;cursor:not-allowed}
     label{font-size:13px;color:#374151;display:block;margin-bottom:4px}
-    input[type="email"],input[type="text"]{
+    input[type="email"],input[type="text"],select{
       width:100%;max-width:320px;padding:6px 8px;border-radius:8px;border:1px solid #d1d5db;font-size:13px;
     }
     small{font-size:11px;color:#6b7280}
@@ -50,6 +50,7 @@
       </nav>
     </header>
 
+    <!-- Auth / Context ----------------------------------------------------- -->
     <div class="card">
       <h3>Auth / Context</h3>
       <p id="authStatus">Checking admin token…</p>
@@ -58,6 +59,7 @@
       </p>
     </div>
 
+    <!-- Basic Environment / Connectivity ----------------------------------- -->
     <div class="card">
       <h3>Environment Smoketest <span class="badge">GET ?type=smoketest</span></h3>
       <p>Checks Node version, Stripe keys, Resend, and KV connectivity in one shot.</p>
@@ -133,6 +135,88 @@
       </div>
     </div>
 
+    <!-- Data Health -------------------------------------------------------- -->
+    <div class="card">
+      <h3>Orders Index Health <span class="badge">GET ?type=debug_orders_health</span></h3>
+      <p>
+        Checks <code>orders:index</code> for missing <code>order:&lt;id&gt;</code> keys and
+        shows earliest / latest order timestamps plus sample flattened rows.
+      </p>
+      <div class="btn-row">
+        <button id="btnOrdersHealth">Run Orders Health Check</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Item Config Health <span class="badge">GET ?type=debug_itemcfg_health</span></h3>
+      <p>
+        Dumps <code>itemcfg:index</code> entries, checking chair emails, publish windows,
+        and normalized <code>reportFrequency</code> for each item.
+      </p>
+      <div class="btn-row">
+        <button id="btnItemcfgHealth">Run Itemcfg Health Check</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Scheduler Dry Run <span class="badge">GET ?type=debug_scheduler_dry_run</span></h3>
+      <p>
+        Simulates the scheduler without sending any emails. For each item shows
+        report window, row counts, and whether it <em>would</em> send now and why.
+      </p>
+      <div class="btn-row">
+        <button id="btnSchedulerDryRun">Run Scheduler Dry Run</button>
+      </div>
+    </div>
+
+    <!-- Targeted Previews -------------------------------------------------- -->
+    <div class="card">
+      <h3>Chair Report Preview <span class="badge">GET ?type=debug_chair_preview</span></h3>
+      <p>
+        Shows which rows a chair report <em>would</em> include for a specific item,
+        either full history or just the current calendar month.
+      </p>
+      <label for="chairItemId">Item ID</label>
+      <input type="text" id="chairItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
+      <label for="chairScope" style="margin-top:8px;">Scope</label>
+      <select id="chairScope">
+        <option value="full">Full history</option>
+        <option value="current-month">Current month only</option>
+      </select>
+      <small>Uses <code>admin/debug.js</code> <code>handleChairPreview()</code> under the hood.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnChairPreview" class="primary">Run Chair Preview</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Order Preview <span class="badge">GET ?type=debug_order_preview</span></h3>
+      <p>
+        Loads a stored <code>order:&lt;id&gt;</code> and shows its flattened rows as used by reporting.
+      </p>
+      <label for="orderPreviewId">Order ID</label>
+      <input type="text" id="orderPreviewId" placeholder="e.g. order_123, cs_test_order" />
+      <small>Use IDs from Stripe webhook logs or your own admin exports.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnOrderPreview">Run Order Preview</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Webhook Session Preview <span class="badge">GET ?type=debug_webhook_preview</span></h3>
+      <p>
+        Fetches a Stripe <code>checkout.session</code> (with payment intent and line items) for a given
+        <code>session_id</code>, to compare with your stored order.
+      </p>
+      <label for="webhookSessionId">Stripe Session ID</label>
+      <input type="text" id="webhookSessionId" placeholder="e.g. cs_test_123..." />
+      <small>Use the <code>checkout.session.completed</code> IDs from Stripe's dashboard/logs.</small>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="btnWebhookPreview">Run Webhook Session Preview</button>
+      </div>
+    </div>
+
+    <!-- Item Schedule Debug ----------------------------------------------- -->
     <div class="card">
       <h3>Item Schedule Debug <span class="badge">POST action=debug_schedule&amp;id=&lt;itemId&gt;</span></h3>
       <p>
@@ -140,13 +224,14 @@
         the current report schedule and publish window for a specific item ID.
       </p>
       <label for="debugItemId">Item ID to debug</label>
-      <input type="text" id="debugItemId" placeholder="e.g. banquet_trails, addon_directory, product_coin" />
+      <input type="text" id="debugItemId" placeholder="e.g. trails-feast, gf-officers-breakfast" />
       <small>Uses your current admin token for authorization.</small>
       <div class="btn-row" style="margin-top:8px;">
         <button id="btnDebugSchedule" class="primary">Run Schedule Debug</button>
       </div>
     </div>
 
+    <!-- Output ------------------------------------------------------------- -->
     <div class="card">
       <h3>Output</h3>
       <p>
@@ -175,9 +260,21 @@
     const btnTestResend = document.getElementById("btnTestResend");
     const btnDebugSchedule = document.getElementById("btnDebugSchedule");
 
+    const btnOrdersHealth = document.getElementById("btnOrdersHealth");
+    const btnItemcfgHealth = document.getElementById("btnItemcfgHealth");
+    const btnSchedulerDryRun = document.getElementById("btnSchedulerDryRun");
+    const btnChairPreview = document.getElementById("btnChairPreview");
+    const btnOrderPreview = document.getElementById("btnOrderPreview");
+    const btnWebhookPreview = document.getElementById("btnWebhookPreview");
+
     const resendToInput = document.getElementById("resendTo");
     const resendDebugToInput = document.getElementById("resendDebugTo");
     const debugItemIdInput = document.getElementById("debugItemId");
+
+    const chairItemIdInput = document.getElementById("chairItemId");
+    const chairScopeSelect = document.getElementById("chairScope");
+    const orderPreviewIdInput = document.getElementById("orderPreviewId");
+    const webhookSessionIdInput = document.getElementById("webhookSessionId");
 
     function getToken() {
       try {
@@ -203,7 +300,13 @@
         btnLastMail,
         btnSchedulerDiag,
         btnTestResend,
-        btnDebugSchedule
+        btnDebugSchedule,
+        btnOrdersHealth,
+        btnItemcfgHealth,
+        btnSchedulerDryRun,
+        btnChairPreview,
+        btnOrderPreview,
+        btnWebhookPreview
       ].forEach((b) => {
         if (!b) return;
         b.disabled = disabled;
@@ -427,6 +530,207 @@
       }
     }
 
+    async function runOrdersHealth() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running orders health check…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_orders_health", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Orders index health", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runItemcfgHealth() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running itemcfg health check…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_itemcfg_health", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Itemcfg health", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runSchedulerDryRun() {
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running scheduler dry run…";
+      outputEl.textContent = "";
+
+      try {
+        const res = await fetch(API_BASE + "?type=debug_scheduler_dry_run", {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Scheduler dry run", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runChairPreview() {
+      const id = (chairItemIdInput.value || "").trim();
+      const scope = (chairScopeSelect.value || "full").trim() || "full";
+
+      if (!id) {
+        showError("Please enter an item ID first.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running chair preview…";
+      outputEl.textContent = "";
+
+      const qs =
+        "?type=debug_chair_preview&id=" +
+        encodeURIComponent(id) +
+        "&scope=" +
+        encodeURIComponent(scope);
+
+      try {
+        const res = await fetch(API_BASE + qs, {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Chair preview for " + id + " (" + scope + ")", data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runOrderPreview() {
+      const oid = (orderPreviewIdInput.value || "").trim();
+      if (!oid) {
+        showError("Please enter an order ID first.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running order preview…";
+      outputEl.textContent = "";
+
+      const qs =
+        "?type=debug_order_preview&id=" + encodeURIComponent(oid);
+
+      try {
+        const res = await fetch(API_BASE + qs, {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Order preview for " + oid, data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    async function runWebhookPreview() {
+      const sid = (webhookSessionIdInput.value || "").trim();
+      if (!sid) {
+        showError("Please enter a Stripe session ID first.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      outputStatusEl.classList.remove("status-bad");
+      outputStatusEl.classList.add("status-ok");
+      outputStatusEl.textContent = " – Running webhook session preview…";
+      outputEl.textContent = "";
+
+      const qs =
+        "?type=debug_webhook_preview&session_id=" +
+        encodeURIComponent(sid);
+
+      try {
+        const res = await fetch(API_BASE + qs, {
+          headers: {
+            "Accept": "application/json",
+            ...authHeaders(),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(
+            (data && (data.error || data.message)) || "HTTP " + res.status
+          );
+        }
+        showJSON("Webhook session preview for " + sid, data);
+      } catch (e) {
+        showError(e);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
     async function runDebugSchedule() {
       const id = (debugItemIdInput.value || "").trim();
       if (!id) {
@@ -475,6 +779,13 @@
     btnSchedulerDiag.addEventListener("click", runSchedulerDiag);
     btnTestResend.addEventListener("click", runTestResend);
     btnDebugSchedule.addEventListener("click", runDebugSchedule);
+
+    btnOrdersHealth.addEventListener("click", runOrdersHealth);
+    btnItemcfgHealth.addEventListener("click", runItemcfgHealth);
+    btnSchedulerDryRun.addEventListener("click", runSchedulerDryRun);
+    btnChairPreview.addEventListener("click", runChairPreview);
+    btnOrderPreview.addEventListener("click", runOrderPreview);
+    btnWebhookPreview.addEventListener("click", runWebhookPreview);
 
     // Init auth status (client-side quick check)
     (function initAuthStatus() {
