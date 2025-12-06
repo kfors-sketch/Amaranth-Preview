@@ -833,22 +833,23 @@ export default async function handler(req, res) {
             "";
           const ua = req.headers["user-agent"] || "";
 
+          console.log("[router] admin_login called", {
+            ip,
+            ua,
+            hasBody: !!req.body,
+          });
+
           const result = await handleAdminLogin({
             password: String(body.password || ""),
             ip,
             userAgent: ua,
           });
 
+          console.log("[router] admin_login result", result);
+
           if (result.ok) {
-            // Contains: { ok: true, token, ttlSeconds }
             return REQ_OK(res, result);
           }
-
-          const errCode =
-            result.error ||
-            (result.error === "locked_out"
-              ? "locked_out"
-              : "login-failed");
 
           const status =
             result.error === "invalid_password" ||
@@ -856,9 +857,10 @@ export default async function handler(req, res) {
               ? 401
               : 500;
 
+          const errCode = result.error || "login-failed";
           return REQ_ERR(res, status, errCode, result);
         } catch (e) {
-          console.error("admin_login failed:", e?.message || e);
+          console.error("admin_login failed (unhandled):", e);
           return REQ_ERR(res, 500, "login-failed", {
             message: e?.message || String(e),
           });
