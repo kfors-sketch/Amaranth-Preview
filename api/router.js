@@ -154,6 +154,50 @@ export default async function handler(req, res) {
         return REQ_OK(res, data);
       }
 
+      // NEW: year_index (for reporting_yoy.html)
+      // Returns:
+      //   { years: [2024, 2025, ...],
+      //     slots: [{ key, label, category }, ...] }
+      if (type === "year_index") {
+        const years = await listIndexedYears();
+
+        const slots = [];
+        const seen = new Set();
+
+        const addSlots = (list, category) => {
+          if (!Array.isArray(list)) return;
+          for (const item of list) {
+            const key = String(
+              item?.id || item?.slotKey || item?.slot || ""
+            ).trim();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+
+            const label =
+              item?.name ||
+              item?.label ||
+              item?.slotLabel ||
+              key;
+
+            slots.push({
+              key,
+              label,
+              category,
+            });
+          }
+        };
+
+        const banquets = (await kvGetSafe("banquets", [])) || [];
+        const addons = (await kvGetSafe("addons", [])) || [];
+        const products = (await kvGetSafe("products", [])) || [];
+
+        addSlots(banquets, "banquet");
+        addSlots(addons, "addon");
+        addSlots(products, "catalog");
+
+        return REQ_OK(res, { years, slots });
+      }
+
       // NEW: list all years we have indexed (for dropdowns / filters)
       if (type === "years_index") {
         const years = await listIndexedYears();
