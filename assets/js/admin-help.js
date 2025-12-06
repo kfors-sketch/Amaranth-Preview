@@ -99,7 +99,7 @@
     `,
   };
 
-  // Global hook for future pages
+  // Simple global hook you can call from HTML or console:
   function showAdminHelp(id, titleOverride) {
     const idSafe = id || "_default";
     openHelpModal(idSafe, titleOverride);
@@ -112,12 +112,10 @@
     },
     show: showAdminHelp,
   };
-
-  // Also expose a simple global function for inline onclick as a backup
   window.showAdminHelp = showAdminHelp;
 
   // -------------------------------------------------------------------------
-  // CREATE/ENSURE MODAL ELEMENT
+  // CREATE/ENSURE MODAL ELEMENT (with built-in styling)
   // -------------------------------------------------------------------------
   function ensureModal() {
     let modal = document.getElementById("adminHelpModal");
@@ -136,6 +134,61 @@
       </div>
     `;
 
+    // 🔥 Inline emergency styles so it always shows even if CSS is missing
+    modal.style.position = "fixed";
+    modal.style.left = "0";
+    modal.style.top = "0";
+    modal.style.right = "0";
+    modal.style.bottom = "0";
+    modal.style.padding = "1rem";
+    modal.style.background = "rgba(15,23,42,0.55)";
+    modal.style.display = "flex";
+    modal.style.alignItems = "center";
+    modal.style.justifyContent = "center";
+    modal.style.zIndex = "9999"; // be on top
+
+    const dialog = modal.querySelector(".help-modal-dialog");
+    if (dialog) {
+      dialog.style.position = "relative";
+      dialog.style.maxWidth = "480px";
+      dialog.style.width = "100%";
+      dialog.style.background = "#ffffff";
+      dialog.style.borderRadius = "14px";
+      dialog.style.boxShadow = "0 10px 40px rgba(15,23,42,0.40)";
+      dialog.style.padding = "16px 18px 18px";
+      dialog.style.fontFamily = "system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif";
+      dialog.style.color = "#111827";
+      dialog.style.fontSize = "14px";
+    }
+
+    const titleEl = modal.querySelector(".help-title");
+    if (titleEl) {
+      titleEl.style.margin = "0 0 6px 0";
+      titleEl.style.fontSize = "16px";
+      titleEl.style.fontWeight = "700";
+    }
+
+    const bodyEl = modal.querySelector(".help-modal-body");
+    if (bodyEl) {
+      bodyEl.style.marginTop = "4px";
+      bodyEl.style.fontSize = "13px";
+      bodyEl.style.lineHeight = "1.5";
+      bodyEl.style.maxHeight = "60vh";
+      bodyEl.style.overflow = "auto";
+    }
+
+    const closeBtn = modal.querySelector(".help-close");
+    if (closeBtn) {
+      closeBtn.style.position = "absolute";
+      closeBtn.style.top = "6px";
+      closeBtn.style.right = "8px";
+      closeBtn.style.border = "none";
+      closeBtn.style.background = "transparent";
+      closeBtn.style.fontSize = "18px";
+      closeBtn.style.cursor = "pointer";
+      closeBtn.style.padding = "0";
+    }
+
     document.body.appendChild(modal);
     return modal;
   }
@@ -150,8 +203,8 @@
       overrideTitle ||
       id.replace(/[_-]+/g, " ").replace(/\b\w/g, m => m.toUpperCase());
 
-    titleEl.textContent = title;
-    body.innerHTML = html;
+    if (titleEl) titleEl.textContent = title;
+    if (body) body.innerHTML = html;
 
     modal.classList.remove("hide");
     modal.setAttribute("aria-hidden", "false");
