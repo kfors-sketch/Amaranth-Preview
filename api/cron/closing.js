@@ -1,6 +1,9 @@
 // /api/cron/closing.js
 
 export default async function handler(req, res) {
+  // ---- Debug Log Version Tag ----
+  console.log("closing.js version: v2 – using REPORT_TOKEN and router-error wrapper");
+
   try {
     const token = process.env.REPORT_TOKEN || "";
     if (!token) {
@@ -44,6 +47,7 @@ export default async function handler(req, res) {
       source: "cron/closing",
       ...data,
     });
+
   } catch (e) {
     console.error("closing cron fatal error:", e);
     return res.status(500).json({
