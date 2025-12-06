@@ -65,7 +65,6 @@
         <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
         <li><b>Additional Images</b>: put one URL per line for extra gallery images.</li>
-        <li><b>Year-over-year Slot</b>: optional label (e.g. <code>Session Coin</code>) to group similar products across years.</li>
       </ul>
     </section>
 
@@ -89,7 +88,6 @@
             <thead>
               <tr>
                 <th style="min-width:160px">Name</th>
-                <th style="min-width:140px">YoY Slot</th>
                 <th style="min-width:160px">ID</th>
                 <th>Type</th>
                 <th>Price</th>
@@ -173,11 +171,6 @@
         </select>
         <div class="hint">Used by automated chair reports for this product.</div>
 
-        <!-- NEW: YoY slot selection -->
-        <label for="f_slot_label">Year-over-year Slot (optional)</label>
-        <select id="f_slot_label"></select>
-        <div class="hint">Choose a label (e.g. “Session Coin”) to compare this product with the same slot in other years.</div>
-
         <div class="row">
           <div>
             <label for="f_start">Publish Start</label>
@@ -223,11 +216,11 @@
   <!-- Tell admin pages where to send item-configs -->
   <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
 
-  <!-- Shared YoY slot helper -->
-  <script src="/assets/js/slotkeys.js"></script>
-
   <!-- Static fallback for products -->
   <script src="/assets/js/items.js"></script>
+
+  <!-- Slot keys helper (admin version) -->
+  <script src="/assets/js/admin-slotkeys.js"></script>
 
   <!-- Admin shared helpers -->
   <script src="/assets/js/admin.js"></script>
@@ -285,108 +278,6 @@
       case "monthly":  return "Monthly";
       case "none":     return "—";
       default:         return "Monthly";
-    }
-  }
-
-  // ---- Slot key helpers (YoY bucket for products) ----
-  const SLOT_KIND = "product";
-  const SLOT_NONE_VALUE = "";
-  const SLOT_ADD_VALUE = "__add__";
-
-  function makeSlotKeyFromLabel(label) {
-    const base = String(label || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    return base || "";
-  }
-
-  function getSlotList() {
-    if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
-      const arr = SlotKeys.getSlots(SLOT_KIND) || [];
-      return arr
-        .map(s => ({
-          key: s.key || makeSlotKeyFromLabel(s.label || s.name),
-          label: s.label || s.name || "",
-          scope: s.scope || SLOT_KIND
-        }))
-        .filter(s => s.label);
-    }
-    return [];
-  }
-
-  function ensureSlot(kind, label) {
-    const trimmed = String(label || "").trim();
-    if (!trimmed) return { key: "", label: "", scope: kind };
-    if (window.SlotKeys && typeof SlotKeys.ensureSlot === "function") {
-      try {
-        return SlotKeys.ensureSlot(kind, trimmed);
-      } catch (e) {
-        console.warn("SlotKeys.ensureSlot failed:", e);
-      }
-    }
-    return {
-      key: makeSlotKeyFromLabel(trimmed),
-      label: trimmed,
-      scope: kind
-    };
-  }
-
-  function populateSlotSelect(selectedLabel) {
-    const sel = document.getElementById('f_slot_label');
-    if (!sel) return;
-
-    const current = selectedLabel == null ? sel.value : selectedLabel;
-    sel.innerHTML = "";
-
-    // None
-    const optNone = document.createElement("option");
-    optNone.value = SLOT_NONE_VALUE;
-    optNone.textContent = "— None (no YoY bucket) —";
-    sel.appendChild(optNone);
-
-    // Known slots
-    const slots = getSlotList();
-    slots.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s.label;
-      opt.textContent = s.label;
-      sel.appendChild(opt);
-    });
-
-    // Add-new sentinel
-    const optAdd = document.createElement("option");
-    optAdd.value = SLOT_ADD_VALUE;
-    optAdd.textContent = "➕ Add new label…";
-    sel.appendChild(optAdd);
-
-    if (current && current !== SLOT_ADD_VALUE) {
-      const exists = slots.some(s => s.label === current);
-      if (!exists && current !== SLOT_NONE_VALUE) {
-        const opt = document.createElement("option");
-        opt.value = current;
-        opt.textContent = current;
-        sel.insertBefore(opt, optAdd);
-      }
-      sel.value = current;
-    } else {
-      sel.value = SLOT_NONE_VALUE;
-    }
-  }
-
-  function onSlotChange(e) {
-    const sel = e.currentTarget;
-    if (!sel) return;
-    const val = sel.value;
-    if (val === SLOT_ADD_VALUE) {
-      const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Session Coin'):");
-      if (!label) {
-        sel.value = SLOT_NONE_VALUE;
-        return;
-      }
-      const slot = ensureSlot(SLOT_KIND, label);
-      populateSlotSelect(slot.label);
-      sel.value = slot.label;
     }
   }
 
@@ -522,11 +413,6 @@
       out.images = out.imageUrl ? [out.imageUrl] : [];
     }
 
-    // ===== YoY slot normalization =====
-    out.slotScope = out.slotScope || SLOT_KIND;
-    out.slotKey = out.slotKey || "";
-    out.slotLabel = out.slotLabel || out.slotKey || "";
-
     return out;
   }
 
@@ -603,7 +489,6 @@
       $('#listMsg').textContent = 'Loaded from server.';
     }
 
-    populateSlotSelect();
     renderList();
     startNew();
   }
@@ -626,7 +511,6 @@
       model = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
-    populateSlotSelect();
     renderList(); startNew();
   });
 
@@ -634,7 +518,7 @@
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
     if(!model.length){
-      tb.innerHTML = '<tr><td colspan="11" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+      tb.innerHTML = '<tr><td colspan="10" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
     }
     for(const p of model){
       const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
@@ -642,12 +526,10 @@
       const freqLabel = describeFreq(p.reportFrequency || p.report_frequency || "monthly");
       const shipDollars = (Number(p.shippingCents || 0) || 0) / 100;
       const shipLabel = shipDollars > 0 ? '$' + shipDollars.toFixed(2) : '—';
-      const slotLabel = p.slotLabel || '';
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(p.name||'')}</strong></td>
-        <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
         <td><code>${esc(p.id||'')}</code></td>
         <td>${esc(p.type || 'fixed')}</td>
         <td>$${Number(p.price||0).toFixed(2)}</td>
@@ -690,7 +572,6 @@
     $('#f_chair_name').value = '';
     $('#f_chair_emails').value = '';
     $('#f_variants').value = '';
-    populateSlotSelect();
     syncTypeFields();
   }
 
@@ -700,8 +581,6 @@
     current = n;
     $('#modeChip').textContent = 'Edit';
     $('#editMsg').textContent = '';
-
-    populateSlotSelect(n.slotLabel || "");
 
     $('#f_name').value = n.name || '';
     $('#f_id').value = n.id || '';
@@ -777,19 +656,6 @@
     if (main) newImages.push(main);
     extraUrls.forEach(u => { if (u && !newImages.includes(u)) newImages.push(u); });
 
-    // slot fields from selector
-    const slotLabelRaw = document.getElementById('f_slot_label').value || "";
-    let slotKey = "";
-    let slotLabel = "";
-    let slotScope = SLOT_KIND;
-
-    if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
-      const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
-      slotKey = slot.key || "";
-      slotLabel = slot.label || "";
-      slotScope = slot.scope || SLOT_KIND;
-    }
-
     const out = {
       ...base,
       id, name, active,
@@ -803,16 +669,12 @@
       images: newImages,
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
-      reportFrequency: freq,
-      slotKey,
-      slotLabel,
-      slotScope
+      reportFrequency: freq
     };
 
     if (type === 'variantQty') {
       // Save variants
       out.variants = variants; // [{id,label,price}, ...]
-
       // Also keep legacy tiered/pricing in sync for the public catalog
       out.tiered = true;
       out.pricing = variants.map(v => {
@@ -824,7 +686,6 @@
           price: Number(v.price || 0) || 0
         };
       });
-
       delete out.price; // bundle prices come from variants/pricing
     } else if (type === 'amount') {
       // Open amount / donation-style — no fixed price here
@@ -847,13 +708,28 @@
     if (!o.name) return 'Name is required.';
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-    if ((o.type === 'fixed' || o.type === 'qty') && Number(o.price) < 0) return 'Price cannot be negative.';
+
+    if (!o.type) return 'Type is required.';
+    const allowedTypes = ['fixed', 'qty', 'amount', 'variantQty'];
+    if (!allowedTypes.includes(o.type)) return 'Type is invalid.';
+
+    // For fixed/qty, price must be > 0
+    if (o.type === 'fixed' || o.type === 'qty') {
+      const priceNum = Number(o.price);
+      if (!Number.isFinite(priceNum) || priceNum <= 0) {
+        return 'Price must be greater than zero for fixed/qty items.';
+      }
+    }
+
     if (Number(o.shippingCents) < 0) return 'Shipping cannot be negative.';
+
     if (o.type === 'variantQty'){
       if (!Array.isArray(o.variants) || o.variants.length === 0) return 'Add at least one variant.';
     }
+
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
+
     for (const em of (o.chairEmails || [])){
       if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
@@ -905,7 +781,6 @@
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
       model = normalizeAll(data);
-      populateSlotSelect();
       renderList();
       startNew();
       $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
@@ -977,12 +852,6 @@
       $('#listMsg').textContent = 'Sync failed: ' + (e.message || e);
     }
   });
-
-  // Wire slot change
-  const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) {
-    slotSel.addEventListener('change', onSlotChange);
-  }
 
   // Hook "New Product" button
   document.getElementById('btnAddNew').addEventListener('click', startNew);
