@@ -129,11 +129,10 @@
 
     modal = document.createElement("div");
     modal.id = "adminHelpModal";
-    modal.className = "help-modal hide";
-    modal.setAttribute("aria-hidden", "true");
+    modal.className = "help-modal";
 
     modal.innerHTML = `
-      <div class="help-modal-dialog" role="dialog" aria-modal="true">
+      <div class="help-modal-dialog" role="dialog">
         <button type="button" class="help-close" aria-label="Close help">&times;</button>
         <h2 class="help-title">Help</h2>
         <div class="help-modal-body"></div>
@@ -148,7 +147,7 @@
     modal.style.bottom = "0";
     modal.style.padding = "1rem";
     modal.style.background = "rgba(15,23,42,0.55)";
-    modal.style.display = "flex";
+    modal.style.display = "none"; // ⬅ start hidden
     modal.style.alignItems = "center";
     modal.style.justifyContent = "center";
     modal.style.zIndex = "9999";
@@ -212,8 +211,8 @@
     if (titleEl) titleEl.textContent = title;
     if (body) body.innerHTML = html;
 
-    modal.classList.remove("hide");
-    modal.setAttribute("aria-hidden", "false");
+    // Show the modal
+    modal.style.display = "flex";
     document.body.classList.add("help-modal-open");
 
     console.log("[admin-help] opened", id);
@@ -229,16 +228,16 @@
     const modal = document.getElementById("adminHelpModal");
     if (!modal) return;
 
-    // Blur the element with focus so we're not hiding a focused node
+    // Blur whatever is currently focused
     if (document.activeElement && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
 
-    modal.classList.add("hide");
-    modal.setAttribute("aria-hidden", "true");
+    // Hide the modal
+    modal.style.display = "none";
     document.body.classList.remove("help-modal-open");
 
-    // Return focus to the button that opened the help, if we know it
+    // Return focus to the button that opened it (if we know it)
     if (lastHelpTrigger && typeof lastHelpTrigger.focus === "function") {
       lastHelpTrigger.focus();
     }
@@ -271,6 +270,7 @@
 
     const modal = document.getElementById("adminHelpModal");
     if (modal && evt.target === modal) {
+      // Clicked the dark backdrop
       closeHelpModal();
       evt.preventDefault();
       return;
