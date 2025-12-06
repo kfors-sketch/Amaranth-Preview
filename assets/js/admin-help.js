@@ -23,6 +23,21 @@
       temporary copy.</p>
     `,
 
+    reporting_filters: `
+      <p><strong>Filters &amp; Tools</strong> control which orders appear in the
+      table and which rows are included in most exports.</p>
+      <ul>
+        <li><strong>From / To date</strong> – limit rows to a specific date range.</li>
+        <li><strong>Category</strong> – show only Banquets, Add-ons, or Catalog items.</li>
+        <li><strong>Status</strong> – filter by Paid, Pending, or Refunded payments.</li>
+        <li><strong>Search</strong> – matches buyer name, email, item name, and notes.</li>
+        <li><strong>Export Filtered (.xlsx)</strong> – downloads a spreadsheet using
+        all of these filters.</li>
+      </ul>
+      <p>Nothing here deletes server data – it only changes what you see or export
+      from this page.</p>
+    `,
+
     reporting_orders: `
       <p><strong>Orders & Payments</strong> shows individual orders with their
       payment status, item purchased, buyer information, and amount paid.</p>
