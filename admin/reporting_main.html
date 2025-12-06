@@ -127,6 +127,16 @@
 
     <!-- Top filters + tools -->
     <div class="card mb-16">
+      <div class="flex between mb-4">
+        <div class="section-label">Filters &amp; tools</div>
+        <button
+          type="button"
+          class="help-btn"
+          data-help-id="reporting_filters"
+          aria-label="Help for Filters and Tools"
+        >?</button>
+      </div>
+
       <div class="toolbar">
         <div class="group">
           <label class="muted">From date</label>
@@ -624,9 +634,7 @@
 
     document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
       const qs=buildServerQuery();
-      await downloadServerCsv(qs + (qs ? '&' : '?') + 'full_attendees=1');
-      // or keep your separate endpoint if preferred
-      // await downloadCsvFrom('/api/router?type=full_attendees_csv'+qs,'amaranth-full-attendees');
+      await downloadServerCsv(qs);
     });
 
     async function downloadServerCsv(qs){
