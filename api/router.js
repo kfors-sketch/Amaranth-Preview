@@ -68,8 +68,22 @@ import {
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
-// NEW: scheduler debug helper
-import { debugScheduleForItem } from "../admin/debug.js";
+// NEW: scheduler + debug helpers
+import {
+  debugScheduleForItem,
+  handleSmoketest,
+  handleLastMail,
+  handleTokenTest,
+  handleStripeTest,
+  handleResendTest,
+  handleSchedulerDiagnostic,
+  handleOrdersHealth,
+  handleItemcfgHealth,
+  handleSchedulerDryRun,
+  handleChairPreview,
+  handleOrderPreview,
+  handleWebhookPreview,
+} from "../admin/debug.js";
 
 // ---- Admin auth helper ----
 // Uses either:
@@ -122,36 +136,76 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
+      // Core smoketest via admin/debug.js
       if (type === "smoketest") {
-        const out = {
-          ok: true,
-          node: process.versions?.node || "unknown",
-          runtime: process.env.VERCEL ? "vercel" : "local",
-          hasSecret: !!process.env.STRIPE_SECRET_KEY,
-          hasPub: !!process.env.STRIPE_PUBLISHABLE_KEY,
-          hasWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
-          hasResendEnv: !!process.env.RESEND_API_KEY,
-          hasResendClient: !!resend,
-          fromTrimmed: RESEND_FROM,
-          kvSetGetOk: false,
-        };
-        try {
-          await kv.set("smoketest:key", "ok", { ex: 30 });
-        } catch {}
-        try {
-          const v = await kv.get("smoketest:key");
-          out.kvSetGetOk = v === "ok";
-        } catch (e) {
-          out.kvError = String(e?.message || e);
-        }
+        const out = await handleSmoketest();
         return REQ_OK(res, out);
       }
 
+      // Last mail log via admin/debug.js
       if (type === "lastmail") {
-        const data = await kvGetSafe(MAIL_LOG_KEY, {
-          note: "no recent email log",
-        });
-        return REQ_OK(res, data);
+        const out = await handleLastMail();
+        return REQ_OK(res, out);
+      }
+
+      // Debug: token / Stripe / Resend / scheduler
+      if (type === "debug_token") {
+        const out = await handleTokenTest(req);
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_stripe") {
+        const out = await handleStripeTest();
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_resend") {
+        const out = await handleResendTest(req, url);
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_scheduler") {
+        const out = await handleSchedulerDiagnostic();
+        return REQ_OK(res, out);
+      }
+
+      // Data health + scheduler dry run
+      if (type === "debug_orders_health") {
+        const out = await handleOrdersHealth();
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_itemcfg_health") {
+        const out = await handleItemcfgHealth();
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_scheduler_dry_run") {
+        const out = await handleSchedulerDryRun();
+        return REQ_OK(res, out);
+      }
+
+      // Targeted previews
+      if (type === "debug_chair_preview") {
+        const id = url.searchParams.get("id") || "";
+        const scope = url.searchParams.get("scope") || "full";
+        const out = await handleChairPreview({ id, scope });
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_order_preview") {
+        const id = url.searchParams.get("id") || "";
+        const out = await handleOrderPreview(id);
+        return REQ_OK(res, out);
+      }
+
+      if (type === "debug_webhook_preview") {
+        const sessionId =
+          url.searchParams.get("session_id") ||
+          url.searchParams.get("sessionId") ||
+          "";
+        const out = await handleWebhookPreview(sessionId);
+        return REQ_OK(res, out);
       }
 
       // NEW: year_index (for reporting_yoy.html)
