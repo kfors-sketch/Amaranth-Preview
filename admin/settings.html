@@ -24,6 +24,9 @@
     .pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;border-radius:999px;padding:6px 10px}
     .ok{color:#065f46}
     .err{color:#b91c1c}
+    .mode-radio-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
+    .mode-radio-row label{display:flex;align-items:center;gap:6px;margin:0;font-weight:500}
+    .mode-hint{font-size:13px;color:#6b7280;margin-top:4px}
   </style>
 </head>
 <body>
@@ -71,6 +74,69 @@
         </div>
       </div>
       <div id="emailMsg" class="muted" style="margin-top:6px"></div>
+    </section>
+
+    <!-- Checkout / Stripe mode -->
+    <section class="card">
+      <h3 style="margin:0 0 8px">Checkout / Stripe Mode</h3>
+      <p class="muted" style="margin:0 0 8px">
+        Choose which channel new orders are stamped with. LIVE mode can be limited to a date window and will
+        automatically fall back to TEST when outside that window.
+      </p>
+
+      <!-- Mode radios -->
+      <div class="mode-radio-row">
+        <label>
+          <input type="radio" name="checkoutMode" value="test" />
+          <span>Test</span>
+          <span class="mode-hint">Stripe test keys · no real charges</span>
+        </label>
+      </div>
+      <div class="mode-radio-row">
+        <label>
+          <input type="radio" name="checkoutMode" value="live_test" />
+          <span>Live-Test</span>
+          <span class="mode-hint">Real Stripe account · for live testing</span>
+        </label>
+      </div>
+      <div class="mode-radio-row">
+        <label>
+          <input type="radio" name="checkoutMode" value="live" />
+          <span>Live</span>
+          <span class="mode-hint">Real production charges · uses window below</span>
+        </label>
+      </div>
+
+      <!-- Live window -->
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label for="liveStartDate">Live Start (UTC)</label>
+          <input id="liveStartDate" type="date" />
+        </div>
+        <div>
+          <label for="liveStartTime">Start Time (UTC)</label>
+          <input id="liveStartTime" type="time" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <label for="liveEndDate">Live End (UTC)</label>
+          <input id="liveEndDate" type="date" />
+        </div>
+        <div>
+          <label for="liveEndTime">End Time (UTC)</label>
+          <input id="liveEndTime" type="time" />
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+        <input id="liveAuto" type="checkbox" />
+        <label for="liveAuto" style="margin:0;font-weight:500">
+          Auto-revert LIVE to TEST outside this window
+        </label>
+      </div>
+      <div id="modeInfo" class="muted" style="margin-top:6px">
+        Loading checkout mode…
+      </div>
     </section>
 
     <!-- Maintenance -->
@@ -155,7 +221,7 @@ $('#logoutBtn').addEventListener('click', ()=>{
   location.href = '/admin/login.html';
 });
 
-/* ---------- Load current settings (router) ---------- */
+/* ---------- Load CURRENT ENV/OVERRIDES (router settings) ---------- */
 async function loadSettings(){
   $('#currentJson').textContent = 'Loading…';
   try{
@@ -183,15 +249,97 @@ async function loadSettings(){
   }
 }
 
-/* ---------- Save settings (router) ---------- */
+/* ---------- Load CHECKOUT MODE (router) ---------- */
+async function loadCheckoutMode(){
+  try{
+    const res = await fetch('/api/router?type=checkout_mode', {
+      method: 'GET',
+      headers: {
+        ...Admin.tokenHeader()
+      }
+    });
+    const j = await res.json();
+
+    if (!res.ok) throw new Error(j?.error || res.statusText);
+
+    const raw = j.raw || {};
+    const mode = raw.stripeMode || 'test';
+    const liveAuto = !!raw.liveAuto;
+    const liveStart = raw.liveStart || '';
+    const liveEnd = raw.liveEnd || '';
+
+    // radios
+    let radio = document.querySelector(`input[name="checkoutMode"][value="${mode}"]`);
+    if (!radio) radio = document.querySelector('input[name="checkoutMode"][value="test"]');
+    if (radio) radio.checked = true;
+
+    $('#liveAuto').checked = liveAuto;
+
+    function applyDT(iso, dateSel, timeSel){
+      const dateEl = $(dateSel);
+      const timeEl = $(timeSel);
+      if (!dateEl || !timeEl) return;
+
+      if (!iso){
+        dateEl.value = '';
+        timeEl.value = '';
+        return;
+      }
+      const d = new Date(iso);
+      if (isNaN(d.getTime())){
+        dateEl.value = '';
+        timeEl.value = '';
+        return;
+      }
+      const isoStr = d.toISOString(); // UTC
+      dateEl.value = isoStr.slice(0,10);
+      timeEl.value = isoStr.slice(11,16);
+    }
+
+    applyDT(liveStart, '#liveStartDate', '#liveStartTime');
+    applyDT(liveEnd,   '#liveEndDate',   '#liveEndTime');
+
+    const eff = j.effectiveChannel || 'test';
+    $('#modeInfo').textContent = 'Current effective channel: ' + eff.toUpperCase();
+  }catch(e){
+    $('#modeInfo').textContent = 'Failed to load checkout mode: ' + (e?.message || e);
+  }
+}
+
+/* ---------- Save settings + checkout mode ---------- */
 $('#saveAll').addEventListener('click', async ()=>{
   const RESEND_FROM = $('#fromEmail').value.trim();
   const REPORTS_CC = $('#ccList').value.trim();
   const MAINTENANCE_ON = $('#maintOn').value === 'true';
   const MAINTENANCE_MESSAGE = $('#maintMsg').value;
 
+  // checkout mode bits
+  const modeRadio = document.querySelector('input[name="checkoutMode"]:checked');
+  const stripeMode = modeRadio ? modeRadio.value : 'test';
+
+  const liveStartDate = $('#liveStartDate').value;
+  const liveStartTime = $('#liveStartTime').value;
+  const liveEndDate   = $('#liveEndDate').value;
+  const liveEndTime   = $('#liveEndTime').value;
+  const liveAuto      = $('#liveAuto').checked;
+
+  const buildIso = (d, t) => {
+    if (!d) return '';
+    const time = (t && t.trim()) ? t.trim() : '00:00';
+    // store as explicit UTC time string
+    return `${d}T${time}:00Z`;
+  };
+
+  const modePayload = {
+    stripeMode,
+    liveAuto,
+    liveStart: buildIso(liveStartDate, liveStartTime),
+    liveEnd: buildIso(liveEndDate, liveEndTime),
+  };
+
   try{
-    const res = await fetch('/api/router?action=save_settings', {
+    // 1) save basic settings
+    const resSettings = await fetch('/api/router?action=save_settings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -200,23 +348,42 @@ $('#saveAll').addEventListener('click', async ()=>{
       body: JSON.stringify({ RESEND_FROM, REPORTS_CC, MAINTENANCE_ON, MAINTENANCE_MESSAGE })
     });
 
-    if (!res.ok) {
-      const j = await res.json().catch(() => null);
-      throw new Error(j?.error || res.statusText || 'Save failed');
+    if (!resSettings.ok) {
+      const j = await resSettings.json().catch(() => null);
+      throw new Error(j?.error || resSettings.statusText || 'Save failed');
     }
 
-    setMsg($('#saveMsg'), 'Saved!', true);
-    // refresh view of effective/env/overrides
+    // 2) save checkout mode + window
+    const resMode = await fetch('/api/router?action=save_checkout_mode', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...Admin.tokenHeader()
+      },
+      body: JSON.stringify(modePayload)
+    });
+
+    if (!resMode.ok) {
+      const j2 = await resMode.json().catch(() => null);
+      throw new Error(j2?.error || resMode.statusText || 'Mode save failed');
+    }
+
+    setMsg($('#saveMsg'), 'Saved settings and checkout mode!', true);
     await loadSettings();
+    await loadCheckoutMode();
   }catch(e){
     setMsg($('#saveMsg'), 'Save failed: ' + (e?.message || e), false);
   }
 });
 
-$('#reload').addEventListener('click', loadSettings);
+$('#reload').addEventListener('click', async ()=>{
+  await loadSettings();
+  await loadCheckoutMode();
+});
 
 /* init */
 loadSettings();
+loadCheckoutMode();
 </script>
 
 <!-- === Cron Schedule Help Tooltip === -->
