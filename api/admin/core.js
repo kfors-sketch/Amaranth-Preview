@@ -14,6 +14,100 @@ async function getStripe() {
   return _stripe;
 }
 
+// ---- Checkout mode & window settings ----
+const CHECKOUT_SETTINGS_KEY = "settings:checkout";
+
+/**
+ * Raw checkout settings from KV.
+ * {
+ *   stripeMode: "test" | "live_test" | "live",
+ *   liveAuto: boolean,
+ *   liveStart: string,
+ *   liveEnd:   string
+ * }
+ */
+async function getCheckoutSettingsRaw() {
+  const s = await kv.get(CHECKOUT_SETTINGS_KEY);
+  if (!s || typeof s !== "object") {
+    return {
+      stripeMode: "test",
+      liveAuto: false,
+      liveStart: "",
+      liveEnd: "",
+    };
+  }
+  const out = { ...s };
+  if (!out.stripeMode) out.stripeMode = "test";
+  return out;
+}
+
+async function saveCheckoutSettings(patch = {}) {
+  const current = await getCheckoutSettingsRaw();
+  const next = { ...current, ...patch };
+  await kv.set(CHECKOUT_SETTINGS_KEY, next);
+  return next;
+}
+
+/**
+ * Same as raw, but:
+ * - If stripeMode is "live" + liveAuto true
+ * - AND current time is outside [liveStart, liveEnd]
+ * => automatically reset stripeMode back to "test" and persist.
+ */
+async function getCheckoutSettingsAuto(now = new Date()) {
+  let s = await getCheckoutSettingsRaw();
+  let changed = false;
+
+  if (s.stripeMode === "live" && s.liveAuto) {
+    const start = s.liveStart ? new Date(s.liveStart) : null;
+    const end = s.liveEnd ? new Date(s.liveEnd) : null;
+
+    const tooEarly = start && now < start;
+    const tooLate = end && now > end;
+
+    if (tooEarly || tooLate) {
+      s = { ...s, stripeMode: "test" };
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await kv.set(CHECKOUT_SETTINGS_KEY, s);
+  }
+
+  return s;
+}
+
+/**
+ * Compute the effective channel to stamp onto each order:
+ * Returns: "test" | "live_test" | "live"
+ *
+ * NOTE: LIVE is auto-downgraded back to TEST outside its window.
+ */
+async function getEffectiveOrderChannel(now = new Date()) {
+  const s = await getCheckoutSettingsAuto(now);
+
+  let mode = s.stripeMode;
+  if (mode !== "live" && mode !== "live_test" && mode !== "test") {
+    mode = "test";
+  }
+
+  // Only LIVE is governed by the date window.
+  if (mode === "live" && s.liveAuto) {
+    const start = s.liveStart ? new Date(s.liveStart) : null;
+    const end = s.liveEnd ? new Date(s.liveEnd) : null;
+
+    const tooEarly = start && now < start;
+    const tooLate = end && now > end;
+
+    if (tooEarly || tooLate) {
+      mode = "test";
+    }
+  }
+
+  return mode;
+}
+
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // ---- Mail “From / Reply-To” (sanitized) ----
@@ -279,7 +373,6 @@ async function recordMailLog(payload) {
 }
 
 // --- Coverage text helper for chair reports ---
-// Uses explicit startMs/endMs when provided; otherwise falls back to min/max row dates.
 function formatCoverageRange({ startMs, endMs, rows }) {
   const fmt = (ms) =>
     new Date(ms)
@@ -374,7 +467,8 @@ async function getChairEmailsForItemId(id) {
 }
 
 // ----- order persistence helpers -----
-async function saveOrderFromSession(sessionLike) {
+// NOTE: now accepts optional "extra" object (e.g. { mode: "live" }).
+async function saveOrderFromSession(sessionLike, extra = {}) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
 
@@ -437,7 +531,7 @@ async function saveOrderFromSession(sessionLike) {
     country: (md.purchaser_country || "").trim(),
   };
 
-  const order = {
+  let order = {
     id: sid,
     created: Date.now(),
     payment_intent:
@@ -470,6 +564,11 @@ async function saveOrderFromSession(sessionLike) {
     refunded_cents: 0,
     status: "paid",
   };
+
+  // Merge any extras (e.g. { mode: "live" })
+  if (extra && typeof extra === "object") {
+    order = { ...order, ...extra };
+  }
 
   const piId = order.payment_intent;
   if (piId) {
@@ -513,6 +612,8 @@ async function applyRefundToOrder(chargeId, refund) {
 // --- Flatten an order into report rows (CSV-like) ---
 function flattenOrderToRows(o) {
   const rows = [];
+  const mode = (o.mode || "test").toLowerCase(); // OLD ORDERS → "test"
+
   (o.lines || []).forEach((li) => {
     const net = li.gross;
     const rawId = li.itemId || "";
@@ -544,6 +645,7 @@ function flattenOrderToRows(o) {
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
+      mode, // <-- NEW: report row knows which mode this order belongs to
     });
   });
 
@@ -572,6 +674,7 @@ function flattenOrderToRows(o) {
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
+      mode, // keep mode on the fee row too
     });
   }
   return rows;
@@ -1044,6 +1147,7 @@ function buildCSV(rows) {
       _pi: "",
       _charge: "",
       _session: "",
+      mode: "",
     }
   );
   const esc = (v) => {
@@ -1175,11 +1279,63 @@ function collectAttendeesFromOrders(
   return out;
 }
 
+// ---- per-mode purge helper ----
+const ALLOW_LIVE_PURGE =
+  (process.env.ALLOW_LIVE_PURGE || "").toLowerCase() === "true";
+
+function resolveOrderKey(order) {
+  if (order.kvKey) return order.kvKey;
+  if (order.id) return `order:${order.id}`;
+  throw new Error("Cannot resolve KV key for order");
+}
+
+/**
+ * Purge orders by mode.
+ * mode: "test" | "live_test" | "live"
+ * options: { hard?: boolean }
+ *
+ * NOTE: any order with no `mode` is treated as "test".
+ */
+async function purgeOrdersByMode(mode, { hard = false } = {}) {
+  if (!["test", "live_test", "live"].includes(mode)) {
+    throw new Error(`Invalid mode for purge: ${mode}`);
+  }
+
+  // Live protection: no hard purge of LIVE unless env explicitly allows it
+  if (mode === "live" && (hard || !ALLOW_LIVE_PURGE)) {
+    throw new Error("Hard purge of LIVE data is disabled for safety.");
+  }
+
+  const all = await loadAllOrdersWithRetry();
+  const target = all.filter((o) => {
+    const m = (o.mode || "test").toLowerCase();
+    return m === mode;
+  });
+
+  let count = 0;
+
+  for (const order of target) {
+    const key = resolveOrderKey(order);
+
+    if (mode === "live" || !hard) {
+      // soft delete: keep record, mark as deleted
+      await kvHsetSafe(key, {
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+        deletedReason: `purge-${mode}`,
+      });
+    } else {
+      // hard delete for test / live_test
+      await kvDelSafe(key);
+      // if you maintain index sets (like per-year), clean them here too
+    }
+    count++;
+  }
+
+  return { count, mode, hard: mode === "live" ? false : hard };
+}
+
 // ---- single function that sends a chair XLSX for a given item ----
-// Supports scopes:
-//   - "current-month" (default): 1st of current month 00:00Z → now
-//   - "custom": custom start/end dates (Y-M-D) or explicit ms
-//   - "full": all orders for this item
 async function sendItemReportEmailInternal({
   kind,
   id,
@@ -1608,4 +1764,11 @@ export {
   REALTIME_CHAIR_KEY_PREFIX,
   sendRealtimeChairEmailsForOrder,
   maybeSendRealtimeChairEmails,
+
+  // NEW: checkout mode helpers + purge
+  getCheckoutSettingsRaw,
+  saveCheckoutSettings,
+  getCheckoutSettingsAuto,
+  getEffectiveOrderChannel,
+  purgeOrdersByMode,
 };
