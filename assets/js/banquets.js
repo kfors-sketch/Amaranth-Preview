@@ -9,7 +9,7 @@ window.BANQUETS = [
     datetime: "Saturday, April 18th at 5 PM",
     location: "Court Room",
     description: "YADA YADA",
-    price: 60,                                 // <-- single price
+    price: 60, // single price
     mealChoices: ["Chicken Entrée", "Beef Entrée", "Vegetarian Entrée"],
     dietary: [],
     active: true,
@@ -217,15 +217,21 @@ window.BANQUETS = [
     };
 
     (window.BANQUETS || []).forEach((b) => {
+      // Match items.js behavior: derive emails and only send if non-empty
+      const emails = Array.isArray(b.chairEmails)
+        ? b.chairEmails.filter(Boolean)
+        : [b?.chair?.email].filter(Boolean);
+
       const payload = {
         id: b.id,
         name: b.name,
-        chairEmails: Array.isArray(b.chairEmails)
-          ? b.chairEmails
-          : [b?.chair?.email].filter(Boolean),
         publishStart: b.publishStart || "",
         publishEnd: b.publishEnd || ""
       };
+
+      if (emails.length > 0) {
+        payload.chairEmails = emails;
+      }
 
       fetch(ENDPOINT, {
         method: "POST",
