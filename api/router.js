@@ -48,6 +48,8 @@ import {
   REALTIME_CHAIR_KEY_PREFIX,
   sendRealtimeChairEmailsForOrder,
   maybeSendRealtimeChairEmails,
+  // NEW: per-mode purge helper
+  purgeOrdersByMode,
 } from "./admin/core.js";
 
 import {
@@ -84,6 +86,49 @@ import {
   handleOrderPreview,
   handleWebhookPreview,
 } from "../admin/debug.js";
+
+// ---------- Checkout mode helpers (for Test / Live-Test / Live window) ----------
+const CHECKOUT_MODE_KEY = "checkout:mode";
+
+function parseMaybeTime(value) {
+  if (!value) return NaN;
+  const s = String(value).trim();
+  if (!s) return NaN;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : NaN;
+}
+
+// Decide which channel is currently effective for new orders
+// Returns: "test" | "live_test" | "live"
+function computeEffectiveChannel(raw, nowMs) {
+  const cfg = raw || {};
+  const mode = String(cfg.stripeMode || "test").toLowerCase();
+  const liveAuto = !!cfg.liveAuto;
+
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const startMs = parseMaybeTime(cfg.liveStart);
+  const endMs = parseMaybeTime(cfg.liveEnd);
+
+  const windowActive =
+    !isNaN(startMs) &&
+    now >= startMs &&
+    (isNaN(endMs) || now <= endMs);
+
+  if (mode === "live_test") {
+    return "live_test";
+  }
+
+  if (mode === "live") {
+    if (!liveAuto) {
+      return "live";
+    }
+    // Auto window: LIVE only while window is active, otherwise TEST
+    return windowActive ? "live" : "test";
+  }
+
+  // default fallback
+  return "test";
+}
 
 // ---- Admin auth helper ----
 // Uses either:
@@ -343,6 +388,32 @@ export default async function handler(req, res) {
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
           MAINTENANCE_MESSAGE:
             effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
+        });
+      }
+
+      // NEW: Checkout / Stripe mode fetch for admin/settings.html
+      if (type === "checkout_mode") {
+        const raw =
+          (await kvGetSafe(CHECKOUT_MODE_KEY, null)) || {};
+        const nowMs = Date.now();
+        const effectiveChannel = computeEffectiveChannel(
+          raw,
+          nowMs
+        );
+        const startMs = parseMaybeTime(raw.liveStart);
+        const endMs = parseMaybeTime(raw.liveEnd);
+        const windowActive =
+          !isNaN(startMs) &&
+          nowMs >= startMs &&
+          (isNaN(endMs) || nowMs <= endMs);
+
+        return REQ_OK(res, {
+          raw,
+          auto: {
+            now: new Date(nowMs).toISOString(),
+            windowActive,
+          },
+          effectiveChannel,
         });
       }
 
@@ -1273,6 +1344,11 @@ export default async function handler(req, res) {
         if (!stripe)
           return REQ_ERR(res, 500, "stripe-not-configured");
 
+        // Determine current effective channel based on stored mode + date window
+        const rawMode =
+          (await kvGetSafe(CHECKOUT_MODE_KEY, null)) || {};
+        const orderChannel = computeEffectiveChannel(rawMode);
+
         const origin =
           req.headers.origin || `https://${req.headers.host}`;
         const successUrl =
@@ -1432,6 +1508,8 @@ export default async function handler(req, res) {
               success_url: successUrl,
               cancel_url: cancelUrl,
               metadata: {
+                order_channel: orderChannel,
+                order_mode: orderChannel,
                 purchaser_name: purchaser.name || "",
                 purchaser_email: purchaser.email || "",
                 purchaser_phone: purchaser.phone || "",
@@ -1471,6 +1549,10 @@ export default async function handler(req, res) {
             })),
             success_url: successUrl,
             cancel_url: cancelUrl,
+            metadata: {
+              order_channel: orderChannel,
+              order_mode: orderChannel,
+            },
           })
         );
         return REQ_OK(res, {
@@ -1628,7 +1710,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- SAFE ADMIN-ONLY PURGE OF ORDERS ---
+      // --- SAFE ADMIN-ONLY PURGE OF ORDERS BY MODE ---
       if (action === "purge_orders") {
         const confirm = String(body?.confirm || "");
         if (confirm !== "PURGE ORDERS") {
@@ -1639,25 +1721,37 @@ export default async function handler(req, res) {
           });
         }
 
-        // Collect all keys to delete (orders index + each order)
-        const index = await kvSmembersSafe("orders:index");
-        const toDelete = ["orders:index", ...index.map((id) => `order:${id}`)];
+        // Mode to purge: "test" | "live_test" | "live"
+        // Default is "test" for safety.
+        let mode = String(body?.mode || "").toLowerCase() || "test";
+        const hardFlag = Boolean(body?.hard);
 
-        let deleted = 0;
-        for (const key of toDelete) {
-          try {
-            await kvDelSafe(key);
-            deleted++;
-          } catch (err) {
-            console.error("purge_orders failed on key:", key, err);
-          }
+        if (!["test", "live_test", "live"].includes(mode)) {
+          return REQ_ERR(res, 400, "invalid-mode", {
+            mode,
+            expected: ["test", "live_test", "live"],
+          });
         }
 
-        return REQ_OK(res, {
-          ok: true,
-          message: "Order storage purged successfully.",
-          deletedKeys: deleted,
-        });
+        try {
+          const result = await purgeOrdersByMode(mode, {
+            hard: hardFlag,
+          });
+
+          return REQ_OK(res, {
+            ok: true,
+            message:
+              mode === "live"
+                ? "Live orders purge requested. Core safety rules determine whether only soft-delete is allowed."
+                : `Orders for mode="${mode}" purged successfully.`,
+            ...result,
+          });
+        } catch (err) {
+          console.error("purge_orders failed:", err);
+          return REQ_ERR(res, 500, "purge-failed", {
+            message: err?.message || String(err),
+          });
+        }
       }
 
       // NEW: admin-only settings fetch for reporting_main.html
@@ -2129,6 +2223,45 @@ export default async function handler(req, res) {
         return REQ_OK(res, {
           ok: true,
           overrides: allow,
+        });
+      }
+
+      // NEW: Save checkout / Stripe mode + date window (admin/settings.html)
+      if (action === "save_checkout_mode") {
+        const {
+          stripeMode,
+          liveAuto,
+          liveStart,
+          liveEnd,
+        } = body || {};
+
+        let mode = String(stripeMode || "test").toLowerCase();
+        if (!["test", "live_test", "live"].includes(mode)) {
+          mode = "test";
+        }
+
+        const normalizeIso = (v) => {
+          if (!v || typeof v !== "string") return "";
+          const t = Date.parse(v.trim());
+          if (!Number.isFinite(t)) return "";
+          return new Date(t).toISOString();
+        };
+
+        const cfg = {
+          stripeMode: mode,
+          liveAuto: !!liveAuto,
+          liveStart: normalizeIso(liveStart),
+          liveEnd: normalizeIso(liveEnd),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await kvSetSafe(CHECKOUT_MODE_KEY, cfg);
+        const effectiveChannel = computeEffectiveChannel(cfg);
+
+        return REQ_OK(res, {
+          ok: true,
+          cfg,
+          effectiveChannel,
         });
       }
 
