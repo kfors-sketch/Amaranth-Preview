@@ -128,12 +128,7 @@
           <input id="liveEndTime" type="time" />
         </div>
       </div>
-      <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
-        <input id="liveAuto" type="checkbox" />
-        <label for="liveAuto" style="margin:0;font-weight:500">
-          Auto-revert LIVE to TEST outside this window
-        </label>
-      </div>
+
       <div id="modeInfo" class="muted" style="margin-top:6px">
         Loading checkout mode…
       </div>
@@ -264,7 +259,6 @@ async function loadCheckoutMode(){
 
     const raw = j.raw || {};
     const mode = raw.stripeMode || 'test';
-    const liveAuto = !!raw.liveAuto;
     const liveStart = raw.liveStart || '';
     const liveEnd = raw.liveEnd || '';
 
@@ -272,8 +266,6 @@ async function loadCheckoutMode(){
     let radio = document.querySelector(`input[name="checkoutMode"][value="${mode}"]`);
     if (!radio) radio = document.querySelector('input[name="checkoutMode"][value="test"]');
     if (radio) radio.checked = true;
-
-    $('#liveAuto').checked = liveAuto;
 
     function applyDT(iso, dateSel, timeSel){
       const dateEl = $(dateSel);
@@ -321,7 +313,6 @@ $('#saveAll').addEventListener('click', async ()=>{
   const liveStartTime = $('#liveStartTime').value;
   const liveEndDate   = $('#liveEndDate').value;
   const liveEndTime   = $('#liveEndTime').value;
-  const liveAuto      = $('#liveAuto').checked;
 
   const buildIso = (d, t) => {
     if (!d) return '';
@@ -332,7 +323,6 @@ $('#saveAll').addEventListener('click', async ()=>{
 
   const modePayload = {
     stripeMode,
-    liveAuto,
     liveStart: buildIso(liveStartDate, liveStartTime),
     liveEnd: buildIso(liveEndDate, liveEndTime),
   };
