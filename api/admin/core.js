@@ -21,23 +21,32 @@ const CHECKOUT_SETTINGS_KEY = "settings:checkout";
  * Raw checkout settings from KV.
  * {
  *   stripeMode: "test" | "live_test" | "live",
- *   liveAuto: boolean,
- *   liveStart: string,
- *   liveEnd:   string
+ *   liveAuto: boolean (legacy – now treated as always-on),
+ *   liveStart: string,   // e.g. "2025-11-01"
+ *   liveEnd:   string    // e.g. "2025-11-10"
  * }
+ *
+ * NOTE: We now treat the LIVE window as automatic:
+ * - If stripeMode is "live" AND we have a liveStart/liveEnd window,
+ *   being outside the window will automatically revert mode to "test"
+ *   without any manual "auto revert" button.
  */
 async function getCheckoutSettingsRaw() {
   const s = await kv.get(CHECKOUT_SETTINGS_KEY);
   if (!s || typeof s !== "object") {
     return {
       stripeMode: "test",
-      liveAuto: false,
+      // legacy flag kept for compatibility but treated as always-on:
+      liveAuto: true,
       liveStart: "",
       liveEnd: "",
     };
   }
   const out = { ...s };
   if (!out.stripeMode) out.stripeMode = "test";
+  if (out.liveAuto === undefined || out.liveAuto === null) {
+    out.liveAuto = true;
+  }
   return out;
 }
 
@@ -49,23 +58,29 @@ async function saveCheckoutSettings(patch = {}) {
 }
 
 /**
- * Same as raw, but:
- * - If stripeMode is "live" + liveAuto true
+ * Same as raw, but with **automatic LIVE window handling**:
+ *
+ * - If stripeMode is "live"
+ * - AND there is at least one of liveStart/liveEnd defined
  * - AND current time is outside [liveStart, liveEnd]
- * => automatically reset stripeMode back to "test" and persist.
+ *   => automatically reset stripeMode back to "test" and persist.
+ *
+ * The old `liveAuto` flag is effectively ignored now; the presence of
+ * a LIVE window is what drives the automatic behavior.
  */
 async function getCheckoutSettingsAuto(now = new Date()) {
   let s = await getCheckoutSettingsRaw();
   let changed = false;
 
-  if (s.stripeMode === "live" && s.liveAuto) {
+  if (s.stripeMode === "live") {
     const start = s.liveStart ? new Date(s.liveStart) : null;
     const end = s.liveEnd ? new Date(s.liveEnd) : null;
+    const hasWindow = !!(start || end);
 
     const tooEarly = start && now < start;
     const tooLate = end && now > end;
 
-    if (tooEarly || tooLate) {
+    if (hasWindow && (tooEarly || tooLate)) {
       s = { ...s, stripeMode: "test" };
       changed = true;
     }
@@ -82,7 +97,9 @@ async function getCheckoutSettingsAuto(now = new Date()) {
  * Compute the effective channel to stamp onto each order:
  * Returns: "test" | "live_test" | "live"
  *
- * NOTE: LIVE is auto-downgraded back to TEST outside its window.
+ * LIVE is **always** governed by the date window:
+ * - If stripeMode is "live" but we're outside [liveStart, liveEnd]
+ *   (and a window is defined), the effective mode is downgraded to "test".
  */
 async function getEffectiveOrderChannel(now = new Date()) {
   const s = await getCheckoutSettingsAuto(now);
@@ -92,15 +109,15 @@ async function getEffectiveOrderChannel(now = new Date()) {
     mode = "test";
   }
 
-  // Only LIVE is governed by the date window.
-  if (mode === "live" && s.liveAuto) {
+  if (mode === "live") {
     const start = s.liveStart ? new Date(s.liveStart) : null;
     const end = s.liveEnd ? new Date(s.liveEnd) : null;
+    const hasWindow = !!(start || end);
 
     const tooEarly = start && now < start;
     const tooLate = end && now > end;
 
-    if (tooEarly || tooLate) {
+    if (hasWindow && (tooEarly || tooLate)) {
       mode = "test";
     }
   }
@@ -645,7 +662,7 @@ function flattenOrderToRows(o) {
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
-      mode, // <-- NEW: report row knows which mode this order belongs to
+      mode, // <-- report row knows which mode this order belongs to
     });
   });
 
@@ -994,8 +1011,8 @@ function renderOrderEmailHTML(order) {
     <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tfoot>
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Subtotal</td>
-          <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid:#eee">Subtotal</td>
+          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
             itemsSubtotalCents
           )}</td>
         </tr>
@@ -1003,8 +1020,8 @@ function renderOrderEmailHTML(order) {
         ${processingRow}
         ${intlRow}
         <tr>
-          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
+          <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">Total</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(
             totalCents
           )}</td>
         </tr>
@@ -1268,10 +1285,10 @@ function collectAttendeesFromOrders(
         attendee_city: includeAddress ? m.attendeeCity || "" : "",
         attendee_state: includeAddress ? m.attendeeState || "" : "",
         attendee_postal: includeAddress
-          ? m.attendeePostal || ""
+          ? m.attendeePostal || "" 
           : "",
         attendee_country: includeAddress
-          ? m.attendeeCountry || ""
+          ? m.attendeeCountry || "" 
           : "",
       });
     }
