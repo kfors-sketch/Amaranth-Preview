@@ -256,6 +256,45 @@
         </small>
       </div>
 
+      <!-- NEW: Mode & Purge card ------------------------------------------ -->
+      <div class="card">
+        <h3>Mode & Purge Orders <span class="badge">POST action=get_settings / purge_orders</span></h3>
+        <p>
+          Shows the current effective mode and any configured live window.
+          Provides <strong>per-mode purge</strong> buttons for cleanup.
+        </p>
+
+        <p>
+          <strong>Current effective mode:</strong>
+          <span id="modeLabel">Loading…</span>
+        </p>
+        <p>
+          <strong>Current live window:</strong>
+          <span id="modeWindow">Loading…</span>
+        </p>
+
+        <div class="btn-row" style="margin-top:8px;">
+          <button id="btnPurgeTest" class="danger">
+            Purge Test Orders
+          </button>
+          <button id="btnPurgeLiveTest" class="danger">
+            Purge Live-Test Orders
+          </button>
+          <button id="btnPurgeLive" class="danger" disabled
+            title="Enabled only if ALLOW_LIVE_PURGE=true">
+            Purge Live Orders
+          </button>
+        </div>
+
+        <small>
+          These call <code>action=purge_orders</code> with
+          <code>mode="test"</code>, <code>"live_test"</code>, or
+          <code>"live"</code>. Server still enforces safety, including
+          the <code>confirm="PURGE ORDERS"</code> phrase and
+          <code>ALLOW_LIVE_PURGE</code>.
+        </small>
+      </div>
+
       <div class="card">
         <h3>Chair Routing Snapshot <span class="badge">GET ?type=debug_chair_routing</span></h3>
         <p>
@@ -379,7 +418,233 @@
     </div>
   </div>
 
-  <!-- Helper JS -->
+  <!-- Existing helper JS (if any) -->
   <script src="/admin/debug2.js"></script>
+
+  <!-- Inline JS just for Mode & Purge + basic status ---------------------- -->
+  <script>
+    (function () {
+      const authStatus = document.getElementById("authStatus2");
+      const tokenWarning = document.getElementById("tokenWarning2");
+      const modeLabel = document.getElementById("modeLabel");
+      const modeWindow = document.getElementById("modeWindow");
+      const outEl = document.getElementById("output2");
+      const statusEl = document.getElementById("outputStatus2");
+
+      const btnPurgeTest = document.getElementById("btnPurgeTest");
+      const btnPurgeLiveTest = document.getElementById("btnPurgeLiveTest");
+      const btnPurgeLive = document.getElementById("btnPurgeLive");
+
+      const btnLoadSettings = document.getElementById("btnLoadSettings");
+
+      function getToken() {
+        try {
+          // If you later expose window.Admin.getToken() we can use that too
+          return localStorage.getItem("amaranth_report_token") || "";
+        } catch (e) {
+          return "";
+        }
+      }
+
+      function authHeaders() {
+        const t = getToken();
+        return t ? { Authorization: "Bearer " + t } : {};
+      }
+
+      function setOutputStatus(text, isError) {
+        if (!statusEl) return;
+        statusEl.textContent = text || "";
+        statusEl.classList.toggle("status-bad", !!isError);
+        statusEl.classList.toggle("status-ok", !isError);
+      }
+
+      function setOutput(data) {
+        if (!outEl) return;
+        try {
+          outEl.textContent = JSON.stringify(data, null, 2);
+        } catch {
+          outEl.textContent = String(data);
+        }
+      }
+
+      function updateAuthStatus() {
+        const t = getToken();
+        if (t) {
+          authStatus.textContent =
+            "Admin token found in localStorage. Protected actions will use it.";
+          authStatus.classList.remove("status-bad");
+          authStatus.classList.add("status-ok");
+          tokenWarning.style.display = "none";
+        } else {
+          authStatus.textContent = "No admin token detected in this browser.";
+          authStatus.classList.remove("status-ok");
+          authStatus.classList.add("status-bad");
+          tokenWarning.style.display = "";
+        }
+      }
+
+      async function loadModeAndWindow() {
+        const token = getToken();
+        if (!token) {
+          modeLabel.textContent = "unknown (no token)";
+          modeWindow.textContent = "unknown";
+          return;
+        }
+
+        try {
+          setOutputStatus("Loading effective settings for mode/window…");
+          const res = await fetch("/api/router?action=get_settings", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders(),
+            },
+            body: JSON.stringify({}),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || res.statusText);
+          }
+
+          const env = data.env || {};
+          const eff = data.effective || {};
+
+          const mode =
+            eff.SITE_MODE ||
+            eff.MODE ||
+            env.SITE_MODE ||
+            env.MODE ||
+            "test";
+
+          const start =
+            eff.EVENT_START ||
+            env.EVENT_START ||
+            "";
+          const end =
+            eff.EVENT_END ||
+            env.EVENT_END ||
+            "";
+
+          let windowText = "None configured";
+          if (start || end) {
+            windowText = (start || "—") + " → " + (end || "—");
+          }
+
+          modeLabel.textContent = mode;
+          modeWindow.textContent = windowText;
+
+          const allowLivePurge =
+            String(
+              eff.ALLOW_LIVE_PURGE ||
+                env.ALLOW_LIVE_PURGE ||
+                ""
+            )
+              .trim()
+              .toLowerCase() === "true";
+
+          if (allowLivePurge && btnPurgeLive) {
+            btnPurgeLive.disabled = false;
+          }
+
+          setOutputStatus("Settings loaded for mode/purge.");
+          // Also push into output so you can see the raw payload if needed
+          setOutput({
+            settingsMode: mode,
+            liveWindow: windowText,
+            allowLivePurge,
+            raw: data,
+          });
+        } catch (e) {
+          console.error(e);
+          modeLabel.textContent = "error";
+          modeWindow.textContent = "failed to load";
+          setOutputStatus(
+            "Failed to load settings: " + (e.message || e),
+            true
+          );
+          setOutput({ error: String(e.message || e) });
+        }
+      }
+
+      async function doPurge(mode) {
+        const token = getToken();
+        if (!token) {
+          alert("No admin token found. Log in via Admin Login first.");
+          return;
+        }
+
+        const msg =
+          'This will purge orders for mode "' +
+          mode +
+          '".\\n\\n' +
+          'Make sure you have backups/exports first.\\n\\n' +
+          'Server requires the confirmation text "PURGE ORDERS". Continue?';
+
+        if (!confirm(msg)) return;
+
+        try {
+          setOutputStatus('Purging orders for mode "' + mode + '"…', true);
+          const res = await fetch("/api/router?action=purge_orders", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders(),
+            },
+            body: JSON.stringify({
+              mode,
+              confirm: "PURGE ORDERS",
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || res.statusText);
+          }
+
+          setOutputStatus(
+            'Purge complete for mode "' + mode + '".',
+            false
+          );
+          setOutput(data);
+          alert('Purge complete for mode "' + mode + '".');
+        } catch (e) {
+          console.error(e);
+          setOutputStatus(
+            "Purge failed: " + (e.message || e),
+            true
+          );
+          setOutput({ error: String(e.message || e) });
+          alert("Purge failed: " + (e.message || e));
+        }
+      }
+
+      // Wire purge buttons
+      if (btnPurgeTest) {
+        btnPurgeTest.addEventListener("click", () => doPurge("test"));
+      }
+      if (btnPurgeLiveTest) {
+        btnPurgeLiveTest.addEventListener("click", () =>
+          doPurge("live_test")
+        );
+      }
+      if (btnPurgeLive) {
+        btnPurgeLive.addEventListener("click", () => doPurge("live"));
+      }
+
+      // Also let the "Load Effective Settings" button refresh the mode card
+      if (btnLoadSettings) {
+        btnLoadSettings.addEventListener("click", () => {
+          // let whatever your external debug2.js does run,
+          // then also refresh our mode snapshot a moment later
+          setTimeout(loadModeAndWindow, 300);
+        });
+      }
+
+      // Init
+      updateAuthStatus();
+      loadModeAndWindow();
+    })();
+  </script>
 </body>
 </html>
