@@ -256,7 +256,7 @@
         </small>
       </div>
 
-      <!-- NEW: Mode & Purge card ------------------------------------------ -->
+      <!-- Mode & Purge card ------------------------------------------ -->
       <div class="card">
         <h3>Mode & Purge Orders <span class="badge">POST action=get_settings / purge_orders</span></h3>
         <p>
@@ -280,18 +280,12 @@
           <button id="btnPurgeLiveTest" class="danger">
             Purge Live-Test Orders
           </button>
-          <button id="btnPurgeLive" class="danger" disabled
-            title="Enabled only if ALLOW_LIVE_PURGE=true">
-            Purge Live Orders
-          </button>
         </div>
 
         <small>
           These call <code>action=purge_orders</code> with
-          <code>mode="test"</code>, <code>"live_test"</code>, or
-          <code>"live"</code>. Server still enforces safety, including
-          the <code>confirm="PURGE ORDERS"</code> phrase and
-          <code>ALLOW_LIVE_PURGE</code>.
+          <code>mode="test"</code> or <code>"live_test"</code>. Server still enforces safety, including
+          the <code>confirm="PURGE ORDERS"</code> phrase.
         </small>
       </div>
 
@@ -433,7 +427,6 @@
 
       const btnPurgeTest = document.getElementById("btnPurgeTest");
       const btnPurgeLiveTest = document.getElementById("btnPurgeLiveTest");
-      const btnPurgeLive = document.getElementById("btnPurgeLive");
 
       const btnLoadSettings = document.getElementById("btnLoadSettings");
 
@@ -534,25 +527,11 @@
           modeLabel.textContent = mode;
           modeWindow.textContent = windowText;
 
-          const allowLivePurge =
-            String(
-              eff.ALLOW_LIVE_PURGE ||
-                env.ALLOW_LIVE_PURGE ||
-                ""
-            )
-              .trim()
-              .toLowerCase() === "true";
-
-          if (allowLivePurge && btnPurgeLive) {
-            btnPurgeLive.disabled = false;
-          }
-
           setOutputStatus("Settings loaded for mode/purge.");
           // Also push into output so you can see the raw payload if needed
           setOutput({
             settingsMode: mode,
             liveWindow: windowText,
-            allowLivePurge,
             raw: data,
           });
         } catch (e) {
@@ -577,8 +556,8 @@
         const msg =
           'This will purge orders for mode "' +
           mode +
-          '".\\n\\n' +
-          'Make sure you have backups/exports first.\\n\\n' +
+          '".\n\n' +
+          'Make sure you have backups/exports first.\n\n' +
           'Server requires the confirmation text "PURGE ORDERS". Continue?';
 
         if (!confirm(msg)) return;
@@ -627,9 +606,6 @@
         btnPurgeLiveTest.addEventListener("click", () =>
           doPurge("live_test")
         );
-      }
-      if (btnPurgeLive) {
-        btnPurgeLive.addEventListener("click", () => doPurge("live"));
       }
 
       // Also let the "Load Effective Settings" button refresh the mode card
