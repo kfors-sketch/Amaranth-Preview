@@ -3,15 +3,80 @@ import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
 
-// ---- Lazy Stripe loader (avoid crashing function at import time) ----
-let _stripe = null;
+// ============================================================================
+// STRIPE MODE-AWARE KEY SELECTION
+// ============================================================================
+
+// Cache Stripe clients by secret key (so switching modes doesn't create duplicates)
+let _stripeBySecret = Object.create(null);
+
+/**
+ * Returns the Stripe SECRET client for the *current effective mode*.
+ * Modes:
+ *   test      → STRIPE_SECRET_KEY_TEST
+ *   live_test → STRIPE_SECRET_KEY_LIVE
+ *   live      → STRIPE_SECRET_KEY_LIVE
+ *
+ * Auto-reverts to test whenever the LIVE window is expired (via
+ * getEffectiveOrderChannel()).
+ */
 async function getStripe() {
-  if (_stripe) return _stripe;
-  const key = process.env.STRIPE_SECRET_KEY || "";
-  if (!key) return null;
+  let mode = "test";
+  try {
+    mode = await getEffectiveOrderChannel(); // defined further below
+  } catch (e) {
+    console.error(
+      "getStripe: failed to resolve effective order channel, falling back to test.",
+      e
+    );
+    mode = "test";
+  }
+
+  const env = process.env || {};
+
+  const TEST_SECRET = (env.STRIPE_SECRET_KEY_TEST || "").trim();
+  const LIVE_SECRET = (env.STRIPE_SECRET_KEY_LIVE || "").trim();
+
+  let key = "";
+
+  if (mode === "test") {
+    key = TEST_SECRET;
+  } else {
+    // live_test + live both use the LIVE key
+    key = LIVE_SECRET;
+  }
+
+  if (!key) {
+    console.error("getStripe: No valid Stripe secret key configured for mode:", mode);
+    return null;
+  }
+
+  if (_stripeBySecret[key]) return _stripeBySecret[key];
+
   const { default: Stripe } = await import("stripe");
-  _stripe = new Stripe(key);
-  return _stripe;
+  const client = new Stripe(key);
+  _stripeBySecret[key] = client;
+  return client;
+}
+
+/**
+ * Returns the correct STRIPE PUBLISHABLE KEY for front-end usage.
+ * This should be called by router.js when building checkout sessions.
+ *
+ * @param {string} mode - effectiveChannel (test | live_test | live)
+ */
+function getStripePublishableKey(mode = "test") {
+  const env = process.env || {};
+
+  const TEST_PK = (env.STRIPE_PUBLISHABLE_KEY_TEST || "").trim();
+  const LIVE_PK = (env.STRIPE_PUBLISHABLE_KEY_LIVE || "").trim();
+
+  if (mode === "test") {
+    return TEST_PK;
+  }
+
+  // live_test + live → LIVE publishable key
+  return LIVE_PK;
 }
 
 // ---- Checkout mode & window settings ----
@@ -22,8 +87,8 @@ const CHECKOUT_SETTINGS_KEY = "settings:checkout";
  * {
  *   stripeMode: "test" | "live_test" | "live",
  *   liveAuto: boolean (legacy – now treated as always-on),
- *   liveStart: string,   // e.g. "2025-11-01"
- *   liveEnd:   string    // e.g. "2025-11-10"
+ *   liveStart: string,   // e.g. "2025-11-01T00:00:00Z"
+ *   liveEnd:   string    // e.g. "2025-11-10T23:59:59Z"
  * }
  *
  * NOTE: We now treat the LIVE window as automatic:
@@ -589,7 +654,9 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await stripe.paymentIntents
+    const pi = await (
+      await getStripe()
+    ).paymentIntents
       .retrieve(piId, { expand: ["charges.data"] })
       .catch(() => null);
     if (pi?.charges?.data?.length)
@@ -970,7 +1037,7 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Online Processing Fee</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+        <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
           processingFeeCents
         )}</td>
       </tr>`
@@ -1362,6 +1429,7 @@ async function sendItemReportEmailInternal({
   endDate,
   startMs: explicitStartMs,
   endMs: explicitEndMs,
+  scheduledAt, // <-- NEW: optional scheduled send time (ISO string)
 }) {
   if (!resend)
     return { ok: false, error: "resend-not-configured" };
@@ -1626,6 +1694,12 @@ async function sendItemReportEmailInternal({
     ],
   };
 
+  // If a scheduledAt was provided (e.g., from the monthly scheduler),
+  // pass it through to Resend so it queues for that time.
+  if (scheduledAt) {
+    payload.scheduledAt = scheduledAt;
+  }
+
   const retry = await sendWithRetry(
     () => resend.emails.send(payload),
     `item-report:${kind}:${id}`
@@ -1641,12 +1715,14 @@ async function sendItemReportEmailInternal({
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
+      scheduledAt: scheduledAt || null,
     });
     return {
       ok: true,
       count: sorted.length,
       to: toList,
       bcc: bccList,
+      scheduledAt: scheduledAt || null,
     };
   } else {
     const err = retry.error;
@@ -1659,6 +1735,7 @@ async function sendItemReportEmailInternal({
       kind: "item-report",
       status: "error",
       error: String(err?.message || err),
+      scheduledAt: scheduledAt || null,
     });
     return {
       ok: false,
@@ -1732,6 +1809,7 @@ export {
 
   // env / clients
   getStripe,
+  getStripePublishableKey,
   resend,
   RESEND_FROM,
   REPLY_TO,
