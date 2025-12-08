@@ -48,7 +48,11 @@ import {
   REALTIME_CHAIR_KEY_PREFIX,
   sendRealtimeChairEmailsForOrder,
   maybeSendRealtimeChairEmails,
-  // NEW: per-mode purge helper
+  // NEW: checkout mode helpers + purge
+  getCheckoutSettingsRaw,
+  saveCheckoutSettings,
+  getCheckoutSettingsAuto,
+  getEffectiveOrderChannel,
   purgeOrdersByMode,
 } from "./admin/core.js";
 
@@ -86,49 +90,6 @@ import {
   handleOrderPreview,
   handleWebhookPreview,
 } from "../admin/debug.js";
-
-// ---------- Checkout mode helpers (for Test / Live-Test / Live window) ----------
-const CHECKOUT_MODE_KEY = "checkout:mode";
-
-function parseMaybeTime(value) {
-  if (!value) return NaN;
-  const s = String(value).trim();
-  if (!s) return NaN;
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : NaN;
-}
-
-// Decide which channel is currently effective for new orders
-// Returns: "test" | "live_test" | "live"
-function computeEffectiveChannel(raw, nowMs) {
-  const cfg = raw || {};
-  const mode = String(cfg.stripeMode || "test").toLowerCase();
-  const liveAuto = !!cfg.liveAuto;
-
-  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const startMs = parseMaybeTime(cfg.liveStart);
-  const endMs = parseMaybeTime(cfg.liveEnd);
-
-  const windowActive =
-    !isNaN(startMs) &&
-    now >= startMs &&
-    (isNaN(endMs) || now <= endMs);
-
-  if (mode === "live_test") {
-    return "live_test";
-  }
-
-  if (mode === "live") {
-    if (!liveAuto) {
-      return "live";
-    }
-    // Auto window: LIVE only while window is active, otherwise TEST
-    return windowActive ? "live" : "test";
-  }
-
-  // default fallback
-  return "test";
-}
 
 // ---- Admin auth helper ----
 // Uses either:
@@ -393,15 +354,18 @@ export default async function handler(req, res) {
 
       // NEW: Checkout / Stripe mode fetch for admin/settings.html
       if (type === "checkout_mode") {
-        const raw =
-          (await kvGetSafe(CHECKOUT_MODE_KEY, null)) || {};
         const nowMs = Date.now();
-        const effectiveChannel = computeEffectiveChannel(
-          raw,
-          nowMs
+        // getCheckoutSettingsAuto will also auto-downgrade LIVE to TEST
+        // if the LIVE window is not active.
+        const raw = await getCheckoutSettingsAuto(
+          new Date(nowMs)
         );
-        const startMs = parseMaybeTime(raw.liveStart);
-        const endMs = parseMaybeTime(raw.liveEnd);
+        const effectiveChannel = await getEffectiveOrderChannel(
+          new Date(nowMs)
+        );
+
+        const startMs = raw.liveStart ? Date.parse(raw.liveStart) : NaN;
+        const endMs = raw.liveEnd ? Date.parse(raw.liveEnd) : NaN;
         const windowActive =
           !isNaN(startMs) &&
           nowMs >= startMs &&
@@ -1344,10 +1308,8 @@ export default async function handler(req, res) {
         if (!stripe)
           return REQ_ERR(res, 500, "stripe-not-configured");
 
-        // Determine current effective channel based on stored mode + date window
-        const rawMode =
-          (await kvGetSafe(CHECKOUT_MODE_KEY, null)) || {};
-        const orderChannel = computeEffectiveChannel(rawMode);
+        // Determine current effective channel based on shared checkout settings
+        const orderChannel = await getEffectiveOrderChannel();
 
         const origin =
           req.headers.origin || `https://${req.headers.host}`;
@@ -2287,16 +2249,15 @@ export default async function handler(req, res) {
           return new Date(t).toISOString();
         };
 
-        const cfg = {
+        const patch = {
           stripeMode: mode,
           liveAuto: !!liveAuto,
           liveStart: normalizeIso(liveStart),
           liveEnd: normalizeIso(liveEnd),
-          updatedAt: new Date().toISOString(),
         };
 
-        await kvSetSafe(CHECKOUT_MODE_KEY, cfg);
-        const effectiveChannel = computeEffectiveChannel(cfg);
+        const cfg = await saveCheckoutSettings(patch);
+        const effectiveChannel = await getEffectiveOrderChannel();
 
         return REQ_OK(res, {
           ok: true,
