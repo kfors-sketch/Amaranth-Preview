@@ -1805,11 +1805,51 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "scheduler-invalid");
         }
 
-        // Delegate which items to send/skip to the helper
+        // Base time for any staggered "scheduledAt" hints. All offsets
+        // are computed from this single timestamp so the run behaves
+        // predictably even if it takes a few seconds.
+        const baseNow = new Date();
+
+        // Wrapper that injects a per-kind scheduledAt for Resend:
+        // - banquet  -> 0 minutes (send immediately)
+        // - addon    -> +5 minutes
+        // - catalog  -> +10 minutes
+        //
+        // NOTE: sendItemReportEmailInternal must be aware of the
+        // "scheduledAt" option and pass it through to Resend for this
+        // to actually delay sends. If it ignores scheduledAt, this
+        // wrapper is harmless (no behavior change).
+        const wrappedSendItemReport = async (opts) => {
+          const kind = String(opts?.kind || "").toLowerCase();
+          let offsetMinutes = 0;
+
+          if (kind === "addon") {
+            offsetMinutes = 5;
+          } else if (kind === "catalog") {
+            offsetMinutes = 10;
+          } else {
+            // "banquet" or anything else -> no delay
+            offsetMinutes = 0;
+          }
+
+          let scheduledAt;
+          if (offsetMinutes > 0) {
+            const ts = baseNow.getTime() + offsetMinutes * 60 * 1000;
+            scheduledAt = new Date(ts).toISOString();
+          }
+
+          return sendItemReportEmailInternal({
+            ...opts,
+            scheduledAt,
+          });
+        };
+
+        // Delegate which items to send/skip to the helper, but use our
+        // wrapper so different kinds get staggered scheduledAt values.
         const { sent, skipped, errors, itemsLog } =
           await runScheduledChairReports({
-            now: new Date(),
-            sendItemReportEmailInternal,
+            now: baseNow,
+            sendItemReportEmailInternal: wrappedSendItemReport,
           });
 
         // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
