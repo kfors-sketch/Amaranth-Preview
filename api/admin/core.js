@@ -748,8 +748,8 @@ function flattenOrderToRows(o) {
       qty: feeLine.qty || 1,
       price: (feeLine.unitPrice || 0) / 100,
       gross: (feeLine.gross || 0) / 100,
-      fees: 0,
       net: (feeLine.gross || 0) / 100,
+      fees: 0,
       status: o.status || "paid",
       notes: "",
       _itemId: "",
@@ -1623,6 +1623,7 @@ async function sendItemReportEmailInternal({
       .map((s) => s.trim())
       .filter(Boolean);
 
+  // Fallback addresses from env (e.g. pa_sessions@yahoo.com, etc.)
   const envFallback = safeSplit(
     effective.REPORTS_CC ||
       effective.REPORTS_BCC ||
@@ -1631,7 +1632,23 @@ async function sendItemReportEmailInternal({
       ""
   );
 
-  const toList = toListPref.length ? toListPref : envFallback;
+  // NEW BEHAVIOR:
+  // - If there are chair emails *and* env fallback, send to BOTH.
+  //   Example (banquets):
+  //     to: [chairEmails..., envFallback...]
+  //   so Yahoo is a primary recipient, not just BCC.
+  // - If no chair emails, envFallback becomes the To list (same as before).
+  let toList = [];
+  if (toListPref.length && envFallback.length) {
+    toList = [
+      ...toListPref,
+      ...envFallback.filter((addr) => !toListPref.includes(addr)),
+    ];
+  } else if (toListPref.length) {
+    toList = [...toListPref];
+  } else {
+    toList = [...envFallback];
+  }
 
   const adminBccBase = safeSplit(
     effective.REPORTS_BCC ||
