@@ -416,7 +416,7 @@ export default async function handler(req, res) {
         }
 
         const daysParam = url.searchParams.get("days");
-        const startParam = url.searchParams.get("start");
+        the startParam = url.searchParams.get("start");
         const endParam = url.searchParams.get("end");
 
         const { effective } = await getEffectiveSettings();
