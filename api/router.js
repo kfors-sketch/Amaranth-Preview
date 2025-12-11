@@ -47,7 +47,6 @@ import {
   sendItemReportEmailInternal,
   REALTIME_CHAIR_KEY_PREFIX,
   sendRealtimeChairEmailsForOrder,
-  maybeSendRealtimeChairEmails,
   // NEW: checkout mode helpers + purge
   getCheckoutSettingsRaw,
   saveCheckoutSettings,
@@ -416,7 +415,7 @@ export default async function handler(req, res) {
         }
 
         const daysParam = url.searchParams.get("days");
-        the startParam = url.searchParams.get("start");
+        const startParam = url.searchParams.get("start");
         const endParam = url.searchParams.get("end");
 
         const { effective } = await getEffectiveSettings();
