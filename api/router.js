@@ -1389,7 +1389,6 @@ export default async function handler(req, res) {
             mode: orderChannel,
           });
         } catch (e) {
-          // THIS is the big change you wanted:
           // the front-end will now receive a clear stripe error reason instead of just "router failed".
           return errResponse(res, 500, "checkout-create-failed", req, e, {
             hint:
@@ -1422,26 +1421,56 @@ export default async function handler(req, res) {
 
           switch (event.type) {
             case "checkout.session.completed": {
+              // -----------------------------------------------------------------
+              // FIX: DO NOT detach async email sending in serverless.
+              // We await receipts + realtime chair emails so Vercel won't end the
+              // function before emails finish.
+              // -----------------------------------------------------------------
               const session = event.data.object;
               const mode = await resolveModeFromSession(session);
 
+              console.log("[webhook] checkout.session.completed", {
+                requestId,
+                sessionId: session?.id || null,
+                mode,
+              });
+
               const order = await saveOrderFromSession(session.id || session, { mode });
 
-              (async () => {
-                try {
-                  await sendOrderReceipts(order);
-                  await maybeSendRealtimeChairEmails(order);
-                } catch (err) {
-                  console.error("email-failed", err?.message || err);
-                }
-              })();
+              try {
+                console.log("[webhook] sending receipts...", {
+                  requestId,
+                  orderId: order?.id || null,
+                });
+                await sendOrderReceipts(order);
+
+                console.log("[webhook] sending realtime chair emails...", {
+                  requestId,
+                  orderId: order?.id || null,
+                });
+                await maybeSendRealtimeChairEmails(order);
+
+                console.log("[webhook] emails done", {
+                  requestId,
+                  orderId: order?.id || null,
+                });
+              } catch (err) {
+                console.error(
+                  "[webhook] email-failed",
+                  { requestId, message: err?.message || String(err) },
+                  err
+                );
+              }
+
               break;
             }
+
             case "charge.refunded": {
               const refund = event.data.object;
               await applyRefundToOrder(refund.charge, refund);
               break;
             }
+
             default:
               break;
           }
