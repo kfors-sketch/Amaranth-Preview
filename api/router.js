@@ -89,6 +89,60 @@ import {
   handleWebhookPreview,
 } from "../admin/debug.js";
 
+// ============================================================================
+// BETTER ERROR DETAILS (safe for end-users)
+// - Adds a stable requestId + structured error info for front-end display
+// - Avoids leaking secrets (no env dumps, no raw objects)
+// ============================================================================
+function getRequestId(req) {
+  // Vercel provides one of these on most requests; otherwise we generate a fallback.
+  return (
+    req?.headers?.["x-vercel-id"] ||
+    req?.headers?.["x-request-id"] ||
+    `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  );
+}
+
+function toSafeError(err) {
+  const e = err || {};
+  const name = String(e.name || "Error");
+  const message = String(e.message || e.toString?.() || "Unknown error");
+
+  // Stripe errors often include these fields:
+  const stripe = {};
+  if (e.type) stripe.type = String(e.type);
+  if (e.code) stripe.code = String(e.code);
+  if (e.param) stripe.param = String(e.param);
+  if (e.decline_code) stripe.decline_code = String(e.decline_code);
+  if (e.statusCode || e.status_code) stripe.status = Number(e.statusCode || e.status_code);
+
+  const safe = {
+    name,
+    message,
+    // Only include a short stack hint (first line) so iPhone users can screenshot it.
+    stackTop: typeof e.stack === "string" ? e.stack.split("\n")[0] : "",
+  };
+
+  // Only include stripe fields if they exist (keeps payload clean).
+  if (Object.keys(stripe).length) safe.stripe = stripe;
+
+  return safe;
+}
+
+function errResponse(res, status, code, req, err, extra = {}) {
+  const requestId = getRequestId(req);
+  const safe = toSafeError(err);
+
+  // Always log the full error server-side with the request id
+  console.error(`[router] ${code} requestId=${requestId}`, err);
+
+  return REQ_ERR(res, status, code, {
+    requestId,
+    error: safe, // front-end can show error.message, error.stripe.code, etc.
+    ...extra,
+  });
+}
+
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -148,6 +202,8 @@ async function resolveModeFromSession(sessionLike) {
 
 // -------------- main handler --------------
 export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+
   try {
     const url = getUrl(req);
     const action = url.searchParams.get("action");
@@ -158,50 +214,50 @@ export default async function handler(req, res) {
       // Core smoketest via admin/debug.js
       if (type === "smoketest") {
         const out = await handleSmoketest();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       // Last mail log via admin/debug.js
       if (type === "lastmail") {
         const out = await handleLastMail();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       // Debug: token / Stripe / Resend / scheduler
       if (type === "debug_token") {
         const out = await handleTokenTest(req);
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_stripe") {
         const out = await handleStripeTest();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_resend") {
         const out = await handleResendTest(req, url);
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_scheduler") {
         const out = await handleSchedulerDiagnostic();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       // Data health + scheduler dry run
       if (type === "debug_orders_health") {
         const out = await handleOrdersHealth();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_itemcfg_health") {
         const out = await handleItemcfgHealth();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_scheduler_dry_run") {
         const out = await handleSchedulerDryRun();
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       // Targeted previews
@@ -209,13 +265,13 @@ export default async function handler(req, res) {
         const id = url.searchParams.get("id") || "";
         const scope = url.searchParams.get("scope") || "full";
         const out = await handleChairPreview({ id, scope });
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_order_preview") {
         const id = url.searchParams.get("id") || "";
         const out = await handleOrderPreview(id);
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       if (type === "debug_webhook_preview") {
@@ -224,7 +280,7 @@ export default async function handler(req, res) {
           url.searchParams.get("sessionId") ||
           "";
         const out = await handleWebhookPreview(sessionId);
-        return REQ_OK(res, out);
+        return REQ_OK(res, { requestId, ...out });
       }
 
       // year_index (for reporting_yoy.html)
@@ -255,13 +311,13 @@ export default async function handler(req, res) {
         addSlots(addons, "addon");
         addSlots(products, "catalog");
 
-        return REQ_OK(res, { years, slots });
+        return REQ_OK(res, { requestId, years, slots });
       }
 
       // list all years we have indexed
       if (type === "years_index") {
         const years = await listIndexedYears();
-        return REQ_OK(res, { years });
+        return REQ_OK(res, { requestId, years });
       }
 
       // summary for a single year
@@ -269,10 +325,10 @@ export default async function handler(req, res) {
         const yParam = url.searchParams.get("year");
         const year = Number(yParam);
         if (!Number.isFinite(year)) {
-          return REQ_ERR(res, 400, "invalid-year", { year: yParam });
+          return REQ_ERR(res, 400, "invalid-year", { requestId, year: yParam });
         }
         const summary = await getYearSummary(year);
-        return REQ_OK(res, summary);
+        return REQ_OK(res, { requestId, ...summary });
       }
 
       // multi-year summary for graphs
@@ -295,7 +351,7 @@ export default async function handler(req, res) {
 
         if (!years.length) {
           const allYears = await listIndexedYears();
-          return REQ_OK(res, { years: allYears, points: [], raw: [] });
+          return REQ_OK(res, { requestId, years: allYears, points: [], raw: [] });
         }
 
         const raw = await getMultiYearSummary(years);
@@ -309,19 +365,20 @@ export default async function handler(req, res) {
           totalCents: r.totalCents || 0,
         }));
 
-        return REQ_OK(res, { years, points, raw });
+        return REQ_OK(res, { requestId, years, points, raw });
       }
 
       if (type === "banquets")
-        return REQ_OK(res, { banquets: (await kvGetSafe("banquets")) || [] });
+        return REQ_OK(res, { requestId, banquets: (await kvGetSafe("banquets")) || [] });
       if (type === "addons")
-        return REQ_OK(res, { addons: (await kvGetSafe("addons")) || [] });
+        return REQ_OK(res, { requestId, addons: (await kvGetSafe("addons")) || [] });
       if (type === "products")
-        return REQ_OK(res, { products: (await kvGetSafe("products")) || [] });
+        return REQ_OK(res, { requestId, products: (await kvGetSafe("products")) || [] });
 
       if (type === "settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
         return REQ_OK(res, {
+          requestId,
           env,
           overrides,
           effective,
@@ -344,6 +401,7 @@ export default async function handler(req, res) {
           (isNaN(endMs) || nowMs <= endMs);
 
         return REQ_OK(res, {
+          requestId,
           raw,
           auto: { now: new Date(nowMs).toISOString(), windowActive },
           effectiveChannel,
@@ -353,25 +411,38 @@ export default async function handler(req, res) {
       // Mode-aware publishable key (preferred)
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         const mode = await getEffectiveOrderChannel().catch(() => "test");
-        return REQ_OK(res, { publishableKey: getStripePublishableKey(mode), mode });
+        return REQ_OK(res, {
+          requestId,
+          publishableKey: getStripePublishableKey(mode),
+          mode,
+        });
       }
 
       if (type === "checkout_session") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const id = url.searchParams.get("id");
-        if (!id) return REQ_ERR(res, 400, "missing-id");
-        const s = await stripe.checkout.sessions.retrieve(id, {
-          expand: ["payment_intent"],
-        });
-        return REQ_OK(res, {
-          id: s.id,
-          amount_total: s.amount_total,
-          currency: s.currency,
-          customer_details: s.customer_details || {},
-          payment_intent:
-            typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id,
-        });
+        try {
+          const stripe = await getStripe();
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          const id = url.searchParams.get("id");
+          if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
+
+          const s = await stripe.checkout.sessions.retrieve(id, {
+            expand: ["payment_intent"],
+          });
+
+          return REQ_OK(res, {
+            requestId,
+            id: s.id,
+            amount_total: s.amount_total,
+            currency: s.currency,
+            customer_details: s.customer_details || {},
+            payment_intent:
+              typeof s.payment_intent === "string"
+                ? s.payment_intent
+                : s.payment_intent?.id,
+          });
+        } catch (e) {
+          return errResponse(res, 500, "checkout-session-fetch-failed", req, e);
+        }
       }
 
       if (type === "orders") {
@@ -463,7 +534,7 @@ export default async function handler(req, res) {
         }
 
         rows = sortByDateAsc(rows, "date");
-        return REQ_OK(res, { rows });
+        return REQ_OK(res, { requestId, rows });
       }
 
       if (type === "orders_csv") {
@@ -805,40 +876,44 @@ export default async function handler(req, res) {
 
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
-        if (!sid) return REQ_ERR(res, 400, "missing-sid");
+        if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
+
         try {
           // save only (webhook is still source-of-truth for emails)
           const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
           const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
 
           return REQ_OK(res, {
+            requestId,
             ok: true,
             orderId: order.id,
             status: order.status || "paid",
           });
         } catch (err) {
-          console.error("finalize_order failed:", err);
-          return REQ_ERR(res, 500, "finalize-failed", {
-            detail: String(err?.message || err),
-          });
+          return errResponse(res, 500, "finalize-failed", req, err, { sid });
         }
       }
 
       if (type === "order") {
         const oid = String(url.searchParams.get("oid") || "").trim();
-        if (!oid) return REQ_ERR(res, 400, "missing-oid");
+        if (!oid) return REQ_ERR(res, 400, "missing-oid", { requestId });
         const order = await kvGetSafe(`order:${oid}`, null);
-        if (!order) return REQ_ERR(res, 404, "order-not-found");
-        return REQ_OK(res, { order });
+        if (!order) return REQ_ERR(res, 404, "order-not-found", { requestId });
+        return REQ_OK(res, { requestId, order });
       }
 
-      return REQ_ERR(res, 400, "unknown-type");
+      return REQ_ERR(res, 400, "unknown-type", { requestId });
     }
 
     // ---------- POST ----------
     if (req.method === "POST") {
-      const body =
-        typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+      let body = {};
+      try {
+        body =
+          typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+      } catch (e) {
+        return errResponse(res, 400, "invalid-json", req, e);
+      }
 
       // --- High-security admin login ---
       if (action === "admin_login") {
@@ -860,22 +935,21 @@ export default async function handler(req, res) {
 
           console.log("[router] admin_login result", result);
 
-          if (result.ok) return REQ_OK(res, result);
+          if (result.ok) return REQ_OK(res, { requestId, ...result });
 
           const status =
             result.error === "invalid_password" || result.error === "locked_out" ? 401 : 500;
 
           const errCode = result.error || "login-failed";
-          return REQ_ERR(res, status, errCode, result);
+          return REQ_ERR(res, status, errCode, { requestId, ...result });
         } catch (e) {
-          console.error("admin_login failed (unhandled):", e);
-          return REQ_ERR(res, 500, "login-failed", { message: e?.message || String(e) });
+          return errResponse(res, 500, "login-failed", req, e);
         }
       }
 
       // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured", { requestId });
         const urlObj = getUrl(req);
         const bodyTo = (body && body.to) || urlObj.searchParams.get("to") || "";
         const fallbackAdmin =
@@ -884,12 +958,13 @@ export default async function handler(req, res) {
             .map((s) => s.trim())
             .filter(Boolean)[0] || "";
         const to = (bodyTo || fallbackAdmin).trim();
-        if (!to) return REQ_ERR(res, 400, "missing-to");
+        if (!to) return REQ_ERR(res, 400, "missing-to", { requestId });
 
         const html = `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
           <h2>Resend test OK</h2>
           <p>Time: ${new Date().toISOString()}</p>
           <p>From: ${RESEND_FROM || ""}</p>
+          <p>requestId: ${String(requestId).replace(/</g, "&lt;")}</p>
         </div>`;
 
         const payload = {
@@ -913,7 +988,7 @@ export default async function handler(req, res) {
             kind: "manual-test",
             status: "queued",
           });
-          return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
+          return REQ_OK(res, { requestId, ok: true, id: sendResult?.id || null, to });
         } else {
           const err = retry.error;
           await recordMailLog({
@@ -926,15 +1001,14 @@ export default async function handler(req, res) {
             status: "error",
             error: String(err?.message || err),
           });
-          return REQ_ERR(res, 500, "resend-send-failed", {
-            message: err?.message || String(err),
-          });
+          return errResponse(res, 500, "resend-send-failed", req, err);
         }
       }
 
       // --- Contact form (no auth) ---
       if (action === "contact_form") {
-        if (!resend && !CONTACT_TO) return REQ_ERR(res, 500, "resend-not-configured");
+        if (!resend && !CONTACT_TO)
+          return REQ_ERR(res, 500, "resend-not-configured", { requestId });
 
         const {
           name = "",
@@ -951,7 +1025,7 @@ export default async function handler(req, res) {
         if (!String(email).trim()) missing.push("email");
         if (!String(topic).trim()) missing.push("topic");
         if (!String(msg).trim()) missing.push("message");
-        if (missing.length) return REQ_ERR(res, 400, "missing-fields", { missing });
+        if (missing.length) return REQ_ERR(res, 400, "missing-fields", { requestId, missing });
 
         const topicMap = {
           banquets: "Banquets / meal choices",
@@ -969,7 +1043,8 @@ export default async function handler(req, res) {
           order: "Order page",
         };
 
-        const topicLabel = topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
+        const topicLabel =
+          topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
         const pageLabel = pageMap[String(page).toLowerCase()] || String(page) || "";
 
         const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
@@ -993,6 +1068,7 @@ export default async function handler(req, res) {
                 ? `<p style="margin:2px 0;">Page: <b>${esc(pageLabel)}</b></p>`
                 : ""
             }
+            <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
             <table style="border-collapse:collapse;border:1px solid #ccc;margin-top:10px;font-size:13px;">
               <tbody>
                 <tr>
@@ -1029,7 +1105,9 @@ export default async function handler(req, res) {
                 }
                 <tr>
                   <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;vertical-align:top;">Message</th>
-                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(msg)}</td>
+                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(
+                    msg
+                  )}</td>
                 </tr>
               </tbody>
             </table>
@@ -1059,8 +1137,9 @@ export default async function handler(req, res) {
           (addr) => !toList.includes(addr) && addr.toLowerCase() !== senderEmail
         );
 
-        if (!toList.length && !bccList.length) return REQ_ERR(res, 500, "no-recipient");
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        if (!toList.length && !bccList.length)
+          return REQ_ERR(res, 500, "no-recipient", { requestId });
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured", { requestId });
 
         const subject = `Website contact — ${topicLabel}`;
 
@@ -1086,7 +1165,7 @@ export default async function handler(req, res) {
             status: "queued",
             resultId: sendResult?.id || null,
           });
-          return REQ_OK(res, { ok: true });
+          return REQ_OK(res, { requestId, ok: true });
         } else {
           const err = retry.error;
           await recordMailLog({
@@ -1098,242 +1177,279 @@ export default async function handler(req, res) {
             status: "error",
             error: String(err?.message || err),
           });
-          return REQ_ERR(res, 500, "contact-send-failed", { message: err?.message || String(err) });
+          return errResponse(res, 500, "contact-send-failed", req, err);
         }
       }
 
       // --- Finalize (save only) from success page ---
       // IMPORTANT: emails are sent from the Stripe webhook, not here.
       if (action === "finalize_checkout") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const sid = String(body.sid || body.id || "").trim();
-        if (!sid) return REQ_ERR(res, 400, "missing-sid");
+        try {
+          const stripe = await getStripe();
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          const sid = String(body.sid || body.id || "").trim();
+          if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
 
-        const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
-        const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
+          const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+          const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
 
-        return REQ_OK(res, { ok: true, orderId: order.id });
+          return REQ_OK(res, { requestId, ok: true, orderId: order.id });
+        } catch (e) {
+          return errResponse(res, 500, "finalize-checkout-failed", req, e);
+        }
       }
 
       // ---- PUBLIC: send chair-specific XLSX by category+item (no auth) ----
       if (action === "send_item_report") {
-        const kind = String(body?.kind || body?.category || "").toLowerCase();
-        const id = String(body?.id || "").trim();
-        const label = String(body?.label || "").trim();
-        const scope = String(body?.scope || "current-month");
-        const result = await sendItemReportEmailInternal({ kind, id, label, scope });
-        if (!result.ok) return REQ_ERR(res, 500, result.error || "send-failed", result);
-        return REQ_OK(res, { ok: true, ...result });
+        try {
+          const kind = String(body?.kind || body?.category || "").toLowerCase();
+          const id = String(body?.id || "").trim();
+          const label = String(body?.label || "").trim();
+          const scope = String(body?.scope || "current-month");
+          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+          if (!result.ok)
+            return REQ_ERR(res, 500, result.error || "send-failed", { requestId, ...result });
+          return REQ_OK(res, { requestId, ok: true, ...result });
+        } catch (e) {
+          return errResponse(res, 500, "send-item-report-failed", req, e);
+        }
       }
 
       // ---- CREATE CHECKOUT (bundle protection + international fee) ----
       if (action === "create_checkout_session") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        try {
+          const stripe = await getStripe();
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
 
-        const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+          const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
 
-        const origin = req.headers.origin || `https://${req.headers.host}`;
-        const successUrl =
-          (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
-        const cancelUrl = body.cancel_url || `${origin}/order.html`;
+          const origin = req.headers.origin || `https://${req.headers.host}`;
+          const successUrl =
+            (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+          const cancelUrl = body.cancel_url || `${origin}/order.html`;
 
-        if (Array.isArray(body.lines) && body.lines.length) {
-          const lines = body.lines;
-          const fees = body.fees || { pct: 0, flat: 0 };
-          const purchaser = body.purchaser || {};
+          if (Array.isArray(body.lines) && body.lines.length) {
+            const lines = body.lines;
+            const fees = body.fees || { pct: 0, flat: 0 };
+            const purchaser = body.purchaser || {};
 
-          const line_items = lines.map((l) => {
-            const priceMode = String(l.priceMode || "").toLowerCase();
-            const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+            const line_items = lines.map((l) => {
+              const priceMode = String(l.priceMode || "").toLowerCase();
+              const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
 
-            const unit_amount = isBundle ? cents(l.bundleTotalCents) : toCentsAuto(l.unitPrice || 0);
-            const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
+              const unit_amount = isBundle
+                ? cents(l.bundleTotalCents)
+                : toCentsAuto(l.unitPrice || 0);
+              const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
 
-            return {
-              quantity,
-              price_data: {
-                currency: "usd",
-                unit_amount,
-                product_data: {
-                  name: String(l.itemName || "Item"),
-                  metadata: {
-                    itemId: l.itemId || "",
-                    itemType: l.itemType || "",
-                    attendeeId: l.attendeeId || "",
-                    attendeeName: l.meta?.attendeeName || "",
-                    attendeeTitle: l.meta?.attendeeTitle || "",
-                    attendeePhone: l.meta?.attendeePhone || "",
-                    attendeeEmail: l.meta?.attendeeEmail || "",
-                    attendeeNotes: l.meta?.attendeeNotes || "",
-                    dietaryNote: l.meta?.dietaryNote || "",
-                    itemNote: l.meta?.itemNote || "",
-                    attendeeAddr1: l.meta?.attendeeAddr1 || "",
-                    attendeeAddr2: l.meta?.attendeeAddr2 || "",
-                    attendeeCity: l.meta?.attendeeCity || "",
-                    attendeeState: l.meta?.attendeeState || "",
-                    attendeePostal: l.meta?.attendeePostal || "",
-                    attendeeCountry: l.meta?.attendeeCountry || "",
-                    priceMode: priceMode || "",
-                    bundleQty: isBundle ? String(l.bundleQty || "") : "",
-                    bundleTotalCents: isBundle ? String(unit_amount) : "",
+              return {
+                quantity,
+                price_data: {
+                  currency: "usd",
+                  unit_amount,
+                  product_data: {
+                    name: String(l.itemName || "Item"),
+                    metadata: {
+                      itemId: l.itemId || "",
+                      itemType: l.itemType || "",
+                      attendeeId: l.attendeeId || "",
+                      attendeeName: l.meta?.attendeeName || "",
+                      attendeeTitle: l.meta?.attendeeTitle || "",
+                      attendeePhone: l.meta?.attendeePhone || "",
+                      attendeeEmail: l.meta?.attendeeEmail || "",
+                      attendeeNotes: l.meta?.attendeeNotes || "",
+                      dietaryNote: l.meta?.dietaryNote || "",
+                      itemNote: l.meta?.itemNote || "",
+                      attendeeAddr1: l.meta?.attendeeAddr1 || "",
+                      attendeeAddr2: l.meta?.attendeeAddr2 || "",
+                      attendeeCity: l.meta?.attendeeCity || "",
+                      attendeeState: l.meta?.attendeeState || "",
+                      attendeePostal: l.meta?.attendeePostal || "",
+                      attendeeCountry: l.meta?.attendeeCountry || "",
+                      priceMode: priceMode || "",
+                      bundleQty: isBundle ? String(l.bundleQty || "") : "",
+                      bundleTotalCents: isBundle ? String(unit_amount) : "",
+                    },
                   },
                 },
-              },
-            };
-          });
+              };
+            });
 
-          const pct = Number(fees.pct || 0);
-          const flatCents = toCentsAuto(fees.flat || 0);
+            const pct = Number(fees.pct || 0);
+            const flatCents = toCentsAuto(fees.flat || 0);
 
-          const subtotalCents = lines.reduce((s, l) => {
-            const priceMode = String(l.priceMode || "").toLowerCase();
-            const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
-            if (isBundle) return s + cents(l.bundleTotalCents || 0);
-            return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
-          }, 0);
+            const subtotalCents = lines.reduce((s, l) => {
+              const priceMode = String(l.priceMode || "").toLowerCase();
+              const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+              if (isBundle) return s + cents(l.bundleTotalCents || 0);
+              return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
+            }, 0);
 
-          const feeAmount = Math.max(0, Math.round(subtotalCents * (pct / 100)) + flatCents);
-          if (feeAmount > 0) {
-            line_items.push({
-              quantity: 1,
-              price_data: {
-                currency: "usd",
-                unit_amount: feeAmount,
-                product_data: {
-                  name: "Online Processing Fee",
-                  metadata: { itemType: "fee", itemId: "processing-fee" },
+            const feeAmount = Math.max(0, Math.round(subtotalCents * (pct / 100)) + flatCents);
+            if (feeAmount > 0) {
+              line_items.push({
+                quantity: 1,
+                price_data: {
+                  currency: "usd",
+                  unit_amount: feeAmount,
+                  product_data: {
+                    name: "Online Processing Fee",
+                    metadata: { itemType: "fee", itemId: "processing-fee" },
+                  },
                 },
+              });
+            }
+
+            // International card processing fee (3%)
+            const purchaserCountry = String(
+              purchaser.country || purchaser.addressCountry || "US"
+            )
+              .trim()
+              .toUpperCase();
+            const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
+              .trim()
+              .toUpperCase();
+
+            let intlFeeAmount = 0;
+            if (isInternationalOrder(purchaserCountry, accountCountry)) {
+              intlFeeAmount = computeInternationalFeeCents(subtotalCents, 0.03);
+            }
+
+            if (intlFeeAmount > 0) {
+              const intlLine = buildInternationalFeeLineItem(intlFeeAmount, "usd");
+              if (intlLine && intlLine.price_data?.product_data) {
+                intlLine.price_data.product_data.name =
+                  intlLine.price_data.product_data.name ||
+                  "International Card Processing Fee (3%)";
+                intlLine.price_data.product_data.metadata = {
+                  ...(intlLine.price_data.product_data.metadata || {}),
+                  itemType: "fee",
+                  itemId: "intl-fee",
+                };
+                line_items.push(intlLine);
+              } else if (intlLine) {
+                line_items.push(intlLine);
+              }
+            }
+
+            const session = await stripe.checkout.sessions.create({
+              mode: "payment",
+              line_items,
+              customer_email: purchaser.email || undefined,
+              success_url: successUrl,
+              cancel_url: cancelUrl,
+              metadata: {
+                order_channel: orderChannel,
+                order_mode: orderChannel,
+                purchaser_name: purchaser.name || "",
+                purchaser_email: purchaser.email || "",
+                purchaser_phone: purchaser.phone || "",
+                purchaser_title: purchaser.title || "",
+                purchaser_addr1: purchaser.address1 || "",
+                purchaser_addr2: purchaser.address2 || "",
+                purchaser_city: purchaser.city || "",
+                purchaser_state: purchaser.state || "",
+                purchaser_postal: purchaser.postal || "",
+                purchaser_country: purchaser.country || "",
+                cart_count: String(lines.length || 0),
               },
+            });
+
+            return REQ_OK(res, {
+              requestId,
+              url: session.url,
+              id: session.id,
+              mode: orderChannel,
             });
           }
 
-          // International card processing fee (3%)
-          const purchaserCountry = String(
-            purchaser.country || purchaser.addressCountry || "US"
-          ).trim().toUpperCase();
-          const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
-            .trim()
-            .toUpperCase();
-
-          let intlFeeAmount = 0;
-          if (isInternationalOrder(purchaserCountry, accountCountry)) {
-            intlFeeAmount = computeInternationalFeeCents(subtotalCents, 0.03);
-          }
-
-          if (intlFeeAmount > 0) {
-            const intlLine = buildInternationalFeeLineItem(intlFeeAmount, "usd");
-            if (intlLine && intlLine.price_data?.product_data) {
-              intlLine.price_data.product_data.name =
-                intlLine.price_data.product_data.name || "International Card Processing Fee (3%)";
-              intlLine.price_data.product_data.metadata = {
-                ...(intlLine.price_data.product_data.metadata || {}),
-                itemType: "fee",
-                itemId: "intl-fee",
-              };
-              line_items.push(intlLine);
-            } else if (intlLine) {
-              line_items.push(intlLine);
-            }
-          }
+          const items = Array.isArray(body.items) ? body.items : [];
+          if (!items.length) return REQ_ERR(res, 400, "no-items", { requestId });
 
           const session = await stripe.checkout.sessions.create({
             mode: "payment",
-            line_items,
-            customer_email: purchaser.email || undefined,
+            payment_method_types: ["card"],
+            line_items: items.map((it) => ({
+              quantity: Math.max(1, Number(it.quantity || 1)),
+              price_data: {
+                currency: "usd",
+                unit_amount: dollarsToCents(it.price || 0),
+                product_data: { name: String(it.name || "Item") },
+              },
+            })),
             success_url: successUrl,
             cancel_url: cancelUrl,
-            metadata: {
-              order_channel: orderChannel,
-              order_mode: orderChannel,
-              purchaser_name: purchaser.name || "",
-              purchaser_email: purchaser.email || "",
-              purchaser_phone: purchaser.phone || "",
-              purchaser_title: purchaser.title || "",
-              purchaser_addr1: purchaser.address1 || "",
-              purchaser_addr2: purchaser.address2 || "",
-              purchaser_city: purchaser.city || "",
-              purchaser_state: purchaser.state || "",
-              purchaser_postal: purchaser.postal || "",
-              purchaser_country: purchaser.country || "",
-              cart_count: String(lines.length || 0),
-            },
+            metadata: { order_channel: orderChannel, order_mode: orderChannel },
           });
 
-          return REQ_OK(res, { url: session.url, id: session.id });
+          return REQ_OK(res, {
+            requestId,
+            url: session.url,
+            id: session.id,
+            mode: orderChannel,
+          });
+        } catch (e) {
+          // THIS is the big change you wanted:
+          // the front-end will now receive a clear stripe error reason instead of just "router failed".
+          return errResponse(res, 500, "checkout-create-failed", req, e, {
+            hint:
+              "If this only fails in live-test/live, it usually means STRIPE_SECRET_KEY_LIVE or webhook secret is missing/mismatched in that environment.",
+          });
         }
-
-        const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length) return REQ_ERR(res, 400, "no-items");
-
-        const session = await stripe.checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: items.map((it) => ({
-            quantity: Math.max(1, Number(it.quantity || 1)),
-            price_data: {
-              currency: "usd",
-              unit_amount: dollarsToCents(it.price || 0),
-              product_data: { name: String(it.name || "Item") },
-            },
-          })),
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          metadata: { order_channel: orderChannel, order_mode: orderChannel },
-        });
-
-        return REQ_OK(res, { url: session.url, id: session.id });
       }
 
       if (action === "stripe_webhook") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-
-        let event;
-        const sig = req.headers["stripe-signature"];
-        const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
-
         try {
-          if (whsec && typeof req.body === "string") {
-            event = stripe.webhooks.constructEvent(req.body, sig, whsec);
-          } else if (whsec && req.rawBody) {
-            event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
-          } else {
-            event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+          const stripe = await getStripe();
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+
+          let event;
+          const sig = req.headers["stripe-signature"];
+          const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
+
+          try {
+            if (whsec && typeof req.body === "string") {
+              event = stripe.webhooks.constructEvent(req.body, sig, whsec);
+            } else if (whsec && req.rawBody) {
+              event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
+            } else {
+              event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+            }
+          } catch (err) {
+            console.error("Webhook signature verification failed:", err?.message);
+            return errResponse(res, 400, "invalid-signature", req, err);
           }
-        } catch (err) {
-          console.error("Webhook signature verification failed:", err?.message);
-          return REQ_ERR(res, 400, "invalid-signature");
+
+          switch (event.type) {
+            case "checkout.session.completed": {
+              const session = event.data.object;
+              const mode = await resolveModeFromSession(session);
+
+              const order = await saveOrderFromSession(session.id || session, { mode });
+
+              (async () => {
+                try {
+                  await sendOrderReceipts(order);
+                  await maybeSendRealtimeChairEmails(order);
+                } catch (err) {
+                  console.error("email-failed", err?.message || err);
+                }
+              })();
+              break;
+            }
+            case "charge.refunded": {
+              const refund = event.data.object;
+              await applyRefundToOrder(refund.charge, refund);
+              break;
+            }
+            default:
+              break;
+          }
+
+          return REQ_OK(res, { requestId, received: true });
+        } catch (e) {
+          return errResponse(res, 500, "webhook-failed", req, e);
         }
-
-        switch (event.type) {
-          case "checkout.session.completed": {
-            const session = event.data.object;
-            const mode = await resolveModeFromSession(session);
-
-            const order = await saveOrderFromSession(session.id || session, { mode });
-
-            (async () => {
-              try {
-                await sendOrderReceipts(order);
-                await maybeSendRealtimeChairEmails(order);
-              } catch (err) {
-                console.error("email-failed", err?.message || err);
-              }
-            })();
-            break;
-          }
-          case "charge.refunded": {
-            const refund = event.data.object;
-            await applyRefundToOrder(refund.charge, refund);
-            break;
-          }
-          default:
-            break;
-        }
-
-        return REQ_OK(res, { received: true });
       }
 
       // ---------- register_item (used by admin chairs sync) ----------
@@ -1348,7 +1464,7 @@ export default async function handler(req, res) {
           kind,
         } = body || {};
 
-        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
+        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required", { requestId });
 
         const emails = Array.isArray(chairEmails)
           ? chairEmails
@@ -1377,9 +1493,9 @@ export default async function handler(req, res) {
 
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
-        if (!ok1 || !ok2) return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
+        if (!ok1 || !ok2) return REQ_OK(res, { requestId, ok: true, warning: "kv-unavailable" });
 
-        return REQ_OK(res, { ok: true, cfg });
+        return REQ_OK(res, { requestId, ok: true, cfg });
       }
 
       // -------- ADMIN (auth required below) --------
@@ -1389,15 +1505,15 @@ export default async function handler(req, res) {
         const id = String(body?.id || url.searchParams.get("id") || "").trim();
         if (!id) {
           return REQ_ERR(res, 400, "missing-id", {
+            requestId,
             message: "Missing id (body.id or ?id=)",
           });
         }
         try {
           const result = await debugScheduleForItem(id);
-          return REQ_OK(res, result);
+          return REQ_OK(res, { requestId, ...result });
         } catch (e) {
-          console.error("debug_schedule failed:", e?.message || e);
-          return REQ_ERR(res, 500, "debug-failed", { message: e?.message || String(e) });
+          return errResponse(res, 500, "debug-failed", req, e);
         }
       }
 
@@ -1406,6 +1522,7 @@ export default async function handler(req, res) {
         const confirm = String(body?.confirm || "");
         if (confirm !== "PURGE ORDERS") {
           return REQ_ERR(res, 400, "confirmation-required", {
+            requestId,
             expected: "PURGE ORDERS",
             received: confirm,
             note: "This safeguard prevents accidental data loss.",
@@ -1417,6 +1534,7 @@ export default async function handler(req, res) {
 
         if (!["test", "live_test", "live"].includes(mode)) {
           return REQ_ERR(res, 400, "invalid-mode", {
+            requestId,
             mode,
             expected: ["test", "live_test", "live"],
           });
@@ -1425,6 +1543,7 @@ export default async function handler(req, res) {
         try {
           const result = await purgeOrdersByMode(mode, { hard: hardFlag });
           return REQ_OK(res, {
+            requestId,
             ok: true,
             message:
               mode === "live"
@@ -1433,23 +1552,22 @@ export default async function handler(req, res) {
             ...result,
           });
         } catch (err) {
-          console.error("purge_orders failed:", err);
-          return REQ_ERR(res, 500, "purge-failed", { message: err?.message || String(err) });
+          return errResponse(res, 500, "purge-failed", req, err);
         }
       }
 
       if (action === "get_settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
-        return REQ_OK(res, { ok: true, env, overrides, effective });
+        return REQ_OK(res, { requestId, ok: true, env, overrides, effective });
       }
 
       if (action === "send_full_report") {
         try {
           const mod = await import("./admin/send-full.js");
           const result = await mod.default();
-          return REQ_OK(res, result || { ok: true });
+          return REQ_OK(res, { requestId, ...(result || { ok: true }) });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
+          return errResponse(res, 500, "send-full-failed", req, e);
         }
       }
 
@@ -1457,9 +1575,9 @@ export default async function handler(req, res) {
         try {
           const mod = await import("./admin/send-month-to-date.js");
           const result = await mod.default();
-          return REQ_OK(res, result || { ok: true });
+          return REQ_OK(res, { requestId, ...(result || { ok: true }) });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
+          return errResponse(res, 500, "send-mtd-failed", req, e);
         }
       }
 
@@ -1470,14 +1588,12 @@ export default async function handler(req, res) {
         try {
           schedulerMod = await import("./admin/report-scheduler.js");
         } catch (e) {
-          console.error("Failed to load ./admin/report-scheduler.js", e);
-          return REQ_ERR(res, 500, "scheduler-missing", { message: e?.message || e });
+          return errResponse(res, 500, "scheduler-missing", req, e);
         }
 
         const { runScheduledChairReports } = schedulerMod || {};
         if (typeof runScheduledChairReports !== "function") {
-          console.error("runScheduledChairReports is not a function");
-          return REQ_ERR(res, 500, "scheduler-invalid");
+          return REQ_ERR(res, 500, "scheduler-invalid", { requestId });
         }
 
         const baseNow = new Date();
@@ -1514,7 +1630,9 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
-            const firstOfMonth = new Date(Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0));
+            const firstOfMonth = new Date(
+              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
+            );
             const firstIso = firstOfMonth.toISOString();
 
             const esc = (s) => String(s || "").replace(/</g, "&lt;");
@@ -1550,6 +1668,7 @@ export default async function handler(req, res) {
                 <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(firstIso)} through ${esc(
               timeStr
             )}.</strong></p>
+                <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
@@ -1614,7 +1733,7 @@ export default async function handler(req, res) {
           console.error("monthly_log_email_failed", e?.message || e);
         }
 
-        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "current-month" });
+        return REQ_OK(res, { requestId, ok: true, sent, skipped, errors, scope: "current-month" });
       }
 
       if (action === "send_end_of_event_reports") {
@@ -1639,10 +1758,16 @@ export default async function handler(req, res) {
           }
 
           const kind =
-            String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
+            String(cfg?.kind || "").toLowerCase() ||
+            (itemId.includes("addon") ? "addon" : "banquet");
           const label = cfg?.name || itemId;
 
-          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "full" });
+          const result = await sendItemReportEmailInternal({
+            kind,
+            id: itemId,
+            label,
+            scope: "full",
+          });
           if (result.ok) {
             await kvSetSafe(`itemcfg:${itemId}:end_sent`, new Date().toISOString());
             sent += 1;
@@ -1651,31 +1776,35 @@ export default async function handler(req, res) {
           }
         }
 
-        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "full" });
+        return REQ_OK(res, { requestId, ok: true, sent, skipped, errors, scope: "full" });
       }
 
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
-        return REQ_OK(res, { ok: true, message: "orders index cleared" });
+        return REQ_OK(res, { requestId, ok: true, message: "orders index cleared" });
       }
 
       if (action === "create_refund") {
-        const stripe = await getStripe();
-        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
-        const payment_intent = String(body.payment_intent || "").trim();
-        const charge = String(body.charge || "").trim();
-        const amount_cents_raw = body.amount_cents;
-        const args = {};
-        if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
-        if (payment_intent) args.payment_intent = payment_intent;
-        else if (charge) args.charge = charge;
-        else return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
-
-        const rf = await stripe.refunds.create(args);
         try {
-          await applyRefundToOrder(rf.charge, rf);
-        } catch {}
-        return REQ_OK(res, { ok: true, id: rf.id, status: rf.status });
+          const stripe = await getStripe();
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          const payment_intent = String(body.payment_intent || "").trim();
+          const charge = String(body.charge || "").trim();
+          const amount_cents_raw = body.amount_cents;
+          const args = {};
+          if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
+          if (payment_intent) args.payment_intent = payment_intent;
+          else if (charge) args.charge = charge;
+          else return REQ_ERR(res, 400, "missing-payment_intent-or-charge", { requestId });
+
+          const rf = await stripe.refunds.create(args);
+          try {
+            await applyRefundToOrder(rf.charge, rf);
+          } catch {}
+          return REQ_OK(res, { requestId, ok: true, id: rf.id, status: rf.status });
+        } catch (e) {
+          return errResponse(res, 500, "refund-failed", req, e);
+        }
       }
 
       if (action === "save_banquets") {
@@ -1694,7 +1823,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(b?.reportFrequency || b?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              b?.reportFrequency || b?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -1711,7 +1842,7 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        return REQ_OK(res, { ok: true, count: list.length });
+        return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
       if (action === "save_addons") {
@@ -1730,7 +1861,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(a?.reportFrequency || a?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              a?.reportFrequency || a?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -1747,7 +1880,7 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        return REQ_OK(res, { ok: true, count: list.length });
+        return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
       if (action === "save_products") {
@@ -1766,7 +1899,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(p?.reportFrequency || p?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              p?.reportFrequency || p?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -1783,7 +1918,7 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        return REQ_OK(res, { ok: true, count: list.length });
+        return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
       if (action === "save_settings") {
@@ -1822,7 +1957,7 @@ export default async function handler(req, res) {
         if (Object.keys(allow).length) {
           await kvHsetSafe("settings:overrides", allow);
         }
-        return REQ_OK(res, { ok: true, overrides: allow });
+        return REQ_OK(res, { requestId, ok: true, overrides: allow });
       }
 
       // Save checkout / Stripe mode + date window (admin/settings.html)
@@ -1849,16 +1984,16 @@ export default async function handler(req, res) {
         const cfg = await saveCheckoutSettings(patch);
         const effectiveChannel = await getEffectiveOrderChannel();
 
-        return REQ_OK(res, { ok: true, cfg, effectiveChannel });
+        return REQ_OK(res, { requestId, ok: true, cfg, effectiveChannel });
       }
 
-      return REQ_ERR(res, 400, "unknown-action");
+      return REQ_ERR(res, 400, "unknown-action", { requestId });
     }
 
-    return REQ_ERR(res, 405, "method-not-allowed");
+    return REQ_ERR(res, 405, "method-not-allowed", { requestId });
   } catch (e) {
-    console.error(e);
-    return REQ_ERR(res, 500, "router-failed", { message: e?.message || e });
+    // FINAL CATCH: returns structured info (requestId + safe error details)
+    return errResponse(res, 500, "router-failed", req, e);
   }
 }
 
