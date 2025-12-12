@@ -146,6 +146,34 @@ function errResponse(res, status, code, req, err, extra = {}) {
   });
 }
 
+// ============================================================================
+// RAW BODY HELPERS (required for Stripe webhook signature verification)
+// NOTE: we set api.bodyParser=false at bottom, so we must read/parse ourselves.
+// ============================================================================
+async function readRawBody(req) {
+  // cache so we don't consume the stream twice
+  if (req._rawBodyBuffer) return req._rawBodyBuffer;
+
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const buf = Buffer.concat(chunks);
+  req._rawBodyBuffer = buf;
+  return buf;
+}
+
+async function readJsonBody(req) {
+  const buf = await readRawBody(req);
+  const text = buf.toString("utf8") || "";
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid JSON body: ${e?.message || e}`);
+  }
+}
+
 // ---- Admin auth helper ----
 // Uses either:
 //  - legacy static REPORT_TOKEN (for backward compatibility), OR
@@ -965,9 +993,13 @@ export default async function handler(req, res) {
 
     // ---------- POST ----------
     if (req.method === "POST") {
+      // With bodyParser disabled, we MUST parse bodies ourselves.
+      // For Stripe webhook we keep it RAW for signature verification.
       let body = {};
       try {
-        body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+        if (action !== "stripe_webhook") {
+          body = await readJsonBody(req);
+        }
       } catch (e) {
         return errResponse(res, 400, "invalid-json", req, e);
       }
@@ -982,7 +1014,7 @@ export default async function handler(req, res) {
             "";
           const ua = req.headers["user-agent"] || "";
 
-          console.log("[router] admin_login called", { ip, ua, hasBody: !!req.body });
+          console.log("[router] admin_login called", { ip, ua, hasBody: !!body });
 
           const result = await handleAdminLogin({
             password: String(body.password || ""),
@@ -1100,7 +1132,8 @@ export default async function handler(req, res) {
           order: "Order page",
         };
 
-        const topicLabel = topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
+        const topicLabel =
+          topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
         const pageLabel = pageMap[String(page).toLowerCase()] || String(page) || "";
 
         const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
@@ -1277,7 +1310,9 @@ export default async function handler(req, res) {
               const priceMode = String(l.priceMode || "").toLowerCase();
               const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
 
-              const unit_amount = isBundle ? cents(l.bundleTotalCents) : toCentsAuto(l.unitPrice || 0);
+              const unit_amount = isBundle
+                ? cents(l.bundleTotalCents)
+                : toCentsAuto(l.unitPrice || 0);
               const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
 
               return {
@@ -1436,33 +1471,34 @@ export default async function handler(req, res) {
       // ✅ FIX: action=stripe_webhook verify signature against LIVE + TEST + fallback secrets
       if (action === "stripe_webhook") {
         try {
-          // We must verify signature BEFORE trusting event.livemode
           const sig = req.headers["stripe-signature"];
+          if (!sig) return REQ_ERR(res, 400, "missing-signature", { requestId });
 
           const whsecLive = (process.env.STRIPE_WEBHOOK_SECRET_LIVE || "").trim();
           const whsecTest = (process.env.STRIPE_WEBHOOK_SECRET_TEST || "").trim();
           const whsecFallback = (process.env.STRIPE_WEBHOOK_SECRET || "").trim(); // backward compat
 
-          const payload =
-            typeof req.body === "string"
-              ? req.body
-              : req.rawBody
-              ? req.rawBody
-              : JSON.stringify(req.body || {});
-
           const trySecrets = [whsecLive, whsecTest, whsecFallback].filter(Boolean);
+          if (!trySecrets.length) {
+            console.error("[webhook] no webhook secrets configured");
+            return REQ_ERR(res, 500, "missing-webhook-secret", { requestId });
+          }
 
-          let event = null;
-          let verifiedWith = "";
+          // IMPORTANT: Stripe signs the RAW bytes, not parsed JSON.
+          const raw = await readRawBody(req);
 
-          // Use either Stripe client; webhooks.constructEvent doesn't depend on keys.
+          // Use either Stripe client; constructEvent does not depend on API keys, but
+          // we keep your existing pattern.
           const stripeAny =
             (await getStripe("live")) || (await getStripe("test")) || (await getStripe());
           if (!stripeAny) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
 
+          let event = null;
+          let verifiedWith = "";
+
           for (const secret of trySecrets) {
             try {
-              event = stripeAny.webhooks.constructEvent(payload, sig, secret);
+              event = stripeAny.webhooks.constructEvent(raw, sig, secret);
               verifiedWith =
                 secret === whsecLive ? "live" : secret === whsecTest ? "test" : "fallback";
               break;
@@ -1474,7 +1510,14 @@ export default async function handler(req, res) {
             return REQ_ERR(res, 400, "invalid-signature", { requestId });
           }
 
-          console.log("[webhook] verifiedWith=", verifiedWith, "type=", event.type, "livemode=", !!event.livemode);
+          console.log(
+            "[webhook] verifiedWith=",
+            verifiedWith,
+            "type=",
+            event.type,
+            "livemode=",
+            !!event.livemode
+          );
 
           switch (event.type) {
             case "checkout.session.completed": {
@@ -1719,7 +1762,9 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
-            const firstOfMonth = new Date(Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0));
+            const firstOfMonth = new Date(
+              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
+            );
             const firstIso = firstOfMonth.toISOString();
 
             const esc = (s) => String(s || "").replace(/</g, "&lt;");
@@ -1752,8 +1797,12 @@ export default async function handler(req, res) {
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
                 <p style="margin:2px 0;">Scope: <b>current-month</b></p>
-                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(firstIso)} through ${esc(timeStr)}.</strong></p>
-                <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
+                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(
+                  firstIso
+                )} through ${esc(timeStr)}.</strong></p>
+                <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(
+                  requestId
+                )}</p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
@@ -1908,7 +1957,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(b?.reportFrequency || b?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              b?.reportFrequency || b?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -1944,7 +1995,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(a?.reportFrequency || a?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              a?.reportFrequency || a?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -1980,7 +2033,9 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(p?.reportFrequency || p?.report_frequency || "monthly");
+            const freq = normalizeReportFrequency(
+              p?.reportFrequency || p?.report_frequency || "monthly"
+            );
 
             const cfg = {
               id,
@@ -2077,4 +2132,8 @@ export default async function handler(req, res) {
 }
 
 // Vercel Node 22 runtime
-export const config = { runtime: "nodejs" };
+// IMPORTANT: bodyParser must be disabled so Stripe webhook signature verification works.
+export const config = {
+  runtime: "nodejs",
+  api: { bodyParser: false },
+};
