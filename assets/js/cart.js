@@ -11,6 +11,68 @@
 
   function uid(prefix="id"){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
 
+  // ===========================================================================
+  // API ERROR HELPERS (so UI never shows "[object Object]")
+  // ===========================================================================
+  function safeStringify(v){
+    try {
+      if (typeof v === "string") return v;
+      if (v == null) return "";
+      return JSON.stringify(v, null, 2);
+    } catch {
+      try { return String(v); } catch { return "Unknown error"; }
+    }
+  }
+
+  // Human-friendly message builder for router-style errors:
+  // { error: "...", message: "...", detail: "...", requestId: "..." }
+  function explainApiError(payload){
+    if (!payload) return "Unknown error";
+
+    // Common shapes we’ve used:
+    // - { error: "router-failed", message: "..." }
+    // - { error: "stripe-not-configured" }
+    // - { error: "...", detail: "..."}
+    const msg =
+      payload?.message ||
+      payload?.detail ||
+      payload?.error?.message ||
+      payload?.error_description ||
+      payload?.error ||
+      payload?.code ||
+      payload?.status ||
+      null;
+
+    const requestId =
+      payload?.requestId ||
+      payload?.request_id ||
+      payload?.detail?.requestId ||
+      payload?.detail?.request_id ||
+      "";
+
+    // If Stripe error object is present (sometimes we pass it through)
+    const stripeType = payload?.stripe?.type || payload?.error?.stripe?.type || "";
+    const stripeCode = payload?.stripe?.code || payload?.error?.stripe?.code || "";
+
+    const parts = [];
+    if (msg) parts.push(String(msg));
+    if (stripeType || stripeCode) {
+      parts.push(`Stripe: ${stripeType || ""}${stripeType && stripeCode ? " / " : ""}${stripeCode || ""}`);
+    }
+    if (requestId) parts.push(`requestId: ${requestId}`);
+
+    // If we still couldn’t find a message, dump JSON
+    if (!parts.length) parts.push(safeStringify(payload));
+    return parts.join("\n");
+  }
+
+  // Read JSON safely even if server returns non-JSON error text
+  async function readJsonSafe(response){
+    const text = await response.text();
+    try { return JSON.parse(text); }
+    catch { return { raw: text }; }
+  }
+
   // === PHONE HELPERS (shared across all pages) ===
   function digitsOnly(s){
     return String(s || "").replace(/\D+/g, "");
@@ -276,6 +338,12 @@
       digitsOnly,
       formatUS,
       normalizePhoneValue
+    },
+    // NEW: expose api helpers so pages show real error messages
+    apiHelpers: {
+      safeStringify,
+      explainApiError,
+      readJsonSafe
     }
   };
 
