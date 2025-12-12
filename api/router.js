@@ -99,7 +99,9 @@ function getRequestId(req) {
   return (
     req?.headers?.["x-vercel-id"] ||
     req?.headers?.["x-request-id"] ||
-    `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    `local-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`
   );
 }
 
@@ -114,7 +116,8 @@ function toSafeError(err) {
   if (e.code) stripe.code = String(e.code);
   if (e.param) stripe.param = String(e.param);
   if (e.decline_code) stripe.decline_code = String(e.decline_code);
-  if (e.statusCode || e.status_code) stripe.status = Number(e.statusCode || e.status_code);
+  if (e.statusCode || e.status_code)
+    stripe.status = Number(e.statusCode || e.status_code);
 
   const safe = {
     name,
@@ -181,7 +184,8 @@ async function requireAdminAuth(req, res) {
 }
 
 function getUrl(req) {
-  return new URL(req.url, `http://${req.headers.host}`);
+  const host = req?.headers?.host || req?.headers?.["host"] || "localhost";
+  return new URL(req.url, `http://${host}`);
 }
 
 // Pull order mode from Stripe session metadata (preferred), else fall back to the
@@ -190,7 +194,9 @@ async function resolveModeFromSession(sessionLike) {
   try {
     const md = sessionLike?.metadata || {};
     const m =
-      String(md.order_channel || md.order_mode || "").trim().toLowerCase() || "";
+      String(md.order_channel || md.order_mode || "")
+        .trim()
+        .toLowerCase() || "";
     if (m === "test" || m === "live_test" || m === "live") return m;
   } catch {}
   try {
@@ -198,6 +204,15 @@ async function resolveModeFromSession(sessionLike) {
     if (eff === "test" || eff === "live_test" || eff === "live") return eff;
   } catch {}
   return "test";
+}
+
+// Stripe session IDs include cs_test_ or cs_live_
+// (we use this to pick the correct Stripe client for retrieval)
+function inferStripeEnvFromCheckoutSessionId(id) {
+  const s = String(id || "").trim();
+  if (s.startsWith("cs_live_")) return "live";
+  if (s.startsWith("cs_test_")) return "test";
+  return "";
 }
 
 // -------------- main handler --------------
@@ -369,11 +384,20 @@ export default async function handler(req, res) {
       }
 
       if (type === "banquets")
-        return REQ_OK(res, { requestId, banquets: (await kvGetSafe("banquets")) || [] });
+        return REQ_OK(res, {
+          requestId,
+          banquets: (await kvGetSafe("banquets")) || [],
+        });
       if (type === "addons")
-        return REQ_OK(res, { requestId, addons: (await kvGetSafe("addons")) || [] });
+        return REQ_OK(res, {
+          requestId,
+          addons: (await kvGetSafe("addons")) || [],
+        });
       if (type === "products")
-        return REQ_OK(res, { requestId, products: (await kvGetSafe("products")) || [] });
+        return REQ_OK(res, {
+          requestId,
+          products: (await kvGetSafe("products")) || [],
+        });
 
       if (type === "settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
@@ -396,9 +420,7 @@ export default async function handler(req, res) {
         const startMs = raw.liveStart ? Date.parse(raw.liveStart) : NaN;
         const endMs = raw.liveEnd ? Date.parse(raw.liveEnd) : NaN;
         const windowActive =
-          !isNaN(startMs) &&
-          nowMs >= startMs &&
-          (isNaN(endMs) || nowMs <= endMs);
+          !isNaN(startMs) && nowMs >= startMs && (isNaN(endMs) || nowMs <= endMs);
 
         return REQ_OK(res, {
           requestId,
@@ -418,31 +440,67 @@ export default async function handler(req, res) {
         });
       }
 
+      // ✅ FIX: retrieve checkout sessions in LIVE vs TEST automatically by ID prefix
+      // (and fall back to the other env so admin tools still work if someone pastes
+      // the “wrong” session ID vs selected mode)
       if (type === "checkout_session") {
-        try {
-          const stripe = await getStripe();
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
-          const id = url.searchParams.get("id");
-          if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
+        const id = String(url.searchParams.get("id") || "").trim();
+        if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
 
-          const s = await stripe.checkout.sessions.retrieve(id, {
+        // Stripe session IDs include cs_test_ or cs_live_
+        const inferred = inferStripeEnvFromCheckoutSessionId(id);
+
+        // If unknown, choose primary based on current effective channel (live/live_test => live)
+        let primaryEnv = inferred;
+        if (!primaryEnv) {
+          const eff = await getEffectiveOrderChannel().catch(() => "test");
+          primaryEnv = eff === "live" || eff === "live_test" ? "live" : "test";
+        }
+        const fallbackEnv = primaryEnv === "live" ? "test" : "live";
+
+        // Prefer the correct key first, but fall back to the other
+        // so admin tools still work if someone pastes the “wrong” ID.
+        const stripePrimary = await getStripe(primaryEnv);
+        const stripeFallback = await getStripe(fallbackEnv);
+
+        const tryRetrieve = async (stripeClient) => {
+          if (!stripeClient) return null;
+          return stripeClient.checkout.sessions.retrieve(id, {
             expand: ["payment_intent"],
           });
+        };
 
-          return REQ_OK(res, {
-            requestId,
-            id: s.id,
-            amount_total: s.amount_total,
-            currency: s.currency,
-            customer_details: s.customer_details || {},
-            payment_intent:
-              typeof s.payment_intent === "string"
-                ? s.payment_intent
-                : s.payment_intent?.id,
-          });
-        } catch (e) {
-          return errResponse(res, 500, "checkout-session-fetch-failed", req, e);
+        let s = null;
+        let usedEnv = primaryEnv;
+
+        try {
+          s = await tryRetrieve(stripePrimary);
+          usedEnv = primaryEnv;
+        } catch {}
+
+        if (!s) {
+          try {
+            s = await tryRetrieve(stripeFallback);
+            usedEnv = fallbackEnv;
+          } catch {}
         }
+
+        if (!s)
+          return REQ_ERR(res, 404, "checkout-session-not-found", {
+            requestId,
+            id,
+          });
+
+        return REQ_OK(res, {
+          requestId,
+          env: usedEnv, // "live" or "test" (which Stripe client succeeded)
+          id: s.id,
+          amount_total: s.amount_total,
+          currency: s.currency,
+          customer_details: s.customer_details || {},
+          payment_intent:
+            typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id,
+        });
       }
 
       if (type === "orders") {
@@ -909,8 +967,7 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       let body = {};
       try {
-        body =
-          typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+        body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
       } catch (e) {
         return errResponse(res, 400, "invalid-json", req, e);
       }
@@ -1043,8 +1100,7 @@ export default async function handler(req, res) {
           order: "Order page",
         };
 
-        const topicLabel =
-          topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
+        const topicLabel = topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
         const pageLabel = pageMap[String(page).toLowerCase()] || String(page) || "";
 
         const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
@@ -1063,11 +1119,7 @@ export default async function handler(req, res) {
             <h2 style="margin-bottom:4px;">Website Contact Form</h2>
             <p style="margin:2px 0;">Time (UTC): ${esc(createdIso)}</p>
             <p style="margin:2px 0;">Topic: <b>${esc(topicLabel)}</b></p>
-            ${
-              pageLabel
-                ? `<p style="margin:2px 0;">Page: <b>${esc(pageLabel)}</b></p>`
-                : ""
-            }
+            ${pageLabel ? `<p style="margin:2px 0;">Page: <b>${esc(pageLabel)}</b></p>` : ""}
             <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
             <table style="border-collapse:collapse;border:1px solid #ccc;margin-top:10px;font-size:13px;">
               <tbody>
@@ -1087,27 +1139,11 @@ export default async function handler(req, res) {
                   <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Topic</th>
                   <td style="padding:4px 6px;border:1px solid #ddd;">${esc(topicLabel)}</td>
                 </tr>
-                ${
-                  pageLabel
-                    ? `<tr>
-                        <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Page</th>
-                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(pageLabel)}</td>
-                      </tr>`
-                    : ""
-                }
-                ${
-                  item
-                    ? `<tr>
-                        <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Item</th>
-                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(item)}</td>
-                      </tr>`
-                    : ""
-                }
+                ${pageLabel ? `<tr><th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Page</th><td style="padding:4px 6px;border:1px solid #ddd;">${esc(pageLabel)}</td></tr>` : ""}
+                ${item ? `<tr><th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Item</th><td style="padding:4px 6px;border:1px solid #ddd;">${esc(item)}</td></tr>` : ""}
                 <tr>
                   <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;vertical-align:top;">Message</th>
-                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(
-                    msg
-                  )}</td>
+                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(msg)}</td>
                 </tr>
               </tbody>
             </table>
@@ -1208,7 +1244,10 @@ export default async function handler(req, res) {
           const scope = String(body?.scope || "current-month");
           const result = await sendItemReportEmailInternal({ kind, id, label, scope });
           if (!result.ok)
-            return REQ_ERR(res, 500, result.error || "send-failed", { requestId, ...result });
+            return REQ_ERR(res, 500, result.error || "send-failed", {
+              requestId,
+              ...result,
+            });
           return REQ_OK(res, { requestId, ok: true, ...result });
         } catch (e) {
           return errResponse(res, 500, "send-item-report-failed", req, e);
@@ -1218,10 +1257,11 @@ export default async function handler(req, res) {
       // ---- CREATE CHECKOUT (bundle protection + international fee) ----
       if (action === "create_checkout_session") {
         try {
-          const stripe = await getStripe();
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
-
+          // ✅ Determine effective channel FIRST, then initialize Stripe with that mode.
           const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+
+          const stripe = await getStripe(orderChannel);
+          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
 
           const origin = req.headers.origin || `https://${req.headers.host}`;
           const successUrl =
@@ -1237,9 +1277,7 @@ export default async function handler(req, res) {
               const priceMode = String(l.priceMode || "").toLowerCase();
               const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
 
-              const unit_amount = isBundle
-                ? cents(l.bundleTotalCents)
-                : toCentsAuto(l.unitPrice || 0);
+              const unit_amount = isBundle ? cents(l.bundleTotalCents) : toCentsAuto(l.unitPrice || 0);
               const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
 
               return {
@@ -1301,9 +1339,7 @@ export default async function handler(req, res) {
             }
 
             // International card processing fee (3%)
-            const purchaserCountry = String(
-              purchaser.country || purchaser.addressCountry || "US"
-            )
+            const purchaserCountry = String(purchaser.country || purchaser.addressCountry || "US")
               .trim()
               .toUpperCase();
             const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
@@ -1397,27 +1433,48 @@ export default async function handler(req, res) {
         }
       }
 
+      // ✅ FIX: action=stripe_webhook verify signature against LIVE + TEST + fallback secrets
       if (action === "stripe_webhook") {
         try {
-          const stripe = await getStripe();
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
-
-          let event;
+          // We must verify signature BEFORE trusting event.livemode
           const sig = req.headers["stripe-signature"];
-          const whsec = process.env.STRIPE_WEBHOOK_SECRET || "";
 
-          try {
-            if (whsec && typeof req.body === "string") {
-              event = stripe.webhooks.constructEvent(req.body, sig, whsec);
-            } else if (whsec && req.rawBody) {
-              event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
-            } else {
-              event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-            }
-          } catch (err) {
-            console.error("Webhook signature verification failed:", err?.message);
-            return errResponse(res, 400, "invalid-signature", req, err);
+          const whsecLive = (process.env.STRIPE_WEBHOOK_SECRET_LIVE || "").trim();
+          const whsecTest = (process.env.STRIPE_WEBHOOK_SECRET_TEST || "").trim();
+          const whsecFallback = (process.env.STRIPE_WEBHOOK_SECRET || "").trim(); // backward compat
+
+          const payload =
+            typeof req.body === "string"
+              ? req.body
+              : req.rawBody
+              ? req.rawBody
+              : JSON.stringify(req.body || {});
+
+          const trySecrets = [whsecLive, whsecTest, whsecFallback].filter(Boolean);
+
+          let event = null;
+          let verifiedWith = "";
+
+          // Use either Stripe client; webhooks.constructEvent doesn't depend on keys.
+          const stripeAny =
+            (await getStripe("live")) || (await getStripe("test")) || (await getStripe());
+          if (!stripeAny) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+
+          for (const secret of trySecrets) {
+            try {
+              event = stripeAny.webhooks.constructEvent(payload, sig, secret);
+              verifiedWith =
+                secret === whsecLive ? "live" : secret === whsecTest ? "test" : "fallback";
+              break;
+            } catch {}
           }
+
+          if (!event) {
+            console.error("Webhook signature verification failed with all known secrets");
+            return REQ_ERR(res, 400, "invalid-signature", { requestId });
+          }
+
+          console.log("[webhook] verifiedWith=", verifiedWith, "type=", event.type, "livemode=", !!event.livemode);
 
           switch (event.type) {
             case "checkout.session.completed": {
@@ -1433,6 +1490,8 @@ export default async function handler(req, res) {
                 requestId,
                 sessionId: session?.id || null,
                 mode,
+                verifiedWith,
+                livemode: !!event.livemode,
               });
 
               const order = await saveOrderFromSession(session.id || session, { mode });
@@ -1475,7 +1534,7 @@ export default async function handler(req, res) {
               break;
           }
 
-          return REQ_OK(res, { requestId, received: true });
+          return REQ_OK(res, { requestId, received: true, verifiedWith });
         } catch (e) {
           return errResponse(res, 500, "webhook-failed", req, e);
         }
@@ -1522,7 +1581,8 @@ export default async function handler(req, res) {
 
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
-        if (!ok1 || !ok2) return REQ_OK(res, { requestId, ok: true, warning: "kv-unavailable" });
+        if (!ok1 || !ok2)
+          return REQ_OK(res, { requestId, ok: true, warning: "kv-unavailable" });
 
         return REQ_OK(res, { requestId, ok: true, cfg });
       }
@@ -1659,9 +1719,7 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
-            const firstOfMonth = new Date(
-              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
-            );
+            const firstOfMonth = new Date(Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0));
             const firstIso = firstOfMonth.toISOString();
 
             const esc = (s) => String(s || "").replace(/</g, "&lt;");
@@ -1694,9 +1752,7 @@ export default async function handler(req, res) {
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
                 <p style="margin:2px 0;">Scope: <b>current-month</b></p>
-                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(firstIso)} through ${esc(
-              timeStr
-            )}.</strong></p>
+                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(firstIso)} through ${esc(timeStr)}.</strong></p>
                 <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
@@ -1852,9 +1908,7 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              b?.reportFrequency || b?.report_frequency || "monthly"
-            );
+            const freq = normalizeReportFrequency(b?.reportFrequency || b?.report_frequency || "monthly");
 
             const cfg = {
               id,
@@ -1890,9 +1944,7 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              a?.reportFrequency || a?.report_frequency || "monthly"
-            );
+            const freq = normalizeReportFrequency(a?.reportFrequency || a?.report_frequency || "monthly");
 
             const cfg = {
               id,
@@ -1928,9 +1980,7 @@ export default async function handler(req, res) {
                   .map((s) => s.trim())
                   .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              p?.reportFrequency || p?.report_frequency || "monthly"
-            );
+            const freq = normalizeReportFrequency(p?.reportFrequency || p?.report_frequency || "monthly");
 
             const cfg = {
               id,
