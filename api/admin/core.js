@@ -1429,12 +1429,32 @@ async function sendItemReportEmailInternal({
   endDate,
   startMs: explicitStartMs,
   endMs: explicitEndMs,
-  scheduledAt, // <-- NEW: optional scheduled send time (ISO string)
-}) {
+
+  // Accept either casing (router may pass one or the other)
+  scheduledAt,
+  scheduled_at,
+} = {}) {
   if (!resend)
     return { ok: false, error: "resend-not-configured" };
   if (!kind || !id)
     return { ok: false, error: "missing-kind-or-id" };
+
+  // Normalize scheduled time (Resend expects scheduled_at)
+  let scheduledAtIso = (scheduled_at || scheduledAt || "").trim();
+  if (scheduledAtIso) {
+    const t = Date.parse(scheduledAtIso);
+    if (isNaN(t)) {
+      console.warn("[sendItemReportEmailInternal] invalid scheduled time:", scheduledAtIso);
+      scheduledAtIso = "";
+    } else {
+      // Don’t schedule in the past (send immediately instead)
+      if (t <= Date.now() + 5000) {
+        scheduledAtIso = "";
+      } else {
+        scheduledAtIso = new Date(t).toISOString();
+      }
+    }
+  }
 
   // NEW: load all orders with a small retry window (helps cold start / timing issues)
   const orders = await loadAllOrdersWithRetry();
@@ -1711,10 +1731,10 @@ async function sendItemReportEmailInternal({
     ],
   };
 
-  // If a scheduledAt was provided (e.g., from the monthly scheduler),
-  // pass it through to Resend so it queues for that time.
-  if (scheduledAt) {
-    payload.scheduledAt = scheduledAt;
+  // ✅ Correct Resend field:
+  // If scheduledAtIso exists, Resend will queue it and you'll see scheduled_at populated.
+  if (scheduledAtIso) {
+    payload.scheduled_at = scheduledAtIso;
   }
 
   const retry = await sendWithRetry(
@@ -1732,14 +1752,14 @@ async function sendItemReportEmailInternal({
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
-      scheduledAt: scheduledAt || null,
+      scheduled_at: scheduledAtIso || null,
     });
     return {
       ok: true,
       count: sorted.length,
       to: toList,
       bcc: bccList,
-      scheduledAt: scheduledAt || null,
+      scheduled_at: scheduledAtIso || null,
     };
   } else {
     const err = retry.error;
@@ -1752,7 +1772,7 @@ async function sendItemReportEmailInternal({
       kind: "item-report",
       status: "error",
       error: String(err?.message || err),
-      scheduledAt: scheduledAt || null,
+      scheduled_at: scheduledAtIso || null,
     });
     return {
       ok: false,
