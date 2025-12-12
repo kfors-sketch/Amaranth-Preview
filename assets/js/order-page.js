@@ -23,6 +23,66 @@
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || "").trim());
   }
 
+  // ===========================================================================
+  // API ERROR HELPERS (avoid "[object Object]" and show real router reason)
+  // ===========================================================================
+  function safeStringify(v) {
+    try {
+      if (typeof v === "string") return v;
+      if (v == null) return "";
+      return JSON.stringify(v, null, 2);
+    } catch {
+      try {
+        return String(v);
+      } catch {
+        return "Unknown error";
+      }
+    }
+  }
+
+  function explainApiError(payload) {
+    if (!payload) return "Unknown error";
+
+    // Common router shapes:
+    // { error: "router-failed", message: "..." }
+    // { error: "stripe-not-configured" }
+    // { error: "...", detail: "..." }
+    const msg =
+      payload?.message ||
+      payload?.detail ||
+      payload?.error?.message ||
+      payload?.error_description ||
+      payload?.error ||
+      payload?.code ||
+      payload?.status ||
+      null;
+
+    const requestId =
+      payload?.requestId ||
+      payload?.request_id ||
+      payload?.detail?.requestId ||
+      payload?.detail?.request_id ||
+      "";
+
+    const parts = [];
+    if (msg) parts.push(String(msg));
+    if (requestId) parts.push(`requestId: ${requestId}`);
+
+    if (!parts.length) parts.push(safeStringify(payload));
+    return parts.join("\n");
+  }
+
+  async function readJsonSafe(response) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      // if server returned HTML or plain text error
+      return { raw: text };
+    }
+  }
+  // ===========================================================================
+
   // === Duplicate detection helpers (shared with other pages) ===
   function _norm(s) {
     return String(s || "")
@@ -684,21 +744,35 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error || "Payment server error");
 
+      // IMPORTANT: read safely, even on 500/HTML/etc
+      const j = await readJsonSafe(r);
+
+      if (!r.ok) {
+        // show best possible router reason (never "[object Object]")
+        const msg = explainApiError(j) || "Payment server error";
+        throw new Error(msg);
+      }
+
+      // Your router returns { url, id } — not { sessionId }
+      if (j && j.url) {
+        setStatus("Redirecting to Stripe…", true);
+        window.location.href = j.url;
+        return;
+      }
+
+      // Fallback: if URL not provided, use Stripe redirect with session id
       const stripe = await getStripeInstance();
-
-      // Accept session id
       const sessionId = j.sessionId || j.id;
-      if (!sessionId) throw new Error("Missing session id.");
+      if (!sessionId) throw new Error("Missing session id (and no checkout URL).");
 
       setStatus("Redirecting to Stripe…", true);
       const { error } = await stripe.redirectToCheckout({ sessionId });
       if (error) throw error;
+
     } catch (e) {
       console.error(e);
-      setStatus(e.message || "Checkout failed. Please try again.", false);
+      setStatus(e?.message || "Checkout failed. Please try again.", false);
       const btn2 = document.getElementById("checkout");
       if (btn2) btn2.disabled = false;
     }
