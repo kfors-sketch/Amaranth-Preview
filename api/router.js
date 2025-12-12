@@ -2,6 +2,7 @@
 import {
   kv,
   getStripe,
+  getStripePublishableKey,
   resend,
   RESEND_FROM,
   REPLY_TO,
@@ -47,7 +48,8 @@ import {
   sendItemReportEmailInternal,
   REALTIME_CHAIR_KEY_PREFIX,
   sendRealtimeChairEmailsForOrder,
-  // NEW: checkout mode helpers + purge
+  maybeSendRealtimeChairEmails,
+  // checkout mode helpers + purge
   getCheckoutSettingsRaw,
   saveCheckoutSettings,
   getCheckoutSettingsAuto,
@@ -61,19 +63,16 @@ import {
   buildInternationalFeeLineItem,
 } from "./admin/fees.js";
 
-import {
-  handleAdminLogin,
-  verifyAdminToken,
-} from "./admin/security.js";
+import { handleAdminLogin, verifyAdminToken } from "./admin/security.js";
 
-// NEW: Year-over-year helpers (orders / purchasers / people / amount)
+// Year-over-year helpers (orders / purchasers / people / amount)
 import {
   listIndexedYears,
   getYearSummary,
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
 
-// NEW: scheduler + debug helpers
+// scheduler + debug helpers
 import {
   debugScheduleForItem,
   handleSmoketest,
@@ -96,10 +95,7 @@ import {
 //  - new KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
-  const rawAuth =
-    headers.authorization ||
-    headers.Authorization ||
-    "";
+  const rawAuth = headers.authorization || headers.Authorization || "";
 
   const auth = String(rawAuth || "");
   const lower = auth.toLowerCase();
@@ -114,11 +110,9 @@ async function requireAdminAuth(req, res) {
     return false;
   }
 
-  // 1) Allow legacy static REPORT_TOKEN for now (so existing admin pages still work)
+  // 1) Allow legacy static REPORT_TOKEN for now
   const legacy = (process.env.REPORT_TOKEN || "").trim();
-  if (legacy && token === legacy) {
-    return true;
-  }
+  if (legacy && token === legacy) return true;
 
   // 2) Check against new admin tokens stored in KV
   try {
@@ -132,10 +126,30 @@ async function requireAdminAuth(req, res) {
   return false;
 }
 
+function getUrl(req) {
+  return new URL(req.url, `http://${req.headers.host}`);
+}
+
+// Pull order mode from Stripe session metadata (preferred), else fall back to the
+// current effective channel.
+async function resolveModeFromSession(sessionLike) {
+  try {
+    const md = sessionLike?.metadata || {};
+    const m =
+      String(md.order_channel || md.order_mode || "").trim().toLowerCase() || "";
+    if (m === "test" || m === "live_test" || m === "live") return m;
+  } catch {}
+  try {
+    const eff = await getEffectiveOrderChannel();
+    if (eff === "test" || eff === "live_test" || eff === "live") return eff;
+  } catch {}
+  return "test";
+}
+
 // -------------- main handler --------------
 export default async function handler(req, res) {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = getUrl(req);
     const action = url.searchParams.get("action");
     const type = url.searchParams.get("type");
 
@@ -213,10 +227,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, out);
       }
 
-      // NEW: year_index (for reporting_yoy.html)
-      // Returns:
-      //   { years: [2024, 2025, ...],
-      //     slots: [{ key, label, category }, ...] }
+      // year_index (for reporting_yoy.html)
       if (type === "year_index") {
         const years = await listIndexedYears();
 
@@ -226,23 +237,13 @@ export default async function handler(req, res) {
         const addSlots = (list, category) => {
           if (!Array.isArray(list)) return;
           for (const item of list) {
-            const key = String(
-              item?.id || item?.slotKey || item?.slot || ""
-            ).trim();
+            const key = String(item?.id || item?.slotKey || item?.slot || "").trim();
             if (!key || seen.has(key)) continue;
             seen.add(key);
 
-            const label =
-              item?.name ||
-              item?.label ||
-              item?.slotLabel ||
-              key;
+            const label = item?.name || item?.label || item?.slotLabel || key;
 
-            slots.push({
-              key,
-              label,
-              category,
-            });
+            slots.push({ key, label, category });
           }
         };
 
@@ -257,30 +258,24 @@ export default async function handler(req, res) {
         return REQ_OK(res, { years, slots });
       }
 
-      // NEW: list all years we have indexed (for dropdowns / filters)
+      // list all years we have indexed
       if (type === "years_index") {
         const years = await listIndexedYears();
         return REQ_OK(res, { years });
       }
 
-      // NEW: full summary for a single year (orders, purchasers, people, amount)
+      // summary for a single year
       if (type === "year_summary") {
         const yParam = url.searchParams.get("year");
         const year = Number(yParam);
         if (!Number.isFinite(year)) {
-          return REQ_ERR(res, 400, "invalid-year", {
-            year: yParam,
-          });
+          return REQ_ERR(res, 400, "invalid-year", { year: yParam });
         }
-
         const summary = await getYearSummary(year);
         return REQ_OK(res, summary);
       }
 
-      // NEW: multi-year summary for graphs (2-graph feature)
-      // Accepts:
-      //   ?type=year_multi&year=2024&year=2025
-      //   or ?type=year_multi&years=2024,2025,2026
+      // multi-year summary for graphs
       if (type === "year_multi") {
         let yearsParams = url.searchParams.getAll("year");
         if (!yearsParams.length) {
@@ -293,29 +288,18 @@ export default async function handler(req, res) {
           }
         }
 
-        let years = yearsParams
+        const years = yearsParams
           .map((s) => Number(s))
           .filter((n) => Number.isFinite(n))
           .sort((a, b) => a - b);
 
-        // If no years explicitly provided, just return available years with empty points
         if (!years.length) {
           const allYears = await listIndexedYears();
-          return REQ_OK(res, {
-            years: allYears,
-            points: [],
-            raw: [],
-          });
+          return REQ_OK(res, { years: allYears, points: [], raw: [] });
         }
 
         const raw = await getMultiYearSummary(years);
 
-        // Lightweight structure for graphs:
-        // - totalOrders
-        // - uniqueBuyers
-        // - repeatBuyers
-        // - totalPeople
-        // - totalCents
         const points = raw.map((r) => ({
           year: r.year,
           totalOrders: r.totalOrders || 0,
@@ -325,11 +309,7 @@ export default async function handler(req, res) {
           totalCents: r.totalCents || 0,
         }));
 
-        return REQ_OK(res, {
-          years,
-          points,
-          raw,
-        });
+        return REQ_OK(res, { years, points, raw });
       }
 
       if (type === "banquets")
@@ -346,22 +326,15 @@ export default async function handler(req, res) {
           overrides,
           effective,
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
-          MAINTENANCE_MESSAGE:
-            effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
+          MAINTENANCE_MESSAGE: effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
         });
       }
 
-      // NEW: Checkout / Stripe mode fetch for admin/settings.html
+      // Checkout / Stripe mode fetch for admin/settings.html
       if (type === "checkout_mode") {
         const nowMs = Date.now();
-        // getCheckoutSettingsAuto will also auto-downgrade LIVE to TEST
-        // if the LIVE window is not active.
-        const raw = await getCheckoutSettingsAuto(
-          new Date(nowMs)
-        );
-        const effectiveChannel = await getEffectiveOrderChannel(
-          new Date(nowMs)
-        );
+        const raw = await getCheckoutSettingsAuto(new Date(nowMs));
+        const effectiveChannel = await getEffectiveOrderChannel(new Date(nowMs));
 
         const startMs = raw.liveStart ? Date.parse(raw.liveStart) : NaN;
         const endMs = raw.liveEnd ? Date.parse(raw.liveEnd) : NaN;
@@ -372,18 +345,15 @@ export default async function handler(req, res) {
 
         return REQ_OK(res, {
           raw,
-          auto: {
-            now: new Date(nowMs).toISOString(),
-            windowActive,
-          },
+          auto: { now: new Date(nowMs).toISOString(), windowActive },
           effectiveChannel,
         });
       }
 
+      // Mode-aware publishable key (preferred)
       if (type === "stripe_pubkey" || type === "stripe_pk") {
-        return REQ_OK(res, {
-          publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "",
-        });
+        const mode = await getEffectiveOrderChannel().catch(() => "test");
+        return REQ_OK(res, { publishableKey: getStripePublishableKey(mode), mode });
       }
 
       if (type === "checkout_session") {
@@ -400,9 +370,7 @@ export default async function handler(req, res) {
           currency: s.currency,
           customer_details: s.customer_details || {},
           payment_intent:
-            typeof s.payment_intent === "string"
-              ? s.payment_intent
-              : s.payment_intent?.id,
+            typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id,
         });
       }
 
@@ -436,9 +404,7 @@ export default async function handler(req, res) {
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs =
-              endMs -
-              Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
@@ -453,40 +419,25 @@ export default async function handler(req, res) {
           });
         }
 
-        const q = (url.searchParams.get("q") || "")
-          .trim()
-          .toLowerCase();
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
         if (q) {
           rows = rows.filter(
             (r) =>
-              String(r.purchaser || "")
-                .toLowerCase()
-                .includes(q) ||
+              String(r.purchaser || "").toLowerCase().includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
-              String(r.category || "")
-                .toLowerCase()
-                .includes(q) ||
+              String(r.category || "").toLowerCase().includes(q) ||
               String(r.status || "").toLowerCase().includes(q) ||
               String(r.notes || "").toLowerCase().includes(q)
           );
         }
 
-        const catParam = (
-          url.searchParams.get("category") || ""
-        ).toLowerCase();
-        const itemIdParam = (
-          url.searchParams.get("item_id") || ""
-        ).toLowerCase();
-        const itemParam = (
-          url.searchParams.get("item") || ""
-        ).toLowerCase();
+        const catParam = (url.searchParams.get("category") || "").toLowerCase();
+        const itemIdParam = (url.searchParams.get("item_id") || "").toLowerCase();
+        const itemParam = (url.searchParams.get("item") || "").toLowerCase();
 
         if (catParam) {
-          rows = rows.filter(
-            (r) =>
-              String(r.category || "").toLowerCase() === catParam
-          );
+          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
         }
 
         if (itemIdParam) {
@@ -508,13 +459,10 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter((r) =>
-            String(r.item || "").toLowerCase().includes(want)
-          );
+          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
         }
 
         rows = sortByDateAsc(rows, "date");
-
         return REQ_OK(res, { rows });
       }
 
@@ -548,9 +496,7 @@ export default async function handler(req, res) {
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs =
-              endMs -
-              Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
@@ -565,40 +511,25 @@ export default async function handler(req, res) {
           });
         }
 
-        const q = (url.searchParams.get("q") || "")
-          .trim()
-          .toLowerCase();
+        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
         if (q) {
           rows = rows.filter(
             (r) =>
-              String(r.purchaser || "")
-                .toLowerCase()
-                .includes(q) ||
+              String(r.purchaser || "").toLowerCase().includes(q) ||
               String(r.attendee || "").toLowerCase().includes(q) ||
               String(r.item || "").toLowerCase().includes(q) ||
-              String(r.category || "")
-                .toLowerCase()
-                .includes(q) ||
+              String(r.category || "").toLowerCase().includes(q) ||
               String(r.status || "").toLowerCase().includes(q) ||
               String(r.notes || "").toLowerCase().includes(q)
           );
         }
 
-        const catParam = (
-          url.searchParams.get("category") || ""
-        ).toLowerCase();
-        const itemIdParam = (
-          url.searchParams.get("item_id") || ""
-        ).toLowerCase();
-        const itemParam = (
-          url.searchParams.get("item") || ""
-        ).toLowerCase();
+        const catParam = (url.searchParams.get("category") || "").toLowerCase();
+        const itemIdParam = (url.searchParams.get("item_id") || "").toLowerCase();
+        const itemParam = (url.searchParams.get("item") || "").toLowerCase();
 
         if (catParam) {
-          rows = rows.filter(
-            (r) =>
-              String(r.category || "").toLowerCase() === catParam
-          );
+          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
         }
 
         if (itemIdParam) {
@@ -620,9 +551,7 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter((r) =>
-            String(r.item || "").toLowerCase().includes(want)
-          );
+          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
         }
 
         const sorted = sortByDateAsc(rows, "date");
@@ -648,24 +577,16 @@ export default async function handler(req, res) {
             _pi: "",
             _charge: "",
             _session: "",
+            mode: "",
           }
         );
 
-        const buf = await objectsToXlsxBuffer(
-          headers,
-          sorted,
-          null,
-          "Orders"
-        );
-
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Orders");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename="orders.xlsx"`
-        );
+        res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
         return res.status(200).send(buf);
       }
 
@@ -717,20 +638,12 @@ export default async function handler(req, res) {
           "notes",
         ];
 
-        const buf = await objectsToXlsxBuffer(
-          headers,
-          sorted,
-          null,
-          "Attendees"
-        );
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Attendees");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename="attendee-roster.xlsx"`
-        );
+        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.xlsx"`);
         return res.status(200).send(buf);
       }
 
@@ -787,20 +700,12 @@ export default async function handler(req, res) {
           "date",
         ];
 
-        const buf = await objectsToXlsxBuffer(
-          headers,
-          sorted,
-          null,
-          "Directory"
-        );
+        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Directory");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename="directory.xlsx"`
-        );
+        res.setHeader("Content-Disposition", `attachment; filename="directory.xlsx"`);
         return res.status(200).send(buf);
       }
 
@@ -838,37 +743,27 @@ export default async function handler(req, res) {
           endMs: isNaN(endMs) ? undefined : endMs,
         });
 
-        const withAttendee = rosterAll.filter(
-          (r) => String(r.attendee || "").trim().length > 0
-        );
+        const withAttendee = rosterAll.filter((r) => String(r.attendee || "").trim().length > 0);
 
         const norm = (s) => String(s || "").trim().toLowerCase();
         const normPhone = (s) => String(s || "").replace(/\D+/g, "");
         const map = new Map();
         for (const r of withAttendee) {
-          const key = `${norm(r.attendee)}|${norm(
-            r.attendee_email
-          )}|${normPhone(r.attendee_phone)}`;
+          const key = `${norm(r.attendee)}|${norm(r.attendee_email)}|${normPhone(
+            r.attendee_phone
+          )}`;
           const prev = map.get(key);
-          if (!prev) {
-            map.set(key, r);
-          } else {
+          if (!prev) map.set(key, r);
+          else {
             const tPrev = parseDateISO(prev.date);
             const tNew = parseDateISO(r.date);
-            if (
-              !isNaN(tNew) &&
-              !isNaN(tPrev) &&
-              tNew < tPrev
-            ) {
+            if (!isNaN(tNew) && !isNaN(tPrev) && tNew < tPrev) {
               map.set(key, r);
             }
           }
         }
 
-        const unique = sortByDateAsc(
-          Array.from(map.values()),
-          "date"
-        );
+        const unique = sortByDateAsc(Array.from(map.values()), "date");
 
         const headers = [
           "#",
@@ -899,20 +794,12 @@ export default async function handler(req, res) {
           attendee_country: r.attendee_country,
         }));
 
-        const buf = await objectsToXlsxBuffer(
-          headers,
-          numbered,
-          null,
-          "Full Attendees"
-        );
+        const buf = await objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename="full-attendees.xlsx"`
-        );
+        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.xlsx"`);
         return res.status(200).send(buf);
       }
 
@@ -920,10 +807,10 @@ export default async function handler(req, res) {
         const sid = String(url.searchParams.get("sid") || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
         try {
-          const order = await saveOrderFromSession({ id: sid });
-          // IMPORTANT:
-          // Do NOT send emails here. Webhook (checkout.session.completed)
-          // is the single source of truth for receipts + chair emails.
+          // save only (webhook is still source-of-truth for emails)
+          const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+          const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
+
           return REQ_OK(res, {
             ok: true,
             orderId: order.id,
@@ -951,11 +838,9 @@ export default async function handler(req, res) {
     // ---------- POST ----------
     if (req.method === "POST") {
       const body =
-        typeof req.body === "string"
-          ? JSON.parse(req.body || "{}")
-          : req.body || {};
+        typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
 
-      // --- NEW: High-security admin login (Option 3) ---
+      // --- High-security admin login ---
       if (action === "admin_login") {
         try {
           const ip =
@@ -965,11 +850,7 @@ export default async function handler(req, res) {
             "";
           const ua = req.headers["user-agent"] || "";
 
-          console.log("[router] admin_login called", {
-            ip,
-            ua,
-            hasBody: !!req.body,
-          });
+          console.log("[router] admin_login called", { ip, ua, hasBody: !!req.body });
 
           const result = await handleAdminLogin({
             password: String(body.password || ""),
@@ -979,41 +860,29 @@ export default async function handler(req, res) {
 
           console.log("[router] admin_login result", result);
 
-          if (result.ok) {
-            return REQ_OK(res, result);
-          }
+          if (result.ok) return REQ_OK(res, result);
 
           const status =
-            result.error === "invalid_password" ||
-            result.error === "locked_out"
-              ? 401
-              : 500;
+            result.error === "invalid_password" || result.error === "locked_out" ? 401 : 500;
 
           const errCode = result.error || "login-failed";
           return REQ_ERR(res, status, errCode, result);
         } catch (e) {
           console.error("admin_login failed (unhandled):", e);
-          return REQ_ERR(res, 500, "login-failed", {
-            message: e?.message || String(e),
-          });
+          return REQ_ERR(res, 500, "login-failed", { message: e?.message || String(e) });
         }
       }
 
       // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
-        if (!resend)
-          return REQ_ERR(res, 500, "resend-not-configured");
-        const urlObj = new URL(
-          req.url,
-          `http://${req.headers.host}`
-        );
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
+        const urlObj = getUrl(req);
         const bodyTo = (body && body.to) || urlObj.searchParams.get("to") || "";
-        const fallbackAdmin = (
-          process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
-        )
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)[0] || "";
+        const fallbackAdmin =
+          (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)[0] || "";
         const to = (bodyTo || fallbackAdmin).trim();
         if (!to) return REQ_ERR(res, 400, "missing-to");
 
@@ -1031,34 +900,27 @@ export default async function handler(req, res) {
           reply_to: REPLY_TO || undefined,
         };
 
-        const retry = await sendWithRetry(
-          () => resend.emails.send(payload),
-          "manual-test"
-        );
+        const retry = await sendWithRetry(() => resend.emails.send(payload), "manual-test");
 
         if (retry.ok) {
           const sendResult = retry.result;
           await recordMailLog({
             ts: Date.now(),
-            from: RESEND_FROM || "onboarding@resend.dev",
+            from: payload.from,
             to: [to],
-            subject: "Amaranth test email",
+            subject: payload.subject,
             resultId: sendResult?.id || null,
             kind: "manual-test",
             status: "queued",
           });
-          return REQ_OK(res, {
-            ok: true,
-            id: sendResult?.id || null,
-            to,
-          });
+          return REQ_OK(res, { ok: true, id: sendResult?.id || null, to });
         } else {
           const err = retry.error;
           await recordMailLog({
             ts: Date.now(),
-            from: RESEND_FROM || "onboarding@resend.dev",
+            from: payload.from,
             to: [to],
-            subject: "Amaranth test email",
+            subject: payload.subject,
             resultId: null,
             kind: "manual-test",
             status: "error",
@@ -1070,10 +932,9 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- NEW: Contact form (no auth) ---
+      // --- Contact form (no auth) ---
       if (action === "contact_form") {
-        if (!resend && !CONTACT_TO)
-          return REQ_ERR(res, 500, "resend-not-configured");
+        if (!resend && !CONTACT_TO) return REQ_ERR(res, 500, "resend-not-configured");
 
         const {
           name = "",
@@ -1090,9 +951,7 @@ export default async function handler(req, res) {
         if (!String(email).trim()) missing.push("email");
         if (!String(topic).trim()) missing.push("topic");
         if (!String(msg).trim()) missing.push("message");
-        if (missing.length) {
-          return REQ_ERR(res, 400, "missing-fields", { missing });
-        }
+        if (missing.length) return REQ_ERR(res, 400, "missing-fields", { missing });
 
         const topicMap = {
           banquets: "Banquets / meal choices",
@@ -1110,12 +969,8 @@ export default async function handler(req, res) {
           order: "Order page",
         };
 
-        const topicLabel =
-          topicMap[String(topic).toLowerCase()] ||
-          String(topic) ||
-          "General question";
-        const pageLabel =
-          pageMap[String(page).toLowerCase()] || String(page) || "";
+        const topicLabel = topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
+        const pageLabel = pageMap[String(page).toLowerCase()] || String(page) || "";
 
         const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
         const safe = (s) => String(s || "").trim();
@@ -1160,9 +1015,7 @@ export default async function handler(req, res) {
                   pageLabel
                     ? `<tr>
                         <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Page</th>
-                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(
-                          pageLabel
-                        )}</td>
+                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(pageLabel)}</td>
                       </tr>`
                     : ""
                 }
@@ -1170,22 +1023,18 @@ export default async function handler(req, res) {
                   item
                     ? `<tr>
                         <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Item</th>
-                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(
-                          item
-                        )}</td>
+                        <td style="padding:4px 6px;border:1px solid #ddd;">${esc(item)}</td>
                       </tr>`
                     : ""
                 }
                 <tr>
                   <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;vertical-align:top;">Message</th>
-                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(
-                    msg
-                  )}</td>
+                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(msg)}</td>
                 </tr>
               </tbody>
             </table>
             <p style="margin-top:10px;font-size:12px;color:#555;">
-              Technical details: IP=${esc(ip)} Â· User-Agent=${esc(ua)}
+              Technical details: IP=${esc(ip)} · User-Agent=${esc(ua)}
             </p>
           </div>
         `;
@@ -1207,19 +1056,13 @@ export default async function handler(req, res) {
         );
         const senderEmail = safe(email).toLowerCase();
         const bccList = adminBccBase.filter(
-          (addr) =>
-            !toList.includes(addr) &&
-            addr.toLowerCase() !== senderEmail
+          (addr) => !toList.includes(addr) && addr.toLowerCase() !== senderEmail
         );
 
-        if (!toList.length && !bccList.length) {
-          return REQ_ERR(res, 500, "no-recipient");
-        }
-        if (!resend) {
-          return REQ_ERR(res, 500, "resend-not-configured");
-        }
+        if (!toList.length && !bccList.length) return REQ_ERR(res, 500, "no-recipient");
+        if (!resend) return REQ_ERR(res, 500, "resend-not-configured");
 
-        const subject = `Website contact â€” ${topicLabel}`;
+        const subject = `Website contact — ${topicLabel}`;
 
         const payload = {
           from: RESEND_FROM || "onboarding@resend.dev",
@@ -1230,38 +1073,32 @@ export default async function handler(req, res) {
           reply_to: senderEmail || REPLY_TO || undefined,
         };
 
-        const retry = await sendWithRetry(
-          () => resend.emails.send(payload),
-          "contact-form"
-        );
+        const retry = await sendWithRetry(() => resend.emails.send(payload), "contact-form");
 
         if (retry.ok) {
           const sendResult = retry.result;
           await recordMailLog({
             ts: Date.now(),
-            from: RESEND_FROM || "onboarding@resend.dev",
+            from: payload.from,
             to: [...toList, ...bccList],
             subject,
             kind: "contact-form",
             status: "queued",
             resultId: sendResult?.id || null,
           });
-
           return REQ_OK(res, { ok: true });
         } else {
           const err = retry.error;
           await recordMailLog({
             ts: Date.now(),
-            from: RESEND_FROM || "onboarding@resend.dev",
+            from: payload.from,
             to: [...toList, ...bccList],
             subject,
             kind: "contact-form",
             status: "error",
             error: String(err?.message || err),
           });
-          return REQ_ERR(res, 500, "contact-send-failed", {
-            message: err?.message || String(err),
-          });
+          return REQ_ERR(res, 500, "contact-send-failed", { message: err?.message || String(err) });
         }
       }
 
@@ -1269,54 +1106,38 @@ export default async function handler(req, res) {
       // IMPORTANT: emails are sent from the Stripe webhook, not here.
       if (action === "finalize_checkout") {
         const stripe = await getStripe();
-        if (!stripe)
-          return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
         const sid = String(body.sid || body.id || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid");
-        const order = await saveOrderFromSession({ id: sid });
+
+        const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+        const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
+
         return REQ_OK(res, { ok: true, orderId: order.id });
       }
 
       // ---- PUBLIC: send chair-specific XLSX by category+item (no auth) ----
       if (action === "send_item_report") {
-        const kind = String(
-          body?.kind || body?.category || ""
-        ).toLowerCase();
+        const kind = String(body?.kind || body?.category || "").toLowerCase();
         const id = String(body?.id || "").trim();
         const label = String(body?.label || "").trim();
         const scope = String(body?.scope || "current-month");
-        const result = await sendItemReportEmailInternal({
-          kind,
-          id,
-          label,
-          scope,
-        });
-        if (!result.ok)
-          return REQ_ERR(
-            res,
-            500,
-            result.error || "send-failed",
-            result
-          );
+        const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+        if (!result.ok) return REQ_ERR(res, 500, result.error || "send-failed", result);
         return REQ_OK(res, { ok: true, ...result });
       }
 
-      // ---- CREATE CHECKOUT (with BUNDLE PROTECTION + INTERNATIONAL FEE) ----
+      // ---- CREATE CHECKOUT (bundle protection + international fee) ----
       if (action === "create_checkout_session") {
         const stripe = await getStripe();
-        if (!stripe)
-          return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
-        // Determine current effective channel based on shared checkout settings
-        const orderChannel = await getEffectiveOrderChannel();
+        const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
 
-        const origin =
-          req.headers.origin || `https://${req.headers.host}`;
+        const origin = req.headers.origin || `https://${req.headers.host}`;
         const successUrl =
-          (body.success_url || `${origin}/success.html`) +
-          `?sid={CHECKOUT_SESSION_ID}`;
-        const cancelUrl =
-          body.cancel_url || `${origin}/order.html`;
+          (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+        const cancelUrl = body.cancel_url || `${origin}/order.html`;
 
         if (Array.isArray(body.lines) && body.lines.length) {
           const lines = body.lines;
@@ -1324,18 +1145,11 @@ export default async function handler(req, res) {
           const purchaser = body.purchaser || {};
 
           const line_items = lines.map((l) => {
-            const priceMode = (l.priceMode || "").toLowerCase();
-            const isBundle =
-              priceMode === "bundle" &&
-              (l.bundleTotalCents ?? null) != null;
+            const priceMode = String(l.priceMode || "").toLowerCase();
+            const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
 
-            const unit_amount = isBundle
-              ? cents(l.bundleTotalCents)
-              : toCentsAuto(l.unitPrice || 0);
-
-            const quantity = isBundle
-              ? 1
-              : Math.max(1, Number(l.qty || 1));
+            const unit_amount = isBundle ? cents(l.bundleTotalCents) : toCentsAuto(l.unitPrice || 0);
+            const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
 
             return {
               quantity,
@@ -1360,15 +1174,10 @@ export default async function handler(req, res) {
                     attendeeCity: l.meta?.attendeeCity || "",
                     attendeeState: l.meta?.attendeeState || "",
                     attendeePostal: l.meta?.attendeePostal || "",
-                    attendeeCountry:
-                      l.meta?.attendeeCountry || "",
+                    attendeeCountry: l.meta?.attendeeCountry || "",
                     priceMode: priceMode || "",
-                    bundleQty: isBundle
-                      ? String(l.bundleQty || "")
-                      : "",
-                    bundleTotalCents: isBundle
-                      ? String(unit_amount)
-                      : "",
+                    bundleQty: isBundle ? String(l.bundleQty || "") : "",
+                    bundleTotalCents: isBundle ? String(unit_amount) : "",
                   },
                 },
               },
@@ -1378,28 +1187,14 @@ export default async function handler(req, res) {
           const pct = Number(fees.pct || 0);
           const flatCents = toCentsAuto(fees.flat || 0);
 
-          // Subtotal of cart items (no processing / intl fees yet)
           const subtotalCents = lines.reduce((s, l) => {
-            const priceMode = (l.priceMode || "").toLowerCase();
-            const isBundle =
-              priceMode === "bundle" &&
-              (l.bundleTotalCents ?? null) != null;
-            if (isBundle) {
-              return s + cents(l.bundleTotalCents || 0);
-            } else {
-              return (
-                s +
-                toCentsAuto(l.unitPrice || 0) *
-                  Number(l.qty || 0)
-              );
-            }
+            const priceMode = String(l.priceMode || "").toLowerCase();
+            const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+            if (isBundle) return s + cents(l.bundleTotalCents || 0);
+            return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
           }, 0);
 
-          // Base processing fee (your normal pct + flat)
-          const feeAmount = Math.max(
-            0,
-            Math.round(subtotalCents * (pct / 100)) + flatCents
-          );
+          const feeAmount = Math.max(0, Math.round(subtotalCents * (pct / 100)) + flatCents);
           if (feeAmount > 0) {
             line_items.push({
               quantity: 1,
@@ -1408,47 +1203,30 @@ export default async function handler(req, res) {
                 unit_amount: feeAmount,
                 product_data: {
                   name: "Online Processing Fee",
-                  metadata: {
-                    itemType: "fee",
-                    itemId: "processing-fee",
-                  },
+                  metadata: { itemType: "fee", itemId: "processing-fee" },
                 },
               },
             });
           }
 
-          // --- NEW: International card processing fee (3%) ---
-          const purchaserCountry = (
-            purchaser.country ||
-            purchaser.addressCountry ||
-            ""
-          )
-            .trim()
-            .toUpperCase() || "US";
-          const accountCountry = (
-            process.env.STRIPE_ACCOUNT_COUNTRY || "US"
-          )
+          // International card processing fee (3%)
+          const purchaserCountry = String(
+            purchaser.country || purchaser.addressCountry || "US"
+          ).trim().toUpperCase();
+          const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
             .trim()
             .toUpperCase();
 
           let intlFeeAmount = 0;
           if (isInternationalOrder(purchaserCountry, accountCountry)) {
-            intlFeeAmount = computeInternationalFeeCents(
-              subtotalCents,
-              0.03
-            );
+            intlFeeAmount = computeInternationalFeeCents(subtotalCents, 0.03);
           }
 
           if (intlFeeAmount > 0) {
-            const intlLine = buildInternationalFeeLineItem(
-              intlFeeAmount,
-              "usd"
-            );
+            const intlLine = buildInternationalFeeLineItem(intlFeeAmount, "usd");
             if (intlLine && intlLine.price_data?.product_data) {
-              // Ensure a clear label + fee metadata
               intlLine.price_data.product_data.name =
-                intlLine.price_data.product_data.name ||
-                "International Card Processing Fee (3%)";
+                intlLine.price_data.product_data.name || "International Card Processing Fee (3%)";
               intlLine.price_data.product_data.metadata = {
                 ...(intlLine.price_data.product_data.metadata || {}),
                 itemType: "fee",
@@ -1456,76 +1234,61 @@ export default async function handler(req, res) {
               };
               line_items.push(intlLine);
             } else if (intlLine) {
-              // Fallback if helper didn't build product_data as expected
               line_items.push(intlLine);
             }
           }
 
-          const session = await getStripe().then((stripe) =>
-            stripe.checkout.sessions.create({
-              mode: "payment",
-              line_items,
-              customer_email: purchaser.email || undefined,
-              success_url: successUrl,
-              cancel_url: cancelUrl,
-              metadata: {
-                order_channel: orderChannel,
-                order_mode: orderChannel,
-                purchaser_name: purchaser.name || "",
-                purchaser_email: purchaser.email || "",
-                purchaser_phone: purchaser.phone || "",
-                purchaser_title: purchaser.title || "",
-                purchaser_addr1: purchaser.address1 || "",
-                purchaser_addr2: purchaser.address2 || "",
-                purchaser_city: purchaser.city || "",
-                purchaser_state: purchaser.state || "",
-                purchaser_postal: purchaser.postal || "",
-                purchaser_country: purchaser.country || "",
-                cart_count: String(lines.length || 0),
-              },
-            })
-          );
-
-          return REQ_OK(res, {
-            url: session.url,
-            id: session.id,
-          });
-        }
-
-        const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length)
-          return REQ_ERR(res, 400, "no-items");
-
-        const session = await getStripe().then((stripe) =>
-          stripe.checkout.sessions.create({
+          const session = await stripe.checkout.sessions.create({
             mode: "payment",
-            payment_method_types: ["card"],
-            line_items: items.map((it) => ({
-              quantity: Math.max(1, Number(it.quantity || 1)),
-              price_data: {
-                currency: "usd",
-                unit_amount: dollarsToCents(it.price || 0),
-                product_data: { name: String(it.name || "Item") },
-              },
-            })),
+            line_items,
+            customer_email: purchaser.email || undefined,
             success_url: successUrl,
             cancel_url: cancelUrl,
             metadata: {
               order_channel: orderChannel,
               order_mode: orderChannel,
+              purchaser_name: purchaser.name || "",
+              purchaser_email: purchaser.email || "",
+              purchaser_phone: purchaser.phone || "",
+              purchaser_title: purchaser.title || "",
+              purchaser_addr1: purchaser.address1 || "",
+              purchaser_addr2: purchaser.address2 || "",
+              purchaser_city: purchaser.city || "",
+              purchaser_state: purchaser.state || "",
+              purchaser_postal: purchaser.postal || "",
+              purchaser_country: purchaser.country || "",
+              cart_count: String(lines.length || 0),
             },
-          })
-        );
-        return REQ_OK(res, {
-          url: session.url,
-          id: session.id,
+          });
+
+          return REQ_OK(res, { url: session.url, id: session.id });
+        }
+
+        const items = Array.isArray(body.items) ? body.items : [];
+        if (!items.length) return REQ_ERR(res, 400, "no-items");
+
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: items.map((it) => ({
+            quantity: Math.max(1, Number(it.quantity || 1)),
+            price_data: {
+              currency: "usd",
+              unit_amount: dollarsToCents(it.price || 0),
+              product_data: { name: String(it.name || "Item") },
+            },
+          })),
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          metadata: { order_channel: orderChannel, order_mode: orderChannel },
         });
+
+        return REQ_OK(res, { url: session.url, id: session.id });
       }
 
       if (action === "stripe_webhook") {
         const stripe = await getStripe();
-        if (!stripe)
-          return REQ_ERR(res, 500, "stripe-not-configured");
+        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
 
         let event;
         const sig = req.headers["stripe-signature"];
@@ -1533,46 +1296,30 @@ export default async function handler(req, res) {
 
         try {
           if (whsec && typeof req.body === "string") {
-            event = stripe.webhooks.constructEvent(
-              req.body,
-              sig,
-              whsec
-            );
+            event = stripe.webhooks.constructEvent(req.body, sig, whsec);
           } else if (whsec && req.rawBody) {
-            event = stripe.webhooks.constructEvent(
-              req.rawBody,
-              sig,
-              whsec
-            );
+            event = stripe.webhooks.constructEvent(req.rawBody, sig, whsec);
           } else {
-            event =
-              typeof req.body === "string"
-                ? JSON.parse(req.body)
-                : req.body;
+            event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
           }
         } catch (err) {
-          console.error(
-            "Webhook signature verification failed:",
-            err?.message
-          );
+          console.error("Webhook signature verification failed:", err?.message);
           return REQ_ERR(res, 400, "invalid-signature");
         }
 
         switch (event.type) {
           case "checkout.session.completed": {
             const session = event.data.object;
-            const order = await saveOrderFromSession(
-              session.id || session
-            );
+            const mode = await resolveModeFromSession(session);
+
+            const order = await saveOrderFromSession(session.id || session, { mode });
+
             (async () => {
               try {
                 await sendOrderReceipts(order);
                 await maybeSendRealtimeChairEmails(order);
               } catch (err) {
-                console.error(
-                  "email-failed",
-                  err?.message || err
-                );
+                console.error("email-failed", err?.message || err);
               }
             })();
             break;
@@ -1601,10 +1348,8 @@ export default async function handler(req, res) {
           kind,
         } = body || {};
 
-        if (!id || !name)
-          return REQ_ERR(res, 400, "id-and-name-required");
+        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required");
 
-        // normalize chair emails
         const emails = Array.isArray(chairEmails)
           ? chairEmails
           : String(chairEmails || "")
@@ -1612,21 +1357,17 @@ export default async function handler(req, res) {
               .map((s) => s.trim())
               .filter(Boolean);
 
-        // merge with existing cfg so we don't lose kind, etc.
         const existing = await kvHgetallSafe(`itemcfg:${id}`);
 
         const freq = normalizeReportFrequency(
-          reportFrequency ||
-            existing?.reportFrequency ||
-            existing?.report_frequency ||
-            "monthly"
+          reportFrequency || existing?.reportFrequency || existing?.report_frequency || "monthly"
         );
 
         const cfg = {
           ...existing,
           id,
           name,
-          kind: kind || existing?.kind || "", // don't guess; keep existing if any
+          kind: kind || existing?.kind || "",
           chairEmails: emails,
           publishStart,
           publishEnd,
@@ -1636,11 +1377,7 @@ export default async function handler(req, res) {
 
         const ok1 = await kvHsetSafe(`itemcfg:${id}`, cfg);
         const ok2 = await kvSaddSafe("itemcfg:index", id);
-        if (!ok1 || !ok2)
-          return REQ_OK(res, {
-            ok: true,
-            warning: "kv-unavailable",
-          });
+        if (!ok1 || !ok2) return REQ_OK(res, { ok: true, warning: "kv-unavailable" });
 
         return REQ_OK(res, { ok: true, cfg });
       }
@@ -1648,26 +1385,19 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
 
-      // --- NEW: scheduler debug endpoint (admin-only) ---
       if (action === "debug_schedule") {
-        const id = String(
-          body?.id || url.searchParams.get("id") || ""
-        ).trim();
-
+        const id = String(body?.id || url.searchParams.get("id") || "").trim();
         if (!id) {
           return REQ_ERR(res, 400, "missing-id", {
             message: "Missing id (body.id or ?id=)",
           });
         }
-
         try {
           const result = await debugScheduleForItem(id);
           return REQ_OK(res, result);
         } catch (e) {
           console.error("debug_schedule failed:", e?.message || e);
-          return REQ_ERR(res, 500, "debug-failed", {
-            message: e?.message || String(e),
-          });
+          return REQ_ERR(res, 500, "debug-failed", { message: e?.message || String(e) });
         }
       }
 
@@ -1682,8 +1412,6 @@ export default async function handler(req, res) {
           });
         }
 
-        // Mode to purge: "test" | "live_test" | "live"
-        // Default is "test" for safety.
         let mode = String(body?.mode || "").toLowerCase() || "test";
         const hardFlag = Boolean(body?.hard);
 
@@ -1695,10 +1423,7 @@ export default async function handler(req, res) {
         }
 
         try {
-          const result = await purgeOrdersByMode(mode, {
-            hard: hardFlag,
-          });
-
+          const result = await purgeOrdersByMode(mode, { hard: hardFlag });
           return REQ_OK(res, {
             ok: true,
             message:
@@ -1709,13 +1434,10 @@ export default async function handler(req, res) {
           });
         } catch (err) {
           console.error("purge_orders failed:", err);
-          return REQ_ERR(res, 500, "purge-failed", {
-            message: err?.message || String(err),
-          });
+          return REQ_ERR(res, 500, "purge-failed", { message: err?.message || String(err) });
         }
       }
 
-      // NEW: admin-only settings fetch for reporting_main.html
       if (action === "get_settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
         return REQ_OK(res, { ok: true, env, overrides, effective });
@@ -1727,37 +1449,29 @@ export default async function handler(req, res) {
           const result = await mod.default();
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-full-failed", {
-            message: e?.message || String(e),
-          });
+          return REQ_ERR(res, 500, "send-full-failed", { message: e?.message || String(e) });
         }
       }
+
       if (action === "send_month_to_date") {
         try {
           const mod = await import("./admin/send-month-to-date.js");
           const result = await mod.default();
           return REQ_OK(res, result || { ok: true });
         } catch (e) {
-          return REQ_ERR(res, 500, "send-mtd-failed", {
-            message: e?.message || String(e),
-          });
+          return REQ_ERR(res, 500, "send-mtd-failed", { message: e?.message || String(e) });
         }
       }
 
       if (action === "send_monthly_chair_reports") {
-        // Warm up orders cache once so the helper can reuse it
         await loadAllOrdersWithRetry();
 
-        // Dynamically import the scheduler helper so a problem there
-        // does NOT break normal /api/router traffic (addons, banquets, etc.)
         let schedulerMod;
         try {
           schedulerMod = await import("./admin/report-scheduler.js");
         } catch (e) {
           console.error("Failed to load ./admin/report-scheduler.js", e);
-          return REQ_ERR(res, 500, "scheduler-missing", {
-            message: e?.message || e,
-          });
+          return REQ_ERR(res, 500, "scheduler-missing", { message: e?.message || e });
         }
 
         const { runScheduledChairReports } = schedulerMod || {};
@@ -1766,32 +1480,14 @@ export default async function handler(req, res) {
           return REQ_ERR(res, 500, "scheduler-invalid");
         }
 
-        // Base time for any staggered "scheduledAt" hints. All offsets
-        // are computed from this single timestamp so the run behaves
-        // predictably even if it takes a few seconds.
         const baseNow = new Date();
 
-        // Wrapper that injects a per-kind scheduledAt for Resend:
-        // - banquet  -> 0 minutes (send immediately)
-        // - addon    -> +5 minutes
-        // - catalog  -> +10 minutes
-        //
-        // NOTE: sendItemReportEmailInternal must be aware of the
-        // "scheduledAt" option and pass it through to Resend for this
-        // to actually delay sends. If it ignores scheduledAt, this
-        // wrapper is harmless (no behavior change).
         const wrappedSendItemReport = async (opts) => {
           const kind = String(opts?.kind || "").toLowerCase();
           let offsetMinutes = 0;
 
-          if (kind === "addon") {
-            offsetMinutes = 5;
-          } else if (kind === "catalog") {
-            offsetMinutes = 10;
-          } else {
-            // "banquet" or anything else -> no delay
-            offsetMinutes = 0;
-          }
+          if (kind === "addon") offsetMinutes = 5;
+          else if (kind === "catalog") offsetMinutes = 10;
 
           let scheduledAt;
           if (offsetMinutes > 0) {
@@ -1799,22 +1495,15 @@ export default async function handler(req, res) {
             scheduledAt = new Date(ts).toISOString();
           }
 
-          return sendItemReportEmailInternal({
-            ...opts,
-            scheduledAt,
-          });
+          return sendItemReportEmailInternal({ ...opts, scheduledAt });
         };
 
-        // Delegate which items to send/skip to the helper, but use our
-        // wrapper so different kinds get staggered scheduledAt values.
-        const { sent, skipped, errors, itemsLog } =
-          await runScheduledChairReports({
-            now: baseNow,
-            sendItemReportEmailInternal: wrappedSendItemReport,
-          });
+        const { sent, skipped, errors, itemsLog } = await runScheduledChairReports({
+          now: baseNow,
+          sendItemReportEmailInternal: wrappedSendItemReport,
+        });
 
-        // Send a log email to admins (REPORTS_LOG_TO) summarizing all items,
-        // including skipped ones and any errors.
+        // Monthly log email to admins (REPORTS_LOG_TO)
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
             .map((s) => s.trim())
@@ -1825,27 +1514,17 @@ export default async function handler(req, res) {
             const dateStr = ts.toISOString().slice(0, 10);
             const timeStr = ts.toISOString();
 
-            // Start of current month (UTC)
-            const firstOfMonth = new Date(
-              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
-            );
+            const firstOfMonth = new Date(Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0));
             const firstIso = firstOfMonth.toISOString();
 
-            const esc = (s) =>
-              String(s || "").replace(/</g, "&lt;");
+            const esc = (s) => String(s || "").replace(/</g, "&lt;");
 
             const rowsHtml = (itemsLog || []).length
               ? itemsLog
                   .map((it, idx) => {
-                    const status = it.skipped
-                      ? "SKIPPED"
-                      : it.ok
-                        ? "OK"
-                        : "ERROR";
+                    const status = it.skipped ? "SKIPPED" : it.ok ? "OK" : "ERROR";
                     const rowsLabel = it.skipped ? "-" : it.count;
-                    const errorText = it.skipped
-                      ? it.skipReason || ""
-                      : it.error || "";
+                    const errorText = it.skipped ? it.skipReason || "" : it.error || "";
 
                     return `
               <tr>
@@ -1868,9 +1547,9 @@ export default async function handler(req, res) {
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
                 <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
                 <p style="margin:2px 0;">Scope: <b>current-month</b></p>
-                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(
-                  firstIso
-                )} through ${esc(timeStr)}.</strong></p>
+                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(firstIso)} through ${esc(
+              timeStr
+            )}.</strong></p>
                 <p style="margin:6px 0 10px;">
                   Sent: <b>${sent}</b> &nbsp; | &nbsp;
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
@@ -1890,14 +1569,12 @@ export default async function handler(req, res) {
                       <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Error / Reason</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    ${rowsHtml}
-                  </tbody>
+                  <tbody>${rowsHtml}</tbody>
                 </table>
               </div>
             `;
 
-            const subject = `Scheduled chair report log â€” ${dateStr}`;
+            const subject = `Scheduled chair report log — ${dateStr}`;
 
             const payload = {
               from: RESEND_FROM || "onboarding@resend.dev",
@@ -1907,11 +1584,7 @@ export default async function handler(req, res) {
               reply_to: REPLY_TO || undefined,
             };
 
-            const retry = await sendWithRetry(
-              () => resend.emails.send(payload),
-              "monthly-log"
-            );
-
+            const retry = await sendWithRetry(() => resend.emails.send(payload), "monthly-log");
             if (retry.ok) {
               const sendResult = retry.result;
               await recordMailLog({
@@ -1941,13 +1614,7 @@ export default async function handler(req, res) {
           console.error("monthly_log_email_failed", e?.message || e);
         }
 
-        return REQ_OK(res, {
-          ok: true,
-          sent,
-          skipped,
-          errors,
-          scope: "current-month",
-        });
+        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "current-month" });
       }
 
       if (action === "send_end_of_event_reports") {
@@ -1959,131 +1626,88 @@ export default async function handler(req, res) {
 
         for (const itemId of ids) {
           const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
-          const publishEnd = cfg?.publishEnd
-            ? Date.parse(cfg.publishEnd)
-            : NaN;
+          const publishEnd = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
           if (isNaN(publishEnd) || publishEnd > now) {
             skipped += 1;
             continue;
           }
 
-          const already = await kvGetSafe(
-            `itemcfg:${itemId}:end_sent`,
-            false
-          );
+          const already = await kvGetSafe(`itemcfg:${itemId}:end_sent`, false);
           if (already) {
             skipped += 1;
             continue;
           }
 
           const kind =
-            String(cfg?.kind || "").toLowerCase() ||
-            (itemId.includes("addon") ? "addon" : "banquet");
+            String(cfg?.kind || "").toLowerCase() || (itemId.includes("addon") ? "addon" : "banquet");
           const label = cfg?.name || itemId;
 
-          const result = await sendItemReportEmailInternal({
-            kind,
-            id: itemId,
-            label,
-            scope: "full",
-          });
+          const result = await sendItemReportEmailInternal({ kind, id: itemId, label, scope: "full" });
           if (result.ok) {
-            await kvSetSafe(
-              `itemcfg:${itemId}:end_sent`,
-              new Date().toISOString()
-            );
+            await kvSetSafe(`itemcfg:${itemId}:end_sent`, new Date().toISOString());
             sent += 1;
           } else {
             errors += 1;
           }
         }
-        return REQ_OK(res, {
-          ok: true,
-          sent,
-          skipped,
-          errors,
-          scope: "full",
-        });
+
+        return REQ_OK(res, { ok: true, sent, skipped, errors, scope: "full" });
       }
 
       if (action === "clear_orders") {
         await kvDelSafe("orders:index");
-        return REQ_OK(res, {
-          ok: true,
-          message: "orders index cleared",
-        });
+        return REQ_OK(res, { ok: true, message: "orders index cleared" });
       }
 
       if (action === "create_refund") {
         const stripe = await getStripe();
-        if (!stripe)
-          return REQ_ERR(res, 500, "stripe-not-configured");
-        const payment_intent = String(
-          body.payment_intent || ""
-        ).trim();
+        if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured");
+        const payment_intent = String(body.payment_intent || "").trim();
         const charge = String(body.charge || "").trim();
         const amount_cents_raw = body.amount_cents;
         const args = {};
-        if (amount_cents_raw != null)
-          args.amount = cents(amount_cents_raw);
+        if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
         if (payment_intent) args.payment_intent = payment_intent;
         else if (charge) args.charge = charge;
-        else
-          return REQ_ERR(
-            res,
-            400,
-            "missing-payment_intent-or-charge"
-          );
+        else return REQ_ERR(res, 400, "missing-payment_intent-or-charge");
 
         const rf = await stripe.refunds.create(args);
         try {
           await applyRefundToOrder(rf.charge, rf);
         } catch {}
-        return REQ_OK(res, {
-          ok: true,
-          id: rf.id,
-          status: rf.status,
-        });
+        return REQ_OK(res, { ok: true, id: rf.id, status: rf.status });
       }
 
       if (action === "save_banquets") {
-        const list = Array.isArray(body.banquets)
-          ? body.banquets
-          : [];
+        const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
 
         try {
-          if (Array.isArray(list)) {
-            for (const b of list) {
-              const id = String(b?.id || "");
-              if (!id) continue;
-              const name = String(b?.name || "");
-              const chairEmails = Array.isArray(b?.chairEmails)
-                ? b.chairEmails
-                : String(
-                    b?.chairEmails || b?.chair?.email || ""
-                  )
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
+          for (const b of list) {
+            const id = String(b?.id || "");
+            if (!id) continue;
+            const name = String(b?.name || "");
+            const chairEmails = Array.isArray(b?.chairEmails)
+              ? b.chairEmails
+              : String(b?.chairEmails || b?.chair?.email || "")
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
 
-              const freq = normalizeReportFrequency(
-                b?.reportFrequency || b?.report_frequency || "monthly"
-              );
+            const freq = normalizeReportFrequency(b?.reportFrequency || b?.report_frequency || "monthly");
 
-              const cfg = {
-                id,
-                name,
-                kind: "banquet",
-                chairEmails,
-                publishStart: b?.publishStart || "",
-                publishEnd: b?.publishEnd || "",
-                reportFrequency: freq,
-                updatedAt: new Date().toISOString(),
-              };
-              await kvHsetSafe(`itemcfg:${id}`, cfg);
-              await kvSaddSafe("itemcfg:index", id);
-            }
+            const cfg = {
+              id,
+              name,
+              kind: "banquet",
+              chairEmails,
+              publishStart: b?.publishStart || "",
+              publishEnd: b?.publishEnd || "",
+              reportFrequency: freq,
+              updatedAt: new Date().toISOString(),
+            };
+            await kvHsetSafe(`itemcfg:${id}`, cfg);
+            await kvSaddSafe("itemcfg:index", id);
           }
         } catch {}
 
@@ -2091,43 +1715,35 @@ export default async function handler(req, res) {
       }
 
       if (action === "save_addons") {
-        const list = Array.isArray(body.addons)
-          ? body.addons
-          : [];
+        const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
 
         try {
-          if (Array.isArray(list)) {
-            for (const a of list) {
-              const id = String(a?.id || "");
-              if (!id) continue;
-              const name = String(a?.name || "");
-              const chairEmails = Array.isArray(a?.chairEmails)
-                ? a.chairEmails
-                : String(
-                    a?.chairEmails || a?.chair?.email || ""
-                  )
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
+          for (const a of list) {
+            const id = String(a?.id || "");
+            if (!id) continue;
+            const name = String(a?.name || "");
+            const chairEmails = Array.isArray(a?.chairEmails)
+              ? a.chairEmails
+              : String(a?.chairEmails || a?.chair?.email || "")
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
 
-              const freq = normalizeReportFrequency(
-                a?.reportFrequency || a?.report_frequency || "monthly"
-              );
+            const freq = normalizeReportFrequency(a?.reportFrequency || a?.report_frequency || "monthly");
 
-              const cfg = {
-                id,
-                name,
-                kind: "addon",
-                chairEmails,
-                publishStart: a?.publishStart || "",
-                publishEnd: a?.publishEnd || "",
-                reportFrequency: freq,
-                updatedAt: new Date().toISOString(),
-              };
-              await kvHsetSafe(`itemcfg:${id}`, cfg);
-              await kvSaddSafe("itemcfg:index", id);
-            }
+            const cfg = {
+              id,
+              name,
+              kind: "addon",
+              chairEmails,
+              publishStart: a?.publishStart || "",
+              publishEnd: a?.publishEnd || "",
+              reportFrequency: freq,
+              updatedAt: new Date().toISOString(),
+            };
+            await kvHsetSafe(`itemcfg:${id}`, cfg);
+            await kvSaddSafe("itemcfg:index", id);
           }
         } catch {}
 
@@ -2135,43 +1751,35 @@ export default async function handler(req, res) {
       }
 
       if (action === "save_products") {
-        const list = Array.isArray(body.products)
-          ? body.products
-          : [];
+        const list = Array.isArray(body.products) ? body.products : [];
         await kvSetSafe("products", list);
 
         try {
-          if (Array.isArray(list)) {
-            for (const p of list) {
-              const id = String(p?.id || "");
-              if (!id) continue;
-              const name = String(p?.name || "");
-              const chairEmails = Array.isArray(p?.chairEmails)
-                ? p.chairEmails
-                : String(
-                    p?.chairEmails || p?.chair?.email || ""
-                  )
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
+          for (const p of list) {
+            const id = String(p?.id || "");
+            if (!id) continue;
+            const name = String(p?.name || "");
+            const chairEmails = Array.isArray(p?.chairEmails)
+              ? p.chairEmails
+              : String(p?.chairEmails || p?.chair?.email || "")
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
 
-              const freq = normalizeReportFrequency(
-                p?.reportFrequency || p?.report_frequency || "monthly"
-              );
+            const freq = normalizeReportFrequency(p?.reportFrequency || p?.report_frequency || "monthly");
 
-              const cfg = {
-                id,
-                name,
-                kind: "catalog",
-                chairEmails,
-                publishStart: p?.publishStart || "",
-                publishEnd: p?.publishEnd || "",
-                reportFrequency: freq,
-                updatedAt: new Date().toISOString(),
-              };
-              await kvHsetSafe(`itemcfg:${id}`, cfg);
-              await kvSaddSafe("itemcfg:index", id);
-            }
+            const cfg = {
+              id,
+              name,
+              kind: "catalog",
+              chairEmails,
+              publishStart: p?.publishStart || "",
+              publishEnd: p?.publishEnd || "",
+              reportFrequency: freq,
+              updatedAt: new Date().toISOString(),
+            };
+            await kvHsetSafe(`itemcfg:${id}`, cfg);
+            await kvSaddSafe("itemcfg:index", id);
           }
         } catch {}
 
@@ -2180,7 +1788,6 @@ export default async function handler(req, res) {
 
       if (action === "save_settings") {
         const allow = {};
-
         [
           "RESEND_FROM",
           "REPORTS_CC",
@@ -2193,25 +1800,19 @@ export default async function handler(req, res) {
           "EVENT_START",
           "EVENT_END",
           "REPORT_ORDER_DAYS",
-          // Global auto-report controls (UI may use only REPORT_WEEKDAY now)
           "REPORT_FREQUENCY",
           "REPORT_WEEKDAY",
         ].forEach((k) => {
           if (k in body) allow[k] = body[k];
         });
 
-        if ("MAINTENANCE_ON" in allow) {
-          allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
-        }
+        if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
 
-        // Normalize frequency using the same helper we use for item config
         if ("REPORT_FREQUENCY" in allow) {
-          allow.REPORT_FREQUENCY = normalizeReportFrequency(
-            allow.REPORT_FREQUENCY
-          );
+          allow.REPORT_FREQUENCY = normalizeReportFrequency(allow.REPORT_FREQUENCY);
         }
 
-        // Clamp weekday to 1â€“7 and store as string
+        // Clamp weekday to 1–7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
@@ -2221,25 +1822,15 @@ export default async function handler(req, res) {
         if (Object.keys(allow).length) {
           await kvHsetSafe("settings:overrides", allow);
         }
-        return REQ_OK(res, {
-          ok: true,
-          overrides: allow,
-        });
+        return REQ_OK(res, { ok: true, overrides: allow });
       }
 
-      // NEW: Save checkout / Stripe mode + date window (admin/settings.html)
+      // Save checkout / Stripe mode + date window (admin/settings.html)
       if (action === "save_checkout_mode") {
-        const {
-          stripeMode,
-          liveAuto,
-          liveStart,
-          liveEnd,
-        } = body || {};
+        const { stripeMode, liveAuto, liveStart, liveEnd } = body || {};
 
         let mode = String(stripeMode || "test").toLowerCase();
-        if (!["test", "live_test", "live"].includes(mode)) {
-          mode = "test";
-        }
+        if (!["test", "live_test", "live"].includes(mode)) mode = "test";
 
         const normalizeIso = (v) => {
           if (!v || typeof v !== "string") return "";
@@ -2258,11 +1849,7 @@ export default async function handler(req, res) {
         const cfg = await saveCheckoutSettings(patch);
         const effectiveChannel = await getEffectiveOrderChannel();
 
-        return REQ_OK(res, {
-          ok: true,
-          cfg,
-          effectiveChannel,
-        });
+        return REQ_OK(res, { ok: true, cfg, effectiveChannel });
       }
 
       return REQ_ERR(res, 400, "unknown-action");
@@ -2271,9 +1858,7 @@ export default async function handler(req, res) {
     return REQ_ERR(res, 405, "method-not-allowed");
   } catch (e) {
     console.error(e);
-    return REQ_ERR(res, 500, "router-failed", {
-      message: e?.message || e,
-    });
+    return REQ_ERR(res, 500, "router-failed", { message: e?.message || e });
   }
 }
 
