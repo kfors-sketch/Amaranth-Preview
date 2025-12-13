@@ -33,6 +33,11 @@
     .danger{color:#b91c1c}
     .ok{color:#065f46}
     code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
+
+    /* Banquets-like “gap squeeze” so actions fit */
+    td.actions{white-space:nowrap}
+    td.actions .btn{height:34px;padding:0 10px}
+    td.actions .btn + .btn{margin-left:6px}
   </style>
 </head>
 <body>
@@ -66,6 +71,7 @@
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
         <li><b>Additional Images</b>: put one URL per line for extra gallery images.</li>
         <li><b>Year-over-year Slot</b>: <strong>required</strong> label (e.g. <code>Session Coin</code>) to group similar products across years.</li>
+        <li><b>Sort Order</b>: lower numbers show first (admin + public).</li>
       </ul>
     </section>
 
@@ -88,6 +94,7 @@
           <table>
             <thead>
               <tr>
+                <th style="min-width:80px">Sort</th>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:140px">YoY Slot</th>
                 <th style="min-width:160px">ID</th>
@@ -122,6 +129,10 @@
         <label for="f_id">ID</label>
         <input id="f_id" type="text" placeholder="sunflower-pendant" />
         <div class="hint">lowercase letters, numbers, dashes. Example: <code>coin-pa2026</code></div>
+
+        <label for="f_sort">Sort Order</label>
+        <input id="f_sort" type="number" step="1" placeholder="10" />
+        <div class="hint">Lower shows first (admin + public).</div>
 
         <div class="row">
           <div>
@@ -489,6 +500,14 @@
     out.slotKey = out.slotKey || "";
     out.slotLabel = out.slotLabel || out.slotKey || "";
 
+    // NEW: normalize sortOrder
+    if (out.sortOrder === "" || out.sortOrder == null) {
+      // leave as undefined/null
+    } else {
+      const so = Number(out.sortOrder);
+      out.sortOrder = Number.isFinite(so) ? so : undefined;
+    }
+
     return out;
   }
 
@@ -600,9 +619,18 @@
     const tb = document.getElementById('tbody');
     tb.innerHTML = '';
 
-    const list = viewList();
+    const model = viewList();
+
+    // NEW: banquets-style sorting (sortOrder, then name)
+    const list = [...model].sort((a,b) => {
+      const ao = Number(a.sortOrder ?? 1000);
+      const bo = Number(b.sortOrder ?? 1000);
+      if (ao !== bo) return ao - bo;
+      return String(a.name||'').localeCompare(String(b.name||''));
+    });
+
     if(!list.length){
-      tb.innerHTML = '<tr><td colspan="11" class="muted">No active products — click “New” to create one.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="12" class="muted">No active products — click “New” to create one.</td></tr>';
       return;
     }
 
@@ -613,9 +641,11 @@
       const shipDollars = (Number(p.shippingCents || 0) || 0) / 100;
       const shipLabel = shipDollars > 0 ? '$' + shipDollars.toFixed(2) : '—';
       const slotLabel = p.slotLabel || '';
+      const sortLabel = (p.sortOrder == null || p.sortOrder === "") ? '<span class="muted">—</span>' : esc(p.sortOrder);
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
+        <td>${sortLabel}</td>
         <td><strong>${esc(p.name||'')}</strong></td>
         <td>${slotLabel ? esc(slotLabel) : '<span class="danger">Required</span>'}</td>
         <td><code>${esc(p.id||'')}</code></td>
@@ -626,7 +656,7 @@
         <td><span class="muted">${esc(freqLabel)}</span></td>
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(p.sku||'—')}</td>
-        <td>
+        <td class="actions">
           <button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button>
           <button class="btn ghost btnCopy" data-id="${esc(p.id)}">Duplicate</button>
           <button class="btn warn btnArchive" data-id="${esc(p.id)}">Archive</button>
@@ -648,6 +678,7 @@
 
     document.getElementById('f_name').value = '';
     document.getElementById('f_id').value = '';
+    document.getElementById('f_sort').value = '';
     document.getElementById('f_active').value = 'true';
     document.getElementById('f_type').value = 'fixed';
     document.getElementById('f_price').value = '';
@@ -678,6 +709,7 @@
 
     document.getElementById('f_name').value = n.name || '';
     document.getElementById('f_id').value = n.id || '';
+    document.getElementById('f_sort').value = (n.sortOrder ?? '');
     document.getElementById('f_active').value = String(n.active !== false);
     document.getElementById('f_type').value = n.type || 'fixed';
     document.getElementById('f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
@@ -712,6 +744,7 @@
   function readForm(){
     const name = document.getElementById('f_name').value.trim();
     const id   = document.getElementById('f_id').value.trim();
+    const sortOrderRaw = document.getElementById('f_sort').value;
     const active = document.getElementById('f_active').value === 'true';
     const type = document.getElementById('f_type').value || 'fixed';
     const price = parseFloat(document.getElementById('f_price').value || '0') || 0;
@@ -753,10 +786,15 @@
       slotScope = slot.scope || SLOT_KIND;
     }
 
+    const sortOrder = (String(sortOrderRaw || "").trim() === "")
+      ? null
+      : Number(sortOrderRaw);
+
     const out = {
       ...base,
       id, name, active,
       type,
+      sortOrder: (sortOrder == null || !Number.isFinite(sortOrder)) ? null : sortOrder,
       shippingCents,
       sku, publishStart, publishEnd,
       notes, description: notes || base.description || '',
@@ -800,6 +838,7 @@
     if (!o.name) return 'Name is required.';
     if (!o.id) return 'ID is required.';
     if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
+    if (o.sortOrder != null && !Number.isFinite(Number(o.sortOrder))) return 'Sort Order must be a number.';
     if ((o.type === 'fixed' || o.type === 'qty') && Number(o.price) < 0) return 'Price cannot be negative.';
     if (Number(o.shippingCents) < 0) return 'Shipping cannot be negative.';
     if (o.type === 'variantQty'){
