@@ -75,10 +75,17 @@
       border-bottom:1px solid #f1f2f6;
       vertical-align:top;
       min-width:0;
+      /* IMPORTANT: prevent "vertical letters" from crazy wrapping in narrow cells */
+      word-break:normal;
+      overflow-wrap:normal;
     }
 
-    /* Default: wrap safely */
-    td{white-space:normal;word-break:break-word;overflow-wrap:anywhere}
+    /* Default: wrap safely, but don't split words into single letters */
+    td{
+      white-space:normal;
+      word-break:normal;
+      overflow-wrap:break-word; /* wraps at normal breakpoints */
+    }
 
     .muted{color:#6b7280}
     .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
@@ -101,13 +108,23 @@
       text-overflow:ellipsis;
     }
 
+    /* Keep Chair readable (no vertical letters) */
+    td.chair-cell{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
     /* Tighten a couple columns (Sort↔YoY, Active↔Reports) by controlling col widths */
     col.c-sort{width:70px}
     col.c-active{width:70px}
     col.c-reports{width:92px}
 
+    /* Publish column can be narrower if we stack Start/End (we do in render) */
+    col.c-publish{width:190px}
+
     /* Give Actions enough room so Archive is fully visible */
-    col.c-actions{width:290px}
+    col.c-actions{width:320px}
 
     /* Keep Actions buttons on ONE line */
     td.actions{white-space:nowrap}
@@ -129,12 +146,17 @@
     tbody td{padding:8px}
     thead th{padding:8px}
 
+    /* Publish window stacked */
+    .pubstack{display:flex;flex-direction:column;gap:2px;line-height:1.15}
+    .pubstack .lbl{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em}
+
     /* Small screens: stack panels */
     @media (max-width:1400px){
       .container{width:calc(100vw - 32px); padding:0 16px}
       .col.left,.col.right{min-width:0;flex:1 1 100%;max-width:none}
       .rules{max-width:none}
       .table-wrap{max-height:none}
+      td.chair-cell{white-space:normal} /* allow wrap on mobile */
     }
   </style>
 </head>
@@ -180,17 +202,17 @@
 
         <div class="table-wrap">
           <table>
-            <!-- Column widths tuned to: tighter Sort↔YoY, tighter Active↔Reports, enough room for Actions -->
+            <!-- Column widths tuned to: tighter Sort↔YoY, tighter Active↔Reports, narrower publish, enough room for Actions -->
             <colgroup>
-              <col style="width:260px"><!-- Name -->
-              <col style="width:210px"><!-- ID -->
+              <col style="width:280px"><!-- Name -->
+              <col style="width:220px"><!-- ID -->
               <col class="c-sort"><!-- Sort -->
               <col style="width:220px"><!-- YoY Slot -->
-              <col style="width:210px"><!-- Event Date -->
+              <col style="width:220px"><!-- Event Date -->
               <col class="c-active"><!-- Active -->
               <col class="c-reports"><!-- Reports -->
-              <col style="width:280px"><!-- Publish Window (leave alone for now) -->
-              <col style="width:auto"><!-- Chair -->
+              <col class="c-publish"><!-- Publish Window (stacked) -->
+              <col style="width:240px"><!-- Chair -->
               <col class="c-actions"><!-- Actions -->
             </colgroup>
 
@@ -633,8 +655,13 @@
         <td>${esc(eventPretty)}</td>
         <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><span class="muted">${esc(freqLabel)}</span></td>
-        <td><div class="muted">${start} → ${end}</div></td>
-        <td>${esc(chair)}</td>
+        <td>
+          <div class="pubstack">
+            <div><span class="lbl">Start</span> <span class="muted">${esc(start)}</span></div>
+            <div><span class="lbl">End</span> <span class="muted">${esc(end)}</span></div>
+          </div>
+        </td>
+        <td class="chair-cell" title="${esc(chair)}">${esc(chair)}</td>
         <td class="actions">
           <div class="actionbar">
             <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
@@ -769,7 +796,7 @@
     }
 
     for (const em of (o.chairEmails || [])){
-      if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
     return '';
   }
@@ -830,7 +857,7 @@
 
     const b = modelAll[idx];
     const ok = confirm(
-      `Archive \"${b.name}\" (${id})?\\n\\n` +
+      `Archive "${b.name}" (${id})?\n\n` +
       `It will be hidden from the Banquet Manager but kept for YoY/history.`
     );
     if (!ok) return;
