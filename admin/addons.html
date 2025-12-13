@@ -92,11 +92,14 @@
                 <th>Reports</th>
                 <th>Publish Window</th>
                 <th>Chair</th>
-                <th style="min-width:160px">Actions</th>
+                <th style="min-width:240px">Actions</th>
               </tr>
             </thead>
             <tbody id="tbody"></tbody>
           </table>
+          <div class="hint" style="margin-top:8px">
+            Showing <b>active</b> add-ons only. Archiving keeps history for YoY.
+          </div>
         </div>
       </section>
 
@@ -164,7 +167,7 @@
         </select>
         <div class="hint">Used by automated chair reports for this add-on.</div>
 
-        <!-- NEW: YoY slot selection -->
+        <!-- YoY slot selection -->
         <label for="f_slot_label">Year-over-year Slot</label>
         <select id="f_slot_label"></select>
         <div class="hint">Required: choose a label (e.g. “Session Directory”) to compare this add-on with the same slot in other years.</div>
@@ -207,9 +210,7 @@
     if (!btn) return;
     btn.addEventListener('click', () => {
       try {
-        // New token-based auth
         localStorage.removeItem('amaranth_report_token');
-        // Legacy flag, just in case something still checks it
         localStorage.removeItem('amaranth_admin_ok');
       } catch (e) {}
       window.location.href = '/admin/login.html';
@@ -310,13 +311,11 @@
     const current = selectedLabel == null ? sel.value : selectedLabel;
     sel.innerHTML = "";
 
-    // Placeholder / None (invalid for save)
     const optNone = document.createElement("option");
     optNone.value = SLOT_NONE_VALUE;
     optNone.textContent = "— Select a slot —";
     sel.appendChild(optNone);
 
-    // Known slots
     const slots = getSlotList();
     slots.forEach(s => {
       const opt = document.createElement("option");
@@ -325,7 +324,6 @@
       sel.appendChild(opt);
     });
 
-    // Add-new sentinel
     const optAdd = document.createElement("option");
     optAdd.value = SLOT_ADD_VALUE;
     optAdd.textContent = "➕ Add new label…";
@@ -365,43 +363,34 @@
   function normalizeAddon(a){
     const out = { ...(a || {}) };
 
-    // price
     if (out.type === "fixed" || out.type === "qty") {
       out.price = Number(out.price || 0) || 0;
     } else {
       if (out.price == null) delete out.price;
     }
 
-    // active flag
     out.active = (out.active !== false);
 
-    // ensure ISO-ish fields are strings or empty
     out.publishStart = out.publishStart || "";
     out.publishEnd   = out.publishEnd   || "";
 
-    // chairEmails array
     if (!Array.isArray(out.chairEmails)) {
       const e = out.chairEmails || (out.chair && out.chair.email) || "";
       out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
     }
 
-    // chair object in sync
     out.chair = out.chair || {};
     if (!out.chair.name) out.chair.name = "";
     if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
 
-    // limit
     if (out.limitPerAttendee == null && out.limit != null) {
       out.limitPerAttendee = out.limit;
     }
 
-    // report frequency
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // type default
     if (!out.type) out.type = "fixed";
 
-    // YoY slot fields
     out.slotScope = out.slotScope || SLOT_KIND;
     out.slotKey = out.slotKey || "";
     out.slotLabel = out.slotLabel || out.slotKey || "";
@@ -428,7 +417,6 @@
 
     if (!payloads.length) return { attempted: 0, ok: 0 };
 
-    // include admin token header, same as other admin endpoints
     const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
 
     const results = await Promise.all(payloads.map(async cfg => {
@@ -454,19 +442,24 @@
     return { attempted: payloads.length, ok };
   }
 
-  let model = [];
+  // We keep ALL add-ons in modelAll (history). The manager view only shows active ones.
+  let modelAll = [];
   let current = null;
   let isNew = true;
 
-  // ---- Initial Load (with empty-array fallback fix) ----
+  function viewList(){
+    return modelAll.filter(a => a.active !== false);
+  }
+
+  // ---- Initial Load (keep empty-array fix; but preserve history) ----
   async function loadInitial(){
     let loaded = false;
     try {
       const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.addons) && j.addons.length > 0) {
-          model = normalizeAll(j.addons);
+        if (Array.isArray(j?.addons)) {
+          modelAll = normalizeAll(j.addons);
           loaded = true;
         }
       }
@@ -478,7 +471,7 @@
 
     if (!loaded) {
       const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
       if (listMsgEl) listMsgEl.textContent = 'Using static list (fallback).';
     } else {
       if (listMsgEl) listMsgEl.textContent = 'Loaded from server.';
@@ -498,19 +491,22 @@
       const r = await fetch('/api/router?type=addons', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.addons) && j.addons.length > 0){
-          model = normalizeAll(j.addons); loaded = true;
+        if (Array.isArray(j?.addons)){
+          modelAll = normalizeAll(j.addons);
+          loaded = true;
           if (listMsgEl) listMsgEl.textContent = 'Loaded from server.';
         }
       }
     }catch(err){ console.warn('Refresh server error:', err); }
     if(!loaded){
       const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
       if (listMsgEl) listMsgEl.textContent = 'Server empty/unavailable — using fallback.';
     }
     populateSlotSelect();
-    renderList(); startNew(); syncTypeFields();
+    renderList();
+    startNew();
+    syncTypeFields();
   });
 
   // Show/hide price vs variants based on type
@@ -532,14 +528,18 @@
   }
   typeEl.addEventListener('change', syncTypeFields);
 
-  // ---------- List Rendering ----------
+  // ---------- List Rendering (active only) ----------
   function renderList(){
     const tb = document.getElementById('tbody');
     tb.innerHTML = '';
-    if(!model.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No add-ons yet — click “New” to create one.</td></tr>'; return;
+
+    const list = viewList();
+    if(!list.length){
+      tb.innerHTML = '<tr><td colspan="9" class="muted">No active add-ons — click “New” to create one.</td></tr>';
+      return;
     }
-    for(const a of model){
+
+    for(const a of list){
       const start = a.publishStart ? new Date(a.publishStart).toLocaleString() : '—';
       const end   = a.publishEnd ? new Date(a.publishEnd).toLocaleString() : '—';
       const chair = (a.chair && a.chair.name) ? a.chair.name : (a.chair?.email || '—');
@@ -558,11 +558,14 @@
         <td>
           <button class="btn ghost btnEdit" data-id="${esc(a.id)}">Edit</button>
           <button class="btn ghost btnCopy" data-id="${esc(a.id)}">Duplicate</button>
+          <button class="btn warn btnArchive" data-id="${esc(a.id)}">Archive</button>
         </td>`;
       tb.appendChild(tr);
     }
+
     tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
     tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+    tb.querySelectorAll('.btnArchive').forEach(el=>el.addEventListener('click',onArchive));
   }
 
   // ---------- Form helpers ----------
@@ -603,11 +606,9 @@
     document.getElementById('f_type').value = n.type || 'fixed';
     document.getElementById('f_active').value = String(n.active !== false);
 
-    // price (only for fixed/qty)
     const price = Number(n.price || 0);
     document.getElementById('f_price').value = price > 0 ? price.toFixed(2) : '';
 
-    // variants textarea for variantQty
     if (Array.isArray(n.variants) && n.variants.length){
       document.getElementById('f_variants').value = n.variants.map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`).join('\n');
     } else {
@@ -691,13 +692,13 @@
     if (limitPerAttendee > 0) base.limitPerAttendee = limitPerAttendee;
 
     if (type === 'variantQty'){
-      base.variants = variants;     // array of {id,label,price}
+      base.variants = variants;
       delete base.price;
     } else if (type === 'amount'){
-      delete base.price;            // open amount, UI sets at checkout
+      delete base.price;
       delete base.variants;
     } else {
-      base.price = Math.round(price * 100) / 100; // dollars in file
+      base.price = Math.round(price * 100) / 100;
       delete base.variants;
     }
 
@@ -715,7 +716,6 @@
     if (o.type === 'variantQty'){
       if (!Array.isArray(o.variants) || o.variants.length === 0) return 'Add at least one variant.';
     }
-    // NEW: require YoY slot
     if (!o.slotLabel || !o.slotKey) return 'Year-over-year slot is required.';
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
       return 'Publish End must be after Publish Start.';
@@ -727,14 +727,14 @@
 
   function onEdit(e){
     const id = e.currentTarget.dataset.id;
-    const a = model.find(x => x.id === id);
+    const a = modelAll.find(x => x.id === id);
     if (!a) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
     fillForm(a);
   }
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) {
+    while (modelAll.some(x => x.id === candidate)) {
       i += 1;
       candidate = `${base}-${i}`;
     }
@@ -743,13 +743,12 @@
 
   function onCopy(e){
     const id = e.currentTarget.dataset.id;
-    const a = model.find(x => x.id === id);
+    const a = modelAll.find(x => x.id === id);
     if (!a) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
     const copy = normalizeAddon(JSON.parse(JSON.stringify(a)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'addon') + '-copy';
     copy.id = uniqueId(baseId);
-    // reset dates on copy
     copy.publishStart = '';
     copy.publishEnd = '';
     startNew();
@@ -758,13 +757,62 @@
     document.getElementById('modeChip').textContent = 'New (from copy)';
   }
 
+  async function persistAll(){
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+    const payload = normalizeAll(modelAll);
+
+    const res = await fetch("/api/router?action=save_addons", {
+      method: "POST", headers, body: JSON.stringify({ addons: payload })
+    });
+    if (!res.ok) throw new Error("server rejected");
+
+    try { await syncChairEmailConfigs(payload); } catch (_) {}
+  }
+
+  // Delete -> Archive
+  async function onArchive(e){
+    const id = e.currentTarget.dataset.id;
+    const idx = modelAll.findIndex(x => x.id === id);
+    if (idx < 0) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
+
+    const a = modelAll[idx];
+    const ok = confirm(
+      `Archive "${a.name}" (${id})?\n\n` +
+      `It will be hidden from the Add-Ons Manager but kept for YoY/history.`
+    );
+    if (!ok) return;
+
+    const nowISO = new Date().toISOString();
+    const endMs = a.publishEnd ? Date.parse(a.publishEnd) : NaN;
+
+    modelAll[idx] = normalizeAddon({
+      ...a,
+      active: false,
+      // close window if blank or in the future
+      publishEnd: (!a.publishEnd || isNaN(endMs) || endMs > Date.now()) ? nowISO : a.publishEnd
+    });
+
+    if (current && current.id === id) startNew();
+
+    renderList();
+    document.getElementById('editMsg').textContent = 'Archiving…';
+
+    try{
+      await persistAll();
+      document.getElementById('editMsg').textContent = 'Archived (history preserved for YoY).';
+    }catch(err){
+      console.warn("Archive persist error:", err);
+      document.getElementById('editMsg').textContent = 'Archived locally; export JSON if needed.';
+    }
+  }
+
   // Buttons wired
   document.getElementById('btnAddNew').addEventListener('click', startNew);
   document.getElementById('btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
 
-  // Export / Import
+  // Export / Import (full history)
   document.getElementById('btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(normalizeAll(modelAll), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'addons-export.json';
@@ -779,7 +827,7 @@
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = normalizeAll(data);
+      modelAll = normalizeAll(data);
       populateSlotSelect();
       renderList();
       startNew();
@@ -792,40 +840,28 @@
     }
   });
 
-  // Save
+  // Save (full history)
   document.getElementById('btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
     if(err){ document.getElementById('editMsg').textContent = err; return; }
 
-    const idx = model.findIndex(x => x.id === o.id);
+    const idx = modelAll.findIndex(x => x.id === o.id);
     if(idx >= 0){
-      model[idx] = {...model[idx], ...o};
+      modelAll[idx] = {...modelAll[idx], ...o};
     }else{
-      model.push(o);
+      modelAll.push(o);
       isNew = false;
       current = o;
       document.getElementById('modeChip').textContent = 'Edit';
     }
+
     renderList();
 
     try{
-      // Use the same token header helper as other admin pages
-      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-
-      const payload = normalizeAll(model);
-
       document.getElementById('editMsg').textContent = 'Saving…';
-      const res = await fetch("/api/router?action=save_addons", {
-        method: "POST", headers, body: JSON.stringify({ addons: payload })
-      });
-      if (!res.ok) throw new Error("server rejected");
-
-      // After saving, sync chair emails + freq to itemcfg
-      document.getElementById('editMsg').textContent = 'Saved. Syncing report routing…';
-      const { attempted, ok } = await syncChairEmailConfigs(payload);
-
-      document.getElementById('editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
+      await persistAll();
+      document.getElementById('editMsg').textContent = 'Saved to server.';
     }catch{
       document.getElementById('editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
@@ -833,11 +869,8 @@
 
   // Wire slot change
   const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) {
-    slotSel.addEventListener('change', onSlotChange);
-  }
+  if (slotSel) slotSel.addEventListener('change', onSlotChange);
 
-  // Kick off
   loadInitial();
   </script>
 </body>

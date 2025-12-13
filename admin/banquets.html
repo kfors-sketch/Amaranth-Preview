@@ -87,11 +87,14 @@
                 <th>Reports</th>
                 <th>Publish Window</th>
                 <th>Chair</th>
-                <th style="min-width:160px">Actions</th>
+                <th style="min-width:220px">Actions</th>
               </tr>
             </thead>
             <tbody id="tbody"></tbody>
           </table>
+          <div class="hint" style="margin-top:8px">
+            Showing <b>active</b> banquets only. Archiving keeps history for YoY.
+          </div>
         </div>
       </section>
 
@@ -190,13 +193,11 @@
 
   <script>
   // --- Auth & small helpers (aligned with reporting_main.html) ---
-  // Do NOT hard-block entry with Admin.ensureAuth(). We just offer logout.
   if (window.Admin && typeof Admin.attachLogout === 'function') {
     Admin.attachLogout('#logoutBtn');
   }
 
   const $  = s => document.querySelector(s);
-  const $$ = s => Array.from(document.querySelectorAll(s));
   const idOK = id => /^[a-z0-9-]+$/.test(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const pad = n => String(n).padStart(2,'0');
@@ -211,7 +212,6 @@
     const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
     return `${y}-${m}-${day}T${hh}:${mm}`;
   }
-
   function fromLocalDT(local){
     if(!local) return '';
     const d = new Date(local);
@@ -220,14 +220,12 @@
 
   // ---- Frequency helpers (UI side) ----
   const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
-
   function normalizeFreq(raw){
     const v = String(raw || "").trim().toLowerCase();
     if (!v) return "monthly";
     if (VALID_FREQS.includes(v)) return v;
     return "monthly";
   }
-
   function describeFreq(freq){
     const f = normalizeFreq(freq);
     switch (f) {
@@ -254,7 +252,6 @@
   }
 
   function getSlotList() {
-    // If slotkeys.js defines SlotKeys.getSlots(kind), use that
     if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
       const arr = SlotKeys.getSlots(SLOT_KIND) || [];
       return arr
@@ -265,7 +262,6 @@
         }))
         .filter(s => s.label);
     }
-    // Fallback: empty list; we'll still allow ad-hoc labels per banquet
     return [];
   }
 
@@ -279,12 +275,7 @@
         console.warn("SlotKeys.ensureSlot failed:", e);
       }
     }
-    // Fallback: derive key locally
-    return {
-      key: makeSlotKeyFromLabel(trimmed),
-      label: trimmed,
-      scope: kind
-    };
+    return { key: makeSlotKeyFromLabel(trimmed), label: trimmed, scope: kind };
   }
 
   function populateSlotSelect(selectedLabel) {
@@ -294,13 +285,11 @@
     const current = selectedLabel == null ? sel.value : selectedLabel;
     sel.innerHTML = "";
 
-    // None
     const optNone = document.createElement("option");
     optNone.value = SLOT_NONE_VALUE;
     optNone.textContent = "— None (no YoY bucket) —";
     sel.appendChild(optNone);
 
-    // Known slots (from SlotKeys, if available)
     const slots = getSlotList();
     slots.forEach(s => {
       const opt = document.createElement("option");
@@ -309,7 +298,6 @@
       sel.appendChild(opt);
     });
 
-    // Add-new sentinel
     const optAdd = document.createElement("option");
     optAdd.value = SLOT_ADD_VALUE;
     optAdd.textContent = "➕ Add new label…";
@@ -335,26 +323,26 @@
     const val = sel.value;
     if (val === SLOT_ADD_VALUE) {
       const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Sunday Night Banquet'):");
-      if (!label) {
-        sel.value = SLOT_NONE_VALUE;
-        return;
-      }
+      if (!label) { sel.value = SLOT_NONE_VALUE; return; }
       const slot = ensureSlot(SLOT_KIND, label);
-      // Rebuild list with this label in it, then select it
       populateSlotSelect(slot.label);
       sel.value = slot.label;
     }
   }
 
-  let model = [];
+  // We keep ALL banquets in modelAll (history). The manager view only shows active ones.
+  let modelAll = [];
   let current = null;
   let isNew = true;
 
-  // ---- Normalization helpers (migrate legacy -> new) ----
+  function viewList(){
+    return modelAll.filter(b => b.active !== false);
+  }
+
+  // ---- Normalization helpers ----
   function normalizeBanquet(b){
     const out = {...b};
 
-    // price: prefer top-level price; else derive from options[0].price
     if (out.price == null) {
       const opt0 = Array.isArray(out.options) && out.options[0] ? out.options[0] : null;
       if (opt0 && opt0.price != null) out.price = Number(opt0.price) || 0;
@@ -363,8 +351,8 @@
       out.price = Number(out.price) || 0;
     }
 
-    // coerce booleans / arrays
     out.active = (out.active !== false);
+
     if (!Array.isArray(out.mealChoices)) {
       if (typeof out.mealChoices === 'string' && out.mealChoices.trim()) {
         out.mealChoices = out.mealChoices.split(',').map(s=>s.trim()).filter(Boolean);
@@ -372,32 +360,27 @@
         out.mealChoices = [];
       }
     }
+
     if (!Array.isArray(out.chairEmails)) {
       const e = out.chairEmails || (out.chair && out.chair.email) || '';
       out.chairEmails = e ? String(e).split(',').map(s=>s.trim()).filter(Boolean) : [];
     }
 
-    // keep chair object in sync with first email (if present)
     out.chair = out.chair || {};
     if (!out.chair.name) out.chair.name = '';
     if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
 
-    // ensure ISO fields are strings or empty
     out.eventAt = out.eventAt || '';
     out.publishStart = out.publishStart || '';
     out.publishEnd = out.publishEnd || '';
 
-    // normalize reportFrequency
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // YoY slot fields
     out.slotScope = out.slotScope || SLOT_KIND;
     out.slotKey = out.slotKey || "";
     out.slotLabel = out.slotLabel || out.slotKey || "";
 
-    // remove legacy options to avoid writing them back out
     delete out.options;
-
     return out;
   }
 
@@ -405,7 +388,6 @@
     return (Array.isArray(list) ? list : []).map(normalizeBanquet);
   }
 
-  // NEW: sync each banquet's chair emails (and frequency) to backend register_item, so reports use latest routing
   async function syncChairEmailConfigs(list){
     const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
 
@@ -420,7 +402,6 @@
 
     if (!payloads.length) return { attempted: 0, ok: 0 };
 
-    // include admin token header, like other admin endpoints
     const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
 
     const results = await Promise.all(payloads.map(async p => {
@@ -430,12 +411,7 @@
           headers,
           body: JSON.stringify(p)
         });
-        if (!r.ok) {
-          const txt = await r.text().catch(() => "");
-          console.warn("register_item failed for", p.id, r.status, txt);
-          return false;
-        }
-        return true;
+        return r.ok;
       } catch (err) {
         console.warn("register_item error for", p.id, err);
         return false;
@@ -446,7 +422,6 @@
     return { attempted: payloads.length, ok };
   }
 
-  // ---- Initial Load (server first, fallback to static) ----
   async function loadInitial(){
     let loaded = false;
     try {
@@ -454,7 +429,7 @@
       if (r.ok) {
         const j = await r.json();
         if (Array.isArray(j?.banquets)) {
-          model = normalizeAll(j.banquets);
+          modelAll = normalizeAll(j.banquets);
           loaded = true;
         }
       }
@@ -464,13 +439,13 @@
 
     if (!loaded) {
       const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Using static list (fallback).';
     } else {
       $('#listMsg').textContent = 'Loaded from server.';
     }
 
-    populateSlotSelect(); // fill YoY slot dropdown
+    populateSlotSelect();
     renderList();
     startNew();
   }
@@ -483,27 +458,32 @@
       if (r.ok) {
         const j = await r.json();
         if (Array.isArray(j?.banquets)){
-          model = normalizeAll(j.banquets); loaded = true;
+          modelAll = normalizeAll(j.banquets);
+          loaded = true;
           $('#listMsg').textContent = 'Loaded from server.';
         }
       }
     }catch(err){ console.warn('Refresh server error:', err); }
     if(!loaded){
       const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
       $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
     }
     populateSlotSelect();
-    renderList(); startNew();
+    renderList();
+    startNew();
   });
 
-  // ---------- List Rendering ----------
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
-    if(!model.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No banquets yet — click “New” to create one.</td></tr>'; return;
+    const list = viewList();
+
+    if(!list.length){
+      tb.innerHTML = '<tr><td colspan="9" class="muted">No active banquets — click “New” to create one.</td></tr>';
+      return;
     }
-    for(const b of model){
+
+    for(const b of list){
       const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
       const end   = b.publishEnd ? new Date(b.publishEnd).toLocaleString() : '—';
       const chair = (b.chair && b.chair.name) ? b.chair.name : (b.chair?.email || '—');
@@ -523,14 +503,16 @@
         <td>
           <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
           <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
+          <button class="btn warn btnArchive" data-id="${esc(b.id)}">Archive</button>
         </td>`;
       tb.appendChild(tr);
     }
+
     tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
     tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+    tb.querySelectorAll('.btnArchive').forEach(el=>el.addEventListener('click',onArchive));
   }
 
-  // ---------- Form helpers ----------
   function startNew(){
     isNew = true;
     current = null;
@@ -550,11 +532,11 @@
     $('#f_start').value = '';
     $('#f_end').value = '';
     $('#f_notes').value = '';
-    populateSlotSelect(); // reset slot to "None"
+    populateSlotSelect();
   }
 
   function fillForm(b){
-    const n = normalizeBanquet(b); // ensure current is normalized
+    const n = normalizeBanquet(b);
     isNew = false;
     current = n;
     $('#modeChip').textContent = 'Edit';
@@ -596,20 +578,12 @@
     const endISO = fromLocalDT($('#f_end').value);
     const notes = $('#f_notes').value.trim();
 
-    const chairEmails = chairEmailsRaw
-      ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean)
-      : [];
-
-    const mealChoices = mealsRaw
-      ? mealsRaw.split(',').map(s=>s.trim()).filter(Boolean)
-      : [];
-
+    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const mealChoices = mealsRaw ? mealsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
     const datetimePretty = eventAtISO ? new Date(eventAtISO).toLocaleString() : '';
 
     const slotLabelRaw = $('#f_slot_label').value || "";
-    let slotKey = "";
-    let slotLabel = "";
-    let slotScope = SLOT_KIND;
+    let slotKey = "", slotLabel = "", slotScope = SLOT_KIND;
 
     if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
       const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
@@ -618,12 +592,9 @@
       slotScope = slot.scope || SLOT_KIND;
     }
 
-    // New schema with top-level price (no options)
     return {
-      id,
-      name,
-      active,
-      price: Math.round(price * 100) / 100, // keep as dollars in data file
+      id, name, active,
+      price: Math.round(price * 100) / 100,
       mealChoices,
       eventAt: eventAtISO,
       datetime: datetimePretty,
@@ -634,9 +605,7 @@
       chair: { name: chairName, email: chairEmails[0] || '' },
       chairEmails,
       reportFrequency: freq,
-      slotKey,
-      slotLabel,
-      slotScope
+      slotKey, slotLabel, slotScope
     };
   }
 
@@ -650,9 +619,7 @@
     if (!o.eventAt) return 'Event Date/Time is required.';
 
     const priceNum = Number(o.price);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      return 'Ticket Price must be greater than zero.';
-    }
+    if (!Number.isFinite(priceNum) || priceNum <= 0) return 'Ticket Price must be greater than zero.';
 
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) {
       return 'Publish End must be after Publish Start.';
@@ -666,14 +633,14 @@
 
   function onEdit(e){
     const id = e.currentTarget.dataset.id;
-    const b = model.find(x => x.id === id);
+    const b = modelAll.find(x => x.id === id);
     if (!b) { $('#editMsg').textContent = 'Item not found.'; return; }
     fillForm(b);
   }
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) {
+    while (modelAll.some(x => x.id === candidate)) {
       i += 1;
       candidate = `${base}-${i}`;
     }
@@ -682,21 +649,72 @@
 
   function onCopy(e){
     const id = e.currentTarget.dataset.id;
-    const b = model.find(x => x.id === id);
+    const b = modelAll.find(x => x.id === id);
     if (!b) { $('#editMsg').textContent = 'Item not found.'; return; }
     const copy = normalizeBanquet(JSON.parse(JSON.stringify(b)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'item') + '-copy';
     copy.id = uniqueId(baseId);
-    // reset dates on copy
     copy.publishStart = '';
     copy.publishEnd = '';
     copy.eventAt = '';
     copy.datetime = '';
     startNew();
     fillForm(copy);
-    isNew = true; // will add, not update-in-place
+    isNew = true;
     $('#modeChip').textContent = 'New (from copy)';
+  }
+
+  async function persistAll(){
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+    const payload = normalizeAll(modelAll).map(it => {
+      const { options, ...rest } = it;
+      return rest;
+    });
+
+    // 1) Save banquets list
+    const res = await fetch("/api/router?action=save_banquets", {
+      method: "POST", headers, body: JSON.stringify({ banquets: payload })
+    });
+    if (!res.ok) throw new Error("server rejected");
+
+    // 2) Sync chair emails + frequency → itemcfg:<id>
+    try { await syncChairEmailConfigs(payload); } catch (_) {}
+  }
+
+  // Delete -> Archive
+  async function onArchive(e){
+    const id = e.currentTarget.dataset.id;
+    const idx = modelAll.findIndex(x => x.id === id);
+    if (idx < 0) { $('#editMsg').textContent = 'Item not found.'; return; }
+
+    const b = modelAll[idx];
+    const ok = confirm(
+      `Archive "${b.name}" (${id})?\n\n` +
+      `It will be hidden from the Banquet Manager but kept for YoY/history.`
+    );
+    if (!ok) return;
+
+    // Mark inactive + close publish window
+    modelAll[idx] = normalizeBanquet({
+      ...b,
+      active: false,
+      publishEnd: new Date().toISOString()
+    });
+
+    // If editing it, reset editor
+    if (current && current.id === id) startNew();
+
+    renderList();
+    $('#editMsg').textContent = 'Archiving…';
+
+    try{
+      await persistAll();
+      $('#editMsg').textContent = 'Archived (history preserved for YoY).';
+    }catch(err){
+      console.warn("Archive persist error:", err);
+      $('#editMsg').textContent = 'Archived locally; export/import if needed.';
+    }
   }
 
   // Buttons wired
@@ -705,8 +723,7 @@
 
   // Export / Import
   $('#btnExport').addEventListener('click', ()=>{
-    // Always export normalized new schema
-    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(normalizeAll(modelAll), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'banquets-export.json';
@@ -721,7 +738,7 @@
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = normalizeAll(data);
+      modelAll = normalizeAll(data);
       populateSlotSelect();
       renderList();
       startNew();
@@ -733,58 +750,38 @@
     }
   });
 
-  // Save (updated: also syncs chair emails + freq for report routing)
+  // Save
   $('#btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
     if(err){ $('#editMsg').textContent = err; return; }
 
-    const idx = model.findIndex(x => x.id === o.id);
+    const idx = modelAll.findIndex(x => x.id === o.id);
     if(idx >= 0){
-      model[idx] = {...model[idx], ...o};
+      modelAll[idx] = {...modelAll[idx], ...o};
     }else{
-      model.push(o);
+      modelAll.push(o);
       isNew = false;
       current = o;
       $('#modeChip').textContent = 'Edit';
     }
+
     renderList();
 
     try{
-      // include admin token
-      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-
-      // Always write new schema (price, reportFrequency, slot fields), never legacy options
-      const payload = normalizeAll(model).map(it => {
-        const { options, ...rest } = it;
-        return rest;
-      });
-
-      // 1) Save banquets list
       $('#editMsg').textContent = 'Saving…';
-      const res = await fetch("/api/router?action=save_banquets", {
-        method: "POST", headers, body: JSON.stringify({ banquets: payload })
-      });
-      if (!res.ok) throw new Error("server rejected");
-
-      // 2) Sync chair emails + frequency → itemcfg:<id> (affects report routing)
-      $('#editMsg').textContent = 'Saved. Syncing report routing…';
-      const { attempted, ok } = await syncChairEmailConfigs(payload);
-
-      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
+      await persistAll();
+      $('#editMsg').textContent = 'Saved to server.';
     }catch(e){
-      console.warn("Save/sync error:", e);
+      console.warn("Save error:", e);
       $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
 
   // Wire slot change
   const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) {
-    slotSel.addEventListener('change', onSlotChange);
-  }
+  if (slotSel) slotSel.addEventListener('change', onSlotChange);
 
-  // Kick off
   loadInitial();
   </script>
 </body>

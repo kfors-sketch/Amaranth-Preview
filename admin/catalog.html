@@ -98,11 +98,14 @@
                 <th>Reports</th>
                 <th>Publish Window</th>
                 <th>SKU</th>
-                <th style="min-width:160px">Actions</th>
+                <th style="min-width:240px">Actions</th>
               </tr>
             </thead>
             <tbody id="tbody"></tbody>
           </table>
+          <div class="hint" style="margin-top:8px">
+            Showing <b>active</b> products only. Archiving keeps history for YoY.
+          </div>
         </div>
       </section>
 
@@ -173,7 +176,7 @@
         </select>
         <div class="hint">Used by automated chair reports for this product.</div>
 
-        <!-- NEW: YoY slot selection -->
+        <!-- YoY slot selection -->
         <label for="f_slot_label">Year-over-year Slot</label>
         <select id="f_slot_label"></select>
         <div class="hint">Required: choose a label (e.g. “Session Coin”) to compare this product with the same slot in other years.</div>
@@ -198,12 +201,8 @@
         <label for="f_img1_url">Main Image URL (optional)</label>
         <input id="f_img1_url" type="text" placeholder="/assets/shop/item-main.jpg" />
 
-        <!-- Additional images -->
         <label for="f_img_extra">Additional Image URLs (optional)</label>
-        <textarea
-          id="f_img_extra"
-          placeholder="/assets/shop/item-alt1.jpg&#10;/assets/shop/item-alt2.jpg"
-        ></textarea>
+        <textarea id="f_img_extra" placeholder="/assets/shop/item-alt1.jpg&#10;/assets/shop/item-alt2.jpg"></textarea>
         <div class="hint">One URL per line (or separated by commas). These become extra gallery images.</div>
 
         <label for="f_chair_name">Chairperson Name (optional)</label>
@@ -220,19 +219,11 @@
     </div>
   </main>
 
-  <!-- Tell admin pages where to send item-configs -->
   <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
-
-  <!-- Shared YoY slot helper -->
   <script src="/assets/js/admin-slotkeys.js"></script>
-
-  <!-- Static fallback for products -->
   <script src="/assets/js/items.js"></script>
-
-  <!-- Admin shared helpers -->
   <script src="/assets/js/admin.js"></script>
 
-  <!-- Page logic -->
   <script>
   // --- Logout only (auth is token-based now, like reporting_main/banquets/addons) ---
   (function () {
@@ -240,15 +231,14 @@
     if (!btn) return;
     btn.addEventListener('click', () => {
       try {
-        localStorage.removeItem('amaranth_report_token'); // new token
-        localStorage.removeItem('amaranth_admin_ok');     // legacy flag
+        localStorage.removeItem('amaranth_report_token');
+        localStorage.removeItem('amaranth_admin_ok');
       } catch (e) {}
       window.location.href = '/admin/login.html';
     });
   })();
 
-  const $  = s => document.querySelector(s);
-  const $$ = s => Array.from(document.querySelectorAll(s));
+  // Use $ / $$ from admin.js (no re-declare here)
   const idOK = id => /^[a-z0-9-]+$/.test(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const pad = n => String(n).padStart(2,'0');
@@ -339,13 +329,11 @@
     const current = selectedLabel == null ? sel.value : selectedLabel;
     sel.innerHTML = "";
 
-    // Placeholder / required choice
     const optNone = document.createElement("option");
     optNone.value = SLOT_NONE_VALUE;
     optNone.textContent = "— Choose a YoY slot —";
     sel.appendChild(optNone);
 
-    // Known slots
     const slots = getSlotList();
     slots.forEach(s => {
       const opt = document.createElement("option");
@@ -354,7 +342,6 @@
       sel.appendChild(opt);
     });
 
-    // Add-new sentinel
     const optAdd = document.createElement("option");
     optAdd.value = SLOT_ADD_VALUE;
     optAdd.textContent = "➕ Add new label…";
@@ -369,11 +356,7 @@
         sel.insertBefore(opt, optAdd);
       }
       sel.value = current;
-    } else if (slots.length > 0) {
-      // Default to first real slot if we have any
-      sel.value = slots[0].label;
     } else {
-      // No slots yet: leave placeholder selected
       sel.value = SLOT_NONE_VALUE;
     }
   }
@@ -394,10 +377,10 @@
     }
   }
 
-  // ---- Type/price/variants visibility (like addons) ----
-  const typeEl = $('#f_type');
-  const rowPrice = $('#row_price');
-  const rowVariants = $('#row_variants');
+  // ---- Type/price/variants visibility ----
+  const typeEl = document.getElementById('f_type');
+  const rowPrice = document.getElementById('row_price');
+  const rowVariants = document.getElementById('row_variants');
 
   function syncTypeFields(){
     const t = typeEl.value;
@@ -414,7 +397,7 @@
   }
   typeEl.addEventListener('change', syncTypeFields);
 
-  // ---- Variants parser (same pattern as admin/addons) ----
+  // ---- Variants parser ----
   function parseVariants(text){
     const out = [];
     String(text||'').split(/\r?\n/).forEach(line=>{
@@ -434,57 +417,42 @@
     return out;
   }
 
-  // ---- Normalization helpers for products ----
+  // ---- Normalization helpers ----
   function normalizeProduct(p){
     const out = { ...(p || {}) };
 
-    // type default
     if (!out.type) out.type = "fixed";
 
-    // price
     out.price = Number(out.price || 0) || 0;
 
-    // shippingCents (store as integer cents)
     let scRaw = out.shippingCents;
     if (scRaw == null && out.shipping_cents != null) scRaw = out.shipping_cents;
     if (scRaw == null && out.shipping != null) scRaw = out.shipping;
 
     let sc = Number(scRaw || 0);
     if (!Number.isFinite(sc)) sc = 0;
-
-    // If shipping was stored as dollars (e.g. 5.5), convert to cents
-    if (!Number.isInteger(sc)) {
-      sc = Math.round(sc * 100);
-    }
+    if (!Number.isInteger(sc)) sc = Math.round(sc * 100);
     if (sc < 0) sc = 0;
-
     out.shippingCents = sc;
 
-    // active flag
     out.active = (out.active !== false);
 
-    // ensure ISO-ish fields are strings or empty
     out.publishStart = out.publishStart || "";
     out.publishEnd   = out.publishEnd   || "";
 
-    // chairEmails array
     if (!Array.isArray(out.chairEmails)) {
       const e = out.chairEmails || (out.chair && out.chair.email) || "";
       out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
     }
 
-    // chair object in sync
     out.chair = out.chair || {};
     if (!out.chair.name) out.chair.name = "";
     if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
 
-    // normalize frequency (for reporting)
     out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
 
-    // ===== VARIANTS + TIERED BUNDLE NORMALIZATION =====
     if (out.type === "variantQty") {
       if (Array.isArray(out.variants) && out.variants.length) {
-        // Clean up existing variants
         out.variants = out.variants.map(v => {
           const label = v.label || v.name || String(v.id || '');
           const price = Number(v.price || 0) || 0;
@@ -492,14 +460,9 @@
           return { id, label, price };
         });
       } else if (Array.isArray(out.pricing) && out.pricing.length) {
-        // Legacy tiered pricing -> variants
         out.variants = out.pricing.map(pr => {
           const qty = Number(pr.qty || 1) || 1;
-          return {
-            id: String(qty),
-            label: String(qty),
-            price: Number(pr.price || 0) || 0
-          };
+          return { id: String(qty), label: String(qty), price: Number(pr.price || 0) || 0 };
         });
       } else {
         out.variants = [];
@@ -507,18 +470,14 @@
       out.tiered = true;
     }
 
-    // ===== IMAGE FIELD NORMALIZATION =====
     const origImages = Array.isArray(out.images) ? out.images.slice() : [];
-
-    // Canonical thumbnail & main URLs
     let thumb = out.thumbnailUrl || out.image || (origImages[0] || "");
     let main  = out.imageUrl || origImages[0] || out.image || thumb;
 
     out.thumbnailUrl = thumb || "";
     out.imageUrl = main || "";
-
-    // Legacy fields kept in sync
     out.image = out.thumbnailUrl || "";
+
     if (origImages.length) {
       origImages[0] = out.imageUrl || origImages[0];
       out.images = origImages;
@@ -526,7 +485,6 @@
       out.images = out.imageUrl ? [out.imageUrl] : [];
     }
 
-    // ===== YoY slot normalization =====
     out.slotScope = out.slotScope || SLOT_KIND;
     out.slotKey = out.slotKey || "";
     out.slotLabel = out.slotLabel || out.slotKey || "";
@@ -553,21 +511,12 @@
 
     if (!payloads.length) return { attempted: 0, ok: 0 };
 
-    // include admin token header (same pattern as banquets/addons)
     const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
 
     const results = await Promise.all(payloads.map(async cfg => {
       try {
-        const r = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(cfg)
-        });
-        if (!r.ok) {
-          const txt = await r.text().catch(() => "");
-          console.warn("register_item failed for", cfg.id, r.status, txt);
-          return false;
-        }
+        const r = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(cfg) });
+        if (!r.ok) return false;
         return true;
       } catch (err) {
         console.warn("register_item error for", cfg.id, err);
@@ -579,19 +528,24 @@
     return { attempted: payloads.length, ok };
   }
 
-  let model = [];
+  // Keep ALL products in modelAll (history). Show active only in manager.
+  let modelAll = [];
   let current = null;
   let isNew = true;
 
-  // ---- Initial Load (server first, then file fallback) ----
+  function viewList(){
+    return modelAll.filter(p => p.active !== false);
+  }
+
+  // ---- Initial Load (server first, then file fallback; allow empty array from server) ----
   async function loadInitial(){
     let loaded = false;
     try {
       const r = await fetch('/api/router?type=products', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.products) && j.products.length > 0) {
-          model = normalizeAll(j.products);
+        if (Array.isArray(j?.products)) {
+          modelAll = normalizeAll(j.products);
           loaded = true;
         }
       }
@@ -601,46 +555,58 @@
 
     if (!loaded) {
       const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
-      $('#listMsg').textContent = 'Using static list (fallback).';
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
+      const msg = document.getElementById('listMsg');
+      if (msg) msg.textContent = 'Using static list (fallback).';
     } else {
-      $('#listMsg').textContent = 'Loaded from server.';
+      const msg = document.getElementById('listMsg');
+      if (msg) msg.textContent = 'Loaded from server.';
     }
 
     populateSlotSelect();
     renderList();
     startNew();
+    syncTypeFields();
   }
 
-  $('#btnRefresh').addEventListener('click', async ()=>{
-    $('#listMsg').textContent = 'Refreshing…';
+  document.getElementById('btnRefresh').addEventListener('click', async ()=>{
+    const msg = document.getElementById('listMsg');
+    if (msg) msg.textContent = 'Refreshing…';
     let loaded = false;
     try{
       const r = await fetch('/api/router?type=products', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.products) && j.products.length > 0){
-          model = normalizeAll(j.products); loaded = true;
-          $('#listMsg').textContent = 'Loaded from server.';
+        if (Array.isArray(j?.products)){
+          modelAll = normalizeAll(j.products);
+          loaded = true;
+          if (msg) msg.textContent = 'Loaded from server.';
         }
       }
     }catch(err){ console.warn('Refresh server error:', err); }
     if(!loaded){
       const src = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-      model = normalizeAll(JSON.parse(JSON.stringify(src)));
-      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
+      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
+      if (msg) msg.textContent = 'Server unavailable — using fallback.';
     }
     populateSlotSelect();
-    renderList(); startNew();
+    renderList();
+    startNew();
+    syncTypeFields();
   });
 
-  // ---------- List Rendering ----------
+  // ---------- List Rendering (ACTIVE ONLY) ----------
   function renderList(){
-    const tb = $('#tbody'); tb.innerHTML = '';
-    if(!model.length){
-      tb.innerHTML = '<tr><td colspan="11" class="muted">No products yet — click “New” to create one.</td></tr>'; return;
+    const tb = document.getElementById('tbody');
+    tb.innerHTML = '';
+
+    const list = viewList();
+    if(!list.length){
+      tb.innerHTML = '<tr><td colspan="11" class="muted">No active products — click “New” to create one.</td></tr>';
+      return;
     }
-    for(const p of model){
+
+    for(const p of list){
       const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
       const end   = p.publishEnd ? new Date(p.publishEnd).toLocaleString() : '—';
       const freqLabel = describeFreq(p.reportFrequency || p.report_frequency || "monthly");
@@ -654,7 +620,7 @@
         <td>${slotLabel ? esc(slotLabel) : '<span class="danger">Required</span>'}</td>
         <td><code>${esc(p.id||'')}</code></td>
         <td>${esc(p.type || 'fixed')}</td>
-        <td>$${Number(p.price||0).toFixed(2)}</td>
+        <td>${p.type === 'variantQty' ? '<span class="muted">variants</span>' : ('$' + Number(p.price||0).toFixed(2))}</td>
         <td>${shipLabel}</td>
         <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
         <td><span class="muted">${esc(freqLabel)}</span></td>
@@ -663,37 +629,40 @@
         <td>
           <button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button>
           <button class="btn ghost btnCopy" data-id="${esc(p.id)}">Duplicate</button>
+          <button class="btn warn btnArchive" data-id="${esc(p.id)}">Archive</button>
         </td>`;
       tb.appendChild(tr);
     }
+
     tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
     tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
+    tb.querySelectorAll('.btnArchive').forEach(el=>el.addEventListener('click',onArchive));
   }
 
   // ---------- Form helpers ----------
   function startNew(){
     isNew = true;
     current = null;
-    $('#modeChip').textContent = 'New';
-    $('#editMsg').textContent = '';
+    document.getElementById('modeChip').textContent = 'New';
+    document.getElementById('editMsg').textContent = '';
 
-    $('#f_name').value = '';
-    $('#f_id').value = '';
-    $('#f_active').value = 'true';
-    $('#f_type').value = 'fixed';
-    $('#f_price').value = '';
-    $('#f_shipping').value = '';
-    $('#f_sku').value = '';
-    $('#f_report_freq').value = 'monthly';
-    $('#f_start').value = '';
-    $('#f_end').value = '';
-    $('#f_notes').value = '';
-    $('#f_thumb_url').value = '';
-    $('#f_img1_url').value = '';
-    $('#f_img_extra').value = '';
-    $('#f_chair_name').value = '';
-    $('#f_chair_emails').value = '';
-    $('#f_variants').value = '';
+    document.getElementById('f_name').value = '';
+    document.getElementById('f_id').value = '';
+    document.getElementById('f_active').value = 'true';
+    document.getElementById('f_type').value = 'fixed';
+    document.getElementById('f_price').value = '';
+    document.getElementById('f_shipping').value = '';
+    document.getElementById('f_sku').value = '';
+    document.getElementById('f_report_freq').value = 'monthly';
+    document.getElementById('f_start').value = '';
+    document.getElementById('f_end').value = '';
+    document.getElementById('f_notes').value = '';
+    document.getElementById('f_thumb_url').value = '';
+    document.getElementById('f_img1_url').value = '';
+    document.getElementById('f_img_extra').value = '';
+    document.getElementById('f_chair_name').value = '';
+    document.getElementById('f_chair_emails').value = '';
+    document.getElementById('f_variants').value = '';
     populateSlotSelect();
     syncTypeFields();
   }
@@ -702,101 +671,86 @@
     const n = normalizeProduct(p);
     isNew = false;
     current = n;
-    $('#modeChip').textContent = 'Edit';
-    $('#editMsg').textContent = '';
+    document.getElementById('modeChip').textContent = 'Edit';
+    document.getElementById('editMsg').textContent = '';
 
     populateSlotSelect(n.slotLabel || "");
 
-    $('#f_name').value = n.name || '';
-    $('#f_id').value = n.id || '';
-    $('#f_active').value = String(n.active !== false);
-    $('#f_type').value = n.type || 'fixed';
-    $('#f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
+    document.getElementById('f_name').value = n.name || '';
+    document.getElementById('f_id').value = n.id || '';
+    document.getElementById('f_active').value = String(n.active !== false);
+    document.getElementById('f_type').value = n.type || 'fixed';
+    document.getElementById('f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
     const shipDollars = (Number(n.shippingCents || 0) || 0) / 100;
-    $('#f_shipping').value = shipDollars > 0 ? shipDollars.toFixed(2) : '';
-    $('#f_sku').value = n.sku || '';
-    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
-    $('#f_start').value = toLocalDT(n.publishStart || '');
-    $('#f_end').value = toLocalDT(n.publishEnd || '');
-    $('#f_notes').value = n.notes || n.description || '';
-    $('#f_thumb_url').value = n.thumbnailUrl || n.image || n.imageThumb || '';
-    $('#f_img1_url').value = n.imageUrl || (Array.isArray(n.images) ? n.images[0] : (n.image || ''));
+    document.getElementById('f_shipping').value = shipDollars > 0 ? shipDollars.toFixed(2) : '';
+    document.getElementById('f_sku').value = n.sku || '';
+    document.getElementById('f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
+    document.getElementById('f_start').value = toLocalDT(n.publishStart || '');
+    document.getElementById('f_end').value = toLocalDT(n.publishEnd || '');
+    document.getElementById('f_notes').value = n.notes || n.description || '';
+    document.getElementById('f_thumb_url').value = n.thumbnailUrl || n.image || '';
+    document.getElementById('f_img1_url').value = n.imageUrl || (Array.isArray(n.images) ? n.images[0] : (n.image || ''));
 
-    // extra images (everything after index 0)
     let extras = "";
-    if (Array.isArray(n.images) && n.images.length > 1) {
-      extras = n.images.slice(1).join('\n');
-    }
-    $('#f_img_extra').value = extras;
+    if (Array.isArray(n.images) && n.images.length > 1) extras = n.images.slice(1).join('\n');
+    document.getElementById('f_img_extra').value = extras;
 
-    // variants textarea for variantQty (same pattern as addons)
     if (Array.isArray(n.variants) && n.variants.length){
-      $('#f_variants').value = n.variants
+      document.getElementById('f_variants').value = n.variants
         .map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`)
         .join('\n');
     } else {
-      $('#f_variants').value = '';
+      document.getElementById('f_variants').value = '';
     }
 
-    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
-    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
+    document.getElementById('f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
+    document.getElementById('f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
 
     syncTypeFields();
   }
 
   function readForm(){
-    const name = $('#f_name').value.trim();
-    const id   = $('#f_id').value.trim();
-    const active = $('#f_active').value === 'true';
-    const type = $('#f_type').value || 'fixed';
-    const price = parseFloat($('#f_price').value || '0') || 0;
-    const shippingDollars = parseFloat($('#f_shipping').value || '0') || 0;
-    const sku = $('#f_sku').value.trim();
-    const publishStart = fromLocalDT($('#f_start').value);
-    const publishEnd   = fromLocalDT($('#f_end').value);
-    const notes = $('#f_notes').value.trim();
-    const thumbField = $('#f_thumb_url').value.trim();
-    const imageField = $('#f_img1_url').value.trim();
-    const extraField = $('#f_img_extra').value.trim();
-    const chairName = $('#f_chair_name').value.trim();
-    const chairEmailsRaw = $('#f_chair_emails').value.trim();
+    const name = document.getElementById('f_name').value.trim();
+    const id   = document.getElementById('f_id').value.trim();
+    const active = document.getElementById('f_active').value === 'true';
+    const type = document.getElementById('f_type').value || 'fixed';
+    const price = parseFloat(document.getElementById('f_price').value || '0') || 0;
+    const shippingDollars = parseFloat(document.getElementById('f_shipping').value || '0') || 0;
+    const sku = document.getElementById('f_sku').value.trim();
+    const publishStart = fromLocalDT(document.getElementById('f_start').value);
+    const publishEnd   = fromLocalDT(document.getElementById('f_end').value);
+    const notes = document.getElementById('f_notes').value.trim();
+    const thumbField = document.getElementById('f_thumb_url').value.trim();
+    const imageField = document.getElementById('f_img1_url').value.trim();
+    const extraField = document.getElementById('f_img_extra').value.trim();
+    const chairName = document.getElementById('f_chair_name').value.trim();
+    const chairEmailsRaw = document.getElementById('f_chair_emails').value.trim();
     const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(/[,]+/).map(s=>s.trim()).filter(Boolean) : [];
-    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
-    const variants = parseVariants($('#f_variants').value);
+    const freq = normalizeFreq(document.getElementById('f_report_freq').value || 'monthly');
+    const variants = parseVariants(document.getElementById('f_variants').value);
 
     const base = current ? { ...current } : {};
     const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
 
-    // compute canonical thumb & main
     const thumb = thumbField || base.thumbnailUrl || base.image || (Array.isArray(base.images) ? base.images[0] : "");
     const main  = imageField || base.imageUrl || (Array.isArray(base.images) ? base.images[0] : thumb);
 
-    // parse extra URLs (newline or comma separated)
     const extraUrls = extraField
       ? extraField.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
       : [];
 
-    // build images array: main first, then extras
     const newImages = [];
     if (main) newImages.push(main);
     extraUrls.forEach(u => { if (u && !newImages.includes(u)) newImages.push(u); });
 
-    // slot fields from selector
     const slotLabelRaw = document.getElementById('f_slot_label').value || "";
-    let slotKey = "";
-    let slotLabel = "";
-    let slotScope = SLOT_KIND;
+    let slotKey = "", slotLabel = "", slotScope = SLOT_KIND;
 
     if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
       const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
       slotKey = slot.key || "";
       slotLabel = slot.label || "";
       slotScope = slot.scope || SLOT_KIND;
-    } else {
-      // Placeholder or invalid selection clears slot so validation will fail
-      slotKey = "";
-      slotLabel = "";
-      slotScope = SLOT_KIND;
     }
 
     const out = {
@@ -819,31 +773,21 @@
     };
 
     if (type === 'variantQty') {
-      // Save variants
-      out.variants = variants; // [{id,label,price}, ...]
-
-      // Also keep legacy tiered/pricing in sync for the public catalog
+      out.variants = variants;
       out.tiered = true;
       out.pricing = variants.map(v => {
-        // Try to infer qty from label, default to 1
         const m = String(v.label || '').match(/\d+/);
         const qty = m ? parseInt(m[0], 10) : 1;
-        return {
-          qty,
-          price: Number(v.price || 0) || 0
-        };
+        return { qty, price: Number(v.price || 0) || 0 };
       });
-
-      delete out.price; // bundle prices come from variants/pricing
+      delete out.price;
     } else if (type === 'amount') {
-      // Open amount / donation-style — no fixed price here
       delete out.price;
       delete out.variants;
       delete out.tiered;
       delete out.pricing;
     } else {
-      // fixed / qty
-      out.price = Math.round(price * 100) / 100; // dollars
+      out.price = Math.round(price * 100) / 100;
       delete out.variants;
       delete out.tiered;
       delete out.pricing;
@@ -866,40 +810,89 @@
     for (const em of (o.chairEmails || [])){
       if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
-    if (!o.slotLabel) return 'Year-over-year Slot is required.';
+    if (!o.slotLabel || !o.slotKey) return 'Year-over-year Slot is required.';
     return '';
   }
 
   function onEdit(e){
     const id = e.currentTarget.dataset.id;
-    const p = model.find(x => x.id === id);
-    if (!p) { $('#editMsg').textContent = 'Item not found.'; return; }
+    const p = modelAll.find(x => x.id === id);
+    if (!p) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
     fillForm(p);
   }
 
   function uniqueId(base){
     let i = 1, candidate = base;
-    while (model.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
+    while (modelAll.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
     return candidate;
   }
 
   function onCopy(e){
     const id = e.currentTarget.dataset.id;
-    const p = model.find(x => x.id === id);
-    if (!p) { $('#editMsg').textContent = 'Item not found.'; return; }
+    const p = modelAll.find(x => x.id === id);
+    if (!p) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
     const copy = normalizeProduct(JSON.parse(JSON.stringify(p)));
     copy.name = (copy.name || '') + ' (copy)';
     const baseId = (copy.id || 'item') + '-copy';
     copy.id = uniqueId(baseId);
     copy.publishStart = '';
     copy.publishEnd = '';
-    startNew(); fillForm(copy);
-    isNew = true; $('#modeChip').textContent = 'New (from copy)';
+    startNew();
+    fillForm(copy);
+    isNew = true;
+    document.getElementById('modeChip').textContent = 'New (from copy)';
   }
 
-  // Export / Import
-  $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(normalizeAll(model), null, 2)], {type:'application/json'});
+  async function persistAll(){
+    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
+    const payload = normalizeAll(modelAll);
+
+    const res = await fetch("/api/router?action=save_products", {
+      method: "POST", headers, body: JSON.stringify({ products: payload })
+    });
+    if (!res.ok) throw new Error("server rejected");
+
+    try { await syncChairEmailConfigs(payload); } catch (_) {}
+  }
+
+  async function onArchive(e){
+    const id = e.currentTarget.dataset.id;
+    const idx = modelAll.findIndex(x => x.id === id);
+    if (idx < 0) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
+
+    const p = modelAll[idx];
+    const ok = confirm(
+      `Archive "${p.name}" (${id})?\n\n` +
+      `It will be hidden from the Product Catalog manager but kept for YoY/history.`
+    );
+    if (!ok) return;
+
+    const nowISO = new Date().toISOString();
+    const endMs = p.publishEnd ? Date.parse(p.publishEnd) : NaN;
+
+    modelAll[idx] = normalizeProduct({
+      ...p,
+      active: false,
+      publishEnd: (!p.publishEnd || isNaN(endMs) || endMs > Date.now()) ? nowISO : p.publishEnd
+    });
+
+    if (current && current.id === id) startNew();
+
+    renderList();
+    document.getElementById('editMsg').textContent = 'Archiving…';
+
+    try{
+      await persistAll();
+      document.getElementById('editMsg').textContent = 'Archived (history preserved for YoY).';
+    }catch(err){
+      console.warn("Archive persist error:", err);
+      document.getElementById('editMsg').textContent = 'Archived locally; export JSON if needed.';
+    }
+  }
+
+  // Export / Import (FULL HISTORY)
+  document.getElementById('btnExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(normalizeAll(modelAll), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'products-export.json';
@@ -907,18 +900,19 @@
     URL.revokeObjectURL(url);
   });
 
-  $('#fileImport').addEventListener('change', async (ev)=>{
+  document.getElementById('fileImport').addEventListener('change', async (ev)=>{
     const f = ev.target.files[0];
     if (!f) return;
     try{
       const txt = await f.text();
       const data = JSON.parse(txt);
       if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      model = normalizeAll(data);
+      modelAll = normalizeAll(data);
       populateSlotSelect();
       renderList();
       startNew();
-      $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
+      const msg = document.getElementById('listMsg');
+      if (msg) msg.textContent = 'Imported from file (not yet saved to server).';
     }catch(err){
       alert('Import failed: ' + (err?.message || String(err)));
     }finally{
@@ -927,75 +921,56 @@
   });
 
   // Save item(s)
-  $('#btnSave').addEventListener('click', async ()=>{
+  document.getElementById('btnSave').addEventListener('click', async ()=>{
     const o = readForm();
     const err = validate(o);
-    if(err){ $('#editMsg').textContent = err; return; }
+    if(err){ document.getElementById('editMsg').textContent = err; return; }
 
-    const idx = model.findIndex(x => x.id === o.id);
-    if(idx >= 0){ model[idx] = {...model[idx], ...o}; }
-    else{ model.push(o); isNew = false; current = o; $('#modeChip').textContent = 'Edit'; }
+    const idx = modelAll.findIndex(x => x.id === o.id);
+    if(idx >= 0){ modelAll[idx] = {...modelAll[idx], ...o}; }
+    else{ modelAll.push(o); isNew = false; current = o; document.getElementById('modeChip').textContent = 'Edit'; }
+
     renderList();
 
     try{
-      const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-      const payload = normalizeAll(model);
-
-      $('#editMsg').textContent = 'Saving…';
-      const res = await fetch("/api/router?action=save_products", {
-        method: "POST", headers, body: JSON.stringify({ products: payload })
-      });
-      if (!res.ok) throw new Error("server rejected");
-
-      // After saving, sync chair emails + freq to itemcfg
-      $('#editMsg').textContent = 'Saved. Syncing report routing…';
-      const { attempted, ok } = await syncChairEmailConfigs(payload);
-
-      $('#editMsg').textContent = `Saved to server. Report routing synced (${ok}/${attempted}).`;
+      document.getElementById('editMsg').textContent = 'Saving…';
+      await persistAll();
+      document.getElementById('editMsg').textContent = 'Saved to server.';
     }catch{
-      $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
+      document.getElementById('editMsg').textContent = 'Saved locally; export JSON if needed.';
     }
   });
 
-  // NEW: Sync from site files
+  // Sync from site files (imports /assets/js/items.js into server as full history set)
   document.getElementById('btnSyncFiles').addEventListener('click', async ()=>{
     const fileItems = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-    if(!fileItems.length){ $('#listMsg').textContent = 'No items in /assets/js/items.js'; return; }
-    $('#listMsg').textContent = 'Syncing from site files…';
+    const msg = document.getElementById('listMsg');
+    if(!fileItems.length){ if (msg) msg.textContent = 'No items in /assets/js/items.js'; return; }
+
+    if (msg) msg.textContent = 'Syncing from site files…';
     try{
-      const headers = { 'Content-Type':'application/json', ...Admin.tokenHeader() };
       const normalized = normalizeAll(fileItems);
-      const r = await fetch('/api/router?action=save_products', {
-        method: 'POST', headers, body: JSON.stringify({ products: normalized })
-      });
-      const j = await r.json().catch(()=>({}));
-      if(!r.ok) throw new Error(j?.error || 'Sync failed');
 
-      // Also update itemcfg for these
-      await syncChairEmailConfigs(normalized);
+      // Replace modelAll with file set (acts like "import from file")
+      modelAll = normalized;
 
-      $('#listMsg').textContent = `Imported ${j?.count ?? normalized.length} item(s) from file.`;
-      // reload data from server so the table shows fresh values
-      await (async function refreshAfterSync(){
-        try{
-          const res = await fetch('/api/router?type=products', { cache:'no-store' });
-          const data = await res.json();
-          if(res.ok && Array.isArray(data?.products)){ model = normalizeAll(data.products); renderList(); }
-        }catch{}
-      })();
+      await persistAll();
+
+      if (msg) msg.textContent = `Synced ${normalized.length} item(s) from file.`;
+      renderList();
+      startNew();
     }catch(e){
-      $('#listMsg').textContent = 'Sync failed: ' + (e.message || e);
+      if (msg) msg.textContent = 'Sync failed: ' + (e.message || e);
     }
   });
+
+  // Reset + New
+  document.getElementById('btnAddNew').addEventListener('click', startNew);
+  document.getElementById('btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
 
   // Wire slot change
   const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) {
-    slotSel.addEventListener('change', onSlotChange);
-  }
-
-  // Hook "New Product" button
-  document.getElementById('btnAddNew').addEventListener('click', startNew);
+  if (slotSel) slotSel.addEventListener('change', onSlotChange);
 
   // Kick off
   loadInitial();
