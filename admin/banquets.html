@@ -12,7 +12,7 @@
     /* USE the actual viewport width (centered), instead of being capped in practice */
     .container{
       max-width:none;
-      width:min(3400px, calc(100vw - 48px));
+      width:min(3600px, calc(100vw - 48px));
       margin:24px auto;
       padding:0 24px;
       box-sizing:border-box;
@@ -27,13 +27,13 @@
 
     /* Wider panels */
     .col.left{
-      flex: 2 1 1900px;
-      min-width: 1100px;
+      flex: 2 1 2100px;
+      min-width: 1200px;
       overflow: hidden; /* prevents bottom bar from table min-content */
     }
     .col.right{
-      flex: 1 1 1100px;
-      min-width: 820px;
+      flex: 1 1 1200px;
+      min-width: 860px;
       position: sticky;
       top: 16px;
     }
@@ -43,7 +43,7 @@
       background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;
       padding:20px;margin:8px auto 12px;
       width:100%;
-      max-width: 3200px;
+      max-width: 3400px;
       box-sizing:border-box;
     }
 
@@ -62,17 +62,23 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      table-layout: fixed; /* keeps table from forcing horizontal scroll */
+      table-layout: fixed; /* we control column widths via colgroup */
     }
 
     thead th{
       background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;
-      letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0
+      letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0;
+      white-space:nowrap; /* keep headers tidy */
     }
-    tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
+    tbody td{
+      padding:10px;
+      border-bottom:1px solid #f1f2f6;
+      vertical-align:top;
+      min-width:0;
+    }
 
     /* Default: wrap safely */
-    th, td{white-space:normal;word-break:break-word;overflow-wrap:anywhere;min-width:0}
+    td{white-space:normal;word-break:break-word;overflow-wrap:anywhere}
 
     .muted{color:#6b7280}
     .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
@@ -83,18 +89,25 @@
     .ok{color:#065f46}
     code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
 
-    /* Table scroller: vertical scroll only */
+    /* Table scroller: vertical scroll only (no bottom scrollbar) */
     .table-wrap{overflow-y:auto;overflow-x:hidden;max-height:65vh;margin-top:8px}
 
     /* --- FIXES YOU ASKED FOR --- */
 
-    /* Keep banquet name + ID on ONE line (ellipsis instead of wrap) */
-    td.nowrap, td.nowrap *{
+    /* Keep Name + ID on ONE line (ellipsis instead of wrap) */
+    td.nowrap{
       white-space:nowrap !important;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    td.nowrap{max-width: 1px;} /* enables ellipsis in fixed-layout tables */
+
+    /* Tighten a couple columns (Sort↔YoY, Active↔Reports) by controlling col widths */
+    col.c-sort{width:70px}
+    col.c-active{width:70px}
+    col.c-reports{width:92px}
+
+    /* Give Actions enough room so Archive is fully visible */
+    col.c-actions{width:290px}
 
     /* Keep Actions buttons on ONE line */
     td.actions{white-space:nowrap}
@@ -103,19 +116,25 @@
       flex-wrap:nowrap;
       gap:8px;
       align-items:center;
+      justify-content:flex-start;
     }
-    /* Slightly tighter buttons so three fit comfortably */
     .actionbar .btn{
       height:32px;
       padding:0 10px;
       font-weight:700;
+      border-radius:10px;
     }
+
+    /* Slightly tighter cell padding overall so the table “fits” better */
+    tbody td{padding:8px}
+    thead th{padding:8px}
 
     /* Small screens: stack panels */
     @media (max-width:1400px){
       .container{width:calc(100vw - 32px); padding:0 16px}
       .col.left,.col.right{min-width:0;flex:1 1 100%;max-width:none}
       .rules{max-width:none}
+      .table-wrap{max-height:none}
     }
   </style>
 </head>
@@ -161,6 +180,20 @@
 
         <div class="table-wrap">
           <table>
+            <!-- Column widths tuned to: tighter Sort↔YoY, tighter Active↔Reports, enough room for Actions -->
+            <colgroup>
+              <col style="width:260px"><!-- Name -->
+              <col style="width:210px"><!-- ID -->
+              <col class="c-sort"><!-- Sort -->
+              <col style="width:220px"><!-- YoY Slot -->
+              <col style="width:210px"><!-- Event Date -->
+              <col class="c-active"><!-- Active -->
+              <col class="c-reports"><!-- Reports -->
+              <col style="width:280px"><!-- Publish Window (leave alone for now) -->
+              <col style="width:auto"><!-- Chair -->
+              <col class="c-actions"><!-- Actions -->
+            </colgroup>
+
             <thead>
               <tr>
                 <th>Name</th>
@@ -736,7 +769,7 @@
     }
 
     for (const em of (o.chairEmails || [])){
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+      if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)) return `Invalid chair email: ${em}`;
     }
     return '';
   }
@@ -797,7 +830,7 @@
 
     const b = modelAll[idx];
     const ok = confirm(
-      `Archive "${b.name}" (${id})?\n\n` +
+      `Archive \"${b.name}\" (${id})?\\n\\n` +
       `It will be hidden from the Banquet Manager but kept for YoY/history.`
     );
     if (!ok) return;
