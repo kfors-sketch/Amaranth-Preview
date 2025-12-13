@@ -442,9 +442,11 @@
         list = window.BANQUETS;
       }
 
+      // ✅ Apply SAME public sort as requested (active-now filter then sortOrder)
       list
         .filter(b => b.active !== false)
         .filter(b => isWithinWindow(b, nowTs))
+        .sort((a,b) => (Number(a.sortOrder ?? 1000) - Number(b.sortOrder ?? 1000)))
         .forEach(addBanquet);
     }
 
