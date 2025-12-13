@@ -37,752 +37,187 @@
   </style>
 </head>
 <body>
-  <main class="container">
-    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div>
-        <h1>Banquet Manager</h1>
-        <div class="muted">Create, edit, or retire banquets</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
-        <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
-      </div>
-    </header>
+<main class="container">
+<header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+  <div>
+    <h1>Banquet Manager</h1>
+    <div class="muted">Active banquets only — archived remain available in YoY history</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
+    <button id="logoutBtn" class="btn ghost">Log Out</button>
+  </div>
+</header>
 
-    <!-- Rules -->
-    <section class="col rules">
-      <strong>Rules & Tips</strong>
-      <ul class="muted" style="margin:8px 0 0 16px">
-        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>trails-feast</code>).</li>
-        <li><b>Chair Emails</b>: comma-separated list; leave blank if unknown.</li>
-        <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
-        <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
-        <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
-        <li><b>Report Frequency</b>: controls how often chair reports are sent for this banquet.</li>
-        <li><b>Year-over-year Slot</b>: label (e.g. <code>Sunday Night Banquet</code>) to group with similar events across years.</li>
-      </ul>
-    </section>
+<section class="col rules">
+  <strong>Rules & Tips</strong>
+  <ul class="muted" style="margin:8px 0 0 16px">
+    <li><b>Sort Order</b>: lower numbers appear first (admin + public)</li>
+    <li><b>Archive</b>: hides from admin/public but keeps YoY data</li>
+  </ul>
+</section>
 
-    <div class="row">
-      <!-- List -->
-      <section class="col left">
-        <div class="toolbar">
-          <button id="btnAddNew" class="btn success">+ New Banquet</button>
-          <button id="btnExport" class="btn ghost">Export JSON</button>
-          <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
-          <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
-          <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
-          <span id="listMsg" class="muted"></span>
-        </div>
+<div class="row">
+<section class="col left">
+  <div class="toolbar">
+    <button id="btnAddNew" class="btn success">+ New Banquet</button>
+    <button id="btnRefresh" class="btn ghost">Refresh</button>
+    <span id="listMsg" class="muted"></span>
+  </div>
 
-        <div style="overflow:auto;max-height:65vh;margin-top:8px">
-          <table>
-            <thead>
-              <tr>
-                <th style="min-width:160px">Name</th>
-                <th style="min-width:120px">ID</th>
-                <th style="min-width:140px">YoY Slot</th>
-                <th>Event Date</th>
-                <th>Active</th>
-                <th>Reports</th>
-                <th>Publish Window</th>
-                <th>Chair</th>
-                <th style="min-width:220px">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="tbody"></tbody>
-          </table>
-          <div class="hint" style="margin-top:8px">
-            Showing <b>active</b> banquets only. Archiving keeps history for YoY.
-          </div>
-        </div>
-      </section>
+  <div style="overflow:auto;max-height:65vh;margin-top:8px">
+    <table>
+      <thead>
+        <tr>
+          <th>Sort</th>
+          <th>Name</th>
+          <th>ID</th>
+          <th>Event</th>
+          <th>Active</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</section>
 
-      <!-- Editor -->
-      <aside class="col right">
-        <div class="toolbar">
-          <span class="chip" id="modeChip">New</span>
-          <span id="editMsg" class="muted"></span>
-        </div>
+<aside class="col right">
+  <div class="toolbar">
+    <span class="chip" id="modeChip">New</span>
+    <span id="editMsg" class="muted"></span>
+  </div>
 
-        <label for="f_name">Name</label>
-        <input id="f_name" type="text" placeholder="Trails & Treasures Feast" />
+  <label>Name</label>
+  <input id="f_name" />
 
-        <label for="f_id">ID</label>
-        <input id="f_id" type="text" placeholder="trails-feast" />
-        <div class="hint">lowercase letters, numbers, dashes. Example: <code>trails-feast</code></div>
+  <label>ID</label>
+  <input id="f_id" />
 
-        <label for="f_chair_name">Chairperson Name</label>
-        <input id="f_chair_name" type="text" placeholder="Jane Smith" />
+  <label>Sort Order</label>
+  <input id="f_sort" type="number" value="1000" />
+  <div class="hint">Lower = shows earlier</div>
 
-        <label for="f_chair_emails">Chair Emails (comma-separated)</label>
-        <input id="f_chair_emails" type="text" placeholder="chair@example.com, cochair@example.com" />
+  <label>Event Date</label>
+  <input id="f_eventAt" type="datetime-local" />
 
-        <label for="f_meals">Meal Choices (comma-separated; blank = no choice)</label>
-        <input id="f_meals" type="text" placeholder="chicken,beef,veg" />
+  <label>Active</label>
+  <select id="f_active">
+    <option value="true">true</option>
+    <option value="false">false</option>
+  </select>
 
-        <div class="row">
-          <div>
-            <label for="f_active">Active</label>
-            <select id="f_active">
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </div>
-          <div>
-            <label for="f_price">Ticket Price (USD)</label>
-            <input id="f_price" type="number" step="0.01" min="0" placeholder="60.00" />
-          </div>
-        </div>
+  <div class="toolbar" style="margin-top:10px">
+    <button id="btnSave" class="btn">Save</button>
+    <button id="btnReset" class="btn ghost">Reset</button>
+  </div>
+</aside>
+</div>
+</main>
 
-        <label for="f_report_freq">Report Frequency</label>
-        <select id="f_report_freq">
-          <option value="monthly">Monthly (default)</option>
-          <option value="biweekly">Twice per month</option>
-          <option value="weekly">Weekly</option>
-          <option value="daily">Daily</option>
-          <option value="none">Do not auto-send</option>
-        </select>
-        <div class="hint">Used by automated chair reports for this banquet.</div>
+<script src="/assets/js/admin.js"></script>
 
-        <!-- YoY slot selector (now required) -->
-        <label for="f_slot_label">Year-over-year Slot</label>
-        <select id="f_slot_label"></select>
-        <div class="hint">Choose a label (e.g. “Sunday Night Banquet”) to compare this banquet against the same slot in other years.</div>
+<script>
+const $ = s => document.querySelector(s);
+let modelAll = [];
+let current = null;
+let isNew = true;
 
-        <label for="f_location">Location</label>
-        <input id="f_location" type="text" placeholder="Grand Ballroom, Hershey Lodge" />
+function normalize(b){
+  return {
+    ...b,
+    active: b.active !== false,
+    sortOrder: Number.isFinite(+b.sortOrder) ? +b.sortOrder : 1000
+  };
+}
 
-        <div class="row">
-          <div>
-            <label for="f_eventAt">Event Date/Time</label>
-            <input id="f_eventAt" type="datetime-local" />
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <label for="f_start">Publish Start</label>
-            <input id="f_start" type="datetime-local" />
-          </div>
-          <div>
-            <label for="f_end">Publish End</label>
-            <input id="f_end" type="datetime-local" />
-          </div>
-        </div>
-
-        <label for="f_notes">Notes / Description</label>
-        <textarea id="f_notes" placeholder="Any extra text that shows on the product page."></textarea>
-
-        <div class="toolbar" style="margin-top:10px">
-          <button id="btnSave" class="btn">Save</button>
-          <button id="btnReset" class="btn ghost">Reset</button>
-        </div>
-      </aside>
-    </div>
-  </main>
-
-  <!-- Data source (static fallback) -->
-  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
-  <!-- Slot keys helper for YoY grouping -->
-  <script src="/assets/js/admin-slotkeys.js"></script>
-  <script src="/assets/js/banquets.js"></script>
-
-  <!-- Admin shared helpers -->
-  <script src="/assets/js/admin.js"></script>
-
-  <script>
-  // --- Auth & small helpers (aligned with reporting_main.html) ---
-  if (window.Admin && typeof Admin.attachLogout === 'function') {
-    Admin.attachLogout('#logoutBtn');
-  }
-
-  const $  = s => document.querySelector(s);
-  const idOK = id => /^[a-z0-9-]+$/.test(id);
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const pad = n => String(n).padStart(2,'0');
-  const prettyDate = d => d instanceof Date && !isNaN(d) ? (
-    d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
-  ) : '—';
-
-  function toLocalDT(iso){
-    if(!iso) return '';
-    const d = new Date(iso);
-    if(isNaN(d)) return '';
-    const y=d.getFullYear(), m=pad(d.getMonth()+1), day=pad(d.getDate()), hh=pad(d.getHours()), mm=pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
-  }
-  function fromLocalDT(local){
-    if(!local) return '';
-    const d = new Date(local);
-    return isNaN(d) ? '' : d.toISOString();
-  }
-
-  // ---- Frequency helpers (UI side) ----
-  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
-  function normalizeFreq(raw){
-    const v = String(raw || "").trim().toLowerCase();
-    if (!v) return "monthly";
-    if (VALID_FREQS.includes(v)) return v;
-    return "monthly";
-  }
-  function describeFreq(freq){
-    const f = normalizeFreq(freq);
-    switch (f) {
-      case "daily":    return "Daily";
-      case "weekly":   return "Weekly";
-      case "biweekly": return "Twice per month";
-      case "monthly":  return "Monthly";
-      case "none":     return "—";
-      default:         return "Monthly";
-    }
-  }
-
-  // ---- Slot key helpers (YoY bucket) ----
-  const SLOT_KIND = "banquet";
-  const SLOT_NONE_VALUE = "";
-  const SLOT_ADD_VALUE = "__add__";
-
-  function makeSlotKeyFromLabel(label) {
-    const base = String(label || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    return base || "";
-  }
-
-  function getSlotList() {
-    if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
-      const arr = SlotKeys.getSlots(SLOT_KIND) || [];
-      return arr
-        .map(s => ({
-          key: s.key || makeSlotKeyFromLabel(s.label || s.name),
-          label: s.label || s.name || "",
-          scope: s.scope || SLOT_KIND
-        }))
-        .filter(s => s.label);
-    }
-    return [];
-  }
-
-  function ensureSlot(kind, label) {
-    const trimmed = String(label || "").trim();
-    if (!trimmed) return { key: "", label: "", scope: kind };
-    if (window.SlotKeys && typeof SlotKeys.ensureSlot === "function") {
-      try {
-        return SlotKeys.ensureSlot(kind, trimmed);
-      } catch (e) {
-        console.warn("SlotKeys.ensureSlot failed:", e);
-      }
-    }
-    return { key: makeSlotKeyFromLabel(trimmed), label: trimmed, scope: kind };
-  }
-
-  function populateSlotSelect(selectedLabel) {
-    const sel = $('#f_slot_label');
-    if (!sel) return;
-
-    const current = selectedLabel == null ? sel.value : selectedLabel;
-    sel.innerHTML = "";
-
-    const optNone = document.createElement("option");
-    optNone.value = SLOT_NONE_VALUE;
-    optNone.textContent = "— None (no YoY bucket) —";
-    sel.appendChild(optNone);
-
-    const slots = getSlotList();
-    slots.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s.label;
-      opt.textContent = s.label;
-      sel.appendChild(opt);
+function viewList(){
+  return modelAll
+    .filter(b => b.active !== false)
+    .sort((a,b)=>{
+      if(a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return new Date(a.eventAt||0) - new Date(b.eventAt||0);
     });
+}
 
-    const optAdd = document.createElement("option");
-    optAdd.value = SLOT_ADD_VALUE;
-    optAdd.textContent = "➕ Add new label…";
-    sel.appendChild(optAdd);
-
-    if (current && current !== SLOT_ADD_VALUE) {
-      const exists = slots.some(s => s.label === current);
-      if (!exists && current !== SLOT_NONE_VALUE) {
-        const opt = document.createElement("option");
-        opt.value = current;
-        opt.textContent = current;
-        sel.insertBefore(opt, optAdd);
-      }
-      sel.value = current;
-    } else {
-      sel.value = SLOT_NONE_VALUE;
-    }
-  }
-
-  function onSlotChange(e) {
-    const sel = e.currentTarget;
-    if (!sel) return;
-    const val = sel.value;
-    if (val === SLOT_ADD_VALUE) {
-      const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Sunday Night Banquet'):");
-      if (!label) { sel.value = SLOT_NONE_VALUE; return; }
-      const slot = ensureSlot(SLOT_KIND, label);
-      populateSlotSelect(slot.label);
-      sel.value = slot.label;
-    }
-  }
-
-  // We keep ALL banquets in modelAll (history). The manager view only shows active ones.
-  let modelAll = [];
-  let current = null;
-  let isNew = true;
-
-  function viewList(){
-    return modelAll.filter(b => b.active !== false);
-  }
-
-  // ---- Normalization helpers ----
-  function normalizeBanquet(b){
-    const out = {...b};
-
-    if (out.price == null) {
-      const opt0 = Array.isArray(out.options) && out.options[0] ? out.options[0] : null;
-      if (opt0 && opt0.price != null) out.price = Number(opt0.price) || 0;
-      else out.price = 0;
-    } else {
-      out.price = Number(out.price) || 0;
-    }
-
-    out.active = (out.active !== false);
-
-    if (!Array.isArray(out.mealChoices)) {
-      if (typeof out.mealChoices === 'string' && out.mealChoices.trim()) {
-        out.mealChoices = out.mealChoices.split(',').map(s=>s.trim()).filter(Boolean);
-      } else {
-        out.mealChoices = [];
-      }
-    }
-
-    if (!Array.isArray(out.chairEmails)) {
-      const e = out.chairEmails || (out.chair && out.chair.email) || '';
-      out.chairEmails = e ? String(e).split(',').map(s=>s.trim()).filter(Boolean) : [];
-    }
-
-    out.chair = out.chair || {};
-    if (!out.chair.name) out.chair.name = '';
-    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
-
-    out.eventAt = out.eventAt || '';
-    out.publishStart = out.publishStart || '';
-    out.publishEnd = out.publishEnd || '';
-
-    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
-
-    out.slotScope = out.slotScope || SLOT_KIND;
-    out.slotKey = out.slotKey || "";
-    out.slotLabel = out.slotLabel || out.slotKey || "";
-
-    delete out.options;
-    return out;
-  }
-
-  function normalizeAll(list){
-    return (Array.isArray(list) ? list : []).map(normalizeBanquet);
-  }
-
-  async function syncChairEmailConfigs(list){
-    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
-
-    const payloads = (list || []).map(b => ({
-      id: b.id || "",
-      name: b.name || "",
-      chairEmails: Array.isArray(b.chairEmails) ? b.chairEmails : (b.chair?.email ? [b.chair.email] : []),
-      publishStart: b.publishStart || "",
-      publishEnd: b.publishEnd || "",
-      reportFrequency: normalizeFreq(b.reportFrequency || b.report_frequency || "monthly")
-    })).filter(x => x.id && x.name);
-
-    if (!payloads.length) return { attempted: 0, ok: 0 };
-
-    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-
-    const results = await Promise.all(payloads.map(async p => {
-      try {
-        const r = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(p)
-        });
-        return r.ok;
-      } catch (err) {
-        console.warn("register_item error for", p.id, err);
-        return false;
-      }
-    }));
-
-    const ok = results.filter(Boolean).length;
-    return { attempted: payloads.length, ok };
-  }
-
-  async function loadInitial(){
-    let loaded = false;
-    try {
-      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.banquets)) {
-          modelAll = normalizeAll(j.banquets);
-          loaded = true;
-        }
-      }
-    } catch (e) {
-      console.warn('Server banquets fetch failed:', e);
-    }
-
-    if (!loaded) {
-      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
-      $('#listMsg').textContent = 'Using static list (fallback).';
-    } else {
-      $('#listMsg').textContent = 'Loaded from server.';
-    }
-
-    populateSlotSelect();
-    renderList();
-    startNew();
-  }
-
-  $('#btnRefresh').addEventListener('click', async ()=>{
-    $('#listMsg').textContent = 'Refreshing…';
-    let loaded = false;
-    try{
-      const r = await fetch('/api/router?type=banquets', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.banquets)){
-          modelAll = normalizeAll(j.banquets);
-          loaded = true;
-          $('#listMsg').textContent = 'Loaded from server.';
-        }
-      }
-    }catch(err){ console.warn('Refresh server error:', err); }
-    if(!loaded){
-      const src = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
-      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
-      $('#listMsg').textContent = 'Server empty/unavailable — using fallback.';
-    }
-    populateSlotSelect();
-    renderList();
-    startNew();
-  });
-
-  function renderList(){
-    const tb = $('#tbody'); tb.innerHTML = '';
-    const list = viewList();
-
-    if(!list.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No active banquets — click “New” to create one.</td></tr>';
-      return;
-    }
-
-    for(const b of list){
-      const start = b.publishStart ? new Date(b.publishStart).toLocaleString() : '—';
-      const end   = b.publishEnd ? new Date(b.publishEnd).toLocaleString() : '—';
-      const chair = (b.chair && b.chair.name) ? b.chair.name : (b.chair?.email || '—');
-      const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
-      const freqLabel = describeFreq(b.reportFrequency || b.report_frequency || "monthly");
-      const slotLabel = b.slotLabel || "";
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><strong>${esc(b.name||'')}</strong></td>
-        <td><code>${esc(b.id||'')}</code></td>
-        <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
-        <td>${esc(eventPretty)}</td>
-        <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
-        <td><span class="muted">${esc(freqLabel)}</span></td>
-        <td><div class="muted">${start} → ${end}</div></td>
-        <td>${esc(chair)}</td>
+function render(){
+  const tb = $('#tbody');
+  tb.innerHTML = '';
+  viewList().forEach(b=>{
+    tb.innerHTML += `
+      <tr>
+        <td>${b.sortOrder}</td>
+        <td>${b.name}</td>
+        <td><code>${b.id}</code></td>
+        <td>${b.eventAt ? new Date(b.eventAt).toLocaleString() : '—'}</td>
+        <td>${b.active ? 'true' : 'false'}</td>
         <td>
-          <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
-          <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
-          <button class="btn warn btnArchive" data-id="${esc(b.id)}">Archive</button>
-        </td>`;
-      tb.appendChild(tr);
-    }
-
-    tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
-    tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
-    tb.querySelectorAll('.btnArchive').forEach(el=>el.addEventListener('click',onArchive));
-  }
-
-  function startNew(){
-    isNew = true;
-    current = null;
-    $('#modeChip').textContent = 'New';
-    $('#editMsg').textContent = '';
-
-    $('#f_name').value = '';
-    $('#f_id').value = '';
-    $('#f_chair_name').value = '';
-    $('#f_chair_emails').value = '';
-    $('#f_meals').value = '';
-    $('#f_active').value = 'true';
-    $('#f_price').value = '';
-    $('#f_report_freq').value = 'monthly';
-    $('#f_location').value = '';
-    $('#f_eventAt').value = '';
-    $('#f_start').value = '';
-    $('#f_end').value = '';
-    $('#f_notes').value = '';
-    populateSlotSelect();
-  }
-
-  function fillForm(b){
-    const n = normalizeBanquet(b);
-    isNew = false;
-    current = n;
-    $('#modeChip').textContent = 'Edit';
-    $('#editMsg').textContent = '';
-
-    populateSlotSelect(n.slotLabel || "");
-
-    $('#f_name').value = n.name || '';
-    $('#f_id').value = n.id || '';
-    $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
-    $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
-    $('#f_meals').value = Array.isArray(n.mealChoices) ? n.mealChoices.join(',') : (n.mealChoices || '');
-
-    $('#f_active').value = String(n.active !== false);
-    $('#f_price').value = n.price ? Number(n.price).toFixed(2) : '';
-
-    $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
-
-    $('#f_location').value = n.location || '';
-    $('#f_eventAt').value = toLocalDT(n.eventAt || '');
-    $('#f_start').value = toLocalDT(n.publishStart || '');
-    $('#f_end').value = toLocalDT(n.publishEnd || '');
-    $('#f_notes').value = n.description || n.notes || '';
-  }
-
-  function readForm(){
-    const name = $('#f_name').value.trim();
-    const id   = $('#f_id').value.trim();
-    const chairName = $('#f_chair_name').value.trim();
-    const chairEmailsRaw = $('#f_chair_emails').value.trim();
-    const mealsRaw = $('#f_meals').value.trim();
-    const active = $('#f_active').value === 'true';
-    const price = parseFloat($('#f_price').value || '0') || 0;
-    const location = $('#f_location').value.trim();
-    const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
-
-    const eventAtISO = fromLocalDT($('#f_eventAt').value);
-    const startISO = fromLocalDT($('#f_start').value);
-    const endISO = fromLocalDT($('#f_end').value);
-    const notes = $('#f_notes').value.trim();
-
-    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    const mealChoices = mealsRaw ? mealsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    const datetimePretty = eventAtISO ? new Date(eventAtISO).toLocaleString() : '';
-
-    const slotLabelRaw = $('#f_slot_label').value || "";
-    let slotKey = "", slotLabel = "", slotScope = SLOT_KIND;
-
-    if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
-      const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
-      slotKey = slot.key || "";
-      slotLabel = slot.label || "";
-      slotScope = slot.scope || SLOT_KIND;
-    }
-
-    return {
-      id, name, active,
-      price: Math.round(price * 100) / 100,
-      mealChoices,
-      eventAt: eventAtISO,
-      datetime: datetimePretty,
-      publishStart: startISO,
-      publishEnd: endISO,
-      location,
-      description: notes,
-      chair: { name: chairName, email: chairEmails[0] || '' },
-      chairEmails,
-      reportFrequency: freq,
-      slotKey, slotLabel, slotScope
-    };
-  }
-
-  function validate(o){
-    if (!o.name) return 'Name is required.';
-    if (!o.id) return 'ID is required.';
-    if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-    if (!o.slotLabel) return 'Year-over-year Slot is required.';
-    if (!o.chair || !o.chair.name) return 'Chairperson Name is required.';
-    if (!o.chairEmails || !o.chairEmails.length) return 'At least one Chair Email is required.';
-    if (!o.eventAt) return 'Event Date/Time is required.';
-
-    const priceNum = Number(o.price);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) return 'Ticket Price must be greater than zero.';
-
-    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) {
-      return 'Publish End must be after Publish Start.';
-    }
-
-    for (const em of (o.chairEmails || [])){
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
-    }
-    return '';
-  }
-
-  function onEdit(e){
-    const id = e.currentTarget.dataset.id;
-    const b = modelAll.find(x => x.id === id);
-    if (!b) { $('#editMsg').textContent = 'Item not found.'; return; }
-    fillForm(b);
-  }
-
-  function uniqueId(base){
-    let i = 1, candidate = base;
-    while (modelAll.some(x => x.id === candidate)) {
-      i += 1;
-      candidate = `${base}-${i}`;
-    }
-    return candidate;
-  }
-
-  function onCopy(e){
-    const id = e.currentTarget.dataset.id;
-    const b = modelAll.find(x => x.id === id);
-    if (!b) { $('#editMsg').textContent = 'Item not found.'; return; }
-    const copy = normalizeBanquet(JSON.parse(JSON.stringify(b)));
-    copy.name = (copy.name || '') + ' (copy)';
-    const baseId = (copy.id || 'item') + '-copy';
-    copy.id = uniqueId(baseId);
-    copy.publishStart = '';
-    copy.publishEnd = '';
-    copy.eventAt = '';
-    copy.datetime = '';
-    startNew();
-    fillForm(copy);
-    isNew = true;
-    $('#modeChip').textContent = 'New (from copy)';
-  }
-
-  async function persistAll(){
-    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-    const payload = normalizeAll(modelAll).map(it => {
-      const { options, ...rest } = it;
-      return rest;
-    });
-
-    // 1) Save banquets list
-    const res = await fetch("/api/router?action=save_banquets", {
-      method: "POST", headers, body: JSON.stringify({ banquets: payload })
-    });
-    if (!res.ok) throw new Error("server rejected");
-
-    // 2) Sync chair emails + frequency → itemcfg:<id>
-    try { await syncChairEmailConfigs(payload); } catch (_) {}
-  }
-
-  // Delete -> Archive
-  async function onArchive(e){
-    const id = e.currentTarget.dataset.id;
-    const idx = modelAll.findIndex(x => x.id === id);
-    if (idx < 0) { $('#editMsg').textContent = 'Item not found.'; return; }
-
-    const b = modelAll[idx];
-    const ok = confirm(
-      `Archive "${b.name}" (${id})?\n\n` +
-      `It will be hidden from the Banquet Manager but kept for YoY/history.`
-    );
-    if (!ok) return;
-
-    // Mark inactive + close publish window
-    modelAll[idx] = normalizeBanquet({
-      ...b,
-      active: false,
-      publishEnd: new Date().toISOString()
-    });
-
-    // If editing it, reset editor
-    if (current && current.id === id) startNew();
-
-    renderList();
-    $('#editMsg').textContent = 'Archiving…';
-
-    try{
-      await persistAll();
-      $('#editMsg').textContent = 'Archived (history preserved for YoY).';
-    }catch(err){
-      console.warn("Archive persist error:", err);
-      $('#editMsg').textContent = 'Archived locally; export/import if needed.';
-    }
-  }
-
-  // Buttons wired
-  $('#btnAddNew').addEventListener('click', startNew);
-  $('#btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
-
-  // Export / Import
-  $('#btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(normalizeAll(modelAll), null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'banquets-export.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+          <button onclick="edit('${b.id}')">Edit</button>
+          <button onclick="archive('${b.id}')">Archive</button>
+        </td>
+      </tr>`;
   });
+}
 
-  $('#fileImport').addEventListener('change', async (ev)=>{
-    const f = ev.target.files[0];
-    if (!f) return;
-    try{
-      const txt = await f.text();
-      const data = JSON.parse(txt);
-      if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      modelAll = normalizeAll(data);
-      populateSlotSelect();
-      renderList();
-      startNew();
-      $('#listMsg').textContent = 'Imported from file (not yet saved to server).';
-    }catch(err){
-      alert('Import failed: ' + (err?.message || String(err)));
-    }finally{
-      ev.target.value = '';
-    }
+function edit(id){
+  current = modelAll.find(b=>b.id===id);
+  isNew = false;
+  $('#modeChip').textContent = 'Edit';
+  $('#f_name').value = current.name;
+  $('#f_id').value = current.id;
+  $('#f_sort').value = current.sortOrder;
+  $('#f_eventAt').value = current.eventAt?.slice(0,16)||'';
+  $('#f_active').value = String(current.active);
+}
+
+function reset(){
+  isNew = true;
+  current = null;
+  $('#modeChip').textContent = 'New';
+  $('#f_name').value='';
+  $('#f_id').value='';
+  $('#f_sort').value='1000';
+  $('#f_eventAt').value='';
+  $('#f_active').value='true';
+}
+
+async function save(){
+  const o = {
+    id: $('#f_id').value.trim(),
+    name: $('#f_name').value.trim(),
+    sortOrder: +$('#f_sort').value || 1000,
+    eventAt: $('#f_eventAt').value ? new Date($('#f_eventAt').value).toISOString() : '',
+    active: $('#f_active').value === 'true'
+  };
+
+  if(isNew) modelAll.push(o);
+  else Object.assign(current,o);
+
+  render();
+  await fetch('/api/router?action=save_banquets',{
+    method:'POST',
+    headers:{'Content-Type':'application/json',...Admin.tokenHeader()},
+    body:JSON.stringify({banquets:modelAll})
   });
+}
 
-  // Save
-  $('#btnSave').addEventListener('click', async ()=>{
-    const o = readForm();
-    const err = validate(o);
-    if(err){ $('#editMsg').textContent = err; return; }
+async function archive(id){
+  const b = modelAll.find(x=>x.id===id);
+  if(!confirm(`Archive ${b.name}?`)) return;
+  b.active = false;
+  await save();
+}
 
-    const idx = modelAll.findIndex(x => x.id === o.id);
-    if(idx >= 0){
-      modelAll[idx] = {...modelAll[idx], ...o};
-    }else{
-      modelAll.push(o);
-      isNew = false;
-      current = o;
-      $('#modeChip').textContent = 'Edit';
-    }
+$('#btnSave').onclick = save;
+$('#btnReset').onclick = reset;
+$('#btnAddNew').onclick = reset;
 
-    renderList();
-
-    try{
-      $('#editMsg').textContent = 'Saving…';
-      await persistAll();
-      $('#editMsg').textContent = 'Saved to server.';
-    }catch(e){
-      console.warn("Save error:", e);
-      $('#editMsg').textContent = 'Saved locally; export JSON if needed.';
-    }
-  });
-
-  // Wire slot change
-  const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) slotSel.addEventListener('change', onSlotChange);
-
-  loadInitial();
-  </script>
+(async()=>{
+  const r = await fetch('/api/router?type=banquets',{cache:'no-store'});
+  const j = await r.json();
+  modelAll = (j.banquets||[]).map(normalize);
+  render();
+})();
+</script>
 </body>
 </html>
