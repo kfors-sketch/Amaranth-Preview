@@ -54,6 +54,7 @@
       <strong>Rules & Tips</strong>
       <ul class="muted" style="margin:8px 0 0 16px">
         <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>trails-feast</code>).</li>
+        <li><b>Sort Order</b>: lower shows first in admin + public (default 1000).</li>
         <li><b>Chair Emails</b>: comma-separated list; leave blank if unknown.</li>
         <li><b>Meal Choices</b>: leave blank for no choice, or comma-separated (e.g. <code>chicken,beef,veg</code>).</li>
         <li><b>Event Date/Time</b>: choose the local date/time of the banquet.</li>
@@ -81,6 +82,7 @@
               <tr>
                 <th style="min-width:160px">Name</th>
                 <th style="min-width:120px">ID</th>
+                <th style="min-width:90px">Sort</th>
                 <th style="min-width:140px">YoY Slot</th>
                 <th>Event Date</th>
                 <th>Active</th>
@@ -111,6 +113,10 @@
         <label for="f_id">ID</label>
         <input id="f_id" type="text" placeholder="trails-feast" />
         <div class="hint">lowercase letters, numbers, dashes. Example: <code>trails-feast</code></div>
+
+        <label for="f_sort">Sort Order</label>
+        <input id="f_sort" type="number" step="1" placeholder="10" />
+        <div class="hint">Lower shows first (admin + public).</div>
 
         <label for="f_chair_name">Chairperson Name</label>
         <input id="f_chair_name" type="text" placeholder="Jane Smith" />
@@ -343,6 +349,11 @@
   function normalizeBanquet(b){
     const out = {...b};
 
+    // NEW: sortOrder
+    out.sortOrder = (out.sortOrder == null || out.sortOrder === "")
+      ? undefined
+      : (Number(out.sortOrder) || 0);
+
     if (out.price == null) {
       const opt0 = Array.isArray(out.options) && out.options[0] ? out.options[0] : null;
       if (opt0 && opt0.price != null) out.price = Number(opt0.price) || 0;
@@ -386,6 +397,17 @@
 
   function normalizeAll(list){
     return (Array.isArray(list) ? list : []).map(normalizeBanquet);
+  }
+
+  // NEW: shared sorter (admin list + public)
+  function sortBanquetsForView(model){
+    const list = [...(model || [])].sort((a,b) => {
+      const ao = Number(a.sortOrder ?? 1000);
+      const bo = Number(b.sortOrder ?? 1000);
+      if (ao !== bo) return ao - bo;
+      return String(a.name||'').localeCompare(String(b.name||''));
+    });
+    return list;
   }
 
   async function syncChairEmailConfigs(list){
@@ -476,10 +498,12 @@
 
   function renderList(){
     const tb = $('#tbody'); tb.innerHTML = '';
-    const list = viewList();
+
+    // IMPORTANT: filter active, then sort
+    const list = sortBanquetsForView(viewList());
 
     if(!list.length){
-      tb.innerHTML = '<tr><td colspan="9" class="muted">No active banquets — click “New” to create one.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="10" class="muted">No active banquets — click “New” to create one.</td></tr>';
       return;
     }
 
@@ -490,10 +514,13 @@
       const eventPretty = b.eventAt ? prettyDate(new Date(b.eventAt)) : (b.datetime || '—');
       const freqLabel = describeFreq(b.reportFrequency || b.report_frequency || "monthly");
       const slotLabel = b.slotLabel || "";
+      const so = (b.sortOrder == null || b.sortOrder === "") ? 1000 : Number(b.sortOrder);
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${esc(b.name||'')}</strong></td>
         <td><code>${esc(b.id||'')}</code></td>
+        <td><span class="muted">${esc(String(so))}</span></td>
         <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
         <td>${esc(eventPretty)}</td>
         <td>${b.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
@@ -521,6 +548,7 @@
 
     $('#f_name').value = '';
     $('#f_id').value = '';
+    $('#f_sort').value = '';
     $('#f_chair_name').value = '';
     $('#f_chair_emails').value = '';
     $('#f_meals').value = '';
@@ -546,6 +574,7 @@
 
     $('#f_name').value = n.name || '';
     $('#f_id').value = n.id || '';
+    $('#f_sort').value = (n.sortOrder == null || n.sortOrder === "") ? '' : String(Number(n.sortOrder));
     $('#f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
     $('#f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
     $('#f_meals').value = Array.isArray(n.mealChoices) ? n.mealChoices.join(',') : (n.mealChoices || '');
@@ -565,6 +594,7 @@
   function readForm(){
     const name = $('#f_name').value.trim();
     const id   = $('#f_id').value.trim();
+    const sortOrderRaw = ($('#f_sort').value || '').trim();
     const chairName = $('#f_chair_name').value.trim();
     const chairEmailsRaw = $('#f_chair_emails').value.trim();
     const mealsRaw = $('#f_meals').value.trim();
@@ -592,8 +622,11 @@
       slotScope = slot.scope || SLOT_KIND;
     }
 
+    const sortOrder = sortOrderRaw === "" ? undefined : (Number(sortOrderRaw) || 0);
+
     return {
       id, name, active,
+      sortOrder,
       price: Math.round(price * 100) / 100,
       mealChoices,
       eventAt: eventAtISO,
