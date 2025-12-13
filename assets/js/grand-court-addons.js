@@ -18,12 +18,25 @@
     return isFinite(v) ? v : def;
   }
 
+  // NEW: sort helper (lower sortOrder first; tie-break by name)
+  function sortBySortOrder(a, b) {
+    const ao = Number(a?.sortOrder ?? 1000);
+    const bo = Number(b?.sortOrder ?? 1000);
+    if (ao !== bo) return ao - bo;
+    return String(a?.name || "").localeCompare(String(b?.name || ""));
+  }
+
   function normalizeAddon(raw) {
     const a = Object.assign({}, raw || {});
 
     a.id = String(a.id || "").trim();
     a.name = String(a.name || "").trim() || a.id || "Add-On";
     a.type = String(a.type || "fixed").trim();
+
+    // NEW: sortOrder (admin + public)
+    // default 1000 so legacy items naturally fall to the bottom
+    a.sortOrder = Number(a.sortOrder ?? 1000);
+    if (!isFinite(a.sortOrder)) a.sortOrder = 1000;
 
     // price in *dollars* for UI
     if (a.price != null) {
@@ -64,10 +77,7 @@
             .toLowerCase()
             .replace(/[^a-z0-9-]+/g, "-"),
           label: String(v.label || v.name || "").trim() || "Option",
-          price: toNumber(
-            v.price != null ? v.price : a.price || 0,
-            0
-          ),
+          price: toNumber(v.price != null ? v.price : a.price || 0, 0),
         };
       });
     } else {
@@ -107,14 +117,18 @@
     if (Array.isArray(j?.addons) && j.addons.length) {
       addons = j.addons
         .map(normalizeAddon)
-        .filter((a) => a.active && isWithinWindow(a, now));
+        .filter((a) => a.active && isWithinWindow(a, now))
+        .slice()
+        .sort(sortBySortOrder); // NEW
     }
 
     // 2) Fallback to static list if server empty/unavailable
     if (!addons.length && Array.isArray(window.GRAND_COURT_ADDONS)) {
       addons = window.GRAND_COURT_ADDONS
         .map(normalizeAddon)
-        .filter((a) => a.active && isWithinWindow(a, now));
+        .filter((a) => a.active && isWithinWindow(a, now))
+        .slice()
+        .sort(sortBySortOrder); // NEW
     }
 
     return addons;
@@ -176,13 +190,7 @@
       return false;
     }
 
-    const {
-      qty,
-      amount,
-      attendee,
-      variant,
-      notes, // NEW
-    } = options || {};
+    const { qty, amount, attendee, variant, notes } = options || {};
 
     const quantity = Math.max(1, toNumber(qty || 1, 1));
     const price = toNumber(amount || addon.price || 0, 0);
@@ -216,7 +224,7 @@
     }
 
     if (notes) {
-      meta.notes = notes; // NEW: carry custom/notes text to reports
+      meta.notes = notes; // carry custom/notes text to reports
     }
 
     // This shape is what order-page + backend expect
@@ -271,10 +279,9 @@
     let qtyInput = null;
     let amountInput = null;
     let variantSelect = null;
-    let notesInput = null; // NEW: shared notes/custom text field
+    let notesInput = null;
 
     if (addon.type === "amount") {
-      // Open-dollar amount (e.g., Love Gift)
       const amtWrap = document.createElement("label");
       const amtLabel = document.createElement("span");
       const min = addon.minAmount || 0.01;
@@ -288,7 +295,6 @@
       amtWrap.appendChild(amountInput);
       row.appendChild(amtWrap);
 
-      // Optional notes for amount-type add-ons
       const notesWrap = document.createElement("label");
       const notesLabel = document.createElement("span");
       notesLabel.textContent = "Notes (optional)";
@@ -326,7 +332,6 @@
       qtyWrap.appendChild(qtyLabel);
       qtyWrap.appendChild(qtyInput);
 
-      // NEW: Notes / custom text for variantQty (e.g., corsage custom flowers)
       const notesWrap = document.createElement("label");
       const notesLabel = document.createElement("span");
       notesLabel.textContent = "Notes (optional)";
@@ -353,11 +358,8 @@
       qtyWrap.appendChild(qtyInput);
       row.appendChild(qtyWrap);
     } else {
-      // fixed
       const priceP = document.createElement("p");
-      priceP.innerHTML = `<strong>${money(
-        addon.price
-      )}</strong> each (limit 1 per attendee)`;
+      priceP.innerHTML = `<strong>${money(addon.price)}</strong> each (limit 1 per attendee)`;
       card.appendChild(priceP);
     }
 
@@ -384,7 +386,6 @@
       const attKey = attendeeSelect.value || "";
       const attendee = attKey ? findAttendeeByKey(attKey) : null;
 
-      // For now we *strongly* prefer an attendee for all add-ons.
       if (!attendee) {
         alert("Please add an attendee above and select them for this add-on.");
         return;
@@ -408,9 +409,9 @@
       } else if (addon.type === "variantQty") {
         const val = variantSelect ? variantSelect.value : "";
         const selected =
-          addon.variants.find(
-            (v) => v.id === val || v.label === val
-          ) || addon.variants[0] || null;
+          addon.variants.find((v) => v.id === val || v.label === val) ||
+          addon.variants[0] ||
+          null;
         if (!selected) {
           alert("Please choose an option.");
           return;
@@ -430,7 +431,6 @@
         }
         amount = addon.price || 0;
       } else {
-        // fixed
         qty = 1;
         amount = addon.price || 0;
       }
@@ -440,7 +440,7 @@
         amount,
         attendee,
         variant,
-        notes, // NEW
+        notes,
       });
 
       if (ok) {
@@ -451,7 +451,6 @@
           addBtn.disabled = false;
         }, 1200);
 
-        // Let other scripts know cart changed
         try {
           window.dispatchEvent(new Event("cart:updated"));
         } catch (e) {}

@@ -3,6 +3,10 @@ window.CATALOG_ITEMS = [
   {
     id: "sunflower-pendant",
     name: "Sunflower Pendant",
+
+    // NEW: Sort Order (lower shows first)
+    sortOrder: 10,
+
     // Single-price item
     price: 25, // dollars (item price, not shipping)
 
@@ -12,10 +16,7 @@ window.CATALOG_ITEMS = [
     shippingCents: 550, // $5.50 shipping & handling
 
     image: "/assets/shop/sunflower-pin_thumb.jpg",
-    images: [
-      "/assets/shop/sunflower-pin_full.jpg",
-      "/assets/shop/sunflower-back.jpg"
-    ],
+    images: ["/assets/shop/sunflower-pin_full.jpg", "/assets/shop/sunflower-back.jpg"],
     sku: "SUN-001",
     qtyTotal: 0, // 0 (or omit) = unlimited; set to a number to track inventory
     qtySold: 0,  // must be present; the page updates this as people buy
@@ -31,6 +32,10 @@ window.CATALOG_ITEMS = [
   {
     id: "amaranth-pendant",
     name: "Amaranth Pendant",
+
+    // NEW: Sort Order (lower shows first)
+    sortOrder: 20,
+
     // Single-price item
     price: 500, // dollars
 
@@ -55,6 +60,10 @@ window.CATALOG_ITEMS = [
   {
     id: "session-coin",
     name: "Commemorative Coin",
+
+    // NEW: Sort Order (lower shows first)
+    sortOrder: 30,
+
     tiered: true,
     pricing: [
       { qty: 1, price: 10 },
@@ -67,7 +76,7 @@ window.CATALOG_ITEMS = [
     shippingCents: 750, // $7.50 shipping & handling
 
     image: "",   // placeholder
-    images: [], // placeholder
+    images: [],  // placeholder
     sku: "COIN-001",
     qtyTotal: 0, // unlimited
     qtySold: 0,
@@ -93,6 +102,10 @@ window.CATALOG_ITEMS = [
       const payload = {
         id: item.id,
         name: item.name,
+
+        // NEW: include sortOrder so KV copy keeps ordering
+        sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : 1000,
+
         publishStart: item.publishStart || "",
         publishEnd: item.publishEnd || "" // used as "ordering closes" for FINAL report if set
       };
