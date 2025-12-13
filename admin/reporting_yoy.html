@@ -41,7 +41,7 @@
       gap:6px;
       flex-wrap:wrap;
     }
-    .heading-row .muted{font-size:12px;max-width:420px}
+    .heading-row .muted{font-size:12px;max-width:520px}
     .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
     .metric-chip{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #e5e7eb;padding:2px 8px;font-size:11px;background:#f9fafb;color:#374151;margin-right:4px;margin-bottom:4px}
     .metric-chip span{opacity:.7;margin-left:4px}
@@ -57,7 +57,7 @@
     .text-right{text-align:right}
     .table-wrap{max-height:480px;overflow:auto;border-radius:12px;border:1px solid #e5e7eb;background:#fff}
     table{width:100%;border-collapse:collapse;font-size:12px}
-    th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left;vertical-align:top}
+    th,td{border-bottom:1px solid #e5e7eb;padding:6px 6px;text-align:left;vertical-align:top}
     th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;background:#f9fafb;position:sticky;top:0;z-index:1}
     tr:nth-child(even){background:#f9fafb}
     .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid #e5e7eb;background:#f9fafb}
@@ -68,8 +68,8 @@
     .chart-box{flex:1 1 260px;min-height:140px;border-radius:12px;border:1px dashed #e5e7eb;padding:10px;background:#f9fafb;font-size:11px;color:#4b5563}
     .chart-title{font-weight:600;margin-bottom:6px}
     .bar-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
-    .bar-label{flex:0 0 70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .bar-track{flex:1 1 auto;height:8px;border-radius:999px;background:#e5e7eb;overflow:hidden}
+    .bar-label{flex:0 0 90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bar-track{flex:1 1 auto;height:8px;border-radius:999px;background:#e5e7eb;overflow:hidden;position:relative}
     .bar-fill{height:100%;border-radius:999px;background:#2563eb}
     .bar-fill.compare{background:#f97316}
     .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:11px}
@@ -77,6 +77,27 @@
     .legend-swatch{width:10px;height:10px;border-radius:999px;background:#2563eb}
     .legend-swatch.compare{background:#f97316}
     .legend-swatch.delta{background:#16a34a}
+
+    /* Tabs + History browser */
+    .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px}
+    .tab{height:32px;border-radius:999px;border:1px solid #d1d5db;background:#fff;color:#111;font-size:13px;padding:0 14px;font-weight:700;display:inline-flex;align-items:center}
+    .tab.active{background:#111;color:#fff}
+    .hidden{display:none !important}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    .kvs{display:grid;grid-template-columns:140px 1fr;gap:6px 10px;font-size:12px}
+    .kvs .k{color:#6b7280}
+    .kvs .v{color:#111827;word-break:break-word}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:9999}
+    .modal{width:min(980px,100%);background:#fff;border-radius:16px;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.2);overflow:hidden}
+    .modal header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb}
+    .modal header h3{margin:0;font-size:14px}
+    .modal .body{padding:12px 14px;max-height:70vh;overflow:auto}
+    .btn.link{background:#fff;color:#111;border-color:#e5e7eb}
+    .compare-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    @media(max-width:900px){
+      .compare-grid{grid-template-columns:1fr}
+    }
+
     @media(max-width:768px){
       .row{flex-direction:column}
       .heading-row{flex-direction:column;align-items:flex-start}
@@ -84,7 +105,7 @@
       .table-wrap{max-height:none}
     }
     @media print{
-      .heading-actions,.toolbar{display:none !important}
+      .heading-actions,.toolbar,.tabs,#historyControls,#historyToolbar{display:none !important}
       body{background:#fff}
       .container{margin:0 auto;padding:8px}
       .card{box-shadow:none}
@@ -96,7 +117,7 @@
     <div class="heading-row">
       <div>
         <h2>
-          Year-over-Year Overview
+          Year-over-Year & History
           <button
             type="button"
             class="help-btn"
@@ -105,7 +126,7 @@
           >?</button>
         </h2>
         <p class="muted">
-          Compare totals between two years by category and slot (banquets, add-ons, catalog).
+          YoY compares totals between two years. History lets you search/compare <b>any past event / catalog item / add-on</b> by <b>any field</b> (including archived/inactive).
         </p>
       </div>
       <div class="heading-actions">
@@ -116,152 +137,306 @@
       </div>
     </div>
 
-    <!-- Filters -->
-    <div class="card mb-16">
-      <div class="section-label">Filters</div>
-      <h3>
-        Choose years and view
-        <button
-          type="button"
-          class="help-btn"
-          data-help-id="yoy_filters"
-          aria-label="Help for Year-over-Year filters"
-        >?</button>
-      </h3>
-      <p class="muted">These options control the charts and table below.</p>
-      <div class="controls mt-4">
-        <div class="group">
-          <label class="muted">Category</label>
-          <select id="yCategory">
-            <option value="">All</option>
-            <option value="banquet">Banquets</option>
-            <option value="addon">Add-ons</option>
-            <option value="catalog">Catalog</option>
-          </select>
-        </div>
-        <div class="group">
-          <label class="muted">Slot</label>
-          <select id="ySlot">
-            <!-- populated from index endpoint -->
-          </select>
-        </div>
-        <div class="group">
-          <label class="muted">Base year</label>
-          <select id="yBase">
-            <!-- populated from index endpoint -->
-          </select>
-        </div>
-        <div class="group">
-          <label class="muted">Compare to year</label>
-          <select id="yCompare">
-            <!-- populated from index endpoint -->
-          </select>
-        </div>
-        <div class="group">
-          <label class="muted">Metric</label>
-          <select id="yMetric">
-            <option value="amount">Total amount</option>
-            <option value="orders">Order count</option>
-            <option value="purchasers">Purchasers</option>
-            <option value="items">Items sold</option>
-          </select>
-        </div>
-      </div>
-      <p class="muted mt-4" id="yStatus"></p>
+    <!-- Tabs -->
+    <div class="tabs">
+      <button id="tabYoy" class="tab active" type="button">YoY Overview</button>
+      <button id="tabHistory" class="tab" type="button">History Browser</button>
+      <span class="muted" style="align-self:center">Tip: use History Browser for old banquets and deep lookup.</span>
     </div>
 
-    <div class="row">
-      <!-- LEFT: Headline + charts -->
-      <div class="col">
-        <div class="card mb-12">
-          <div class="section-label">Headline</div>
-          <h3>
-            <span id="yHeadline">No data loaded yet</span>
-            <button
-              type="button"
-              class="help-btn"
-              data-help-id="yoy_headline"
-              aria-label="Help for Year-over-Year headline summary"
-            >?</button>
-          </h3>
-          <p class="muted" id="ySubheadline">
-            Adjust filters above, then the dashboard will summarize the comparison here.
-          </p>
-          <div class="mt-8 text-sm">
-            <div class="metric-chip">
-              Base year <span id="yLabelBase">—</span>
+    <!-- ===================== YOY VIEW ===================== -->
+    <div id="viewYoy">
+      <!-- Filters -->
+      <div class="card mb-16">
+        <div class="section-label">Filters</div>
+        <h3>
+          Choose years and view
+          <button
+            type="button"
+            class="help-btn"
+            data-help-id="yoy_filters"
+            aria-label="Help for Year-over-Year filters"
+          >?</button>
+        </h3>
+        <p class="muted">These options control the charts and table below.</p>
+        <div class="controls mt-4">
+          <div class="group">
+            <label class="muted">Category</label>
+            <select id="yCategory">
+              <option value="">All</option>
+              <option value="banquet">Banquets</option>
+              <option value="addon">Add-ons</option>
+              <option value="catalog">Catalog</option>
+            </select>
+          </div>
+          <div class="group">
+            <label class="muted">Slot</label>
+            <select id="ySlot">
+              <!-- populated from index endpoint -->
+            </select>
+          </div>
+          <div class="group">
+            <label class="muted">Base year</label>
+            <select id="yBase">
+              <!-- populated from index endpoint -->
+            </select>
+          </div>
+          <div class="group">
+            <label class="muted">Compare to year</label>
+            <select id="yCompare">
+              <!-- populated from index endpoint -->
+            </select>
+          </div>
+          <div class="group">
+            <label class="muted">Metric</label>
+            <select id="yMetric">
+              <option value="amount">Total amount</option>
+              <option value="orders">Order count</option>
+              <option value="purchasers">Purchasers</option>
+              <option value="items">Items sold</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted mt-4" id="yStatus"></p>
+      </div>
+
+      <div class="row">
+        <!-- LEFT: Headline + charts -->
+        <div class="col">
+          <div class="card mb-12">
+            <div class="section-label">Headline</div>
+            <h3>
+              <span id="yHeadline">No data loaded yet</span>
+              <button
+                type="button"
+                class="help-btn"
+                data-help-id="yoy_headline"
+                aria-label="Help for Year-over-Year headline summary"
+              >?</button>
+            </h3>
+            <p class="muted" id="ySubheadline">
+              Adjust filters above, then the dashboard will summarize the comparison here.
+            </p>
+            <div class="mt-8 text-sm">
+              <div class="metric-chip">
+                Base year <span id="yLabelBase">—</span>
+              </div>
+              <div class="metric-chip">
+                Compare year <span id="yLabelCompare">—</span>
+              </div>
+              <div class="metric-chip">
+                Metric <span id="yLabelMetric">amount</span>
+              </div>
             </div>
-            <div class="metric-chip">
-              Compare year <span id="yLabelCompare">—</span>
-            </div>
-            <div class="metric-chip">
-              Metric <span id="yLabelMetric">amount</span>
+          </div>
+
+          <div class="card">
+            <div class="section-label">Charts</div>
+            <h3>
+              Change by year
+              <button
+                type="button"
+                class="help-btn"
+                data-help-id="yoy_charts"
+                aria-label="Help for Year-over-Year charts"
+              >?</button>
+            </h3>
+            <p class="muted">Bars show totals for each year; line shows difference between them.</p>
+            <div class="chart-row" id="yCharts">
+              <div class="chart-box">
+                <div class="chart-title">Totals</div>
+                <div id="yChartTotals"></div>
+                <div class="legend">
+                  <span><span class="legend-swatch"></span> Base year</span>
+                  <span><span class="legend-swatch compare"></span> Compare year</span>
+                </div>
+              </div>
+              <div class="chart-box">
+                <div class="chart-title">Difference</div>
+                <div id="yChartDelta"></div>
+                <div class="legend">
+                  <span><span class="legend-swatch delta"></span> Δ vs base</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-label">Charts</div>
-          <h3>
-            Change by year
-            <button
-              type="button"
-              class="help-btn"
-              data-help-id="yoy_charts"
-              aria-label="Help for Year-over-Year charts"
-            >?</button>
-          </h3>
-          <p class="muted">Bars show totals for each year; line shows difference between them.</p>
-          <div class="chart-row" id="yCharts">
-            <div class="chart-box">
-              <div class="chart-title">Totals</div>
-              <div id="yChartTotals"></div>
-              <div class="legend">
-                <span><span class="legend-swatch"></span> Base year</span>
-                <span><span class="legend-swatch compare"></span> Compare year</span>
-              </div>
-            </div>
-            <div class="chart-box">
-              <div class="chart-title">Difference</div>
-              <div id="yChartDelta"></div>
-              <div class="legend">
-                <span><span class="legend-swatch delta"></span> Δ vs base</span>
-              </div>
+        <!-- RIGHT: Breakdown table -->
+        <div class="col">
+          <div class="card">
+            <div class="section-label">Breakdown</div>
+            <h3>
+              Per slot / category
+              <button
+                type="button"
+                class="help-btn"
+                data-help-id="yoy_breakdown"
+                aria-label="Help for Year-over-Year breakdown table"
+              >?</button>
+            </h3>
+            <p class="muted">Rough breakdown of totals for each slot. Export button downloads this as .csv.</p>
+            <div class="table-wrap mt-8">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Slot</th>
+                    <th>Category</th>
+                    <th class="text-right">Base</th>
+                    <th class="text-right">Compare</th>
+                    <th class="text-right">Δ</th>
+                    <th class="text-right">Δ %</th>
+                  </tr>
+                </thead>
+                <tbody id="yBreakdownBody"></tbody>
+              </table>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- RIGHT: Breakdown table -->
-      <div class="col">
-        <div class="card">
-          <div class="section-label">Breakdown</div>
-          <h3>
-            Per slot / category
-            <button
-              type="button"
-              class="help-btn"
-              data-help-id="yoy_breakdown"
-              aria-label="Help for Year-over-Year breakdown table"
-            >?</button>
-          </h3>
-          <p class="muted">Rough breakdown of totals for each slot. Export button downloads this as .csv.</p>
-          <div class="table-wrap mt-8">
-            <table>
-              <thead>
-                <tr>
-                  <th>Slot</th>
-                  <th>Category</th>
-                  <th class="text-right">Base</th>
-                  <th class="text-right">Compare</th>
-                  <th class="text-right">Δ</th>
-                  <th class="text-right">Δ %</th>
-                </tr>
-              </thead>
-              <tbody id="yBreakdownBody"></tbody>
-            </table>
+    <!-- ===================== HISTORY VIEW ===================== -->
+    <div id="viewHistory" class="hidden">
+      <div class="card mb-16">
+        <div class="section-label">History Browser</div>
+        <h3>
+          Search / filter / compare anything
+          <button
+            type="button"
+            class="help-btn"
+            data-help-id="yoy_breakdown"
+            aria-label="Help for History Browser"
+          >?</button>
+        </h3>
+        <p class="muted">
+          This view loads banquets + add-ons + catalog items and lets you search across <b>all fields</b> (notes, chair emails, IDs, slot labels, dates, prices, shipping, etc.).
+          Use this for past banquets and deep lookup.
+        </p>
+
+        <div class="controls mt-4" id="historyControls">
+          <div class="group" style="flex:2 1 260px;min-width:240px">
+            <label class="muted">Search (matches any field)</label>
+            <input id="hSearch" type="text" placeholder="Try: 'Sunday', 'directory', '5.50', 'chair@', 'slot coin', 'archived'…" />
+          </div>
+
+          <div class="group">
+            <label class="muted">Category</label>
+            <select id="hCategory">
+              <option value="">All</option>
+              <option value="banquet">Banquets</option>
+              <option value="addon">Add-ons</option>
+              <option value="catalog">Catalog</option>
+            </select>
+          </div>
+
+          <div class="group">
+            <label class="muted">Active</label>
+            <select id="hActive">
+              <option value="">All</option>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+
+          <div class="group">
+            <label class="muted">Archived</label>
+            <select id="hArchived">
+              <option value="">All</option>
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+          </div>
+
+          <div class="group">
+            <label class="muted">Year (best-effort)</label>
+            <select id="hYear">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="group">
+            <label class="muted">Sort</label>
+            <select id="hSort">
+              <option value="recent">Most recent</option>
+              <option value="name">Name</option>
+              <option value="category">Category</option>
+              <option value="id">ID</option>
+            </select>
+          </div>
+
+          <div class="group" style="min-width:160px">
+            <label class="muted">Compare</label>
+            <select id="hCompareMode">
+              <option value="2">Pick 2 items</option>
+              <option value="3">Pick 3 items</option>
+              <option value="4">Pick 4 items</option>
+            </select>
           </div>
         </div>
+
+        <div class="toolbar mt-8" id="historyToolbar">
+          <button id="btnHistoryRefresh" class="btn secondary sm" type="button">Refresh history</button>
+          <button id="btnHistoryExport" class="btn sm" type="button">Export filtered (.csv)</button>
+          <button id="btnHistoryCompare" class="btn secondary sm" type="button">Compare selected</button>
+          <button id="btnHistoryClearSel" class="btn secondary sm" type="button">Clear selection</button>
+          <span class="spacer"></span>
+          <span class="muted" id="hStatus">Not loaded yet.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">Results</div>
+        <h3>Items</h3>
+        <p class="muted">Tip: click “View” to see raw JSON. Use checkboxes to select items for side-by-side comparison.</p>
+
+        <div class="table-wrap mt-8" style="max-height:560px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:40px">Pick</th>
+                <th>Category</th>
+                <th>Name</th>
+                <th>ID</th>
+                <th>Slot</th>
+                <th>Active</th>
+                <th>Archived</th>
+                <th>Year</th>
+                <th>Key dates</th>
+                <th>Price / Ship</th>
+                <th>Chair</th>
+                <th class="text-right" style="min-width:140px">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="hBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JSON Modal -->
+  <div class="modal-backdrop" id="jsonModal">
+    <div class="modal">
+      <header>
+        <h3 id="jsonTitle">Item</h3>
+        <button class="btn secondary sm" type="button" id="btnJsonClose">Close</button>
+      </header>
+      <div class="body">
+        <pre id="jsonPre" class="mono" style="margin:0;white-space:pre-wrap;word-break:break-word"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compare Modal -->
+  <div class="modal-backdrop" id="cmpModal">
+    <div class="modal">
+      <header>
+        <h3 id="cmpTitle">Compare</h3>
+        <button class="btn secondary sm" type="button" id="btnCmpClose">Close</button>
+      </header>
+      <div class="body">
+        <div class="compare-grid" id="cmpGrid"></div>
       </div>
     </div>
   </div>
@@ -270,6 +445,9 @@
     // simple helpers
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const pad = n => String(n).padStart(2,'0');
 
     function money(n){
       const v = Math.round(Number(n || 0) * 100) / 100;
@@ -286,7 +464,80 @@
       const v = (Number(delta || 0) / b) * 100;
       return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
     }
+    function metricLabel(m){
+      switch(m){
+        case 'orders': return 'Order count';
+        case 'purchasers': return 'Purchasers';
+        case 'items': return 'Items sold';
+        default: return 'Total amount';
+      }
+    }
+    function pickMetric(obj, m){
+      if(!obj) return 0;
+      switch(m){
+        case 'orders': return Number(obj.orders || obj.orderCount || 0);
+        case 'purchasers': return Number(obj.purchasers || obj.buyerCount || 0);
+        case 'items': return Number(obj.items || obj.itemCount || 0);
+        default: return Number(obj.amount || obj.totalAmount || 0);
+      }
+    }
+    function safeISO(d){
+      try{
+        const dt = new Date(d);
+        return isNaN(dt) ? '' : dt.toISOString();
+      }catch{ return ''; }
+    }
+    function yearFromAny(item){
+      // best effort: eventAt -> publishStart -> publishEnd -> updatedAt -> createdAt
+      const candidates = [
+        item.eventAt, item.date, item.datetime,
+        item.publishStart, item.publishEnd,
+        item.updatedAt, item.createdAt,
+        item.archivedAt
+      ].filter(Boolean);
+      for(const c of candidates){
+        const dt = new Date(c);
+        if(!isNaN(dt)) return dt.getFullYear();
+      }
+      return '';
+    }
+    function niceDT(iso){
+      if(!iso) return '—';
+      const d = new Date(iso);
+      if(isNaN(d)) return '—';
+      return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric'});
+    }
+    function pillBool(v){
+      const b = (v === true) || String(v).toLowerCase() === 'true';
+      return b ? '<span class="pill green">true</span>' : '<span class="pill red">false</span>';
+    }
+    function pillArch(v){
+      const b = (v === true) || String(v).toLowerCase() === 'true';
+      return b ? '<span class="pill gray">true</span>' : '<span class="pill green">false</span>';
+    }
 
+    // ===================== Tabs =====================
+    function setTab(which){
+      const yoy = $('#viewYoy');
+      const hist = $('#viewHistory');
+      const t1 = $('#tabYoy');
+      const t2 = $('#tabHistory');
+      if(which === 'history'){
+        yoy.classList.add('hidden');
+        hist.classList.remove('hidden');
+        t1.classList.remove('active');
+        t2.classList.add('active');
+      }else{
+        hist.classList.add('hidden');
+        yoy.classList.remove('hidden');
+        t2.classList.remove('active');
+        t1.classList.add('active');
+      }
+    }
+    $('#tabYoy').addEventListener('click', ()=>setTab('yoy'));
+    $('#tabHistory').addEventListener('click', ()=>{ setTab('history'); if(!historyState.loadedOnce) loadHistory(); });
+
+    // ===================== YOY STATE =====================
     const state = {
       index:null,
       yoy:null,
@@ -408,25 +659,6 @@
         `Base year: ${state.baseYear} = ${niceBase}.  Compare year: ${state.compareYear} = ${niceCmp}.`;
     }
 
-    function metricLabel(m){
-      switch(m){
-        case 'orders': return 'Order count';
-        case 'purchasers': return 'Purchasers';
-        case 'items': return 'Items sold';
-        default: return 'Total amount';
-      }
-    }
-
-    function pickMetric(obj, m){
-      if(!obj) return 0;
-      switch(m){
-        case 'orders': return Number(obj.orders || obj.orderCount || 0);
-        case 'purchasers': return Number(obj.purchasers || obj.buyerCount || 0);
-        case 'items': return Number(obj.items || obj.itemCount || 0);
-        default: return Number(obj.amount || obj.totalAmount || 0);
-      }
-    }
-
     // ---------- Charts ----------
     function updateCharts(yoy){
       const rows = Array.isArray(yoy?.rows) ? yoy.rows : [];
@@ -483,6 +715,7 @@
         const cmpBar = document.createElement('div');
         cmpBar.className = 'bar-fill compare';
         cmpBar.style.width = (s.cmp / maxVal * 100) + '%';
+        cmpBar.style.opacity = 0.9;
 
         track.appendChild(baseBar);
         track.appendChild(cmpBar);
@@ -573,18 +806,18 @@
           'pill gray';
 
         tr.innerHTML = `
-          <td class="text-xs">${s.slotLabel}</td>
-          <td class="text-xs">${s.category}</td>
-          <td class="text-xs text-right">${baseTxt}</td>
-          <td class="text-xs text-right">${cmpTxt}</td>
-          <td class="text-xs text-right">${deltaTxt}</td>
-          <td class="text-xs text-right"><span class="${pillClass}">${pctStr}</span></td>
+          <td class="text-xs">${esc(s.slotLabel)}</td>
+          <td class="text-xs">${esc(s.category)}</td>
+          <td class="text-xs text-right">${esc(baseTxt)}</td>
+          <td class="text-xs text-right">${esc(cmpTxt)}</td>
+          <td class="text-xs text-right">${esc(deltaTxt)}</td>
+          <td class="text-xs text-right"><span class="${pillClass}">${esc(pctStr)}</span></td>
         `;
         tb.appendChild(tr);
       }
     }
 
-    // ---------- EXPORT + PRINT ----------
+    // ---------- EXPORT + PRINT (YoY) ----------
     function exportYoYCsv(){
       const yoy = state.yoy;
       const rows = Array.isArray(yoy?.rows) ? yoy.rows : [];
@@ -609,7 +842,7 @@
       for(const r of rows){
         const year = r.year || r.yr || '';
         const slotKey = r.slotKey || r.slot || '';
-        const slotLabel = (r.slotLabel || '').replace(/"/g,'""');
+        const slotLabel = String(r.slotLabel || '').replace(/"/g,'""');
         const category = r.category || r.cat || '';
 
         const value = pickMetric(r, metric);
@@ -619,9 +852,9 @@
 
         const rowCsv = [
           year,
-          `"${slotKey}"`,
+          `"${String(slotKey).replace(/"/g,'""')}"`,
           `"${slotLabel}"`,
-          `"${category}"`,
+          `"${String(category).replace(/"/g,'""')}"`,
           metric,
           value,
           orders,
@@ -643,24 +876,24 @@
       URL.revokeObjectURL(url);
     }
 
-    // ---------- Wire events ----------
-    document.getElementById('yCategory').addEventListener('change', ()=>{
+    // ---------- Wire YoY events ----------
+    $('#yCategory').addEventListener('change', ()=>{
       state.category = $('#yCategory').value || '';
       loadYoy();
     });
-    document.getElementById('ySlot').addEventListener('change', ()=>{
+    $('#ySlot').addEventListener('change', ()=>{
       state.slot = $('#ySlot').value || 'all';
       loadYoy();
     });
-    document.getElementById('yBase').addEventListener('change', ()=>{
+    $('#yBase').addEventListener('change', ()=>{
       state.baseYear = Number($('#yBase').value || 0) || null;
       loadYoy();
     });
-    document.getElementById('yCompare').addEventListener('change', ()=>{
+    $('#yCompare').addEventListener('change', ()=>{
       state.compareYear = Number($('#yCompare').value || 0) || null;
       loadYoy();
     });
-    document.getElementById('yMetric').addEventListener('change', ()=>{
+    $('#yMetric').addEventListener('change', ()=>{
       state.metric = $('#yMetric').value || 'amount';
       if(state.yoy){
         updateHeadline(state.yoy);
@@ -669,15 +902,458 @@
       }
     });
 
-    document.getElementById('btnYoYPrint').addEventListener('click', ()=>{
-      window.print();
+    $('#btnYoYPrint').addEventListener('click', ()=>window.print());
+    $('#btnYoYExport').addEventListener('click', exportYoYCsv);
+
+    // ===================== HISTORY BROWSER =====================
+    const historyState = {
+      loadedOnce:false,
+      items:[],         // normalized unified list
+      filtered:[],
+      selectedIds:new Set(),
+    };
+
+    function normalizeUnified(kind, x){
+      const obj = { ...(x || {}) };
+      const category = kind;
+
+      const id = obj.id || obj.itemId || obj.key || '';
+      const name = obj.name || obj.title || obj.label || id || '(unnamed)';
+
+      // slots (support your current slot fields)
+      const slotKey   = obj.slotKey || obj.slot || obj.slot_key || '';
+      const slotLabel = obj.slotLabel || obj.slot_label || obj.slotName || obj.slotTitle || '';
+
+      // active + archived (default false if missing)
+      const active = (obj.active !== false);
+      const archived = (obj.archived === true);
+
+      // dates
+      const publishStart = obj.publishStart || obj.start || obj.open || '';
+      const publishEnd   = obj.publishEnd || obj.end || obj.close || '';
+      const eventAt      = obj.eventAt || obj.dateTime || obj.datetime || obj.date || '';
+
+      // updated info
+      const updatedAt = obj.updatedAt || obj.updated || '';
+      const createdAt = obj.createdAt || obj.created || '';
+      const archivedAt = obj.archivedAt || '';
+
+      // chair
+      const chairName = (obj.chair && obj.chair.name) ? obj.chair.name : (obj.chairName || '');
+      const chairEmails = Array.isArray(obj.chairEmails) ? obj.chairEmails
+        : (obj.chairEmails ? String(obj.chairEmails).split(',').map(s=>s.trim()).filter(Boolean) : []);
+      const chairEmail = (obj.chair && obj.chair.email) ? obj.chair.email : (chairEmails[0] || obj.chairEmail || '');
+
+      // price & shipping (best effort across item types)
+      let price = null;
+      if(obj.price != null) price = Number(obj.price || 0);
+      let shippingCents = null;
+      if(obj.shippingCents != null) shippingCents = Number(obj.shippingCents || 0);
+      else if(obj.shipping_cents != null) shippingCents = Number(obj.shipping_cents || 0);
+      else if(obj.shipping != null){
+        const sc = Number(obj.shipping || 0);
+        shippingCents = Number.isInteger(sc) ? sc : Math.round(sc * 100);
+      }
+
+      // notes/desc
+      const notes = obj.notes || obj.description || obj.desc || '';
+
+      // best year extraction
+      const year = yearFromAny({eventAt, publishStart, publishEnd, updatedAt, createdAt, archivedAt});
+
+      // searchable blob = JSON (this is the "any field" guarantee)
+      const searchable = JSON.stringify(obj).toLowerCase();
+
+      return {
+        category,
+        id,
+        name,
+        slotKey,
+        slotLabel,
+        active,
+        archived,
+        year,
+        publishStart,
+        publishEnd,
+        eventAt,
+        updatedAt,
+        createdAt,
+        archivedAt,
+        chairName,
+        chairEmail,
+        chairEmails,
+        price,
+        shippingCents,
+        notes,
+        raw: obj,
+        searchable
+      };
+    }
+
+    async function loadHistory(){
+      historyState.loadedOnce = true;
+      $('#hStatus').textContent = 'Loading history…';
+
+      // GET endpoints (no auth assumed; keep consistent with existing YoY calls)
+      const fetchJson = async (url) => {
+        const r = await fetch(url, {cache:'no-store'});
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j?.error || ('fetch failed: ' + url));
+        return j;
+      };
+
+      try{
+        const [banq, add, prod] = await Promise.all([
+          fetchJson('/api/router?type=banquets').catch(()=>({banquets:[] })),
+          fetchJson('/api/router?type=addons').catch(()=>({addons:[] })),
+          fetchJson('/api/router?type=products').catch(()=>({products:[] })),
+        ]);
+
+        const banquets = Array.isArray(banq?.banquets) ? banq.banquets : (Array.isArray(banq) ? banq : []);
+        const addons   = Array.isArray(add?.addons) ? add.addons : (Array.isArray(add) ? add : []);
+        const products = Array.isArray(prod?.products) ? prod.products : (Array.isArray(prod) ? prod : []);
+
+        const unified = [
+          ...banquets.map(x => normalizeUnified('banquet', x)),
+          ...addons.map(x => normalizeUnified('addon', x)),
+          ...products.map(x => normalizeUnified('catalog', x)),
+        ];
+
+        historyState.items = unified;
+
+        // populate year dropdown
+        const years = Array.from(new Set(unified.map(u => u.year).filter(Boolean))).sort((a,b)=>a-b);
+        const ySel = $('#hYear');
+        ySel.innerHTML = '<option value="">All</option>';
+        years.forEach(y=>{
+          const opt = document.createElement('option');
+          opt.value = opt.textContent = y;
+          ySel.appendChild(opt);
+        });
+
+        $('#hStatus').textContent = `Loaded ${unified.length} item(s).`;
+        applyHistoryFilters();
+      }catch(e){
+        console.warn('history load error', e);
+        $('#hStatus').textContent = 'Could not load history from server.';
+        historyState.items = [];
+        historyState.filtered = [];
+        renderHistoryTable();
+      }
+    }
+
+    function applyHistoryFilters(){
+      const q = String($('#hSearch').value || '').trim().toLowerCase();
+      const cat = $('#hCategory').value || '';
+      const act = $('#hActive').value;
+      const arch = $('#hArchived').value;
+      const year = $('#hYear').value;
+      const sort = $('#hSort').value || 'recent';
+
+      let arr = historyState.items.slice();
+
+      if(cat) arr = arr.filter(x => x.category === cat);
+      if(act === 'true') arr = arr.filter(x => x.active === true);
+      if(act === 'false') arr = arr.filter(x => x.active === false);
+      if(arch === 'true') arr = arr.filter(x => x.archived === true);
+      if(arch === 'false') arr = arr.filter(x => x.archived === false);
+      if(year) arr = arr.filter(x => String(x.year) === String(year));
+
+      if(q){
+        arr = arr.filter(x => {
+          // “any field” match
+          if(x.searchable.includes(q)) return true;
+          // extra: also match computed combined fields
+          const combo = `${x.category} ${x.name} ${x.id} ${x.slotLabel} ${x.slotKey} ${x.chairName} ${x.chairEmail} ${x.notes}`.toLowerCase();
+          return combo.includes(q);
+        });
+      }
+
+      // sorting
+      const dtKey = (x) => {
+        const iso = safeISO(x.eventAt) || safeISO(x.publishEnd) || safeISO(x.publishStart) || safeISO(x.updatedAt) || safeISO(x.createdAt) || safeISO(x.archivedAt);
+        return iso ? new Date(iso).getTime() : 0;
+      };
+
+      if(sort === 'name') arr.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+      else if(sort === 'category') arr.sort((a,b)=>String(a.category).localeCompare(String(b.category)) || String(a.name).localeCompare(String(b.name)));
+      else if(sort === 'id') arr.sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+      else arr.sort((a,b)=>dtKey(b)-dtKey(a)); // recent
+
+      historyState.filtered = arr;
+      $('#hStatus').textContent = `Showing ${arr.length} of ${historyState.items.length}. Selected ${historyState.selectedIds.size}.`;
+      renderHistoryTable();
+    }
+
+    function renderHistoryTable(){
+      const tb = $('#hBody');
+      tb.innerHTML = '';
+
+      const arr = historyState.filtered;
+      if(!arr.length){
+        tb.innerHTML = `<tr><td colspan="12" class="muted text-xs">No results.</td></tr>`;
+        return;
+      }
+
+      for(const it of arr){
+        const pick = historyState.selectedIds.has(it.category + '|' + it.id) ? 'checked' : '';
+        const slot = it.slotLabel || it.slotKey || '—';
+
+        const year = it.year || '—';
+
+        const keyDates = (() => {
+          // show the most relevant date(s)
+          if(it.category === 'banquet' && it.eventAt) return `Event: ${niceDT(it.eventAt)}`;
+          const a = it.publishStart ? `Start: ${niceDT(it.publishStart)}` : '';
+          const b = it.publishEnd ? `End: ${niceDT(it.publishEnd)}` : '';
+          const c = it.updatedAt ? `Upd: ${niceDT(it.updatedAt)}` : '';
+          return [a,b,c].filter(Boolean).join(' · ') || '—';
+        })();
+
+        const priceShip = (() => {
+          let p = '—';
+          if(it.price != null && Number.isFinite(Number(it.price))) p = money(it.price);
+          let s = '';
+          if(it.shippingCents != null && Number.isFinite(Number(it.shippingCents)) && Number(it.shippingCents) > 0){
+            s = ' · Ship ' + money(Number(it.shippingCents)/100);
+          }
+          return p + s;
+        })();
+
+        const chair = (it.chairName || it.chairEmail) ? `${it.chairName || '—'}${it.chairEmail ? ' · ' + it.chairEmail : ''}` : '—';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <input type="checkbox" class="hPick" data-key="${esc(it.category + '|' + it.id)}" ${pick} />
+          </td>
+          <td class="text-xs">${esc(it.category)}</td>
+          <td class="text-xs"><strong>${esc(it.name)}</strong></td>
+          <td class="text-xs"><span class="mono">${esc(it.id)}</span></td>
+          <td class="text-xs">${esc(slot)}</td>
+          <td class="text-xs">${pillBool(it.active)}</td>
+          <td class="text-xs">${pillArch(it.archived)}</td>
+          <td class="text-xs">${esc(year)}</td>
+          <td class="text-xs">${esc(keyDates)}</td>
+          <td class="text-xs">${esc(priceShip)}</td>
+          <td class="text-xs">${esc(chair)}</td>
+          <td class="text-right">
+            <button class="btn link sm btnView" type="button" data-key="${esc(it.category + '|' + it.id)}">View</button>
+          </td>
+        `;
+        tb.appendChild(tr);
+      }
+
+      $$('.hPick').forEach(cb=>{
+        cb.addEventListener('change', (e)=>{
+          const key = e.currentTarget.dataset.key;
+          const max = Number($('#hCompareMode').value || 2) || 2;
+          if(e.currentTarget.checked){
+            historyState.selectedIds.add(key);
+            // enforce max by unchecking oldest if needed
+            while(historyState.selectedIds.size > max){
+              const first = historyState.selectedIds.values().next().value;
+              historyState.selectedIds.delete(first);
+            }
+          }else{
+            historyState.selectedIds.delete(key);
+          }
+          // sync UI checks
+          syncPickCheckboxes();
+          $('#hStatus').textContent = `Showing ${historyState.filtered.length} of ${historyState.items.length}. Selected ${historyState.selectedIds.size}.`;
+        });
+      });
+
+      $$('.btnView').forEach(btn=>{
+        btn.addEventListener('click', (e)=>{
+          const key = e.currentTarget.dataset.key;
+          const it = historyState.items.find(x => (x.category + '|' + x.id) === key);
+          if(!it) return;
+          openJsonModal(it);
+        });
+      });
+    }
+
+    function syncPickCheckboxes(){
+      const selected = historyState.selectedIds;
+      $$('.hPick').forEach(cb=>{
+        const key = cb.dataset.key;
+        cb.checked = selected.has(key);
+      });
+    }
+
+    function openJsonModal(it){
+      $('#jsonTitle').textContent = `${it.category}: ${it.name} (${it.id})`;
+      $('#jsonPre').textContent = JSON.stringify(it.raw, null, 2);
+      $('#jsonModal').style.display = 'flex';
+    }
+    function closeJsonModal(){ $('#jsonModal').style.display = 'none'; }
+    $('#btnJsonClose').addEventListener('click', closeJsonModal);
+    $('#jsonModal').addEventListener('click', (e)=>{ if(e.target === $('#jsonModal')) closeJsonModal(); });
+
+    function openCompareModal(items){
+      $('#cmpTitle').textContent = `Compare (${items.length})`;
+      const grid = $('#cmpGrid');
+      grid.innerHTML = '';
+
+      const importantFields = (it) => {
+        const slot = it.slotLabel || it.slotKey || '';
+        const dates = it.category === 'banquet'
+          ? (it.eventAt ? `Event: ${niceDT(it.eventAt)}` : '—')
+          : [
+              it.publishStart ? `Start: ${niceDT(it.publishStart)}` : '',
+              it.publishEnd ? `End: ${niceDT(it.publishEnd)}` : '',
+              it.updatedAt ? `Upd: ${niceDT(it.updatedAt)}` : ''
+            ].filter(Boolean).join(' · ') || '—';
+
+        const ship = (it.shippingCents && Number(it.shippingCents)>0) ? money(Number(it.shippingCents)/100) : '—';
+        const price = (it.price != null && Number.isFinite(Number(it.price))) ? money(it.price) : '—';
+
+        return [
+          ['Category', it.category],
+          ['Name', it.name],
+          ['ID', it.id],
+          ['Slot', slot || '—'],
+          ['Active', String(it.active)],
+          ['Archived', String(it.archived)],
+          ['Year', String(it.year || '—')],
+          ['Dates', dates],
+          ['Price', price],
+          ['Shipping', ship],
+          ['Chair', (it.chairName || it.chairEmail) ? `${it.chairName || '—'}${it.chairEmail ? ' · ' + it.chairEmail : ''}` : '—'],
+          ['Notes', it.notes || '—']
+        ];
+      };
+
+      items.forEach(it=>{
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.margin = '0';
+        card.innerHTML = `
+          <div class="section-label">${esc(it.category)}</div>
+          <h3 style="margin-bottom:6px">${esc(it.name)}</h3>
+          <div class="kvs">
+            ${importantFields(it).map(([k,v]) => `
+              <div class="k">${esc(k)}</div>
+              <div class="v">${esc(v)}</div>
+            `).join('')}
+          </div>
+          <div class="mt-8" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn secondary sm btnCmpViewJson" type="button" data-key="${esc(it.category + '|' + it.id)}">View JSON</button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      $$('.btnCmpViewJson').forEach(btn=>{
+        btn.addEventListener('click', (e)=>{
+          const key = e.currentTarget.dataset.key;
+          const it = historyState.items.find(x => (x.category + '|' + x.id) === key);
+          if(it) openJsonModal(it);
+        });
+      });
+
+      $('#cmpModal').style.display = 'flex';
+    }
+    function closeCompareModal(){ $('#cmpModal').style.display = 'none'; }
+    $('#btnCmpClose').addEventListener('click', closeCompareModal);
+    $('#cmpModal').addEventListener('click', (e)=>{ if(e.target === $('#cmpModal')) closeCompareModal(); });
+
+    function exportHistoryCsv(){
+      const rows = historyState.filtered || [];
+      if(!rows.length){ alert('No rows to export.'); return; }
+
+      const header = [
+        'category','id','name',
+        'slotKey','slotLabel',
+        'active','archived','year',
+        'eventAt','publishStart','publishEnd',
+        'price','shippingCents',
+        'chairName','chairEmail','chairEmails',
+        'notes'
+      ];
+      const lines = [header.join(',')];
+
+      const q = (v) => `"${String(v ?? '').replace(/"/g,'""')}"`;
+
+      rows.forEach(r=>{
+        lines.push([
+          q(r.category),
+          q(r.id),
+          q(r.name),
+          q(r.slotKey),
+          q(r.slotLabel),
+          q(r.active),
+          q(r.archived),
+          q(r.year),
+          q(r.eventAt),
+          q(r.publishStart),
+          q(r.publishEnd),
+          q(r.price),
+          q(r.shippingCents),
+          q(r.chairName),
+          q(r.chairEmail),
+          q((r.chairEmails || []).join(', ')),
+          q(r.notes)
+        ].join(','));
+      });
+
+      const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().split('T')[0];
+      a.href = url;
+      a.download = `amaranth-history-${today}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // history wiring
+    $('#btnHistoryRefresh').addEventListener('click', loadHistory);
+    $('#btnHistoryExport').addEventListener('click', exportHistoryCsv);
+    $('#btnHistoryClearSel').addEventListener('click', ()=>{
+      historyState.selectedIds.clear();
+      syncPickCheckboxes();
+      $('#hStatus').textContent = `Showing ${historyState.filtered.length} of ${historyState.items.length}. Selected 0.`;
     });
-    document.getElementById('btnYoYExport').addEventListener('click', exportYoYCsv);
+    $('#btnHistoryCompare').addEventListener('click', ()=>{
+      const keys = Array.from(historyState.selectedIds);
+      if(keys.length < 2){
+        alert('Pick at least 2 items to compare.');
+        return;
+      }
+      const items = keys.map(k => historyState.items.find(x => (x.category + '|' + x.id) === k)).filter(Boolean);
+      if(items.length < 2){
+        alert('Selection not found in loaded data.');
+        return;
+      }
+      openCompareModal(items);
+    });
+
+    ['hSearch','hCategory','hActive','hArchived','hYear','hSort'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('input', applyHistoryFilters);
+      el.addEventListener('change', applyHistoryFilters);
+    });
+
+    $('#hCompareMode').addEventListener('change', ()=>{
+      const max = Number($('#hCompareMode').value || 2) || 2;
+      while(historyState.selectedIds.size > max){
+        const first = historyState.selectedIds.values().next().value;
+        historyState.selectedIds.delete(first);
+      }
+      syncPickCheckboxes();
+      $('#hStatus').textContent = `Showing ${historyState.filtered.length} of ${historyState.items.length}. Selected ${historyState.selectedIds.size}.`;
+    });
 
     // ---------- Init ----------
     (async function init(){
       await loadIndex();
       await loadYoy();
+      // history loads only when tab clicked
     })();
   </script>
 
