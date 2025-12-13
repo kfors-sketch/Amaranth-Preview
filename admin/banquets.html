@@ -9,36 +9,41 @@
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
 
-    /* Wider canvas so panels can actually grow */
-    .container{max-width:2600px;margin:24px auto;padding:0 24px}
+    /* USE the actual viewport width (centered), instead of being capped in practice */
+    .container{
+      max-width:none;
+      width:min(3400px, calc(100vw - 48px));
+      margin:24px auto;
+      padding:0 24px;
+      box-sizing:border-box;
+    }
 
     .row{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
 
     /* Roomy panels */
     .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:34px;box-sizing:border-box}
 
-    /* Center the main panels row */
     .row.panels{justify-content:center}
 
-    /* Make both panels wider (and actually allow that width to be used) */
+    /* Wider panels */
     .col.left{
-      flex: 2 1 1400px;   /* wider list panel */
-      min-width: 980px;
-      overflow: hidden;   /* KEY: prevent horizontal scrollbar from table min-content */
+      flex: 2 1 1900px;
+      min-width: 1100px;
+      overflow: hidden; /* prevents bottom bar from table min-content */
     }
     .col.right{
-      flex: 1 1 900px;    /* wider editor */
-      min-width: 720px;
+      flex: 1 1 1100px;
+      min-width: 820px;
       position: sticky;
       top: 16px;
     }
 
-    /* Center the rules box and match overall content width */
+    /* Rules */
     .rules{
       background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;
       padding:20px;margin:8px auto 12px;
       width:100%;
-      max-width:2300px;
+      max-width: 3200px;
       box-sizing:border-box;
     }
 
@@ -57,9 +62,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-
-      /* KEY: prevents table from forcing horizontal scroll */
-      table-layout: fixed;
+      table-layout: fixed; /* keeps table from forcing horizontal scroll */
     }
 
     thead th{
@@ -68,13 +71,8 @@
     }
     tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
 
-    /* KEY: allow wrapping so no horizontal scrollbar */
-    th, td{
-      white-space:normal;
-      word-break:break-word;
-      overflow-wrap:anywhere;
-      min-width:0; /* important with table-layout:fixed */
-    }
+    /* Default: wrap safely */
+    th, td{white-space:normal;word-break:break-word;overflow-wrap:anywhere;min-width:0}
 
     .muted{color:#6b7280}
     .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
@@ -85,24 +83,39 @@
     .ok{color:#065f46}
     code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
 
-    /* Table scroller: vertical scroll only, no horizontal */
-    .table-wrap{
-      overflow-y:auto;
-      overflow-x:hidden;
-      max-height:65vh;
-      margin-top:8px;
+    /* Table scroller: vertical scroll only */
+    .table-wrap{overflow-y:auto;overflow-x:hidden;max-height:65vh;margin-top:8px}
+
+    /* --- FIXES YOU ASKED FOR --- */
+
+    /* Keep banquet name + ID on ONE line (ellipsis instead of wrap) */
+    td.nowrap, td.nowrap *{
+      white-space:nowrap !important;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    td.nowrap{max-width: 1px;} /* enables ellipsis in fixed-layout tables */
+
+    /* Keep Actions buttons on ONE line */
+    td.actions{white-space:nowrap}
+    .actionbar{
+      display:flex;
+      flex-wrap:nowrap;
+      gap:8px;
+      align-items:center;
+    }
+    /* Slightly tighter buttons so three fit comfortably */
+    .actionbar .btn{
+      height:32px;
+      padding:0 10px;
+      font-weight:700;
     }
 
-    /* Actions: allow wrapping so buttons don't force width */
-    td.actions{min-width:0}
-    td.actions .btn{margin-right:6px;margin-bottom:6px}
-
-    /* Small screens: stack, full width */
+    /* Small screens: stack panels */
     @media (max-width:1400px){
-      .container{max-width:1200px;padding:0 16px}
+      .container{width:calc(100vw - 32px); padding:0 16px}
       .col.left,.col.right{min-width:0;flex:1 1 100%;max-width:none}
       .rules{max-width:none}
-      td.actions{min-width:0}
     }
   </style>
 </head>
@@ -580,8 +593,8 @@
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><strong>${esc(b.name||'')}</strong></td>
-        <td><code>${esc(b.id||'')}</code></td>
+        <td class="nowrap" title="${esc(b.name||'')}"><strong>${esc(b.name||'')}</strong></td>
+        <td class="nowrap" title="${esc(b.id||'')}"><code>${esc(b.id||'')}</code></td>
         <td><span class="muted">${esc(String(so))}</span></td>
         <td>${slotLabel ? esc(slotLabel) : '<span class="muted">—</span>'}</td>
         <td>${esc(eventPretty)}</td>
@@ -590,9 +603,11 @@
         <td><div class="muted">${start} → ${end}</div></td>
         <td>${esc(chair)}</td>
         <td class="actions">
-          <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
-          <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
-          <button class="btn warn btnArchive" data-id="${esc(b.id)}">Archive</button>
+          <div class="actionbar">
+            <button class="btn ghost btnEdit" data-id="${esc(b.id)}">Edit</button>
+            <button class="btn ghost btnCopy" data-id="${esc(b.id)}">Duplicate</button>
+            <button class="btn warn btnArchive" data-id="${esc(b.id)}">Archive</button>
+          </div>
         </td>`;
       tb.appendChild(tr);
     }
