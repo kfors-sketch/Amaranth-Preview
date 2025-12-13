@@ -257,10 +257,7 @@
       }
 
       // ===== DUPLICATE CHECK: same Name + full Mailing Address =====
-      const incoming = {
-        name,
-        address1, address2, city, state, postal, country
-      };
+      const incoming = { name, address1, address2, city, state, postal, country };
       const st = Cart.get();
       const dup = (st.attendees||[]).some(a => _sameNameAndAddress(a, incoming));
       if (dup){
@@ -281,6 +278,7 @@
       // sync new list out to shared storage
       syncAttendeesToStorageFromCart();
     };
+
     renderAttendees();
     repopulateAllAttendeeSelects();
 
@@ -365,7 +363,7 @@
         if (!attendeeSel || !attendeeSel.value){ alert('Please select an attendee first.'); return; }
 
         let mealChoice = '';
-        const mealRadios = div.querySelectorAll(`input[name="meal-${b.id}"]`);
+        const mealRadios = div.querySelectorAll(\`input[name="meal-\${b.id}"]\`);
         if (mealRadios && mealRadios.length){
           const checked = [...mealRadios].find(r => r.checked);
           if (!checked){ alert('Please choose a meal preference.'); return; }
@@ -388,7 +386,7 @@
           attendeeId,
           itemType: 'banquet',
           itemId: b.id + ":" + (defaultChoice.id || 'standard'),
-          itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
+          itemName: \`\${b.name}\${mealChoice ? \` (\${mealChoice})\` : ''}\`,
           qty: 1,
           unitPrice,
           meta: {
@@ -396,12 +394,10 @@
             attendeeNotes,
             event: b.datetime || "",
             location: b.location || "",
-            // === pass attendee identity through to Stripe (so reports pick them up) ===
             attendeeName:  att?.name  || "",
             attendeeTitle: att?.title || "",
             attendeePhone: att?.phone || "",
             attendeeEmail: att?.email || "",
-            // address (for directory CSV)
             attendeeAddr1:  att?.address1 || "",
             attendeeAddr2:  att?.address2 || "",
             attendeeCity:   att?.city     || "",
@@ -425,6 +421,12 @@
         return (s == null || nowTs >= s) && (e == null || nowTs <= e);
       }
 
+      // NEW: Normalize + safe sort
+      function normSortOrder(b){
+        const n = Number(b?.sortOrder);
+        return Number.isFinite(n) ? n : 1000;
+      }
+
       const nowTs = Date.now();
       let list = [];
 
@@ -442,10 +444,31 @@
         list = window.BANQUETS;
       }
 
-      list
-        .filter(b => b.active !== false)
+      // ✅ APPLY ORDER HERE (admin controls it via sortOrder)
+      list = (list || [])
+        .filter(b => b && b.active !== false)
         .filter(b => isWithinWindow(b, nowTs))
-        .forEach(addBanquet);
+        .slice()
+        .sort((a,b)=>{
+          // 1) sortOrder (lowest first)
+          const ao = normSortOrder(a);
+          const bo = normSortOrder(b);
+          if (ao !== bo) return ao - bo;
+
+          // 2) eventAt
+          const ad = a?.eventAt ? Date.parse(a.eventAt) : NaN;
+          const bd = b?.eventAt ? Date.parse(b.eventAt) : NaN;
+          const aok = Number.isFinite(ad);
+          const bok = Number.isFinite(bd);
+          if (aok && bok && ad !== bd) return ad - bd;
+          if (aok && !bok) return -1;
+          if (!aok && bok) return 1;
+
+          // 3) name (stable tie-break)
+          return String(a?.name || '').localeCompare(String(b?.name || ''));
+        });
+
+      list.forEach(addBanquet);
     }
 
     loadBanquets();
@@ -456,12 +479,10 @@
       try {
         renderAttendees();
         repopulateAllAttendeeSelects();
-        // keep shared storage mirrored after reload
         syncAttendeesToStorageFromCart();
       } catch(e){}
     }
 
-    // When cart changes anywhere in this tab
     window.addEventListener('cart:updated', () => {
       try {
         renderAttendees();
@@ -470,13 +491,11 @@
       } catch(e){}
     });
 
-    // When tab regains focus / becomes visible
     window.addEventListener('focus', resyncFromStorage);
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) resyncFromStorage();
     });
 
-    // Cross-tab/localStorage sync
     window.addEventListener('storage', (ev) => {
       try {
         if (!ev.key || ev.key === Cart.LS_KEY) {
