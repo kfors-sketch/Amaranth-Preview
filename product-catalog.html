@@ -117,6 +117,14 @@
     return isWithinWindow(item, now);
   }
 
+  // NEW: sort helper (lower sortOrder first; tie-break by name)
+  function sortBySortOrder(a,b){
+    const ao = Number(a?.sortOrder ?? 1000);
+    const bo = Number(b?.sortOrder ?? 1000);
+    if (ao !== bo) return ao - bo;
+    return String(a?.name||'').localeCompare(String(b?.name||''));
+  }
+
   // Lightbox with gallery support
   function setupLightbox(){
     const lb    = document.getElementById('lightbox');
@@ -434,7 +442,12 @@
           (window.CATALOG_ITEMS || []);
       }
 
-      items = (rawItems || []).filter(it => isVisibleItem(it, now));
+      // NEW: apply visibility filter + sortOrder sort (then name)
+      items = (rawItems || [])
+        .filter(it => isVisibleItem(it, now))
+        .slice()
+        .sort(sortBySortOrder);
+
       render();
     }
 

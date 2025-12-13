@@ -89,6 +89,42 @@
   <script src="assets/js/site-boot.js"></script>
   <script src="assets/js/grand-court-addons.js"></script>
 
+  <!-- =========================================================
+       SORT ORDER SUPPORT (public add-ons)
+       - Builds GRAND_COURT_ADDONS_SORTED = visible-now + sorted
+       - grand-court-addons.js should prefer this array if present
+       ========================================================= -->
+  <script>
+  (function(){
+    function isVisibleNow(item, nowMs){
+      if (!item || item.active === false) return false;
+      const s = item.publishStart ? Date.parse(item.publishStart) : NaN;
+      const e = item.publishEnd   ? Date.parse(item.publishEnd)   : NaN;
+      if (!isNaN(s) && nowMs < s) return false;
+      if (!isNaN(e) && nowMs > e) return false;
+      return true;
+    }
+
+    function sortBySortOrder(a,b){
+      const ao = Number(a?.sortOrder ?? 1000);
+      const bo = Number(b?.sortOrder ?? 1000);
+      if (ao !== bo) return ao - bo;
+      return String(a?.name||'').localeCompare(String(b?.name||''));
+    }
+
+    try{
+      const now = Date.now();
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      window.GRAND_COURT_ADDONS_SORTED = src
+        .slice()
+        .filter(x => isVisibleNow(x, now))
+        .sort(sortBySortOrder);
+    }catch(e){
+      window.GRAND_COURT_ADDONS_SORTED = [];
+    }
+  })();
+  </script>
+
   <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
   <script>
     function formatPhoneLive(inputEl){
