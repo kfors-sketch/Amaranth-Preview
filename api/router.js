@@ -272,10 +272,29 @@ function catalogItemsKeyForCat(catRaw) {
 async function getCatalogCategoriesSafe() {
   const list = (await kvGetSafe(CATALOG_CATEGORIES_KEY, [])) || [];
   const out = Array.isArray(list) ? list.slice() : [];
-  const hasCatalog = out.some(
-    (x) => String(x?.cat || "").trim().toLowerCase() === "catalog"
-  );
-  if (!hasCatalog) out.unshift({ cat: "catalog", title: "Product Catalog" });
+
+  // Ensure required defaults exist even if the registry hasn't been saved in KV yet.
+  // This keeps order/nav pages able to "discover" categories immediately.
+  const ensure = (cat, title) => {
+    const c = String(cat || "").trim().toLowerCase();
+    if (!c) return;
+    const has = out.some((x) => String(x?.cat || "").trim().toLowerCase() === c);
+    if (!has) out.push({ cat: c, title });
+  };
+
+  ensure("catalog", "Product Catalog");
+  ensure("supplies", "Supplies");
+  ensure("charity", "Charity");
+
+  // Keep "catalog" first for back-compat expectations
+  out.sort((a, b) => {
+    const ac = String(a?.cat || "").toLowerCase();
+    const bc = String(b?.cat || "").toLowerCase();
+    if (ac === "catalog" && bc !== "catalog") return -1;
+    if (bc === "catalog" && ac !== "catalog") return 1;
+    return String(a?.title || ac).localeCompare(String(b?.title || bc));
+  });
+
   return out;
 }
 
@@ -468,16 +487,7 @@ export default async function handler(req, res) {
       }
 
       // Items for a given catalog category (cat=catalog -> existing "products")
-      
-      // Back-compat: old pages may request type=supplies or type=charity
-      if (type === "supplies" || type === "charity") {
-        const cat = type; // "supplies" or "charity"
-        // Reuse catalog_items logic (KV-backed)
-        const items = await kvGetSafe(baseKey("items", cat), null);
-        return REQ_OK(res, { cat, items: Array.isArray(items) ? items : [] });
-      }
-
-if (type === "catalog_items") {
+      if (type === "catalog_items") {
         const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
         const key = catalogItemsKeyForCat(cat);
         const items = (await kvGetSafe(key, [])) || [];
@@ -1432,32 +1442,6 @@ if (type === "catalog_items") {
             const lines = body.lines;
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
-            const courtInfo = body.courtInfo || {};
-            const needsCourtInfo = Array.isArray(lines) && lines.some((l) => {
-              if (!l) return false;
-              if (l.requireCourtInfo) return true;
-              const meta = l.meta || l.metadata || {};
-              return !!meta.requireCourtInfo;
-            });
-
-            if (needsCourtInfo) {
-              const cn = String(courtInfo.name || "").trim();
-              const cnum = String(courtInfo.number || "").trim();
-              const co = String(courtInfo.organized || "").trim();
-              const cl = String(courtInfo.location || "").trim();
-              if (!cn || !cnum || !co || !cl) {
-                return REQ_ERR(res, 400, "missing-court-info", {
-                  requestId,
-                  missing: {
-                    name: !cn,
-                    number: !cnum,
-                    organized: !co,
-                    location: !cl,
-                  },
-                });
-              }
-            }
-
 
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
@@ -1575,10 +1559,6 @@ if (type === "catalog_items") {
                 purchaser_state: purchaser.state || "",
                 purchaser_postal: purchaser.postal || "",
                 purchaser_country: purchaser.country || "",
-                court_name: String(courtInfo.name || ""),
-                court_number: String(courtInfo.number || ""),
-                court_organized: String(courtInfo.organized || ""),
-                court_location: String(courtInfo.location || ""),
                 cart_count: String(lines.length || 0),
               },
             });
