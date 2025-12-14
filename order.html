@@ -1,14 +1,13 @@
-<!DOCTYPE html>
-
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1" name="viewport"/>
-<meta content="Order page for checkout and attendee assignments." name="description"/>
-<link href="/assets/img/favicon.svg" rel="icon" type="image/svg+xml"/>
-<link href="/assets/css/styles.css?v=order-v8" rel="stylesheet"/>
-<title>Order</title>
-<style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Order page for checkout and attendee assignments.">
+  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v8" />
+  <title>Order</title>
+  <style>
     /* Page-specific polish for inline edit positioning */
     .att-block { margin-bottom:16px }
     .att-head {
@@ -106,108 +105,139 @@
     #checkoutStatus.ok { color:#065f46 }
     #checkout[disabled]{ opacity:.7; cursor:not-allowed }
   </style>
-<!-- Stripe.js (required for redirectToCheckout) -->
-<script src="https://js.stripe.com/v3"></script>
-<!-- Optional: set your publishable key here as a fallback (safe to expose) -->
-<script>
+
+  <!-- Stripe.js (required for redirectToCheckout) -->
+  <script src="https://js.stripe.com/v3"></script>
+  <!-- Optional: set your publishable key here as a fallback (safe to expose) -->
+  <script>
     window.STRIPE_PUBLISHABLE_KEY = "pk_test_51SBDHKF9brZtHXuA8XTuAes5eBfBG1e95bFeEjWwLwlsuk36PSJxB88HjuqSV1SBlYNJ2CWbHgnv96VIU3Qf6hW400P7jB4s30";
   </script>
 </head>
+
 <body data-page="order">
-<div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
-<!-- Header / Logo + Nav -->
-<header class="site-header">
-<div class="container header-inner">
-<a class="logo" href="/home.html">
-<img alt="Logo" src="/assets/img/logo.svg"/>
-</a>
-<span class="site-title">Order of the Amaranth</span>
-<nav class="site-nav nav">
-<a href="/home.html">Home</a>
-<a href="/banquet.html">Banquets</a>
-<a href="/grand-court-addons.html">Grand Court Add-Ons</a>
-<a data-catalog-link="" href="/product-catalog.html">Product Catalog</a>
-        <span class="sep" data-supplies-sep>|</span>
-        <a href="/supplies.html" data-supplies-link>Supplies</a>
-        <span class="sep" data-charity-sep>|</span>
-        <a href="/charity.html" data-charity-link>Charity</a>
-<span class="nav-current">Order</span>
-<a href="/contact.html">Contact</a>
-</nav>
-</div>
-</header>
-<main class="container mt-lg">
-<h1>Order</h1>
-<!-- Purchaser -->
-<section class="card">
-<h2>Purchaser</h2>
-<div class="grid-2">
-<label>Full name
-          <input id="p_name" placeholder="Your name *" required="" type="text"/>
-</label>
-<label>Title
-          <input id="p_title" placeholder="Title *" required="" type="text"/>
-</label>
-</div>
-<div class="grid-2">
-<label>Email
-          <input id="p_email" placeholder="you@example.com *" required="" type="email"/>
-</label>
-<label>Phone
-          <input id="p_phone" placeholder="555-555-5555 *" required="" type="tel"/>
-</label>
-</div>
-<div class="grid-3">
-<label>Address line 1
-          <input id="p_addr1" placeholder="Address line 1 *" required="" type="text"/>
-</label>
-<label>Address line 2
-          <input id="p_addr2" placeholder="Address line 2" type="text"/>
-</label>
-<label>City
-          <input id="p_city" placeholder="City *" required="" type="text"/>
-</label>
-</div>
-<div class="grid-3">
-<label>State/Province
-          <input id="p_state" placeholder="State/Province *" required="" type="text"/>
-</label>
-<label>Postal code
-          <input id="p_zip" placeholder="Postal code *" required="" type="text"/>
-</label>
-<label>Country
-          <input id="p_country" placeholder="Country *" required="" type="text" value="US"/>
-</label>
-</div>
-</section>
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <!-- Header / Logo + Nav -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="/home.html">
+        <img src="/assets/img/logo.svg" alt="Logo" />
+      </a>
+      <span class="site-title">Order of the Amaranth</span>
+      <nav class="site-nav nav">
+        <a href="/home.html">Home</a>
+        <a href="/banquet.html">Banquets</a>
+        <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="/product-catalog.html" data-catalog-link>Product Catalog</a>
+        <span class="nav-current">Order</span>
+        <a href="/contact.html">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container mt-lg">
+    <h1>Order</h1>
+
+    <!-- Purchaser -->
+    <section class="card">
+      <h2>Purchaser</h2>
+      <div class="grid-2">
+        <label>Full name
+          <input id="p_name" type="text" placeholder="Your name *" required>
+        </label>
+        <label>Title
+          <input id="p_title" type="text" placeholder="Title *" required>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Email
+          <input id="p_email" type="email" placeholder="you@example.com *" required>
+        </label>
+        <label>Phone
+          <input id="p_phone" type="tel" placeholder="555-555-5555 *" required>
+        </label>
+      </div>
+      <div class="grid-3">
+        <label>Address line 1
+          <input id="p_addr1" type="text" placeholder="Address line 1 *" required>
+        </label>
+        <label>Address line 2
+          <input id="p_addr2" type="text" placeholder="Address line 2">
+        </label>
+        <label>City
+          <input id="p_city" type="text" placeholder="City *" required>
+        </label>
+      </div>
+      <div class="grid-3">
+        <label>State/Province
+          <input id="p_state" type="text" placeholder="State/Province *" required>
+        </label>
+        <label>Postal code
+          <input id="p_zip" type="text" placeholder="Postal code *" required>
+        </label>
+        <label>Country
+          <input id="p_country" type="text" value="US" placeholder="Country *" required>
+        </label>
+      </div>
+    </section>
+
+    
+    <!-- Court info (required for certain supplies items like seals) -->
+    <section class="card mt-lg" id="courtInfoCard" style="display:none;">
+      <h2>Court Information</h2>
+      <p class="tiny" id="courtInfoHint" style="margin-top:-6px;"></p>
+      <div class="grid-2">
+        <label>Court name
+          <input id="c_name" type="text" placeholder="Name of the court *">
+        </label>
+        <label>Court number
+          <input id="c_number" type="text" placeholder="Number of the court *">
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Date organized
+          <input id="c_organized" type="text" placeholder="Date organized *">
+        </label>
+        <label>Location
+          <input id="c_location" type="text" placeholder="Location *">
+        </label>
+      </div>
+    </section>
+
 <!-- Summary / Lines -->
-<section class="card mt-lg">
-<div style="display:flex;justify-content:space-between;align-items:center;">
-<h2>Summary</h2>
-<div><strong>Total: </strong><span id="order-total">$0.00</span></div>
-</div>
-<div class="mt" id="order-list"></div>
-<div class="fees-box" id="order-summary"></div>
-<!-- International card processing note (shown for non-US countries) -->
-<div id="intl-fee-note">
+    <section class="card mt-lg">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2>Summary</h2>
+        <div><strong>Total: </strong><span id="order-total">$0.00</span></div>
+      </div>
+
+      <div id="order-list" class="mt"></div>
+
+      <div class="fees-box" id="order-summary"></div>
+
+      <!-- International card processing note (shown for non-US countries) -->
+      <div id="intl-fee-note">
         🌎 Note: Orders with a billing address outside the United States include an additional
         3% international card processing fee at checkout. This will appear as a separate line on
         your Stripe payment summary.
       </div>
-<div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
-<button class="btn btn-primary mt" id="checkout">Go to Checkout</button>
-<span class="tiny" id="checkoutStatus"></span>
-</div>
-<p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
-</section>
-</main>
-<footer class="site-footer">
-<div class="container tiny">© 2025</div>
-</footer>
-<!-- Optional legacy scripts -->
-<script defer="" src="/assets/js/main.js"></script>
-<!-- ===== Phone helpers (US dashes; keep +international) ===== -->
-<script>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
+        <span id="checkoutStatus" class="tiny"></span>
+      </div>
+      <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container tiny">© 2025</div>
+  </footer>
+
+  <!-- Optional legacy scripts -->
+  <script src="/assets/js/main.js" defer></script>
+
+  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
+  <script>
     function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
     function formatUS(d){
       if (d.length <= 3) return d;
@@ -221,17 +251,20 @@
       inputEl.value = formatUS(d);
     }
   </script>
-<!-- Core site scripts (order matters) -->
-<script src="/assets/js/site-settings.js"></script>
-<script src="/assets/js/items.js"></script><script src="/assets/js/supplies.js"></script><script src="/assets/js/charity.js"></script>
-<script src="/assets/js/banquets.js"></script>
-<script src="/assets/js/cart.js"></script>
-<script src="/assets/js/data-store.js"></script>
-<script src="/assets/js/site-boot.js"></script>
-<!-- Order page logic (rendering + shipping + checkout) -->
-<script src="/assets/js/order-page.js"></script>
-<!-- Page-specific wiring: phone formatting + international fee notice -->
-<script>
+
+  <!-- Core site scripts (order matters) -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script src="/assets/js/items.js"></script>
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/cart.js"></script>
+  <script src="/assets/js/data-store.js"></script>
+  <script src="/assets/js/site-boot.js"></script>
+
+  <!-- Order page logic (rendering + shipping + checkout) -->
+  <script src="/assets/js/order-page.js"></script>
+
+  <!-- Page-specific wiring: phone formatting + international fee notice -->
+  <script>
     (function(){
       const phone = document.getElementById('p_phone');
       if (phone) {
@@ -261,8 +294,9 @@
       }
     })();
   </script>
-<!-- Hide Product Catalog link if no visible items -->
-<script>
+
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
   (async function(){
     const link = document.querySelector('[data-catalog-link]');
     if (!link) return;
@@ -292,8 +326,9 @@
     if (!hasVisible) link.style.display = 'none';
   })();
   </script>
-<!-- Maintenance check -->
-<script>
+
+  <!-- Maintenance check -->
+  <script>
   (async () => {
     try {
       const resp = await fetch('/api/router?type=settings');
@@ -317,36 +352,6 @@
     }
   })();
   </script>
-<script>
-(async function(){
-  const checks = [
-    { cat: "supplies", linkSel: "[data-supplies-link]", sepSel: "[data-supplies-sep]" },
-    { cat: "charity",  linkSel: "[data-charity-link]",  sepSel: "[data-charity-sep]"  },
-  ];
-
-  async function hasActive(cat){
-    const r = await fetch(`/api/router?type=catalog_has_active&cat=${encodeURIComponent(cat)}`, { cache: "no-store" });
-    const j = await r.json().catch(()=>null);
-    return !!(j && j.hasActive);
-  }
-
-  for (const c of checks){
-    const a = document.querySelector(c.linkSel);
-    const sep = document.querySelector(c.sepSel);
-    if (!a && !sep) continue;
-
-    try{
-      const ok = await hasActive(c.cat);
-      if (!ok){
-        if (a) a.style.display = "none";
-        if (sep) sep.style.display = "none";
-      }
-    }catch(e){
-      // Fail open: keep link visible if the check fails.
-    }
-  }
-})();
-</script>
 
 </body>
 </html>
