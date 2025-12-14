@@ -243,6 +243,42 @@ function inferStripeEnvFromCheckoutSessionId(id) {
   return "";
 }
 
+// ---------------- Catalog category helpers ----------------
+//
+// Back-compat:
+//   cat=catalog -> KV key "products" (existing)
+//
+// New categories:
+//   cat=supplies -> KV key "products:supplies"
+//   cat=regalia  -> KV key "products:regalia"
+// etc.
+//
+// Registry:
+//   KV key "catalog:categories" stores [{cat,title,imgFolder,navLabel,...}, ...]
+const CATALOG_CATEGORIES_KEY = "catalog:categories";
+
+function normalizeCat(catRaw) {
+  const cat = String(catRaw || "catalog").trim().toLowerCase();
+  const safe = cat.replace(/[^a-z0-9_-]/g, "");
+  return safe || "catalog";
+}
+
+function catalogItemsKeyForCat(catRaw) {
+  const cat = normalizeCat(catRaw);
+  if (!cat || cat === "catalog") return "products"; // existing
+  return `products:${cat}`; // new cats
+}
+
+async function getCatalogCategoriesSafe() {
+  const list = (await kvGetSafe(CATALOG_CATEGORIES_KEY, [])) || [];
+  const out = Array.isArray(list) ? list.slice() : [];
+  const hasCatalog = out.some(
+    (x) => String(x?.cat || "").trim().toLowerCase() === "catalog"
+  );
+  if (!hasCatalog) out.unshift({ cat: "catalog", title: "Product Catalog" });
+  return out;
+}
+
 // -------------- main handler --------------
 export default async function handler(req, res) {
   const requestId = getRequestId(req);
@@ -348,11 +384,23 @@ export default async function handler(req, res) {
 
         const banquets = (await kvGetSafe("banquets", [])) || [];
         const addons = (await kvGetSafe("addons", [])) || [];
-        const products = (await kvGetSafe("products", [])) || [];
 
         addSlots(banquets, "banquet");
         addSlots(addons, "addon");
+
+        // Existing main catalog products (back-compat)
+        const products = (await kvGetSafe("products", [])) || [];
         addSlots(products, "catalog");
+
+        // Include all additional catalog categories as catalog:<cat>
+        const cats = await getCatalogCategoriesSafe();
+        for (const c of cats) {
+          const cat = normalizeCat(c?.cat);
+          if (cat === "catalog") continue;
+          const key = catalogItemsKeyForCat(cat);
+          const list = (await kvGetSafe(key, [])) || [];
+          addSlots(list, `catalog:${cat}`);
+        }
 
         return REQ_OK(res, { requestId, years, slots });
       }
@@ -411,6 +459,58 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, years, points, raw });
       }
 
+      // ---------------- Catalog categories + items (multi-page ready) ----------------
+
+      // Category registry (so order/nav/YoY can discover categories)
+      if (type === "catalog_categories") {
+        const categories = await getCatalogCategoriesSafe();
+        return REQ_OK(res, { requestId, categories });
+      }
+
+      // Items for a given catalog category (cat=catalog -> existing "products")
+      if (type === "catalog_items") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+        return REQ_OK(res, { requestId, cat, items });
+      }
+
+      // Has any active items? (for hiding links + hiding whole page)
+      if (type === "catalog_has_active") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+        const hasActive = Array.isArray(items) && items.some((it) => it && it.active);
+        return REQ_OK(res, { requestId, cat, hasActive });
+      }
+
+      // YoY helper (config view): return items by year (non-breaking even if configs are global)
+      if (type === "catalog_items_yoy") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+
+        let yearsParams = url.searchParams.getAll("year");
+        if (!yearsParams.length) {
+          const csv = url.searchParams.get("years") || "";
+          if (csv) yearsParams = csv.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+
+        const years = yearsParams
+          .map((s) => Number(s))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+
+        const useYears = years.length ? years : await listIndexedYears();
+
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+
+        const byYear = {};
+        for (const y of useYears) byYear[String(y)] = items;
+
+        return REQ_OK(res, { requestId, cat, years: useYears, byYear });
+      }
+
+      // Existing simple lists (back-compat)
       if (type === "banquets")
         return REQ_OK(res, {
           requestId,
@@ -435,7 +535,8 @@ export default async function handler(req, res) {
           overrides,
           effective,
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
-          MAINTENANCE_MESSAGE: effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
+          MAINTENANCE_MESSAGE:
+            effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
         });
       }
 
@@ -448,7 +549,9 @@ export default async function handler(req, res) {
         const startMs = raw.liveStart ? Date.parse(raw.liveStart) : NaN;
         const endMs = raw.liveEnd ? Date.parse(raw.liveEnd) : NaN;
         const windowActive =
-          !isNaN(startMs) && nowMs >= startMs && (isNaN(endMs) || nowMs <= endMs);
+          !isNaN(startMs) &&
+          nowMs >= startMs &&
+          (isNaN(endMs) || nowMs <= endMs);
 
         return REQ_OK(res, {
           requestId,
@@ -527,7 +630,9 @@ export default async function handler(req, res) {
           currency: s.currency,
           customer_details: s.customer_details || {},
           payment_intent:
-            typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id,
+            typeof s.payment_intent === "string"
+              ? s.payment_intent
+              : s.payment_intent?.id,
         });
       }
 
@@ -561,7 +666,8 @@ export default async function handler(req, res) {
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs =
+              endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
@@ -594,7 +700,9 @@ export default async function handler(req, res) {
         const itemParam = (url.searchParams.get("item") || "").toLowerCase();
 
         if (catParam) {
-          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
+          rows = rows.filter(
+            (r) => String(r.category || "").toLowerCase() === catParam
+          );
         }
 
         if (itemIdParam) {
@@ -653,7 +761,8 @@ export default async function handler(req, res) {
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs =
+              endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
@@ -686,7 +795,9 @@ export default async function handler(req, res) {
         const itemParam = (url.searchParams.get("item") || "").toLowerCase();
 
         if (catParam) {
-          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
+          rows = rows.filter(
+            (r) => String(r.category || "").toLowerCase() === catParam
+          );
         }
 
         if (itemIdParam) {
@@ -900,7 +1011,9 @@ export default async function handler(req, res) {
           endMs: isNaN(endMs) ? undefined : endMs,
         });
 
-        const withAttendee = rosterAll.filter((r) => String(r.attendee || "").trim().length > 0);
+        const withAttendee = rosterAll.filter(
+          (r) => String(r.attendee || "").trim().length > 0
+        );
 
         const norm = (s) => String(s || "").trim().toLowerCase();
         const normPhone = (s) => String(s || "").replace(/\D+/g, "");
@@ -1027,7 +1140,9 @@ export default async function handler(req, res) {
           if (result.ok) return REQ_OK(res, { requestId, ...result });
 
           const status =
-            result.error === "invalid_password" || result.error === "locked_out" ? 401 : 500;
+            result.error === "invalid_password" || result.error === "locked_out"
+              ? 401
+              : 500;
 
           const errCode = result.error || "login-failed";
           return REQ_ERR(res, status, errCode, { requestId, ...result });
@@ -1114,7 +1229,8 @@ export default async function handler(req, res) {
         if (!String(email).trim()) missing.push("email");
         if (!String(topic).trim()) missing.push("topic");
         if (!String(msg).trim()) missing.push("message");
-        if (missing.length) return REQ_ERR(res, 400, "missing-fields", { requestId, missing });
+        if (missing.length)
+          return REQ_ERR(res, 400, "missing-fields", { requestId, missing });
 
         const topicMap = {
           banquets: "Banquets / meal choices",
@@ -1153,7 +1269,9 @@ export default async function handler(req, res) {
             <p style="margin:2px 0;">Time (UTC): ${esc(createdIso)}</p>
             <p style="margin:2px 0;">Topic: <b>${esc(topicLabel)}</b></p>
             ${pageLabel ? `<p style="margin:2px 0;">Page: <b>${esc(pageLabel)}</b></p>` : ""}
-            <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(requestId)}</p>
+            <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(
+              requestId
+            )}</p>
             <table style="border-collapse:collapse;border:1px solid #ccc;margin-top:10px;font-size:13px;">
               <tbody>
                 <tr>
@@ -1784,8 +1902,12 @@ export default async function handler(req, res) {
                 <td style="padding:4px;border:1px solid #ddd;">${esc(it.kind)}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(status)}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${rowsLabel}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc((it.to || []).join(", "))}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc((it.bcc || []).join(", "))}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(
+                  (it.to || []).join(", ")
+                )}</td>
+                <td style="padding:4px;border:1px solid #ddd;">${esc(
+                  (it.bcc || []).join(", ")
+                )}</td>
                 <td style="padding:4px;border:1px solid #ddd;">${esc(errorText)}</td>
               </tr>`;
                   })
@@ -1867,7 +1989,14 @@ export default async function handler(req, res) {
           console.error("monthly_log_email_failed", e?.message || e);
         }
 
-        return REQ_OK(res, { requestId, ok: true, sent, skipped, errors, scope: "current-month" });
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          sent,
+          skipped,
+          errors,
+          scope: "current-month",
+        });
       }
 
       if (action === "send_end_of_event_reports") {
@@ -2017,6 +2146,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
+      // Existing products save (back-compat for main catalog)
       if (action === "save_products") {
         const list = Array.isArray(body.products) ? body.products : [];
         await kvSetSafe("products", list);
@@ -2053,6 +2183,54 @@ export default async function handler(req, res) {
         } catch {}
 
         return REQ_OK(res, { requestId, ok: true, count: list.length });
+      }
+
+      // NEW: Save items for any catalog-like category
+      // POST /api/router?action=save_catalog_items&cat=supplies
+      if (action === "save_catalog_items") {
+        const cat = normalizeCat(url.searchParams.get("cat") || body?.cat || "catalog");
+        const key = catalogItemsKeyForCat(cat);
+
+        const list = Array.isArray(body.items)
+          ? body.items
+          : Array.isArray(body.products)
+          ? body.products
+          : [];
+        await kvSetSafe(key, list);
+
+        // Keep itemcfg in sync (same pattern as save_products)
+        try {
+          for (const p of list) {
+            const id = String(p?.id || "");
+            if (!id) continue;
+            const name = String(p?.name || "");
+            const chairEmails = Array.isArray(p?.chairEmails)
+              ? p.chairEmails
+              : String(p?.chairEmails || p?.chair?.email || "")
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+
+            const freq = normalizeReportFrequency(
+              p?.reportFrequency || p?.report_frequency || "monthly"
+            );
+
+            const cfg = {
+              id,
+              name,
+              kind: cat === "catalog" ? "catalog" : `catalog:${cat}`,
+              chairEmails,
+              publishStart: p?.publishStart || "",
+              publishEnd: p?.publishEnd || "",
+              reportFrequency: freq,
+              updatedAt: new Date().toISOString(),
+            };
+            await kvHsetSafe(`itemcfg:${id}`, cfg);
+            await kvSaddSafe("itemcfg:index", id);
+          }
+        } catch {}
+
+        return REQ_OK(res, { requestId, ok: true, cat, key, count: list.length });
       }
 
       if (action === "save_settings") {
