@@ -756,12 +756,12 @@
 
       if (missing.length) {
         throw new Error(
-          "Please complete the following fields:\n• " +
-            missing.join("\n• ")
+          "Please complete the following fields:\n• " + missing.join("\n• ")
         );
-      
+      }
+
       const needsCourtInfo = cartNeedsCourtInfo(Cart.get());
-      const courtInfo = readCourtInfo();
+      const courtInfo = readCourtInfo(); // safe even if not needed
 
       if (needsCourtInfo) {
         const missingCourt = [];
@@ -769,16 +769,14 @@
         if (!courtInfo.number) missingCourt.push("Court number");
         if (!courtInfo.organized) missingCourt.push("Date organized");
         if (!courtInfo.location) missingCourt.push("Location");
+
         if (missingCourt.length) {
           throw new Error(
-            "Please complete the following court fields:
-• " +
-              missingCourt.join("
-• ")
+            "Please complete the following court fields:\n• " +
+              missingCourt.join("\n• ")
           );
         }
       }
-}
 
       const payload = {
         purchaser,
@@ -834,6 +832,9 @@
     // initial mirror of attendees
     syncAttendeesToStorageFromCart();
 
+    // show/hide court info card based on current cart
+    updateCourtInfoUI();
+
     // HOTFIX: migrate any legacy cents (once per load)
     (function migrateLegacyCents() {
       const st = Cart.get();
@@ -872,7 +873,10 @@
 
     // initial + react to cart changes
     render();
-    window.addEventListener("cart:updated", render);
+    window.addEventListener("cart:updated", function(){
+      render();
+      updateCourtInfoUI();
+    });
 
     // Wire checkout button
     const btn = document.getElementById("checkout");
