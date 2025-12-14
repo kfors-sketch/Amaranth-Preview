@@ -1,5 +1,43 @@
 // /assets/js/order-page.js
 (function () {
+  // ---------------------------------------------------------------------------
+  // Multi-catalog support: merge additional catalog-category lists into CATALOG_ITEMS
+  // so the existing cart/order logic continues to work unchanged.
+  // Sources:
+  //   - window.CATALOG_ITEMS  (product catalog)
+  //   - window.SUPPLIES_ITEMS (supplies page)
+  //   - window.CHARITY_ITEMS  (charity page)
+  // ---------------------------------------------------------------------------
+  function mergeCatalogLists() {
+    const base = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
+    const supplies = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
+    const charity = Array.isArray(window.CHARITY_ITEMS) ? window.CHARITY_ITEMS : [];
+
+    const out = [];
+    const seen = new Set();
+
+    const add = (arr) => {
+      for (const it of arr) {
+        const id = String(it && it.id ? it.id : "").trim();
+        if (!id) continue;
+        const key = id.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(it);
+      }
+    };
+
+    add(base);
+    add(supplies);
+    add(charity);
+
+    window.CATALOG_ITEMS = out;
+    window.ALL_CATALOG_ITEMS = out; // debug convenience
+  }
+
+  mergeCatalogLists();
+
+
   // Dollars-safe UI formatter
   function money(n) {
     const v = Math.round(Number(n) * 100) / 100;
