@@ -1,12 +1,12 @@
 // /assets/js/supplies.js
-// Supreme Supplies price list (2026) — transcribed from the provided PDF.
+// Supreme Council Order of the Amaranth — Price List 2026
+// Source: "Supreme Price List 2026" PDF.
 //
 // Notes:
-// - Items with numeric prices are purchasable now (active: true)
-// - Items listed as “Available Upon Request” / “N/A” are included for reference
-//   but are NOT purchasable yet (active: false)
-// - Some items require extra “court info” at checkout:
-//     Court Name, Court Number, Date Organized, Location
+// - Items with a numeric price are purchasable (active: true).
+// - Items marked N/A or "upon request" are included for completeness (active: false).
+// - When ordering Court seals / organizing a court, collect:
+//     Court Name, Court Number, Date Organized, Location.
 
 (function () {
   const CHAIR_NAME = "HL Patti Baker";
@@ -15,7 +15,6 @@
   const chair = { name: CHAIR_NAME, email: CHAIR_EMAIL };
   const chairEmails = [CHAIR_EMAIL];
 
-  // Helper to make ids consistent and unique.
   const mkId = (s) =>
     String(s || "")
       .trim()
@@ -28,20 +27,16 @@
     id: `sup-${mkId(category)}-${mkId(name)}`,
     name,
     category,
-    // Images are optional. Leave blank for now (your UI will show a placeholder).
     image: "",
     images: [],
-    // Inventory (0 = unlimited)
     qtyTotal: 0,
     qtySold: 0,
     active: true,
-    // Reporting
     chair,
     chairEmails,
     publishStart: "",
     publishEnd: "",
     reportFrequency: "monthly",
-    // Shipping/handling placeholder (you said you’ll add later)
     shippingCents: 0,
   });
 
@@ -60,116 +55,114 @@
     ...extra,
   });
 
-  // --- Items (keep the order exactly as the PDF) ---
   window.SUPPLIES_ITEMS = [
-    // Books
-    priced("Books", "Secret Work (each)", 15),
-    priced("Books", "Ritual Book (each)", 25),
-    priced("Books", "Opening Drill Book (each)", 8),
-    priced("Books", "Constitution & Bylaws (each)", 6),
-    priced("Books", "Trestleboard (each)", 15),
+    // ===== SEALS / EQUIPMENT (priced on the sheet) =====
+    priced("Seals", "Hand (Model 1280) - includes postage", 130.0),
+    priced("Seals", "Desk (Model 1218) - recommended - includes postage", 130.0),
+    priced("Seals", "Self-inking stamp - includes postage", 75.0),
 
-    // Cards
-    priced("Cards", "Mileage (each)", 0.1),
-    priced("Cards", "Sick & Distress (each)", 0.1),
+    // ===== BOOKS =====
+    priced("Books", "Ante Room Register - Spiral Bound", 10.0),
+    priced("Books", "Secretary's Cash Book - Spiral Bound", 10.0),
+    priced("Books", "Treasurer's Account Book - Spiral Bound", 10.0),
+    priced("Books", "Minute Book - Spiral Bound", 17.0),
+    priced("Books", "Ledger - Spiral Bound", 23.0),
+    priced("Books", "Treasurer's Receipt Book #120", 5.0),
+    priced("Books", "Warrant Book #122", 5.0),
+    priced("Books", "Property Receipt Book #209", 1.4),
+    priced("Books", "Roll Call Book", 2.5),
+    priced("Books", "Manual of Procedures - Filler Only", 8.0),
+    priced("Books", "Constitution (Enlarged)", 7.5),
+    priced("Books", "Penal Code (Enlarged)", 5.5),
+    priced("Books", "Small Ritual - Filler", 8.5),
+    priced("Books", "Small Ritual - Cover", 6.5),
+    priced("Books", "Large Ritual - Filler", 14.5),
+    priced("Books", "Large Ritual - Cover", 8.0),
+    priced("Books", "2024 Small Ritual updates (Individual)", 15.0),
+    priced("Books", '2024 Large Ritual updates (Casket, 6")', 7.25),
+    priced("Books", "Secretary's Hand Book", 27.0),
+    priced("Books", "Court Book, Rules & Regulations", 6.0),
+    priced("Books", "Funeral Service Booklet", 4.0),
 
-    // Certificates
-    priced("Certificates", "Original Life Membership (each)", 0.5),
-    priced("Certificates", "Honorary Membership (each)", 0.5),
-    priced("Certificates", "Annual Membership (each)", 0.5),
-    priced("Certificates", "Life Membership (replacement each)", 0.5),
-    priced("Certificates", "Honorary Membership (replacement each)", 0.5),
+    // ===== STAFF TOPS (priced on the sheet) =====
+    priced("Staff Tops", "Set of 7 (if available)", 55.0),
+    priced("Staff Tops", "Individual", 8.5),
 
-    // Charters
-    priced("Charters", "Court Charter with Seal", 15),
-    priced("Charters", "Trestleboard Charter", 2.5),
+    // ===== WREATHS (priced on the sheet) =====
+    priced("Wreaths", "Pair (2)", 30.0),
 
-    // Computer Discs
-    priced(
-      "Computer Discs",
-      "District Deputy Book of Instructions (each)",
-      25
-    ),
-    priced("Computer Discs", "Ritual with Music (each)", 25),
+    // ===== HISTORIES / OTHER =====
+    requestOnly("Histories", "Membership Promotion/History Brochure", "N/A (not stocked)"),
 
-    // Dispensations
-    priced("Dispensations", "GRM's Dispensation #302 (each)", 15),
-    priced("Dispensations", "To Organize a Court (each)", 10, {
-      requiresCourtInfo: true,
-    }),
-    priced("Dispensations", "Petition to Organize a Court (each)", 5, {
-      requiresCourtInfo: true,
-    }),
-    priced("Dispensations", "Procedure to Organize a Court (each)", 10),
+    // ===== LETTERS =====
+    priced("Letters", "SRM Official Letter (per page) emailed", 0.25),
+    priced("Letters", "Supreme Lecturer (per page) emailed", 0.2),
 
-    // Flags
-    priced("Flags", "Eastern Star (each)", 17),
-    priced("Flags", "American Flag (each)", 17),
+    // ===== CARDS =====
+    priced("Cards", "Code Cards", 0.25),
+    priced("Cards", "Dues Cards #124 (per sheet of 5)", 0.43, { description: "subject to change" }),
+    priced("Cards", "Dues Cards #124A (per sheet of 5)", 0.45, { description: "subject to change" }),
+    priced("Cards", "Honorary Membership Cards, Sub. Ct. (each)", 0.1),
+    priced("Cards", "Honorary Member Cards, Gr. Ct. (each)", 0.2),
+    requestOnly("Cards", "Escort Cards form for printing", "Available (form for printing)"),
+    priced("Cards", "Life Member Card #200 (each)", 0.25),
 
-    // Seals
-    // NOTE (from PDF): When ordering a seal, provide Court Name, Court Number,
-    // Date Organized and Location.
-    priced("Seals", "Court Seal (each)", 30, { requiresCourtInfo: true }),
-    priced("Seals", "Court Seal Holder (each)", 30, { requiresCourtInfo: true }),
-    priced("Seals", "Trestleboard Seal (each)", 30),
-    priced("Seals", "Trestleboard Seal Holder (each)", 30),
+    // ===== PETITION - BLANKS - NOTICES =====
+    priced("Petitions/Notices", "Annual Return, Sub. Ct. to Gr. Ct. #115 (each)", 0.15),
+    priced("Petitions/Notices", "Official Ballots, Gr. Ct. #128 (per 100)", 1.25),
+    priced("Petitions/Notices", "Syllabus (each)", 1.0),
+    priced("Petitions/Notices", "Amaranth Stationery 5-1/2 x 8-1/2 (pad)", 1.5),
 
-    // Standards & Banners
-    requestOnly(
-      "Standards & Banners",
-      "Standards & Banners",
-      "Available upon request (not priced in list)"
-    ),
+    // ===== PARAPHERNALIA =====
+    priced("Paraphernalia", "Ballot Balls, white (per 100)", 5.7),
+    priced("Paraphernalia", "Black Cubes (each)", 0.25),
+    priced("Paraphernalia", "Black Cubes (each) (additional)", 0.25),
 
-    // Staff Tops
-    priced("Staff Tops", "GRM Staff Top (each)", 100),
-    priced("Staff Tops", "GRP Staff Top (each)", 100),
-    priced("Staff Tops", "RDM Staff Top (each)", 40),
-    priced("Staff Tops", "RDP Staff Top (each)", 40),
-    priced("Staff Tops", "District Deputy Staff Top (each)", 40),
+    // ===== CERTIFICATES =====
+    priced("Certificates", "25 Year Certificate", 1.0),
+    priced("Certificates", "50 Year Certificate", 1.0),
+    priced("Certificates", "Honorary Membership #404 Sub Ct (each)", 0.6),
+    priced("Certificates", "Honorary Membership #127 Gr Ct (each)", 0.6),
+    priced("Certificates", "Life Member #202 (each)", 0.6),
 
-    // Wreaths
-    requestOnly("Wreaths", "Wreaths", "Available upon request (not priced in list)"),
+    // ===== BIBLES =====
+    requestOnly("Bibles", "White, Altar", "N/A (not stocked)"),
 
-    // Histories
-    priced("Histories", "Grand Court History Books (each)", 10),
-    priced("Histories", "Supreme Court History Books (each)", 35),
-    priced("Histories", "District History Books (each)", 15),
+    // ===== SEALS (N/A on the sheet) =====
+    requestOnly("Seals", "Gold Seals (each)", "N/A"),
 
-    // Letters
-    priced("Letters", "Letters of Congratulation (each)", 5),
+    // ===== CHARTERS =====
+    priced("Charters", "Charter, Sub. Ct.", 1.5),
 
-    // Petition - blanks - notices
-    priced("Petition/Blanks/Notices", "Petition to Affiliate (each)", 0.1),
-    priced("Petition/Blanks/Notices", "Petition for membership (each)", 0.1),
-    priced("Petition/Blanks/Notices", "Demits (each)", 0.1),
-    priced("Petition/Blanks/Notices", "Commission (each)", 0.1),
-    priced("Petition/Blanks/Notices", "Request for Waiver (each)", 0.1),
-    priced("Petition/Blanks/Notices", "Notice of Meeting (each)", 0.1),
+    // ===== COMPUTER DISCS =====
+    priced("Computer Discs", "Form Flash Drive", 10.0),
 
-    // Paraphernalia
-    requestOnly(
-      "Paraphernalia",
-      "Paraphernalia",
-      "Available upon request (not priced in list)"
-    ),
+    // ===== FLAG & TOPS =====
+    priced('Flag & Tops', 'Eagle, 7" spread (each)', 38.0),
+    priced('Flag & Tops', 'Eagle, 6" spread (each)', 20.0),
+    priced('Flag & Tops', 'Eagle, 5" spread (each)', 23.0),
 
-    // Bibles
-    priced("Bibles", "Bible (each)", 40),
+    // ===== DISPENSATIONS =====
+    priced("Dispensations", "GRM's #302 (per pad)", 4.2),
+    priced("Dispensations", "To Organize a Court (each)", 0.75, { requiresCourtInfo: true }),
+    priced("Dispensations", "Petition to Organize a Court (each)", 1.1, { requiresCourtInfo: true }),
+    priced("Dispensations", "Procedure to Organize a Court (each)", 0.75),
 
-    // Flag & Tops
-    priced("Flag & Tops", "State Flag (each)", 25),
-    priced("Flag & Tops", "State Flag Top (each)", 35),
-    priced("Flag & Tops", "American Flag Top (each)", 35),
-    priced("Flag & Tops", "Eastern Star Flag Top (each)", 35),
-    priced("Flag & Tops", "Amaranth Flag Top (each)", 35),
-    priced("Flag & Tops", "Court Flag Top (each)", 35),
+    // ===== PINS =====
+    priced("Pins", "25 Year Pins (each)", 5.0),
+    priced("Pins", "50 Year Pins (each)", 5.0),
 
-    // Jewels
-    requestOnly(
-      "Jewels",
-      "Jewels",
-      "N/A (not available / not priced in list)"
-    ),
+    // ===== JEWELS =====
+    priced("Jewels", "Subordinate Court (set of 21)", 490.0),
+    priced("Jewels", "Subordinate Court (individual)", 25.0),
+    priced("Jewels", "Grand Court (set of 32)", 825.0),
+    priced("Jewels", "Grand Court (individual)", 31.25),
+    priced("Jewels", "Amaranth (subject to change) - New", 450.0),
+
+    // ===== STANDARDS & BANNERS / FLAGS (sections shown but not priced) =====
+    requestOnly("Standards & Banners", "Standard / Banner parts", "Available upon request (not priced)"),
+    requestOnly("Standards & Banners", "Banners (Red satin)", "Available upon request (not priced)"),
+    requestOnly("Standards & Banners", "Knobs / Tassels / Cords / Rods & Ends", "Available upon request (not priced)"),
+    requestOnly("Flags", "Flags", "Listed as a section (no prices shown on this sheet)"),
   ];
 })();
