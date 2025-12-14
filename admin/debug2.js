@@ -456,4 +456,131 @@
       tokenWarningEl.style.display = "block";
     }
   })();
+
+  /* -------------------------------------------------------------------------- */
+  /* Supplies / Cart debug                                                       */
+  /* -------------------------------------------------------------------------- */
+
+  const btnLoadSuppliesScript = document.getElementById("btnLoadSuppliesScript");
+  const btnShowSuppliesLocal = document.getElementById("btnShowSuppliesLocal");
+  const btnShowSuppliesApi = document.getElementById("btnShowSuppliesApi");
+  const cartKeyInput = document.getElementById("cartKeyInput");
+  const btnDumpCart = document.getElementById("btnDumpCart");
+  const btnListCartKeys = document.getElementById("btnListCartKeys");
+
+  function guessCartKeys() {
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        const kl = String(k).toLowerCase();
+        if (kl.includes("cart") || kl.includes("order") || kl.includes("checkout")) {
+          keys.push(k);
+        }
+      }
+    } catch {}
+    // common fallbacks
+    ["amaranth_cart", "cart", "amaranthCart", "order_cart", "orderCart"].forEach((k) => {
+      if (!keys.includes(k)) keys.push(k);
+    });
+    return keys;
+  }
+
+  async function loadSuppliesScriptOnce() {
+    if (Array.isArray(window.SUPPLIES_ITEMS) && window.SUPPLIES_ITEMS.length) {
+      return { alreadyLoaded: true, count: window.SUPPLIES_ITEMS.length };
+    }
+    return await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "/assets/js/supplies.js?v=" + Date.now();
+      s.async = true;
+      s.onload = () => resolve({ loaded: true, count: (window.SUPPLIES_ITEMS || []).length });
+      s.onerror = () => reject(new Error("Failed to load /assets/js/supplies.js"));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function runLoadSuppliesScript() {
+    try {
+      const r = await loadSuppliesScriptOnce();
+      showJSON("Loaded supplies.js", {
+        ...r,
+        hasSUPPLIES_ITEMS: Array.isArray(window.SUPPLIES_ITEMS),
+      });
+    } catch (e) {
+      showError("Load supplies.js error", e);
+    }
+  }
+
+  function runShowSuppliesLocal() {
+    const items = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
+    const act = items.filter((x) => x && x.active !== false);
+    const cats = {};
+    act.forEach((it) => {
+      const c = String(it.category || "Uncategorized");
+      cats[c] = (cats[c] || 0) + 1;
+    });
+
+    showJSON("SUPPLIES_ITEMS (client)", {
+      total: items.length,
+      activeNow: act.length,
+      categories: cats,
+      sample: act.slice(0, 15).map((x) => ({ id: x.id, name: x.name, price: x.price, active: x.active })),
+    });
+  }
+
+  async function runShowSuppliesApi() {
+    try {
+      const data = await fetchJson(
+        API_BASE + "?type=catalog_items&cat=supplies",
+        { headers: { Accept: "application/json" } },
+        "Loading catalog_items (supplies)…"
+      );
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      showJSON("API catalog_items (supplies)", {
+        ok: data?.ok ?? true,
+        count: items.length,
+        sample: items.slice(0, 20).map((x) => ({ id: x.id, name: x.name, active: x.active, price: x.price })),
+        raw: data,
+      });
+    } catch (e) {
+      showError("catalog_items error", e);
+    }
+  }
+
+  function runDumpCart() {
+    const key = String(cartKeyInput?.value || "").trim() || "amaranth_cart";
+    let raw = null;
+    let parsed = null;
+    try { raw = localStorage.getItem(key); } catch {}
+    try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = raw; }
+
+    showJSON("Cart dump", {
+      key,
+      exists: raw != null,
+      rawType: typeof raw,
+      parsed,
+    });
+  }
+
+  function runListCartKeys() {
+    const keys = guessCartKeys();
+    showJSON("Likely cart keys", { keys });
+    if (cartKeyInput && !cartKeyInput.value && keys.length) {
+      cartKeyInput.value = keys[0];
+    }
+  }
+
+
+
+  // Wire Supplies / Cart debug buttons
+  if (cartKeyInput && !cartKeyInput.value) cartKeyInput.value = "amaranth_cart";
+  if (btnLoadSuppliesScript) btnLoadSuppliesScript.addEventListener("click", runLoadSuppliesScript);
+  if (btnShowSuppliesLocal) btnShowSuppliesLocal.addEventListener("click", runShowSuppliesLocal);
+  if (btnShowSuppliesApi) btnShowSuppliesApi.addEventListener("click", runShowSuppliesApi);
+  if (btnDumpCart) btnDumpCart.addEventListener("click", runDumpCart);
+  if (btnListCartKeys) btnListCartKeys.addEventListener("click", runListCartKeys);
+
 })();

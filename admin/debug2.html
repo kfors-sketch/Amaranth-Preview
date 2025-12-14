@@ -305,6 +305,33 @@
       </div>
 
       <!-- Mail & Contact --------------------------------------------------- -->
+      
+      <div class="card">
+        <h3>Supplies / Cart Debug <span class="badge">client + API</span></h3>
+        <p>
+          Quick checks for the Supplies category and cart wiring (helps when items show on <code>supplies.html</code> but don’t appear on <code>order.html</code>).
+        </p>
+
+        <div class="btn-row">
+          <button id="btnLoadSuppliesScript">Load /assets/js/supplies.js</button>
+          <button id="btnShowSuppliesLocal">Show SUPPLIES_ITEMS (client)</button>
+          <button id="btnShowSuppliesApi">Fetch catalog_items (API)</button>
+        </div>
+
+        <label for="cartKeyInput">Cart localStorage key</label>
+        <input id="cartKeyInput" type="text" placeholder="amaranth_cart" />
+
+        <div class="btn-row">
+          <button id="btnDumpCart">Dump cart from localStorage</button>
+          <button id="btnListCartKeys">List likely cart keys</button>
+        </div>
+
+        <div class="hint">
+          Tip: If <code>SUPPLIES_ITEMS</code> loads but the cart is empty, the click handler on <code>supplies.html</code> may be writing to a different key than <code>order.html</code> reads.
+        </div>
+      </div>
+
+
       <div class="card">
         <h3>Mail Log History <span class="badge">GET ?type=debug_mail_recent</span></h3>
         <p>
