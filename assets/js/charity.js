@@ -26,13 +26,10 @@ window.CHARITY_ITEMS = [
     shippingCents: 550, // $5.50 shipping & handling
 
     // Thumbnail shown on the page
-    image: "/assets/shop-charity/example_thumb.jpg",
+    image: "",
 
     // Optional: lightbox gallery images (full-size)
-    images: [
-      "/assets/shop-charity/example_full.jpg",
-      "/assets/shop-charity/example_alt.jpg"
-    ],
+    images: [],
 
     sku: "SUP-001",
 
