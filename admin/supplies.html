@@ -560,11 +560,11 @@
   async function loadInitial(){
     let loaded = false;
     try {
-      const r = await fetch('/api/router?type=supplies', { cache: 'no-store' });
+      const r = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.supplies)) {
-          modelAll = normalizeAll(j.supplies);
+        if (Array.isArray(j?.items)) {
+          modelAll = normalizeAll(j.items);
           loaded = true;
         }
       }
@@ -593,11 +593,11 @@
     if (msg) msg.textContent = 'Refreshing…';
     let loaded = false;
     try{
-      const r = await fetch('/api/router?type=supplies', { cache: 'no-store' });
+      const r = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
       if (r.ok) {
         const j = await r.json();
-        if (Array.isArray(j?.supplies)){
-          modelAll = normalizeAll(j.supplies);
+        if (Array.isArray(j?.items)){
+          modelAll = normalizeAll(j.items);
           loaded = true;
           if (msg) msg.textContent = 'Loaded from server.';
         }
@@ -886,8 +886,8 @@
     const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
     const payload = normalizeAll(modelAll);
 
-    const res = await fetch("/api/router?action=save_supplies", {
-      method: "POST", headers, body: JSON.stringify({ supplies: payload })
+    const res = await fetch("/api/router?action=save_catalog_items&cat=supplies", {
+      method: "POST", headers, body: JSON.stringify({ items: payload })
     });
     if (!res.ok) throw new Error("server rejected");
 
@@ -1014,33 +1014,5 @@
   // Kick off
   loadInitial();
   </script>
-
-<script>
-// AUTO-SEED: if KV is empty for this category, seed once from the bundled SUPPLIES_ITEMS list.
-(async function autoSeedIfEmpty(){
-  try{
-    // Only runs on admin pages (requires token)
-    const token = (window.Admin && typeof window.Admin.tokenHeader === "function") ? window.Admin.tokenHeader() : null;
-    if (!token) return;
-
-    const r = await fetch("/api/router?type=catalog_items&cat=supplies", { cache: "no-store" });
-    const j = await r.json().catch(()=>null);
-    const existing = (j && Array.isArray(j.items)) ? j.items : [];
-    if (existing.length) return;
-
-    const seed = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
-    if (!seed.length) return;
-
-    console.log("[admin:supplies] auto-seeding", seed.length, "items from SUPPLIES_ITEMS");
-    await fetch("/api/router?action=save_catalog_items&cat=supplies", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token||{}) },
-      body: JSON.stringify({ items: seed })
-    });
-    // reload so UI shows seeded items
-    location.reload();
-  }catch(e){ console.warn("[admin:supplies] auto-seed failed", e); }
-})();
-</script>
 </body>
 </html>
