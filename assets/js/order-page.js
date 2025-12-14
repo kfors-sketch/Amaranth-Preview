@@ -1,43 +1,5 @@
 // /assets/js/order-page.js
 (function () {
-  // ---------------------------------------------------------------------------
-  // Multi-catalog support: merge additional catalog-category lists into CATALOG_ITEMS
-  // so the existing cart/order logic continues to work unchanged.
-  // Sources:
-  //   - window.CATALOG_ITEMS  (product catalog)
-  //   - window.SUPPLIES_ITEMS (supplies page)
-  //   - window.CHARITY_ITEMS  (charity page)
-  // ---------------------------------------------------------------------------
-  function mergeCatalogLists() {
-    const base = Array.isArray(window.CATALOG_ITEMS) ? window.CATALOG_ITEMS : [];
-    const supplies = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
-    const charity = Array.isArray(window.CHARITY_ITEMS) ? window.CHARITY_ITEMS : [];
-
-    const out = [];
-    const seen = new Set();
-
-    const add = (arr) => {
-      for (const it of arr) {
-        const id = String(it && it.id ? it.id : "").trim();
-        if (!id) continue;
-        const key = id.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(it);
-      }
-    };
-
-    add(base);
-    add(supplies);
-    add(charity);
-
-    window.CATALOG_ITEMS = out;
-    window.ALL_CATALOG_ITEMS = out; // debug convenience
-  }
-
-  mergeCatalogLists();
-
-
   // Dollars-safe UI formatter
   function money(n) {
     const v = Math.round(Number(n) * 100) / 100;
@@ -59,6 +21,36 @@
   // Simple email check
   function looksLikeEmail(s) {
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || "").trim());
+  }
+
+  // Supplies items that require court info (name/number/date/location)
+  const COURT_INFO_ITEM_IDS = new Set(["hand-model-1218-seal-includes-postage", "desk-model-1218-seal-includes-postage"]);
+
+  function cartNeedsCourtInfo(st) {
+    const lines = (st && st.lines) ? st.lines : [];
+    return lines.some(l => COURT_INFO_ITEM_IDS.has(String(l.itemId||l.id||"").trim().toLowerCase()));
+  }
+
+  function readCourtInfo() {
+    return {
+      name: String(document.getElementById("c_name")?.value || "").trim(),
+      number: String(document.getElementById("c_number")?.value || "").trim(),
+      organized: String(document.getElementById("c_organized")?.value || "").trim(),
+      location: String(document.getElementById("c_location")?.value || "").trim(),
+    };
+  }
+
+  function updateCourtInfoUI() {
+    const card = document.getElementById("courtInfoCard");
+    const hint = document.getElementById("courtInfoHint");
+    if (!card || !window.Cart || typeof Cart.get !== "function") return;
+    const needs = cartNeedsCourtInfo(Cart.get());
+    card.style.display = needs ? "" : "none";
+    if (hint) {
+      hint.textContent = needs
+        ? "Required for seals: Court name, Court number, Date organized, Location."
+        : "";
+    }
   }
 
   // ===========================================================================
@@ -767,10 +759,30 @@
           "Please complete the following fields:\n• " +
             missing.join("\n• ")
         );
+      
+      const needsCourtInfo = cartNeedsCourtInfo(Cart.get());
+      const courtInfo = readCourtInfo();
+
+      if (needsCourtInfo) {
+        const missingCourt = [];
+        if (!courtInfo.name) missingCourt.push("Court name");
+        if (!courtInfo.number) missingCourt.push("Court number");
+        if (!courtInfo.organized) missingCourt.push("Date organized");
+        if (!courtInfo.location) missingCourt.push("Location");
+        if (missingCourt.length) {
+          throw new Error(
+            "Please complete the following court fields:
+• " +
+              missingCourt.join("
+• ")
+          );
+        }
       }
+}
 
       const payload = {
         purchaser,
+        courtInfo,
         ...buildPayloadFromCart(),
         cancel_url: location.href, // snake_case for server
         cancelUrl: location.href, // camelCase also
