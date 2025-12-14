@@ -130,7 +130,10 @@
         <a href="/product-catalog.html" data-catalog-link>Product Catalog</a>
         <span class="nav-current">Order</span>
         <a href="/contact.html">Contact</a>
-      </nav>
+      
+        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+</nav>
     </div>
   </header>
 
@@ -180,30 +183,7 @@
       </div>
     </section>
 
-    
-    <!-- Court info (required for certain supplies items like seals) -->
-    <section class="card mt-lg" id="courtInfoCard" style="display:none;">
-      <h2>Court Information</h2>
-      <p class="tiny" id="courtInfoHint" style="margin-top:-6px;"></p>
-      <div class="grid-2">
-        <label>Court name
-          <input id="c_name" type="text" placeholder="Name of the court *">
-        </label>
-        <label>Court number
-          <input id="c_number" type="text" placeholder="Number of the court *">
-        </label>
-      </div>
-      <div class="grid-2">
-        <label>Date organized
-          <input id="c_organized" type="text" placeholder="Date organized *">
-        </label>
-        <label>Location
-          <input id="c_location" type="text" placeholder="Location *">
-        </label>
-      </div>
-    </section>
-
-<!-- Summary / Lines -->
+    <!-- Summary / Lines -->
     <section class="card mt-lg">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2>Summary</h2>
@@ -261,6 +241,8 @@
   <script src="/assets/js/site-boot.js"></script>
 
   <!-- Order page logic (rendering + shipping + checkout) -->
+  <script src="/assets/js/supplies.js"></script>
+  <script src="/assets/js/charity.js"></script>
   <script src="/assets/js/order-page.js"></script>
 
   <!-- Page-specific wiring: phone formatting + international fee notice -->
@@ -353,5 +335,27 @@
   })();
   </script>
 
+
+<script>
+(async function(){
+  async function hasActive(cat){
+    try{
+      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
+      if (!r.ok) return true;
+      const j = await r.json();
+      return !!(j && j.hasActive);
+    }catch(e){
+      // fail open: show links if API fails
+      return true;
+    }
+  }
+  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
+  for (const a of links){
+    const cat = a.getAttribute("data-cat") || "";
+    const ok = await hasActive(cat);
+    if (!ok) a.style.display = "none";
+  }
+})();
+</script>
 </body>
 </html>

@@ -24,10 +24,9 @@
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="product-catalog.html">Product Catalog</a>
-        <span class="sep" data-supplies-sep>|</span>
-        <a href="supplies.html" data-supplies-link>Supplies</a>
-        <span class="sep" data-charity-sep>|</span>
-        <a href="charity.html" data-charity-link>Charity</a>
+        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+
         <span class="nav-current">Charity</span>
         <a href="order.html">Order</a>
         <a href="contact.html">Contact</a>
@@ -628,7 +627,15 @@
     }
     .lightbox-prev { left: 8px; }
     .lightbox-next { right: 8px; }
-  </style>
+  /* Charity grid: compact, image-optional */
+.items-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.item-card{border:1px solid #e5e7eb;border-radius:14px;background:#fff;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.item-card h3{margin:0 0 6px;font-size:15px;line-height:1.2}
+.item-card .price{font-weight:700}
+.item-card .meta{font-size:12px;color:#555;margin-top:6px}
+.item-card .btn{margin-top:10px}
+@media (min-width:1100px){ .items-grid{grid-template-columns:repeat(4,minmax(220px,1fr));} }
+</style>
 
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
@@ -665,36 +672,27 @@
   })();
   </script>
 
+
 <script>
 (async function(){
-  const checks = [
-    { cat: "supplies", linkSel: "[data-supplies-link]", sepSel: "[data-supplies-sep]" },
-    { cat: "charity",  linkSel: "[data-charity-link]",  sepSel: "[data-charity-sep]"  },
-  ];
-
   async function hasActive(cat){
-    const r = await fetch(`/api/router?type=catalog_has_active&cat=${encodeURIComponent(cat)}`, { cache: "no-store" });
-    const j = await r.json().catch(()=>null);
-    return !!(j && j.hasActive);
-  }
-
-  for (const c of checks){
-    const a = document.querySelector(c.linkSel);
-    const sep = document.querySelector(c.sepSel);
-    if (!a && !sep) continue;
-
     try{
-      const ok = await hasActive(c.cat);
-      if (!ok){
-        if (a) a.style.display = "none";
-        if (sep) sep.style.display = "none";
-      }
+      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
+      if (!r.ok) return true;
+      const j = await r.json();
+      return !!(j && j.hasActive);
     }catch(e){
-      // Fail open: keep link visible if the check fails.
+      // fail open: show links if API fails
+      return true;
     }
+  }
+  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
+  for (const a of links){
+    const cat = a.getAttribute("data-cat") || "";
+    const ok = await hasActive(cat);
+    if (!ok) a.style.display = "none";
   }
 })();
 </script>
-
 </body>
 </html>
