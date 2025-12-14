@@ -10,7 +10,7 @@
 
 (function () {
   const CHAIR_NAME = "HL Patti Baker";
-  const CHAIR_EMAIL = "Supremesecretary@amaranth.org";
+  const CHAIR_EMAIL = "kfors@verizon.net";
 
   const chair = { name: CHAIR_NAME, email: CHAIR_EMAIL };
   const chairEmails = [CHAIR_EMAIL];
