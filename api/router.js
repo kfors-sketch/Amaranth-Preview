@@ -468,7 +468,16 @@ export default async function handler(req, res) {
       }
 
       // Items for a given catalog category (cat=catalog -> existing "products")
-      if (type === "catalog_items") {
+      
+      // Back-compat: old pages may request type=supplies or type=charity
+      if (type === "supplies" || type === "charity") {
+        const cat = type; // "supplies" or "charity"
+        // Reuse catalog_items logic (KV-backed)
+        const items = await kvGetSafe(baseKey("items", cat), null);
+        return REQ_OK(res, { cat, items: Array.isArray(items) ? items : [] });
+      }
+
+if (type === "catalog_items") {
         const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
         const key = catalogItemsKeyForCat(cat);
         const items = (await kvGetSafe(key, [])) || [];
@@ -1423,6 +1432,32 @@ export default async function handler(req, res) {
             const lines = body.lines;
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
+            const courtInfo = body.courtInfo || {};
+            const needsCourtInfo = Array.isArray(lines) && lines.some((l) => {
+              if (!l) return false;
+              if (l.requireCourtInfo) return true;
+              const meta = l.meta || l.metadata || {};
+              return !!meta.requireCourtInfo;
+            });
+
+            if (needsCourtInfo) {
+              const cn = String(courtInfo.name || "").trim();
+              const cnum = String(courtInfo.number || "").trim();
+              const co = String(courtInfo.organized || "").trim();
+              const cl = String(courtInfo.location || "").trim();
+              if (!cn || !cnum || !co || !cl) {
+                return REQ_ERR(res, 400, "missing-court-info", {
+                  requestId,
+                  missing: {
+                    name: !cn,
+                    number: !cnum,
+                    organized: !co,
+                    location: !cl,
+                  },
+                });
+              }
+            }
+
 
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
@@ -1540,6 +1575,10 @@ export default async function handler(req, res) {
                 purchaser_state: purchaser.state || "",
                 purchaser_postal: purchaser.postal || "",
                 purchaser_country: purchaser.country || "",
+                court_name: String(courtInfo.name || ""),
+                court_number: String(courtInfo.number || ""),
+                court_organized: String(courtInfo.organized || ""),
+                court_location: String(courtInfo.location || ""),
                 cart_count: String(lines.length || 0),
               },
             });
