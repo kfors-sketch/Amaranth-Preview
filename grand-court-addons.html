@@ -24,6 +24,10 @@
         <a href="banquet.html">Banquets</a>
         <span class="nav-current">Grand Court Add-Ons</span>
         <a href="product-catalog.html" data-catalog-link>Product Catalog</a>
+        <span class="sep" data-supplies-sep>|</span>
+        <a href="supplies.html" data-supplies-link>Supplies</a>
+        <span class="sep" data-charity-sep>|</span>
+        <a href="charity.html" data-charity-link>Charity</a>
         <a href="order.html">Order</a>
         <a href="contact.html">Contact</a>
       </nav>
@@ -421,6 +425,37 @@
     }
   })();
   </script>
+
+<script>
+(async function(){
+  const checks = [
+    { cat: "supplies", linkSel: "[data-supplies-link]", sepSel: "[data-supplies-sep]" },
+    { cat: "charity",  linkSel: "[data-charity-link]",  sepSel: "[data-charity-sep]"  },
+  ];
+
+  async function hasActive(cat){
+    const r = await fetch(`/api/router?type=catalog_has_active&cat=${encodeURIComponent(cat)}`, { cache: "no-store" });
+    const j = await r.json().catch(()=>null);
+    return !!(j && j.hasActive);
+  }
+
+  for (const c of checks){
+    const a = document.querySelector(c.linkSel);
+    const sep = document.querySelector(c.sepSel);
+    if (!a && !sep) continue;
+
+    try{
+      const ok = await hasActive(c.cat);
+      if (!ok){
+        if (a) a.style.display = "none";
+        if (sep) sep.style.display = "none";
+      }
+    }catch(e){
+      // Fail open: keep link visible if the check fails.
+    }
+  }
+})();
+</script>
 
 </body>
 </html>

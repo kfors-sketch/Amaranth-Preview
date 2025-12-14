@@ -6,7 +6,7 @@
   <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/styles.css?v=shop-v5" />
-  <title>Product Catalog</title>
+  <title>Supplies</title>
 </head>
 
 <body class="shop" data-page="shop">
@@ -23,11 +23,12 @@
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="product-catalog.html">Product Catalog</a>
         <span class="sep" data-supplies-sep>|</span>
         <a href="supplies.html" data-supplies-link>Supplies</a>
         <span class="sep" data-charity-sep>|</span>
         <a href="charity.html" data-charity-link>Charity</a>
-        <span class="nav-current">Product Catalog</span>
+        <span class="nav-current">Supplies</span>
         <a href="order.html">Order</a>
         <a href="contact.html">Contact</a>
       </nav>
@@ -35,11 +36,11 @@
   </header>
 
   <main class="container mt-lg">
-    <h1>Shop</h1>
+    <h1>Supplies</h1>
 
     <!-- Empty-state (hidden until needed) -->
     <div id="emptyCatalog" class="card" style="display:none;max-width:780px;margin:0 auto 16px;">
-      <h2 style="margin:.25rem 0 .5rem;">No items available right now</h2>
+      <h2 style="margin:.25rem 0 .5rem;">No supplies available right now</h2>
       <p class="muted" style="margin:0">
         Please check back soon. Items appear here only when they are published and active.
       </p>
@@ -425,15 +426,15 @@
       });
     }
 
-    // Load products from server first, then fall back to items.js
+    // Load supplies from server first, then fall back to supplies.js
     async function loadAndRender(){
       let rawItems = [];
       try {
-        const resp = await fetch('/api/router?type=products', { cache: 'no-store' });
+        const resp = await fetch('/api/router?type=supplies', { cache: 'no-store' });
         if (resp.ok){
           const data = await resp.json();
-          if (Array.isArray(data.products) && data.products.length){
-            rawItems = data.products;
+          if (Array.isArray(data.supplies) && data.supplies.length){
+            rawItems = data.supplies;
           }
         }
       } catch (e){
@@ -441,9 +442,7 @@
       }
 
       if (!rawItems.length){
-        rawItems =
-          (window.DataStore && DataStore.getItems && DataStore.getItems()) ||
-          (window.CATALOG_ITEMS || []);
+        rawItems = (window.SUPPLIES_ITEMS || []);
       }
 
       // NEW: apply visibility filter + sortOrder sort (then name)
@@ -634,7 +633,7 @@
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
   <!-- cache-bust items.js so phones/Edge don’t use stale list -->
-  <script src="assets/js/items.js?v=nov-06-2025"></script>
+  <script src="assets/js/supplies.js?v=nov-06-2025"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
