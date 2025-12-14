@@ -1014,5 +1014,33 @@
   // Kick off
   loadInitial();
   </script>
+
+<script>
+// AUTO-SEED: if KV is empty for this category, seed once from the bundled CHARITY_ITEMS list.
+(async function autoSeedIfEmpty(){
+  try{
+    // Only runs on admin pages (requires token)
+    const token = (window.Admin && typeof window.Admin.tokenHeader === "function") ? window.Admin.tokenHeader() : null;
+    if (!token) return;
+
+    const r = await fetch("/api/router?type=catalog_items&cat=charity", { cache: "no-store" });
+    const j = await r.json().catch(()=>null);
+    const existing = (j && Array.isArray(j.items)) ? j.items : [];
+    if (existing.length) return;
+
+    const seed = Array.isArray(window.CHARITY_ITEMS) ? window.CHARITY_ITEMS : [];
+    if (!seed.length) return;
+
+    console.log("[admin:charity] auto-seeding", seed.length, "items from CHARITY_ITEMS");
+    await fetch("/api/router?action=save_catalog_items&cat=charity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token||{}) },
+      body: JSON.stringify({ items: seed })
+    });
+    // reload so UI shows seeded items
+    location.reload();
+  }catch(e){ console.warn("[admin:charity] auto-seed failed", e); }
+})();
+</script>
 </body>
 </html>
