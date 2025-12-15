@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Product Catalog – merchandise and extras." />
+  <meta name="description" content="Supplies – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=shop-v5" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v1" />
   <title>Supplies</title>
 </head>
 
-<body class="shop" data-page="shop">
+<body class="shop" data-page="supplies">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
   <!-- Header / Logo + Nav -->
@@ -179,10 +179,12 @@
   }
 
   document.addEventListener('DOMContentLoaded', function(){
-    Cart.load();
+    // Ensure Cart exists before using it
+    if (window.Cart && typeof Cart.load === 'function') Cart.load();
 
     // One-time migration of any legacy cents in cart
     (function migrateLegacyCents(){
+      if (!window.Cart || !Cart.get || !Cart.updateLine) return;
       const st = Cart.get();
       let changed = false;
       (st.lines||[]).forEach(l=>{
@@ -278,7 +280,6 @@
           : '';
 
         // Thumbnail (optional): if the item has no images, we omit the thumbnail
-        // to keep the page shorter/denser (you said there are too many items for photos).
         const thumbSrc =
           item.thumbnailUrl ||
           item.image ||
@@ -288,7 +289,7 @@
         const thumbHtml = thumbSrc
           ? [
               '<button class="thumb" ' + (soldOut ? 'disabled' : '') + ' aria-label="Preview image">',
-                '<img src="' + thumbSrc + '" alt="' + (item.name || 'Item') + '">',
+                '<img src="' + thumbSrc + '" alt="' + escHtml(item.name || 'Item') + '">',
               '</button>',
             ].join('')
           : '';
@@ -297,7 +298,7 @@
           '<article class="item ' + (soldOut ? 'is-soldout' : '') + '" data-id="' + item.id + '">',
             badge,
             thumbHtml,
-            '<div class="item-name">' + (item.name || '') + '</div>',
+            '<div class="item-name">' + escHtml(item.name || '') + '</div>',
             descHtml,
             priceLine,
             controlsHtml,
@@ -309,6 +310,7 @@
       grid.querySelectorAll('.item').forEach(card=>{
         const id = card.dataset.id;
         const item = items.find(x=>String(x.id)===String(id));
+
         const thumbBtn = card.querySelector('.thumb');
         if (thumbBtn && item){
           thumbBtn.addEventListener('click', ()=>{
@@ -348,6 +350,11 @@
         }
 
         addBtn.addEventListener('click', ()=>{
+          if (!window.Cart || !Cart.addLine) {
+            alert('Cart is not available yet. Please refresh and try again.');
+            return;
+          }
+
           const total = Number(item.qtyTotal || 0);
           const sold  = Number(item.qtySold  || 0);
           const remaining = Math.max(0, total - sold);
@@ -380,7 +387,7 @@
               meta: { sku: item.sku || '', note: '', bundleQty, bundlePrice }
             });
 
-            // Update inventory
+            // Update inventory (best-effort)
             if (total > 0){
               item.qtySold = (Number(item.qtySold||0) + bundleQty);
               if (window.DataStore && DataStore.saveItems){
@@ -389,6 +396,7 @@
               }
               render();
             }
+
             alert('Added to order.');
           } else {
             // Single-price item
@@ -415,6 +423,7 @@
               meta: { sku: item.sku || '', note: '' }
             });
 
+            // Update inventory (best-effort)
             if (total > 0){
               item.qtySold = (Number(item.qtySold||0) + qty);
               if (window.DataStore && DataStore.saveItems){
@@ -423,6 +432,7 @@
               }
               render();
             }
+
             alert('Added to order.');
           }
         });
@@ -448,7 +458,7 @@
         rawItems = (window.SUPPLIES_ITEMS || []);
       }
 
-      // NEW: apply visibility filter + sortOrder sort (then name)
+      // apply visibility filter + sortOrder sort (then name)
       items = (rawItems || [])
         .filter(it => isVisibleItem(it, now))
         .slice()
@@ -523,7 +533,7 @@
     .item-desc{
       font-size:.9rem;
       margin:4px 0 0;
-      min-height: 2.7em; /* ~2 lines space so cards stay even-ish */
+      min-height: 2.7em;
       color:#374151;
     }
 
@@ -538,14 +548,14 @@
       gap:12px;
       align-items:flex-end;
       justify-content:center;
-      flex-wrap: wrap;                  /* allow wrapping on small cards */
+      flex-wrap: wrap;
     }
     .buy-row .stack{
       display:flex;
       flex-direction:column;
       align-items:flex-start;
       gap:6px;
-      min-width: 180px;                 /* give select/qty room */
+      min-width: 180px;
     }
     .buy-row .lbl{
       font-size:.9rem;
@@ -635,7 +645,7 @@
 
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
-  <!-- cache-bust items.js so phones/Edge don’t use stale list -->
+  <!-- cache-bust supplies.js so phones/Edge don’t use stale list -->
   <script src="assets/js/supplies.js?v=nov-06-2025"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
