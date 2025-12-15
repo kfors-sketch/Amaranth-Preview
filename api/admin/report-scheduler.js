@@ -4,7 +4,8 @@ import { kv } from "@vercel/kv";
 // Small KV helpers (duplicated here to avoid importing from router.js)
 async function kvGetSafe(key, fallback = null) {
   try {
-    return await kv.get(key);
+    const v = await kv.get(key);
+    return v == null ? fallback : v;
   } catch {
     return fallback;
   }
@@ -134,6 +135,16 @@ function isoWeekIdUTC(date) {
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
+// YYYY-MM-DD in UTC for stable “once per day” checks
+function ymdUTCFromIso(iso) {
+  const t = Date.parse(String(iso || "").trim());
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toISOString().slice(0, 10);
+}
+function ymdUTCFromDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 // LOGGING ONLY
 function computePeriodId(freq, now, windowStartMs, windowEndMs) {
   const f = normalizeFrequency(freq);
@@ -169,11 +180,28 @@ function computePeriodId(freq, now, windowStartMs, windowEndMs) {
 }
 
 // ---- Per-frequency window selectors ----
-function computeDailyWindow(now, lastWindowEndMs) {
+// NOTE: daily uses last_sent_at calendar day, NOT purely last_window_end_ms,
+// so we don’t “Not due yet” because of a weird future/duplicate window end.
+function computeDailyWindow(now, lastWindowEndMs, lastSentIso) {
   const todayStart = startOfUTCDay(now);
   const yesterdayStart = addDays(todayStart, -1);
 
-  const startMs = lastWindowEndMs != null ? lastWindowEndMs : yesterdayStart;
+  // If already sent today (UTC), do not send again.
+  const lastSentDay = ymdUTCFromIso(lastSentIso);
+  const todayDay = ymdUTCFromDate(now);
+  if (lastSentDay && lastSentDay === todayDay) {
+    return { skip: true, reason: "Not due yet" };
+  }
+
+  // Base window is yesterday -> todayStart.
+  // If we have a stored lastWindowEndMs, continue from there.
+  let startMs =
+    lastWindowEndMs != null ? lastWindowEndMs : yesterdayStart;
+
+  // Guard: if lastWindowEndMs is in the future or >= todayStart, clamp back
+  // to yesterdayStart so we still deliver the expected “yesterday” window.
+  if (startMs >= todayStart) startMs = yesterdayStart;
+
   const endMs = todayStart;
 
   if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
@@ -279,9 +307,26 @@ export async function runScheduledChairReports({
   const queue = [];
   const seenIds = new Set();
 
+  // Archived / inactive should not even show up in queue (no skipped log spam).
+  const isEntryEligible = (entry) => {
+    if (!entry || typeof entry !== "object") return false;
+
+    // Common patterns we’ve used across pages:
+    if (entry.active === false) return false;
+    if (entry.archived === true) return false;
+    if (entry.isArchived === true) return false;
+
+    // If you use publishStart/publishEnd for visibility, that is handled later,
+    // but “archived” should be treated as hard-excluded.
+    return true;
+  };
+
   const pushItem = (kind, entry) => {
+    if (!isEntryEligible(entry)) return;
+
     const id = String(entry?.id || "").trim();
     if (!id || seenIds.has(id)) return;
+
     seenIds.add(id);
     queue.push({
       kind,
@@ -343,6 +388,9 @@ export async function runScheduledChairReports({
       if (Number.isFinite(num) && num > 0) lastWindowEndMs = num;
     }
 
+    const lastSentKey = `itemcfg:${id}:last_sent_at`;
+    const lastSentIso = await kvGetSafe(lastSentKey, "");
+
     let startMs = null;
     let endMs = null;
     let windowLabel = "";
@@ -352,7 +400,7 @@ export async function runScheduledChairReports({
       let result;
       switch (freq) {
         case "daily":
-          result = computeDailyWindow(now, lastWindowEndMs);
+          result = computeDailyWindow(now, lastWindowEndMs, lastSentIso);
           break;
         case "weekly":
           result = computeWeeklyWindow(now, lastWindowEndMs);
@@ -411,7 +459,6 @@ export async function runScheduledChairReports({
     if (result.ok) {
       sent += 1;
       await kvSetSafe(lastWindowEndKey, String(endMs));
-      const lastSentKey = `itemcfg:${id}:last_sent_at`;
       await kvSetSafe(lastSentKey, now.toISOString());
     } else {
       errors += 1;
