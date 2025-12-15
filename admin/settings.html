@@ -17,6 +17,7 @@
       width:100%;height:40px;border:1px solid #d1d5db;border-radius:10px;padding:0 12px;background:#fff
     }
     textarea{height:72px;padding:10px 12px;line-height:1.35}
+    select{width:100%;height:40px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;background:#fff}
     .row{display:flex;gap:12px;flex-wrap:wrap}
     .row > div{flex:1 1 280px}
     .btn{height:40px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 14px;font-weight:700}
@@ -27,6 +28,23 @@
     .mode-radio-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
     .mode-radio-row label{display:flex;align-items:center;gap:6px;margin:0;font-weight:500}
     .mode-hint{font-size:13px;color:#6b7280;margin-top:4px}
+
+    /* Feature flags */
+    .flag-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #eef2f7}
+    .flag-row:first-child{border-top:none;padding-top:0}
+    .flag-left{flex:1 1 auto}
+    .flag-title{display:flex;align-items:center;gap:10px;font-weight:800}
+    .flag-desc{font-size:13px;color:#6b7280;margin-top:4px;line-height:1.35}
+    .flag-right{flex:0 0 auto;display:flex;align-items:center;gap:8px}
+    .mini-btn{height:32px;padding:0 10px;font-size:13px;border-radius:10px;border:1px solid #d1d5db;background:#fff;color:#111;font-weight:700}
+    .mini-btn.primary{background:#111;color:#fff;border-color:#111}
+    .switch{
+      display:inline-flex;align-items:center;gap:8px;
+      user-select:none;
+      font-weight:600;
+    }
+    .switch input{width:18px;height:18px}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;background:#f3f4f6;border:1px solid #e5e7eb;padding:2px 6px;border-radius:8px}
   </style>
 </head>
 <body>
@@ -35,7 +53,6 @@
       <h1 style="margin:0">Admin Settings</h1>
       <div class="row" style="align-items:center;gap:8px">
         <span id="adminPill" class="pill">Admin Mode</span>
-        <!-- Admin Hub button to match other admin pages -->
         <a class="btn ghost" href="/admin/index.html" style="height:32px;padding:0 10px;font-size:13px">← Admin Hub</a>
         <button id="logoutBtn" class="btn ghost" style="height:32px;padding:0 10px;font-size:13px">Log Out</button>
       </div>
@@ -84,7 +101,6 @@
         automatically fall back to TEST when outside that window.
       </p>
 
-      <!-- Mode radios -->
       <div class="mode-radio-row">
         <label>
           <input type="radio" name="checkoutMode" value="test" />
@@ -107,7 +123,6 @@
         </label>
       </div>
 
-      <!-- Live window -->
       <div class="row" style="margin-top:10px">
         <div>
           <label for="liveStartDate">Live Start (UTC)</label>
@@ -131,6 +146,93 @@
 
       <div id="modeInfo" class="muted" style="margin-top:6px">
         Loading checkout mode…
+      </div>
+    </section>
+
+    <!-- NEW: Staging / Feature Flags -->
+    <section class="card">
+      <h3 style="margin:0 0 6px">Staging / Feature Flags</h3>
+      <p class="muted" style="margin:0 0 10px">
+        Use these switches to safely build pages on the live domain without the public seeing them.
+        Recommended pattern: keep LIVE off, enable PREVIEW for admin testing, then flip LIVE when ready.
+      </p>
+
+      <div id="flagsMsg" class="muted" style="margin-bottom:10px">Loading flags…</div>
+
+      <!-- Supplies -->
+      <div class="flag-row">
+        <div class="flag-left">
+          <div class="flag-title">
+            Supplies Page (LIVE)
+            <span class="kbd">flags:supplies_live</span>
+          </div>
+          <div class="flag-desc">
+            Controls public visibility (nav + page gate). Keep this <b>off</b> until supplies ordering is ready.
+          </div>
+        </div>
+        <div class="flag-right">
+          <label class="switch">
+            <input id="flag_supplies_live" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="flag-row">
+        <div class="flag-left">
+          <div class="flag-title">
+            Supplies Page (PREVIEW)
+            <span class="kbd">flags:supplies_preview</span>
+          </div>
+          <div class="flag-desc">
+            Allows admin-only preview at <span class="kbd">/supplies.html?preview=1</span>.
+            If this is off, the preview URL should be blocked too.
+          </div>
+        </div>
+        <div class="flag-right">
+          <a id="suppliesPreviewBtn" class="mini-btn primary" href="/supplies.html?preview=1" target="_blank" style="display:none">Open Preview</a>
+          <label class="switch">
+            <input id="flag_supplies_preview" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Placeholders you can use later -->
+      <div class="flag-row">
+        <div class="flag-left">
+          <div class="flag-title">
+            Banquets V2 (PREVIEW)
+            <span class="kbd">flags:banquets_v2_preview</span>
+          </div>
+          <div class="flag-desc">
+            Placeholder for a redesigned banquets page. No public effect until you wire a page to it.
+          </div>
+        </div>
+        <div class="flag-right">
+          <label class="switch">
+            <input id="flag_banquets_v2_preview" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="flag-row">
+        <div class="flag-left">
+          <div class="flag-title">
+            Catalog V2 (PREVIEW)
+            <span class="kbd">flags:catalog_v2_preview</span>
+          </div>
+          <div class="flag-desc">
+            Placeholder for future catalog layout changes.
+          </div>
+        </div>
+        <div class="flag-right">
+          <label class="switch">
+            <input id="flag_catalog_v2_preview" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+        </div>
       </div>
     </section>
 
@@ -192,16 +294,12 @@ $('#saveToken').addEventListener('click', () => {
     setMsg($('#tokenMsg'), 'Enter a token first', false);
     return;
   }
-  try {
-    localStorage.setItem(tokenKey, t);
-  } catch(e){}
+  try { localStorage.setItem(tokenKey, t); } catch(e){}
   setMsg($('#tokenMsg'), 'Token saved for this browser', true);
 });
 
 $('#clearToken').addEventListener('click', () => {
-  try {
-    localStorage.removeItem(tokenKey);
-  } catch(e){}
+  try { localStorage.removeItem(tokenKey); } catch(e){}
   $('#token').value = '';
   setMsg($('#tokenMsg'), 'Token cleared', true);
 });
@@ -210,11 +308,53 @@ $('#clearToken').addEventListener('click', () => {
 $('#logoutBtn').addEventListener('click', ()=>{
   try{
     localStorage.removeItem('amaranth_report_token');
-    localStorage.removeItem('amaranth_admin_ok');    // legacy
-    localStorage.removeItem('amaranth_admin_pw_ok'); // legacy
+    localStorage.removeItem('amaranth_admin_ok');
+    localStorage.removeItem('amaranth_admin_pw_ok');
   }catch(e){}
   location.href = '/admin/login.html';
 });
+
+/* ---------- Feature Flags ---------- */
+function readFlagsFromUI(){
+  return {
+    supplies_live: !!$('#flag_supplies_live')?.checked,
+    supplies_preview: !!$('#flag_supplies_preview')?.checked,
+    banquets_v2_preview: !!$('#flag_banquets_v2_preview')?.checked,
+    catalog_v2_preview: !!$('#flag_catalog_v2_preview')?.checked,
+  };
+}
+
+function applyFlagsToUI(flags){
+  const f = flags || {};
+  $('#flag_supplies_live').checked = !!f.supplies_live;
+  $('#flag_supplies_preview').checked = !!f.supplies_preview;
+  $('#flag_banquets_v2_preview').checked = !!f.banquets_v2_preview;
+  $('#flag_catalog_v2_preview').checked = !!f.catalog_v2_preview;
+
+  // Show preview button only when preview flag is enabled
+  const btn = $('#suppliesPreviewBtn');
+  if (btn) btn.style.display = f.supplies_preview ? 'inline-flex' : 'none';
+}
+
+async function loadFeatureFlags(){
+  try{
+    setMsg($('#flagsMsg'), 'Loading flags…');
+    const res = await fetch('/api/router?type=feature_flags', {
+      method: 'GET',
+      headers: { ...Admin.tokenHeader() }
+    });
+    const j = await res.json().catch(()=>null);
+    if(!res.ok) throw new Error(j?.error || res.statusText);
+
+    applyFlagsToUI(j?.flags || {});
+    setMsg($('#flagsMsg'), 'Flags loaded.', true);
+    return (j?.flags || {});
+  }catch(e){
+    setMsg($('#flagsMsg'), 'Failed to load flags: ' + (e?.message || e), false);
+    applyFlagsToUI({});
+    return {};
+  }
+}
 
 /* ---------- Load CURRENT ENV/OVERRIDES (router settings) ---------- */
 async function loadSettings(){
@@ -222,15 +362,11 @@ async function loadSettings(){
   try{
     const res = await fetch('/api/router?type=settings', {
       method: 'GET',
-      headers: {
-        ...Admin.tokenHeader()
-      }
+      headers: { ...Admin.tokenHeader() }
     });
     const j = await res.json();
-
     if(!res.ok) throw new Error((j && j.error) || res.statusText);
 
-    // Fill form from returned values (prefer overrides, then env, fall back to empty)
     $('#fromEmail').value = j.overrides?.RESEND_FROM ?? j.env?.RESEND_FROM ?? '';
     $('#ccList').value    = j.overrides?.REPORTS_CC ?? j.env?.REPORTS_CC ?? '';
     $('#maintOn').value   = String(j.overrides?.MAINTENANCE_ON ?? j.env?.MAINTENANCE_ON ?? 'false');
@@ -249,12 +385,9 @@ async function loadCheckoutMode(){
   try{
     const res = await fetch('/api/router?type=checkout_mode', {
       method: 'GET',
-      headers: {
-        ...Admin.tokenHeader()
-      }
+      headers: { ...Admin.tokenHeader() }
     });
     const j = await res.json();
-
     if (!res.ok) throw new Error(j?.error || res.statusText);
 
     const raw = j.raw || {};
@@ -262,7 +395,6 @@ async function loadCheckoutMode(){
     const liveStart = raw.liveStart || '';
     const liveEnd = raw.liveEnd || '';
 
-    // radios
     let radio = document.querySelector(`input[name="checkoutMode"][value="${mode}"]`);
     if (!radio) radio = document.querySelector('input[name="checkoutMode"][value="test"]');
     if (radio) radio.checked = true;
@@ -272,17 +404,10 @@ async function loadCheckoutMode(){
       const timeEl = $(timeSel);
       if (!dateEl || !timeEl) return;
 
-      if (!iso){
-        dateEl.value = '';
-        timeEl.value = '';
-        return;
-      }
+      if (!iso){ dateEl.value = ''; timeEl.value = ''; return; }
       const d = new Date(iso);
-      if (isNaN(d.getTime())){
-        dateEl.value = '';
-        timeEl.value = '';
-        return;
-      }
+      if (isNaN(d.getTime())){ dateEl.value = ''; timeEl.value = ''; return; }
+
       const isoStr = d.toISOString(); // UTC
       dateEl.value = isoStr.slice(0,10);
       timeEl.value = isoStr.slice(11,16);
@@ -298,7 +423,7 @@ async function loadCheckoutMode(){
   }
 }
 
-/* ---------- Save settings + checkout mode ---------- */
+/* ---------- Save settings + checkout mode + feature flags ---------- */
 $('#saveAll').addEventListener('click', async ()=>{
   const RESEND_FROM = $('#fromEmail').value.trim();
   const REPORTS_CC = $('#ccList').value.trim();
@@ -317,7 +442,6 @@ $('#saveAll').addEventListener('click', async ()=>{
   const buildIso = (d, t) => {
     if (!d) return '';
     const time = (t && t.trim()) ? t.trim() : '00:00';
-    // store as explicit UTC time string
     return `${d}T${time}:00Z`;
   };
 
@@ -326,6 +450,8 @@ $('#saveAll').addEventListener('click', async ()=>{
     liveStart: buildIso(liveStartDate, liveStartTime),
     liveEnd: buildIso(liveEndDate, liveEndTime),
   };
+
+  const flagsPayload = { flags: readFlagsFromUI() };
 
   try{
     // 1) save basic settings
@@ -337,7 +463,6 @@ $('#saveAll').addEventListener('click', async ()=>{
       },
       body: JSON.stringify({ RESEND_FROM, REPORTS_CC, MAINTENANCE_ON, MAINTENANCE_MESSAGE })
     });
-
     if (!resSettings.ok) {
       const j = await resSettings.json().catch(() => null);
       throw new Error(j?.error || resSettings.statusText || 'Save failed');
@@ -352,15 +477,30 @@ $('#saveAll').addEventListener('click', async ()=>{
       },
       body: JSON.stringify(modePayload)
     });
-
     if (!resMode.ok) {
       const j2 = await resMode.json().catch(() => null);
       throw new Error(j2?.error || resMode.statusText || 'Mode save failed');
     }
 
-    setMsg($('#saveMsg'), 'Saved settings and checkout mode!', true);
+    // 3) save feature flags
+    const resFlags = await fetch('/api/router?action=save_feature_flags', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...Admin.tokenHeader()
+      },
+      body: JSON.stringify(flagsPayload)
+    });
+    if (!resFlags.ok) {
+      const j3 = await resFlags.json().catch(() => null);
+      throw new Error(j3?.error || resFlags.statusText || 'Flags save failed');
+    }
+
+    setMsg($('#saveMsg'), 'Saved settings, checkout mode, and feature flags!', true);
+
     await loadSettings();
     await loadCheckoutMode();
+    await loadFeatureFlags();
   }catch(e){
     setMsg($('#saveMsg'), 'Save failed: ' + (e?.message || e), false);
   }
@@ -369,11 +509,13 @@ $('#saveAll').addEventListener('click', async ()=>{
 $('#reload').addEventListener('click', async ()=>{
   await loadSettings();
   await loadCheckoutMode();
+  await loadFeatureFlags();
 });
 
 /* init */
 loadSettings();
 loadCheckoutMode();
+loadFeatureFlags();
 </script>
 
 <!-- === Cron Schedule Help Tooltip === -->
