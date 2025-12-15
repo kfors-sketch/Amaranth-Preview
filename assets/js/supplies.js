@@ -3,7 +3,7 @@
 // Source: "Supreme Price List 2026" PDF.
 //
 // Notes:
-// - Items with a numeric price are purchasable (active: true).
+// - Items with a numeric price are purchasable (active: true) WHEN master publish is enabled.
 // - Items marked N/A or "Available/Upon/Request/Prices" are included for completeness (active: false).
 // - When ordering SEALS, collect: Court Name, Court Number, Date Organized, Location.
 // - Packaging: minimum $2.00 packaging charge (see PDF note). Your checkout logic can apply this
@@ -18,6 +18,10 @@
 
   // Optional: make the packaging fee available to other scripts
   window.SUPPLIES_PACKAGING_FEE_CENTS = 200;
+
+  // ✅ MASTER SWITCH (turn supplies ON later by setting true)
+  // Right now you asked to "turn off the active" -> keep this FALSE.
+  const SUPPLIES_PUBLISHED = false;
 
   const mkId = (s) =>
     String(s || "")
@@ -35,7 +39,11 @@
     images: [],
     qtyTotal: 0,
     qtySold: 0,
-    active: true,
+
+    // Master publish controls availability for ALL priced items.
+    // Request-only items are always inactive regardless.
+    active: SUPPLIES_PUBLISHED,
+
     chair,
     chairEmails,
     publishStart: "",
@@ -52,6 +60,7 @@
 
   const requestOnly = (category, name, note, extra = {}) => ({
     ...base(category, name),
+    // Always inactive — these are "upon request / N/A"
     active: false,
     price: 0,
     priceText: String(note || "Available upon request"),
@@ -79,20 +88,15 @@
     priced("BOOKS", "Constitution, (Enlarged)", 7.5),
     priced("BOOKS", "Penal Code (enlarged)", 5.5),
 
-    // Small ritual lines appear as filler/cover, then "Individual $8.50" on the sheet.
     priced("BOOKS", "Small Ritual- Filler", 8.5),
     priced("BOOKS", "Small Ritual - Cover", 6.5),
     priced("BOOKS", "Small Ritual - Individual", 8.5),
 
-    // Large ritual lines appear as filler/cover, then "Pair (2) $30.00" on the sheet.
     priced("BOOKS", "Large Large Ritual- Filler", 14.5),
     priced("BOOKS", "Large Ritual - Cover", 8.0),
     priced("BOOKS", "Large Ritual - Pair (2)", 30.0),
 
-    // Updates (as listed)
     priced("BOOKS", "2024 Small Rtual updates Individual", 15.0),
-    // The sheet lists "2024 Large Ritual updates" but does not show a price in the text capture;
-    // keep it as request-only unless you confirm the price elsewhere.
     requestOnly("BOOKS", "2024 Large Ritual updates", "Listed (price not shown on this sheet)"),
 
     priced("BOOKS", "Secretary's Hand Book", 27.0),
@@ -151,16 +155,12 @@
     priced("SEALS", "Self-inking stamp - includes postage", 75.0, courtInfo),
 
     // =========================
-    // STANDARDS & BANNERS (not priced on sheet)
+    // STANDARDS & BANNERS
     // =========================
     requestOnly("STANDARDS & BANNERS", "Standard, White Satin", "Prices"),
     requestOnly("STANDARDS & BANNERS", "Banners, 4 Red Satin", "Available"),
     requestOnly("STANDARDS & BANNERS", "Banners, Red Satin, (each)", "Upon Request"),
-    requestOnly(
-      "STANDARDS & BANNERS",
-      'Knobs, Stan. & Banner Set 1" & 3/4"',
-      "Request"
-    ),
+    requestOnly("STANDARDS & BANNERS", 'Knobs, Stan. & Banner Set 1" & 3/4"', "Request"),
     requestOnly("STANDARDS & BANNERS", "Tassels & Cords, Standard (each)", "Prices"),
     requestOnly("STANDARDS & BANNERS", "Tassels & Cords, Banners (each)", "Available"),
     requestOnly("STANDARDS & BANNERS", "Rods & Ends for Standards", "Upon Request"),
@@ -208,8 +208,6 @@
     // BIBLES
     // =========================
     requestOnly("BIBLES", "White, Altar Not stocked", "N/A"),
-    // The sheet also shows "Black Cubes (each) $0.25" under BIBLES.
-    // Keep it here as printed, even though it also appears under PARAPHERNALIA.
     priced("BIBLES", "Black Cubes (each)", 0.25),
 
     // =========================
