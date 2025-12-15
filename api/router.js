@@ -257,6 +257,51 @@ function inferStripeEnvFromCheckoutSessionId(id) {
 //   KV key "catalog:categories" stores [{cat,title,imgFolder,navLabel,...}, ...]
 const CATALOG_CATEGORIES_KEY = "catalog:categories";
 
+// ---------------- Feature Flags (staging toggles) ----------------
+//
+// Stored in KV so admin/settings.html can toggle preview/live features safely.
+// Shape in KV:
+//   { flags: { supplies_live: true/false, ... }, updatedAt: ISOString }
+const FEATURE_FLAGS_KEY = "feature_flags";
+
+const DEFAULT_FEATURE_FLAGS = {
+  supplies_live: false,
+  supplies_preview: false,
+  banquets_v2_preview: false,
+  catalog_v2_preview: false,
+};
+
+function coerceBool(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return !!v;
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+async function loadFeatureFlagsSafe() {
+  const raw = (await kvGetSafe(FEATURE_FLAGS_KEY, null)) || null;
+
+  // Support either legacy plain-object OR new {flags, updatedAt} wrapper
+  const storedFlags =
+    raw && typeof raw === "object"
+      ? (raw.flags && typeof raw.flags === "object" ? raw.flags : raw)
+      : {};
+
+  const merged = { ...DEFAULT_FEATURE_FLAGS, ...(storedFlags || {}) };
+
+  // Force known keys to booleans (keeps payload consistent)
+  const cleaned = {};
+  for (const k of Object.keys(DEFAULT_FEATURE_FLAGS)) cleaned[k] = coerceBool(merged[k]);
+
+  const updatedAt =
+    raw && typeof raw === "object" && typeof raw.updatedAt === "string"
+      ? raw.updatedAt
+      : "";
+
+  return { flags: cleaned, updatedAt };
+}
+
 function normalizeCat(catRaw) {
   const cat = String(catRaw || "catalog").trim().toLowerCase();
   const safe = cat.replace(/[^a-z0-9_-]/g, "");
@@ -557,6 +602,15 @@ export default async function handler(req, res) {
           MAINTENANCE_MESSAGE:
             effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
         });
+      }
+
+      // Feature flags (admin/settings.html)
+      if (type === "feature_flags") {
+        // Require admin auth for flags (keeps preview/live switches private)
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const { flags, updatedAt } = await loadFeatureFlagsSafe();
+        return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
       // Checkout / Stripe mode fetch for admin/settings.html
@@ -1769,6 +1823,27 @@ export default async function handler(req, res) {
 
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
+
+      // Save feature flags (admin/settings.html)
+      if (action === "save_feature_flags") {
+        const incoming =
+          (body && typeof body === "object" && body.flags && typeof body.flags === "object")
+            ? body.flags
+            : (body && typeof body === "object" ? body : {});
+
+        const nextFlags = { ...DEFAULT_FEATURE_FLAGS };
+        for (const k of Object.keys(DEFAULT_FEATURE_FLAGS)) {
+          if (k in incoming) nextFlags[k] = coerceBool(incoming[k]);
+        }
+
+        const payload = {
+          flags: nextFlags,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await kvSetSafe(FEATURE_FLAGS_KEY, payload);
+        return REQ_OK(res, { requestId, ok: true, ...payload });
+      }
 
       if (action === "debug_schedule") {
         const id = String(body?.id || url.searchParams.get("id") || "").trim();
