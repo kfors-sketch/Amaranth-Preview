@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Supplies – Supreme Council price list items." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v2" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v3" />
   <title>Supplies</title>
 </head>
 
@@ -67,6 +67,30 @@
   <!-- Page logic -->
   <script>
     /* =======================
+       Gate (PREVIEW / ADMIN)
+       ======================= */
+    function isPreviewMode(){
+      try {
+        const u = new URL(window.location.href);
+        return (u.searchParams.get('preview') === '1');
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function hasAdminToken(){
+      // Your admin token is stored here per your setup.
+      try {
+        return !!(window.localStorage && localStorage.getItem('amaranth_report_token'));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // MASTER PUBLISH: OFF for public. ON only for preview=1 or admin token.
+    const MASTER_SUPPLIES_ON = (isPreviewMode() || hasAdminToken());
+
+    /* =======================
        Helpers
        ======================= */
     function money(n){
@@ -108,14 +132,14 @@
       return true;
     }
 
-    // Visible = active true AND within publish window
+    // Visible = MASTER ON + item.active true + within publish window
     function isVisibleItem(item, now){
+      if (!MASTER_SUPPLIES_ON) return false;
       if (!item || item.active !== true) return false;
       return isWithinWindow(item, now);
     }
 
-    // Keep PDF order: we DO NOT alphabetize. We use the original array order.
-    // We only group by category in the order categories first appear.
+    // Keep PDF order: use original array order; group by category in order first seen
     function groupByCategoryPreserveOrder(items){
       const map = new Map();
       items.forEach(it=>{
@@ -127,14 +151,22 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-      // Cart optional (page might be view-only if supplies disabled)
-      if (window.Cart && typeof Cart.load === 'function') Cart.load();
+      // Cart optional (and we also prevent ordering if master is off)
+      if (MASTER_SUPPLIES_ON && window.Cart && typeof Cart.load === 'function') Cart.load();
 
       const listEl  = document.getElementById('supList');
       const emptyEl = document.getElementById('emptyCatalog');
       const notesEl = document.getElementById('supNotes');
 
       const now = new Date();
+
+      // If master is OFF, show the empty-state and stop.
+      if (!MASTER_SUPPLIES_ON){
+        listEl.innerHTML = '';
+        emptyEl.style.display = '';
+        notesEl.style.display = 'none';
+        return;
+      }
 
       // 1) Load items (KV first, then static)
       let rawItems = [];
@@ -150,14 +182,13 @@
 
       if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
 
-      // 2) Apply visibility rules (master publish switch lives in supplies.js via active flags)
+      // 2) Apply visibility rules (master + active + publish window)
       const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
 
       // Notes from supplies.js (optional)
       const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
       const noteLines = [];
       if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
-      // You can add more notes later without changing layout.
 
       if (noteLines.length){
         notesEl.style.display = '';
@@ -189,16 +220,7 @@
         html.push(`<div class="sup-table">`);
 
         items.forEach(item => {
-          const isRequest = item.active !== true || item.priceText || item.description;
           const price = normalizePrice(item.price || 0);
-
-          const showRequestOnly = item.active !== true; // these should not be visible now, but keep logic safe
-          const labelRight = showRequestOnly
-            ? `<span class="sup-upon">Upon Request</span>`
-            : `<span class="sup-price">${money(price)}</span>`;
-
-          const desc = (item.description || item.notes || '').trim();
-          const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
 
           // Order controls: only if Cart exists AND item is orderable (active true)
           const canOrder = (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
@@ -215,6 +237,9 @@
             </div>
           ` : `<div class="sup-controls sup-controls-disabled"></div>`;
 
+          const desc = (item.description || item.notes || '').trim();
+          const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
+
           html.push(`
             <div class="sup-row" data-id="${escHtml(item.id)}">
               <div class="sup-left">
@@ -222,7 +247,7 @@
                 ${descHtml}
               </div>
               <div class="sup-right">
-                ${labelRight}
+                <span class="sup-price">${money(price)}</span>
                 ${controls}
               </div>
             </div>
@@ -246,7 +271,8 @@
             return;
           }
 
-          const sel = listEl.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
+          // Avoid CSS.escape compatibility issues by selecting via dataset scan
+          const sel = Array.from(listEl.querySelectorAll('.sup-qtysel')).find(x => String(x.dataset.id) === String(id));
           const qty = Math.max(1, parseInt(sel?.value || '1', 10));
           const price = normalizePrice(item.price || 0);
 
@@ -323,8 +349,6 @@
     }
 
     .sup-price{font-weight:900;}
-    .sup-upon{font-weight:800;opacity:.75;}
-
     .sup-controls{display:flex;gap:10px;align-items:center;}
     .sup-controls-disabled{opacity:.35;}
 
