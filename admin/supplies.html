@@ -3,1016 +3,407 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Supplies — Amaranth</title>
   <meta name="robots" content="noindex, nofollow" />
+  <title>Supplies Admin — Amaranth</title>
+
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
-    .container{max-width:1200px;margin:24px auto;padding:0 16px}
-    .row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-    .col{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
-    .col.left{flex:2 1 640px;min-width:520px}
-    .col.right{flex:1 1 480px;min-width:420px;position:sticky;top:16px}
+    .container{max-width:none;width:min(1700px, calc(100vw - 48px));margin:24px auto;padding:0 24px;box-sizing:border-box}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:14px}
     h1{margin:0 0 10px}
-    .btn{height:36px;border:1px solid #d1d5db;background:#111;color:#fff;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer}
-    .btn.ghost{background:#fff;color:#111}
-    .btn.warn{background:#b91c1c;border-color:#991b1b}
-    .btn.success{background:#065f46;border-color:#064e3b}
-    input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff}
-    textarea{min-height:80px}
-    label{font-weight:600;margin-top:8px;display:block}
-    table{width:100%;border-collapse:separate;border-spacing:0}
-    thead th{background:#fafafa;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:10px;text-align:left;position:sticky;top:0}
-    tbody td{padding:10px;border-bottom:1px solid #f1f2f6;vertical-align:top}
-    .muted{color:#6b7280}
-    .rules{background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;padding:10px;margin:8px 0 12px}
-    .chip{display:inline-block;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;margin-right:6px}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .right .toolbar{margin-bottom:8px}
-    .hint{font-size:12px;color:#6b7280;margin-top:4px}
-    .danger{color:#b91c1c}
-    .ok{color:#065f46}
-    code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px}
+    .muted{opacity:.75}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .row.spread{justify-content:space-between}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:800}
+    .btn{border:1px solid #d1d5db;background:#fff;border-radius:10px;padding:10px 12px;font-weight:900;cursor:pointer}
+    .btn-primary{border-color:#111;background:#111;color:#fff}
+    .btn-danger{border-color:#ef4444;background:#ef4444;color:#fff}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    input[type="text"]{padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;width:min(520px, 100%)}
+    .hint{font-size:.9rem;opacity:.75}
 
-    /* Banquets-like “gap squeeze” so actions fit */
-    td.actions{white-space:nowrap}
-    td.actions .btn{height:34px;padding:0 10px}
-    td.actions .btn + .btn{margin-left:6px}
+    .stickybar{
+      position:sticky;top:0;z-index:5;
+      background:rgba(247,247,251,0.92);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border-bottom:1px solid rgba(229,231,235,0.9);
+      padding:10px 0;
+      margin:-24px 0 14px;
+    }
+    .stickybar .container{margin:0 auto}
+
+    .status{font-weight:900}
+    .ok{color:#047857}
+    .bad{color:#b91c1c}
+
+    .cats{display:grid;grid-template-columns:1fr;gap:14px}
+    @media (min-width: 980px){ .cats{grid-template-columns:1fr 1fr;} }
+
+    .cat{border:1px solid rgba(229,231,235,0.95);border-radius:14px;overflow:hidden;background:#fff}
+    .cat-h{
+      padding:10px 12px;font-weight:950;background:#f9fafb;border-bottom:1px solid rgba(229,231,235,0.95);
+      display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap
+    }
+    .cat-title{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .cat-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 8px;border-bottom:1px solid rgba(229,231,235,0.75);vertical-align:top}
+    th{font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;opacity:.8;text-align:left}
+    tr:last-child td{border-bottom:0}
+
+    .name{font-weight:950}
+    .meta{font-size:.9rem;opacity:.75;margin-top:2px}
+    .price{font-weight:950;white-space:nowrap}
+
+    .toggle{display:inline-flex;align-items:center;gap:10px;white-space:nowrap}
+    .toggle input{transform:scale(1.15)}
+    .tiny{font-size:.85rem;opacity:.8}
+    .pill2{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid rgba(229,231,235,0.95);background:#fff;font-size:.85rem;font-weight:850}
   </style>
 </head>
+
 <body>
-  <main class="container">
-    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div>
-        <h1>Supplies</h1>
-        <div class="muted">Create, edit, or retire catalog products</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <a class="btn ghost" href="/admin/index.html">← Admin Hub</a>
-        <button id="logoutBtn" class="btn ghost" style="height:34px">Log Out</button>
-      </div>
-    </header>
-
-    <!-- Rules & Tips -->
-    <section class="col rules">
-      <strong>Rules & Tips</strong>
-      <ul class="muted" style="margin:8px 0 0 16px">
-        <li><b>ID</b>: lowercase letters, numbers, and dashes only (e.g. <code>sunflower-pendant</code>).</li>
-        <li><b>Type</b>:
-          <code>fixed</code> (simple item),
-          <code>qty</code> (choose quantity),
-          <code>amount</code> (open dollar amount / donation-style),
-          <code>variantQty</code> (choose from labeled variants with quantity, e.g. 1 for $10, 3 for $25, 6 for $40).
-        </li>
-        <li><b>Price</b>: base price (USD). For <code>variantQty</code>, use the Variants box instead of Price.</li>
-        <li><b>Shipping &amp; Handling</b>: per-item amount (USD). Checkout charges the highest shipping once per order.</li>
-        <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
-        <li><b>Chair Emails</b>: optional, comma-separated list for reporting.</li>
-        <li><b>Report Frequency</b>: controls how often chair reports are sent for this product.</li>
-        <li><b>Additional Images</b>: put one URL per line for extra gallery images.</li>
-        <li><b>Year-over-year Slot</b>: <strong>required</strong> label (e.g. <code>Session Coin</code>) to group similar products across years.</li>
-        <li><b>Sort Order</b>: lower numbers show first (admin + public).</li>
-      </ul>
-    </section>
-
-    <div class="row">
-      <!-- Left side -->
-      <section class="col left">
-        <!-- List toolbar -->
-        <div class="toolbar">
-          <button id="btnAddNew" class="btn success">+ New Product</button>
-          <button id="btnExport" class="btn ghost">Export JSON</button>
-          <label class="btn ghost" for="fileImport" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">Import JSON</label>
-          <input id="fileImport" type="file" accept=".json,application/json" style="display:none" />
-          <button id="btnRefresh" class="btn ghost">Refresh from Server</button>
-          <button id="btnSyncFiles" class="btn ghost" title="Sync products from site file (/assets/js/supplies.js)">Sync from Site Files</button>
-          <span id="listMsg" class="muted"></span>
-        </div>
-
-        <!-- Table -->
-        <div style="overflow:auto;max-height:65vh;margin-top:8px">
-          <table>
-            <thead>
-              <tr>
-                <th style="min-width:80px">Sort</th>
-                <th style="min-width:160px">Name</th>
-                <th style="min-width:140px">YoY Slot</th>
-                <th style="min-width:160px">ID</th>
-                <th>Type</th>
-                <th>Price</th>
-                <th>Shipping</th>
-                <th>Active</th>
-                <th>Reports</th>
-                <th>Publish Window</th>
-                <th>SKU</th>
-                <th style="min-width:240px">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="tbody"></tbody>
-          </table>
-          <div class="hint" style="margin-top:8px">
-            Showing <b>active</b> products only. Archiving keeps history for YoY.
-          </div>
-        </div>
-      </section>
-
-      <!-- Editor -->
-      <aside class="col right">
-        <div class="toolbar">
-          <span class="chip" id="modeChip">New</span>
-          <span id="editMsg" class="muted"></span>
-        </div>
-
-        <label for="f_name">Name</label>
-        <input id="f_name" type="text" placeholder="Sunflower Pendant" />
-
-        <label for="f_id">ID</label>
-        <input id="f_id" type="text" placeholder="sunflower-pendant" />
-        <div class="hint">lowercase letters, numbers, dashes. Example: <code>coin-pa2026</code></div>
-
-        <label for="f_sort">Sort Order</label>
-        <input id="f_sort" type="number" step="1" placeholder="10" />
-        <div class="hint">Lower shows first (admin + public).</div>
-
+  <div class="stickybar">
+    <div class="container">
+      <div class="row spread">
         <div class="row">
-          <div>
-            <label for="f_active">Active</label>
-            <select id="f_active">
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </div>
-          <div>
-            <label for="f_type">Type</label>
-            <select id="f_type">
-              <option value="fixed">fixed</option>
-              <option value="qty">qty</option>
-              <option value="amount">amount</option>
-              <option value="variantQty">variantQty</option>
-            </select>
-          </div>
+          <span class="pill">Admin • Supplies</span>
+          <span id="status" class="status muted">Loading…</span>
+          <span id="counts" class="pill2" style="display:none;"></span>
         </div>
-
-        <!-- Price / Shipping / SKU row (hidden for amount/variantQty as needed) -->
-        <div class="row" id="row_price">
-          <div>
-            <label for="f_price">Price (USD)</label>
-            <input id="f_price" type="number" step="0.01" min="0" placeholder="25.00" />
-            <div class="hint">Used for <code>fixed</code> and <code>qty</code> types.</div>
-          </div>
-          <div>
-            <label for="f_shipping">Shipping &amp; Handling (USD)</label>
-            <input id="f_shipping" type="number" step="0.01" min="0" placeholder="5.50" />
-          </div>
-          <div>
-            <label for="f_sku">SKU</label>
-            <input id="f_sku" type="text" placeholder="SUN-001" />
-          </div>
-        </div>
-
-        <!-- Variants row (for variantQty, like admin/addons) -->
-        <div id="row_variants" style="display:none">
-          <label for="f_variants">Variants (one per line, format: <code>Label:Price</code>)</label>
-          <textarea id="f_variants" placeholder="1:10.00&#10;3:25.00&#10;6:40.00"></textarea>
-          <div class="hint">Only for <code>variantQty</code>. Example above will create labeled price options.</div>
-        </div>
-
-        <label for="f_report_freq">Report Frequency</label>
-        <select id="f_report_freq">
-          <option value="monthly">Monthly (default)</option>
-          <option value="biweekly">Twice per month</option>
-          <option value="weekly">Weekly</option>
-          <option value="daily">Daily</option>
-          <option value="none">Do not auto-send</option>
-        </select>
-        <div class="hint">Used by automated chair reports for this product.</div>
-
-        <!-- YoY slot selection -->
-        <label for="f_slot_label">Year-over-year Slot</label>
-        <select id="f_slot_label"></select>
-        <div class="hint">Required: choose a label (e.g. “Session Coin”) to compare this product with the same slot in other years.</div>
-
         <div class="row">
-          <div>
-            <label for="f_start">Publish Start</label>
-            <input id="f_start" type="datetime-local" />
-          </div>
-          <div>
-            <label for="f_end">Publish End</label>
-            <input id="f_end" type="datetime-local" />
-          </div>
+          <button class="btn" id="allOn">Set All Active</button>
+          <button class="btn" id="allOff">Set All Inactive</button>
+          <button class="btn btn-primary" id="saveBtn">Save Changes</button>
         </div>
+      </div>
 
-        <label for="f_notes">Notes / Description</label>
-        <textarea id="f_notes" placeholder="Shown on product page"></textarea>
-
-        <label for="f_thumb_url">Thumbnail URL (optional)</label>
-        <input id="f_thumb_url" type="text" placeholder="/assets/shop/item-thumb.jpg" />
-
-        <label for="f_img1_url">Main Image URL (optional)</label>
-        <input id="f_img1_url" type="text" placeholder="/assets/shop/item-main.jpg" />
-
-        <label for="f_img_extra">Additional Image URLs (optional)</label>
-        <textarea id="f_img_extra" placeholder="/assets/shop/item-alt1.jpg&#10;/assets/shop/item-alt2.jpg"></textarea>
-        <div class="hint">One URL per line (or separated by commas). These become extra gallery images.</div>
-
-        <label for="f_chair_name">Chairperson Name (optional)</label>
-        <input id="f_chair_name" type="text" placeholder="Jane Smith" />
-
-        <label for="f_chair_emails">Chair Emails (optional, comma-separated)</label>
-        <input id="f_chair_emails" type="text" placeholder="chair@example.com, cochair@example.com" />
-
-        <div class="toolbar" style="margin-top:10px">
-          <button id="btnSave" class="btn">Save</button>
-          <button id="btnReset" class="btn ghost">Reset</button>
-        </div>
-      </aside>
+      <div class="row" style="margin-top:10px">
+        <input id="q" type="text" placeholder="Search name/category… (try: inactive)" />
+        <span class="hint">Changes are local until you click <b>Save Changes</b>.</span>
+      </div>
     </div>
-  </main>
+  </div>
 
-  <script>window.AMARANTH_REGISTER_ENDPOINT = "/api/router?action=register_item";</script>
-  <script src="/assets/js/admin-slotkeys.js"></script>
-  <script src="/assets/js/supplies.js"></script>
+  <div class="container">
+    <div class="card">
+      <h1>Supplies Items</h1>
+      <div class="muted">
+        Toggle <b>Active</b> per item. Public supplies page will only show items with <b>active=true</b> (and within publish window if you use those fields).
+      </div>
+      <div class="hint" style="margin-top:8px">
+        If you want the entire supplies page “off”, easiest method is: <b>Set All Inactive</b> → <b>Save</b>.
+      </div>
+    </div>
+
+    <div id="cats" class="cats" style="margin-top:14px"></div>
+  </div>
+
+  <!-- Optional admin helpers (token header, etc.) -->
   <script src="/assets/js/admin.js"></script>
 
   <script>
-  // --- Logout only (auth is token-based now, like reporting_main/banquets/addons) ---
-  (function () {
-    const btn = document.getElementById('logoutBtn');
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      try {
-        localStorage.removeItem('amaranth_report_token');
-        localStorage.removeItem('amaranth_admin_ok');
-      } catch (e) {}
-      window.location.href = '/admin/login.html';
-    });
-  })();
+    const CAT = "supplies";
 
-  // Use $ / $$ from admin.js (no re-declare here)
-  const idOK = id => /^[a-z0-9-]+$/.test(id);
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const pad = n => String(n).padStart(2,'0');
-
-  function toLocalDT(iso){
-    if(!iso) return '';
-    const d = new Date(iso);
-    if(isNaN(d)) return '';
-    const y = d.getFullYear(), m = pad(d.getMonth()+1), day = pad(d.getDate()), hh = pad(d.getHours()), mm = pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
-  }
-  function fromLocalDT(local){
-    if(!local) return '';
-    const d = new Date(local);
-    return isNaN(d) ? '' : d.toISOString();
-  }
-
-  // ---- Frequency helpers ----
-  const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
-
-  function normalizeFreq(raw){
-    const v = String(raw || "").trim().toLowerCase();
-    if (!v) return "monthly";
-    if (VALID_FREQS.includes(v)) return v;
-    return "monthly";
-  }
-
-  function describeFreq(freq){
-    const f = normalizeFreq(freq);
-    switch (f) {
-      case "daily":    return "Daily";
-      case "weekly":   return "Weekly";
-      case "biweekly": return "Twice per month";
-      case "monthly":  return "Monthly";
-      case "none":     return "—";
-      default:         return "Monthly";
+    function escHtml(s){
+      return String(s ?? "").replace(/[&<>"]/g, c => (
+        c === "&" ? "&amp;" :
+        c === "<" ? "&lt;" :
+        c === ">" ? "&gt;" : "&quot;"
+      ));
     }
-  }
 
-  // ---- Slot key helpers (YoY bucket for products) ----
-  const SLOT_KIND = "product";
-  const SLOT_NONE_VALUE = "";
-  const SLOT_ADD_VALUE = "__add__";
-
-  function makeSlotKeyFromLabel(label) {
-    const base = String(label || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    return base || "";
-  }
-
-  function getSlotList() {
-    if (window.SlotKeys && typeof SlotKeys.getSlots === "function") {
-      const arr = SlotKeys.getSlots(SLOT_KIND) || [];
-      return arr
-        .map(s => ({
-          key: s.key || makeSlotKeyFromLabel(s.label || s.name),
-          label: s.label || s.name || "",
-          scope: s.scope || SLOT_KIND
-        }))
-        .filter(s => s.label);
+    function normalizePrice(p){
+      const n = Number(p);
+      if (!isFinite(n)) return 0;
+      return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
-    return [];
-  }
 
-  function ensureSlot(kind, label) {
-    const trimmed = String(label || "").trim();
-    if (!trimmed) return { key: "", label: "", scope: kind };
-    if (window.SlotKeys && typeof SlotKeys.ensureSlot === "function") {
-      try {
-        return SlotKeys.ensureSlot(kind, trimmed);
-      } catch (e) {
-        console.warn("SlotKeys.ensureSlot failed:", e);
-      }
+    function money(n){
+      const v = Math.max(0, Math.round(Number(n) * 100) / 100);
+      return v.toLocaleString("en-US", { style:"currency", currency:"USD", minimumFractionDigits:2 });
     }
-    return {
-      key: makeSlotKeyFromLabel(trimmed),
-      label: trimmed,
-      scope: kind
-    };
-  }
 
-  function populateSlotSelect(selectedLabel) {
-    const sel = document.getElementById('f_slot_label');
-    if (!sel) return;
-
-    const current = selectedLabel == null ? sel.value : selectedLabel;
-    sel.innerHTML = "";
-
-    const optNone = document.createElement("option");
-    optNone.value = SLOT_NONE_VALUE;
-    optNone.textContent = "— Choose a YoY slot —";
-    sel.appendChild(optNone);
-
-    const slots = getSlotList();
-    slots.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s.label;
-      opt.textContent = s.label;
-      sel.appendChild(opt);
-    });
-
-    const optAdd = document.createElement("option");
-    optAdd.value = SLOT_ADD_VALUE;
-    optAdd.textContent = "➕ Add new label…";
-    sel.appendChild(optAdd);
-
-    if (current && current !== SLOT_ADD_VALUE && current !== SLOT_NONE_VALUE) {
-      const exists = slots.some(s => s.label === current);
-      if (!exists) {
-        const opt = document.createElement("option");
-        opt.value = current;
-        opt.textContent = current;
-        sel.insertBefore(opt, optAdd);
-      }
-      sel.value = current;
-    } else {
-      sel.value = SLOT_NONE_VALUE;
+    function keyCat(it){
+      return String(it?.category || "Other").trim() || "Other";
     }
-  }
 
-  function onSlotChange(e) {
-    const sel = e.currentTarget;
-    if (!sel) return;
-    const val = sel.value;
-    if (val === SLOT_ADD_VALUE) {
-      const label = window.prompt("Enter a new year-over-year slot label (e.g. 'Session Coin'):");
-      if (!label) {
-        sel.value = SLOT_NONE_VALUE;
-        return;
-      }
-      const slot = ensureSlot(SLOT_KIND, label);
-      populateSlotSelect(slot.label);
-      sel.value = slot.label;
-    }
-  }
-
-  // ---- Type/price/variants visibility ----
-  const typeEl = document.getElementById('f_type');
-  const rowPrice = document.getElementById('row_price');
-  const rowVariants = document.getElementById('row_variants');
-
-  function syncTypeFields(){
-    const t = typeEl.value;
-    if (t === 'variantQty'){
-      rowPrice.style.display = 'none';
-      rowVariants.style.display = '';
-    } else if (t === 'amount'){
-      rowPrice.style.display = 'none';
-      rowVariants.style.display = 'none';
-    } else {
-      rowPrice.style.display = '';
-      rowVariants.style.display = 'none';
-    }
-  }
-  typeEl.addEventListener('change', syncTypeFields);
-
-  // ---- Variants parser ----
-  function parseVariants(text){
-    const out = [];
-    String(text||'').split(/\r?\n/).forEach(line=>{
-      const s = line.trim();
-      if (!s) return;
-      const m = s.split(':');
-      const label = (m[0]||'').trim();
-      const price = Number((m[1]||'').trim());
-      if (!label) return;
-      if (!isFinite(price) || price < 0) return;
-      out.push({
-        id: label.toLowerCase().replace(/[^a-z0-9-]+/g,'-'),
-        label,
-        price
+    // Keep your desired PDF-ish order in admin too (first appearance wins)
+    function groupByCategoryPreserveOrder(items){
+      const map = new Map();
+      items.forEach(it=>{
+        const cat = keyCat(it);
+        if (!map.has(cat)) map.set(cat, []);
+        map.get(cat).push(it);
       });
-    });
-    return out;
-  }
-
-  // ---- Normalization helpers ----
-  function normalizeProduct(p){
-    const out = { ...(p || {}) };
-
-    if (!out.type) out.type = "fixed";
-
-    out.price = Number(out.price || 0) || 0;
-
-    let scRaw = out.shippingCents;
-    if (scRaw == null && out.shipping_cents != null) scRaw = out.shipping_cents;
-    if (scRaw == null && out.shipping != null) scRaw = out.shipping;
-
-    let sc = Number(scRaw || 0);
-    if (!Number.isFinite(sc)) sc = 0;
-    if (!Number.isInteger(sc)) sc = Math.round(sc * 100);
-    if (sc < 0) sc = 0;
-    out.shippingCents = sc;
-
-    out.active = (out.active !== false);
-
-    out.publishStart = out.publishStart || "";
-    out.publishEnd   = out.publishEnd   || "";
-
-    if (!Array.isArray(out.chairEmails)) {
-      const e = out.chairEmails || (out.chair && out.chair.email) || "";
-      out.chairEmails = e ? String(e).split(",").map(s => s.trim()).filter(Boolean) : [];
+      return map;
     }
 
-    out.chair = out.chair || {};
-    if (!out.chair.name) out.chair.name = "";
-    if (!out.chair.email && out.chairEmails.length) out.chair.email = out.chairEmails[0];
+    function getTokenHeaders(){
+      try{
+        if (window.Admin && typeof Admin.tokenHeader === "function") {
+          return Admin.tokenHeader() || {};
+        }
+      }catch(e){}
+      return {};
+    }
 
-    out.reportFrequency = normalizeFreq(out.reportFrequency || out.report_frequency || "monthly");
+    async function apiGetItems(){
+      // KV first
+      try{
+        const r = await fetch(`/api/router?type=catalog_items&cat=${encodeURIComponent(CAT)}`, { cache:"no-store" });
+        if (r.ok){
+          const data = await r.json();
+          if (Array.isArray(data?.items)) return data.items;
+        }
+      }catch(e){}
+      // fallback to static if present
+      if (CAT === "supplies" && Array.isArray(window.SUPPLIES_ITEMS)) return window.SUPPLIES_ITEMS;
+      return [];
+    }
 
-    if (out.type === "variantQty") {
-      if (Array.isArray(out.variants) && out.variants.length) {
-        out.variants = out.variants.map(v => {
-          const label = v.label || v.name || String(v.id || '');
-          const price = Number(v.price || 0) || 0;
-          const id = (v.id || label).toLowerCase().replace(/[^a-z0-9-]+/g,'-');
-          return { id, label, price };
+    async function apiSaveItems(items){
+      const headers = {
+        "Content-Type": "application/json",
+        ...getTokenHeaders(),
+      };
+
+      // Try the most likely action names (your router setups have varied)
+      const payload = { cat: CAT, items };
+
+      // 1) save_catalog_items
+      {
+        const r = await fetch(`/api/router?action=save_catalog_items`, {
+          method:"POST",
+          headers,
+          body: JSON.stringify(payload),
         });
-      } else if (Array.isArray(out.pricing) && out.pricing.length) {
-        out.variants = out.pricing.map(pr => {
-          const qty = Number(pr.qty || 1) || 1;
-          return { id: String(qty), label: String(qty), price: Number(pr.price || 0) || 0 };
-        });
-      } else {
-        out.variants = [];
+        if (r.ok) return await r.json().catch(()=>({ok:true}));
       }
-      out.tiered = true;
+
+      // 2) catalog_items_save
+      {
+        const r = await fetch(`/api/router?action=catalog_items_save`, {
+          method:"POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) return await r.json().catch(()=>({ok:true}));
+      }
+
+      // 3) fallback: POST with type=...
+      {
+        const r = await fetch(`/api/router?type=catalog_items_save&cat=${encodeURIComponent(CAT)}`, {
+          method:"POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) return await r.json().catch(()=>({ok:true}));
+      }
+
+      throw new Error("save-failed");
     }
 
-    const origImages = Array.isArray(out.images) ? out.images.slice() : [];
-    let thumb = out.thumbnailUrl || out.image || (origImages[0] || "");
-    let main  = out.imageUrl || origImages[0] || out.image || thumb;
+    // ---------- UI state ----------
+    let model = [];
+    let originalJson = "";
 
-    out.thumbnailUrl = thumb || "";
-    out.imageUrl = main || "";
-    out.image = out.thumbnailUrl || "";
+    const statusEl = document.getElementById("status");
+    const countsEl = document.getElementById("counts");
+    const catsEl = document.getElementById("cats");
+    const qEl = document.getElementById("q");
+    const saveBtn = document.getElementById("saveBtn");
 
-    if (origImages.length) {
-      origImages[0] = out.imageUrl || origImages[0];
-      out.images = origImages;
-    } else {
-      out.images = out.imageUrl ? [out.imageUrl] : [];
+    function setStatus(text, cls){
+      statusEl.className = "status " + (cls || "muted");
+      statusEl.textContent = text;
     }
 
-    out.slotScope = out.slotScope || SLOT_KIND;
-    out.slotKey = out.slotKey || "";
-    out.slotLabel = out.slotLabel || out.slotKey || "";
-
-    // NEW: normalize sortOrder
-    if (out.sortOrder === "" || out.sortOrder == null) {
-      // leave as undefined/null
-    } else {
-      const so = Number(out.sortOrder);
-      out.sortOrder = Number.isFinite(so) ? so : undefined;
+    function updateCounts(){
+      const total = model.length;
+      const active = model.filter(x => x && x.active === true).length;
+      const inactive = total - active;
+      countsEl.style.display = "";
+      countsEl.textContent = `${total} total • ${active} active • ${inactive} inactive`;
     }
 
-    return out;
-  }
-
-  function normalizeAll(list){
-    return (Array.isArray(list) ? list : []).map(normalizeProduct);
-  }
-
-  // NEW: sync each product's chair emails + freq to backend register_item
-  async function syncChairEmailConfigs(list){
-    const endpoint = window.AMARANTH_REGISTER_ENDPOINT || "/api/router?action=register_item";
-
-    const payloads = (list || []).map(p => ({
-      id: p.id || "",
-      name: p.name || "",
-      chairEmails: Array.isArray(p.chairEmails) ? p.chairEmails : (p.chair?.email ? [p.chair.email] : []),
-      publishStart: p.publishStart || "",
-      publishEnd: p.publishEnd || "",
-      reportFrequency: normalizeFreq(p.reportFrequency || p.report_frequency || "monthly")
-    })).filter(x => x.id && x.name);
-
-    if (!payloads.length) return { attempted: 0, ok: 0 };
-
-    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-
-    const results = await Promise.all(payloads.map(async cfg => {
-      try {
-        const r = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(cfg) });
-        if (!r.ok) return false;
+    function isDirty(){
+      try{
+        return JSON.stringify(model) !== originalJson;
+      }catch(e){
         return true;
-      } catch (err) {
-        console.warn("register_item error for", cfg.id, err);
-        return false;
       }
-    }));
-
-    const ok = results.filter(Boolean).length;
-    return { attempted: payloads.length, ok };
-  }
-
-  // Keep ALL products in modelAll (history). Show active only in manager.
-  let modelAll = [];
-  let current = null;
-  let isNew = true;
-
-  function viewList(){
-    return modelAll.filter(p => p.active !== false);
-  }
-
-  // ---- Initial Load (server first, then file fallback; allow empty array from server) ----
-  async function loadInitial(){
-    let loaded = false;
-    try {
-      const r = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.items)) {
-          modelAll = normalizeAll(j.items);
-          loaded = true;
-        }
-      }
-    } catch (e) {
-      console.warn('Server supplies fetch failed:', e);
     }
 
-    if (!loaded) {
-      const src = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
-      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
-      const msg = document.getElementById('listMsg');
-      if (msg) msg.textContent = 'Using static list (fallback).';
-    } else {
-      const msg = document.getElementById('listMsg');
-      if (msg) msg.textContent = 'Loaded from server.';
+    function updateSaveButton(){
+      saveBtn.disabled = !isDirty();
     }
 
-    populateSlotSelect();
-    renderList();
-    startNew();
-    syncTypeFields();
-  }
+    function getFilteredModel(){
+      const q = String(qEl.value || "").trim().toLowerCase();
+      if (!q) return model.slice();
 
-  document.getElementById('btnRefresh').addEventListener('click', async ()=>{
-    const msg = document.getElementById('listMsg');
-    if (msg) msg.textContent = 'Refreshing…';
-    let loaded = false;
-    try{
-      const r = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j?.items)){
-          modelAll = normalizeAll(j.items);
-          loaded = true;
-          if (msg) msg.textContent = 'Loaded from server.';
-        }
-      }
-    }catch(err){ console.warn('Refresh server error:', err); }
-    if(!loaded){
-      const src = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
-      modelAll = normalizeAll(JSON.parse(JSON.stringify(src)));
-      if (msg) msg.textContent = 'Server unavailable — using fallback.';
-    }
-    populateSlotSelect();
-    renderList();
-    startNew();
-    syncTypeFields();
-  });
+      if (q === "inactive") return model.filter(x => x && x.active !== true);
+      if (q === "active") return model.filter(x => x && x.active === true);
 
-  // ---------- List Rendering (ACTIVE ONLY) ----------
-  function renderList(){
-    const tb = document.getElementById('tbody');
-    tb.innerHTML = '';
-
-    const model = viewList();
-
-    // NEW: banquets-style sorting (sortOrder, then name)
-    const list = [...model].sort((a,b) => {
-      const ao = Number(a.sortOrder ?? 1000);
-      const bo = Number(b.sortOrder ?? 1000);
-      if (ao !== bo) return ao - bo;
-      return String(a.name||'').localeCompare(String(b.name||''));
-    });
-
-    if(!list.length){
-      tb.innerHTML = '<tr><td colspan="12" class="muted">No active products — click “New” to create one.</td></tr>';
-      return;
-    }
-
-    for(const p of list){
-      const start = p.publishStart ? new Date(p.publishStart).toLocaleString() : '—';
-      const end   = p.publishEnd ? new Date(p.publishEnd).toLocaleString() : '—';
-      const freqLabel = describeFreq(p.reportFrequency || p.report_frequency || "monthly");
-      const shipDollars = (Number(p.shippingCents || 0) || 0) / 100;
-      const shipLabel = shipDollars > 0 ? '$' + shipDollars.toFixed(2) : '—';
-      const slotLabel = p.slotLabel || '';
-      const sortLabel = (p.sortOrder == null || p.sortOrder === "") ? '<span class="muted">—</span>' : esc(p.sortOrder);
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${sortLabel}</td>
-        <td><strong>${esc(p.name||'')}</strong></td>
-        <td>${slotLabel ? esc(slotLabel) : '<span class="danger">Required</span>'}</td>
-        <td><code>${esc(p.id||'')}</code></td>
-        <td>${esc(p.type || 'fixed')}</td>
-        <td>${p.type === 'variantQty' ? '<span class="muted">variants</span>' : ('$' + Number(p.price||0).toFixed(2))}</td>
-        <td>${shipLabel}</td>
-        <td>${p.active===false?'<span class="danger">false</span>':'<span class="ok">true</span>'}</td>
-        <td><span class="muted">${esc(freqLabel)}</span></td>
-        <td><div class="muted">${start} → ${end}</div></td>
-        <td>${esc(p.sku||'—')}</td>
-        <td class="actions">
-          <button class="btn ghost btnEdit" data-id="${esc(p.id)}">Edit</button>
-          <button class="btn ghost btnCopy" data-id="${esc(p.id)}">Duplicate</button>
-          <button class="btn warn btnArchive" data-id="${esc(p.id)}">Archive</button>
-        </td>`;
-      tb.appendChild(tr);
-    }
-
-    tb.querySelectorAll('.btnEdit').forEach(el=>el.addEventListener('click',onEdit));
-    tb.querySelectorAll('.btnCopy').forEach(el=>el.addEventListener('click',onCopy));
-    tb.querySelectorAll('.btnArchive').forEach(el=>el.addEventListener('click',onArchive));
-  }
-
-  // ---------- Form helpers ----------
-  function startNew(){
-    isNew = true;
-    current = null;
-    document.getElementById('modeChip').textContent = 'New';
-    document.getElementById('editMsg').textContent = '';
-
-    document.getElementById('f_name').value = '';
-    document.getElementById('f_id').value = '';
-    document.getElementById('f_sort').value = '';
-    document.getElementById('f_active').value = 'true';
-    document.getElementById('f_type').value = 'fixed';
-    document.getElementById('f_price').value = '';
-    document.getElementById('f_shipping').value = '';
-    document.getElementById('f_sku').value = '';
-    document.getElementById('f_report_freq').value = 'monthly';
-    document.getElementById('f_start').value = '';
-    document.getElementById('f_end').value = '';
-    document.getElementById('f_notes').value = '';
-    document.getElementById('f_thumb_url').value = '';
-    document.getElementById('f_img1_url').value = '';
-    document.getElementById('f_img_extra').value = '';
-    document.getElementById('f_chair_name').value = '';
-    document.getElementById('f_chair_emails').value = '';
-    document.getElementById('f_variants').value = '';
-    populateSlotSelect();
-    syncTypeFields();
-  }
-
-  function fillForm(p){
-    const n = normalizeProduct(p);
-    isNew = false;
-    current = n;
-    document.getElementById('modeChip').textContent = 'Edit';
-    document.getElementById('editMsg').textContent = '';
-
-    populateSlotSelect(n.slotLabel || "");
-
-    document.getElementById('f_name').value = n.name || '';
-    document.getElementById('f_id').value = n.id || '';
-    document.getElementById('f_sort').value = (n.sortOrder ?? '');
-    document.getElementById('f_active').value = String(n.active !== false);
-    document.getElementById('f_type').value = n.type || 'fixed';
-    document.getElementById('f_price').value = (Number.isFinite(Number(n.price)) ? Number(n.price).toFixed(2) : '');
-    const shipDollars = (Number(n.shippingCents || 0) || 0) / 100;
-    document.getElementById('f_shipping').value = shipDollars > 0 ? shipDollars.toFixed(2) : '';
-    document.getElementById('f_sku').value = n.sku || '';
-    document.getElementById('f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
-    document.getElementById('f_start').value = toLocalDT(n.publishStart || '');
-    document.getElementById('f_end').value = toLocalDT(n.publishEnd || '');
-    document.getElementById('f_notes').value = n.notes || n.description || '';
-    document.getElementById('f_thumb_url').value = n.thumbnailUrl || n.image || '';
-    document.getElementById('f_img1_url').value = n.imageUrl || (Array.isArray(n.images) ? n.images[0] : (n.image || ''));
-
-    let extras = "";
-    if (Array.isArray(n.images) && n.images.length > 1) extras = n.images.slice(1).join('\n');
-    document.getElementById('f_img_extra').value = extras;
-
-    if (Array.isArray(n.variants) && n.variants.length){
-      document.getElementById('f_variants').value = n.variants
-        .map(v => `${v.label || v.name || ''}:${Number(v.price||0)}`)
-        .join('\n');
-    } else {
-      document.getElementById('f_variants').value = '';
-    }
-
-    document.getElementById('f_chair_name').value = (n.chair && n.chair.name) ? n.chair.name : '';
-    document.getElementById('f_chair_emails').value = Array.isArray(n.chairEmails) ? n.chairEmails.join(', ') : (n.chair?.email || '');
-
-    syncTypeFields();
-  }
-
-  function readForm(){
-    const name = document.getElementById('f_name').value.trim();
-    const id   = document.getElementById('f_id').value.trim();
-    const sortOrderRaw = document.getElementById('f_sort').value;
-    const active = document.getElementById('f_active').value === 'true';
-    const type = document.getElementById('f_type').value || 'fixed';
-    const price = parseFloat(document.getElementById('f_price').value || '0') || 0;
-    const shippingDollars = parseFloat(document.getElementById('f_shipping').value || '0') || 0;
-    const sku = document.getElementById('f_sku').value.trim();
-    const publishStart = fromLocalDT(document.getElementById('f_start').value);
-    const publishEnd   = fromLocalDT(document.getElementById('f_end').value);
-    const notes = document.getElementById('f_notes').value.trim();
-    const thumbField = document.getElementById('f_thumb_url').value.trim();
-    const imageField = document.getElementById('f_img1_url').value.trim();
-    const extraField = document.getElementById('f_img_extra').value.trim();
-    const chairName = document.getElementById('f_chair_name').value.trim();
-    const chairEmailsRaw = document.getElementById('f_chair_emails').value.trim();
-    const chairEmails = chairEmailsRaw ? chairEmailsRaw.split(/[,]+/).map(s=>s.trim()).filter(Boolean) : [];
-    const freq = normalizeFreq(document.getElementById('f_report_freq').value || 'monthly');
-    const variants = parseVariants(document.getElementById('f_variants').value);
-
-    const base = current ? { ...current } : {};
-    const shippingCents = shippingDollars > 0 ? Math.round(shippingDollars * 100) : 0;
-
-    const thumb = thumbField || base.thumbnailUrl || base.image || (Array.isArray(base.images) ? base.images[0] : "");
-    const main  = imageField || base.imageUrl || (Array.isArray(base.images) ? base.images[0] : thumb);
-
-    const extraUrls = extraField
-      ? extraField.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
-      : [];
-
-    const newImages = [];
-    if (main) newImages.push(main);
-    extraUrls.forEach(u => { if (u && !newImages.includes(u)) newImages.push(u); });
-
-    const slotLabelRaw = document.getElementById('f_slot_label').value || "";
-    let slotKey = "", slotLabel = "", slotScope = SLOT_KIND;
-
-    if (slotLabelRaw && slotLabelRaw !== SLOT_ADD_VALUE && slotLabelRaw !== SLOT_NONE_VALUE) {
-      const slot = ensureSlot(SLOT_KIND, slotLabelRaw);
-      slotKey = slot.key || "";
-      slotLabel = slot.label || "";
-      slotScope = slot.scope || SLOT_KIND;
-    }
-
-    const sortOrder = (String(sortOrderRaw || "").trim() === "")
-      ? null
-      : Number(sortOrderRaw);
-
-    const out = {
-      ...base,
-      id, name, active,
-      type,
-      sortOrder: (sortOrder == null || !Number.isFinite(sortOrder)) ? null : sortOrder,
-      shippingCents,
-      sku, publishStart, publishEnd,
-      notes, description: notes || base.description || '',
-      thumbnailUrl: thumb,
-      imageUrl: main,
-      image: thumb,
-      images: newImages,
-      chair: { name: chairName, email: chairEmails[0] || '' },
-      chairEmails,
-      reportFrequency: freq,
-      slotKey,
-      slotLabel,
-      slotScope
-    };
-
-    if (type === 'variantQty') {
-      out.variants = variants;
-      out.tiered = true;
-      out.pricing = variants.map(v => {
-        const m = String(v.label || '').match(/\d+/);
-        const qty = m ? parseInt(m[0], 10) : 1;
-        return { qty, price: Number(v.price || 0) || 0 };
+      return model.filter(it => {
+        const name = String(it?.name || "").toLowerCase();
+        const cat  = String(it?.category || "").toLowerCase();
+        const id   = String(it?.id || "").toLowerCase();
+        return name.includes(q) || cat.includes(q) || id.includes(q);
       });
-      delete out.price;
-    } else if (type === 'amount') {
-      delete out.price;
-      delete out.variants;
-      delete out.tiered;
-      delete out.pricing;
-    } else {
-      out.price = Math.round(price * 100) / 100;
-      delete out.variants;
-      delete out.tiered;
-      delete out.pricing;
     }
 
-    return out;
-  }
+    function render(){
+      updateCounts();
 
-  function validate(o){
-    if (!o.name) return 'Name is required.';
-    if (!o.id) return 'ID is required.';
-    if (!idOK(o.id)) return 'ID must be lowercase letters, numbers, and dashes only.';
-    if (o.sortOrder != null && !Number.isFinite(Number(o.sortOrder))) return 'Sort Order must be a number.';
-    if ((o.type === 'fixed' || o.type === 'qty') && Number(o.price) < 0) return 'Price cannot be negative.';
-    if (Number(o.shippingCents) < 0) return 'Shipping cannot be negative.';
-    if (o.type === 'variantQty'){
-      if (!Array.isArray(o.variants) || o.variants.length === 0) return 'Add at least one variant.';
+      const view = getFilteredModel();
+      const grouped = groupByCategoryPreserveOrder(view);
+
+      const html = [];
+      for (const [cat, items] of grouped.entries()){
+        const activeCount = items.filter(x => x.active === true).length;
+        html.push(`
+          <div class="cat" data-cat="${escHtml(cat)}">
+            <div class="cat-h">
+              <div class="cat-title">
+                <span>${escHtml(cat)}</span>
+                <span class="pill2">${activeCount}/${items.length} active</span>
+              </div>
+              <div class="cat-actions">
+                <button class="btn" data-cat-on="${escHtml(cat)}">All On</button>
+                <button class="btn" data-cat-off="${escHtml(cat)}">All Off</button>
+              </div>
+            </div>
+            <div class="cat-b">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th style="width:60%">Item</th>
+                    <th style="width:16%">Price</th>
+                    <th style="width:14%">Active</th>
+                    <th style="width:10%">ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map(it => {
+                    const price = normalizePrice(it.price || 0);
+                    const priceText = (it.active !== true && (it.priceText || it.description)) ? "Upon request" : money(price);
+                    return `
+                      <tr data-id="${escHtml(it.id)}">
+                        <td>
+                          <div class="name">${escHtml(it.name || "")}</div>
+                          <div class="meta">${escHtml(it.description || it.notes || "")}</div>
+                        </td>
+                        <td class="price">${escHtml(priceText)}</td>
+                        <td class="right">
+                          <label class="toggle">
+                            <input type="checkbox" class="chk" ${it.active === true ? "checked" : ""} />
+                            <span class="tiny">${it.active === true ? "true" : "false"}</span>
+                          </label>
+                        </td>
+                        <td class="tiny">${escHtml(it.id || "")}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `);
+      }
+
+      catsEl.innerHTML = html.join("");
+
+      // row toggle wiring
+      catsEl.querySelectorAll("tr[data-id]").forEach(tr => {
+        const id = tr.getAttribute("data-id");
+        const chk = tr.querySelector(".chk");
+        const tiny = tr.querySelector(".tiny");
+        if (!chk) return;
+
+        chk.addEventListener("change", () => {
+          const it = model.find(x => String(x.id) === String(id));
+          if (!it) return;
+          it.active = chk.checked;
+          if (tiny) tiny.textContent = chk.checked ? "true" : "false";
+          updateSaveButton();
+          renderHeaderOnly(); // update counts without full rerender? we’ll keep it lightweight
+        });
+      });
+
+      // category all on/off
+      catsEl.querySelectorAll("[data-cat-on]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const cat = btn.getAttribute("data-cat-on");
+          model.forEach(it => { if (keyCat(it) === cat) it.active = true; });
+          updateSaveButton();
+          render();
+        });
+      });
+      catsEl.querySelectorAll("[data-cat-off]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const cat = btn.getAttribute("data-cat-off");
+          model.forEach(it => { if (keyCat(it) === cat) it.active = false; });
+          updateSaveButton();
+          render();
+        });
+      });
+
+      updateSaveButton();
     }
-    if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd))
-      return 'Publish End must be after Publish Start.';
-    for (const em of (o.chairEmails || [])){
-      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return `Invalid chair email: ${em}`;
+
+    // quick update for top counts + save state
+    function renderHeaderOnly(){
+      updateCounts();
+      updateSaveButton();
     }
-    if (!o.slotLabel || !o.slotKey) return 'Year-over-year Slot is required.';
-    return '';
-  }
 
-  function onEdit(e){
-    const id = e.currentTarget.dataset.id;
-    const p = modelAll.find(x => x.id === id);
-    if (!p) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
-    fillForm(p);
-  }
-
-  function uniqueId(base){
-    let i = 1, candidate = base;
-    while (modelAll.some(x => x.id === candidate)) { i += 1; candidate = `${base}-${i}`; }
-    return candidate;
-  }
-
-  function onCopy(e){
-    const id = e.currentTarget.dataset.id;
-    const p = modelAll.find(x => x.id === id);
-    if (!p) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
-    const copy = normalizeProduct(JSON.parse(JSON.stringify(p)));
-    copy.name = (copy.name || '') + ' (copy)';
-    const baseId = (copy.id || 'item') + '-copy';
-    copy.id = uniqueId(baseId);
-    copy.publishStart = '';
-    copy.publishEnd = '';
-    startNew();
-    fillForm(copy);
-    isNew = true;
-    document.getElementById('modeChip').textContent = 'New (from copy)';
-  }
-
-  async function persistAll(){
-    const headers = { "Content-Type": "application/json", ...Admin.tokenHeader() };
-    const payload = normalizeAll(modelAll);
-
-    const res = await fetch("/api/router?action=save_catalog_items&cat=supplies", {
-      method: "POST", headers, body: JSON.stringify({ items: payload })
+    document.getElementById("allOn").addEventListener("click", () => {
+      model.forEach(it => it.active = true);
+      updateSaveButton();
+      render();
     });
-    if (!res.ok) throw new Error("server rejected");
 
-    try { await syncChairEmailConfigs(payload); } catch (_) {}
-  }
-
-  async function onArchive(e){
-    const id = e.currentTarget.dataset.id;
-    const idx = modelAll.findIndex(x => x.id === id);
-    if (idx < 0) { document.getElementById('editMsg').textContent = 'Item not found.'; return; }
-
-    const p = modelAll[idx];
-    const ok = confirm(
-      `Archive "${p.name}" (${id})?\n\n` +
-      `It will be hidden from the Supplies manager but kept for YoY/history.`
-    );
-    if (!ok) return;
-
-    const nowISO = new Date().toISOString();
-    const endMs = p.publishEnd ? Date.parse(p.publishEnd) : NaN;
-
-    modelAll[idx] = normalizeProduct({
-      ...p,
-      active: false,
-      publishEnd: (!p.publishEnd || isNaN(endMs) || endMs > Date.now()) ? nowISO : p.publishEnd
+    document.getElementById("allOff").addEventListener("click", () => {
+      model.forEach(it => it.active = false);
+      updateSaveButton();
+      render();
     });
 
-    if (current && current.id === id) startNew();
+    qEl.addEventListener("input", () => render());
 
-    renderList();
-    document.getElementById('editMsg').textContent = 'Archiving…';
+    saveBtn.addEventListener("click", async () => {
+      saveBtn.disabled = true;
+      setStatus("Saving…", "muted");
+      try{
+        await apiSaveItems(model);
+        originalJson = JSON.stringify(model);
+        setStatus("Saved ✓", "ok");
+      }catch(e){
+        console.error(e);
+        setStatus("Save failed (check admin token / router action)", "bad");
+      }finally{
+        updateSaveButton();
+      }
+    });
 
-    try{
-      await persistAll();
-      document.getElementById('editMsg').textContent = 'Archived (history preserved for YoY).';
-    }catch(err){
-      console.warn("Archive persist error:", err);
-      document.getElementById('editMsg').textContent = 'Archived locally; export JSON if needed.';
-    }
-  }
+    // boot
+    (async function init(){
+      setStatus("Loading…", "muted");
+      model = await apiGetItems();
+      if (!Array.isArray(model)) model = [];
+      originalJson = JSON.stringify(model);
 
-  // Export / Import (FULL HISTORY)
-  document.getElementById('btnExport').addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(normalizeAll(modelAll), null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'products-export.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  });
-
-  document.getElementById('fileImport').addEventListener('change', async (ev)=>{
-    const f = ev.target.files[0];
-    if (!f) return;
-    try{
-      const txt = await f.text();
-      const data = JSON.parse(txt);
-      if (!Array.isArray(data)) throw new Error('JSON must be an array');
-      modelAll = normalizeAll(data);
-      populateSlotSelect();
-      renderList();
-      startNew();
-      const msg = document.getElementById('listMsg');
-      if (msg) msg.textContent = 'Imported from file (not yet saved to server).';
-    }catch(err){
-      alert('Import failed: ' + (err?.message || String(err)));
-    }finally{
-      ev.target.value = '';
-    }
-  });
-
-  // Save item(s)
-  document.getElementById('btnSave').addEventListener('click', async ()=>{
-    const o = readForm();
-    const err = validate(o);
-    if(err){ document.getElementById('editMsg').textContent = err; return; }
-
-    const idx = modelAll.findIndex(x => x.id === o.id);
-    if(idx >= 0){ modelAll[idx] = {...modelAll[idx], ...o}; }
-    else{ modelAll.push(o); isNew = false; current = o; document.getElementById('modeChip').textContent = 'Edit'; }
-
-    renderList();
-
-    try{
-      document.getElementById('editMsg').textContent = 'Saving…';
-      await persistAll();
-      document.getElementById('editMsg').textContent = 'Saved to server.';
-    }catch{
-      document.getElementById('editMsg').textContent = 'Saved locally; export JSON if needed.';
-    }
-  });
-
-  // Sync from site files (imports /assets/js/supplies.js into server as full history set)
-  document.getElementById('btnSyncFiles').addEventListener('click', async ()=>{
-    const fileItems = Array.isArray(window.SUPPLIES_ITEMS) ? window.SUPPLIES_ITEMS : [];
-    const msg = document.getElementById('listMsg');
-    if(!fileItems.length){ if (msg) msg.textContent = 'No items in /assets/js/supplies.js'; return; }
-
-    if (msg) msg.textContent = 'Syncing from site files…';
-    try{
-      const normalized = normalizeAll(fileItems);
-
-      // Replace modelAll with file set (acts like "import from file")
-      modelAll = normalized;
-
-      await persistAll();
-
-      if (msg) msg.textContent = `Synced ${normalized.length} item(s) from file.`;
-      renderList();
-      startNew();
-    }catch(e){
-      if (msg) msg.textContent = 'Sync failed: ' + (e.message || e);
-    }
-  });
-
-  // Reset + New
-  document.getElementById('btnAddNew').addEventListener('click', startNew);
-  document.getElementById('btnReset').addEventListener('click', ()=>{ if(isNew) startNew(); else fillForm(current); });
-
-  // Wire slot change
-  const slotSel = document.getElementById('f_slot_label');
-  if (slotSel) slotSel.addEventListener('change', onSlotChange);
-
-  // Kick off
-  loadInitial();
+      setStatus("Ready", "ok");
+      render();
+    })();
   </script>
+
+  <!-- If you still use static supplies items anywhere -->
+  <script src="/assets/js/supplies.js?v=nov-06-2025"></script>
 </body>
 </html>
