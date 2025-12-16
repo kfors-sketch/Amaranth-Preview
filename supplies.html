@@ -35,49 +35,41 @@
     <a id="top"></a>
 
     <div class="sup-header">
-      <div>
-        <h1>Supplies</h1>
-        <p class="muted sup-sub">
-          Supreme Council Order of the Amaranth — Price List 2026
-        </p>
-      </div>
-
-      <!-- Mobile jump menu -->
-      <div class="sup-jump" id="supJumpWrap" style="display:none;">
-        <label class="sup-jump-label" for="supJump">Jump to section</label>
-        <select id="supJump" class="sup-jump-select" aria-label="Jump to section">
-          <option value="">Select…</option>
-        </select>
-      </div>
+      <h1>Supplies</h1>
+      <p class="muted sup-sub">
+        Supreme Council Order of the Amaranth — Price List 2026
+      </p>
     </div>
 
-    <!-- Empty-state (shown when master publish is off or nothing visible) -->
-    <div id="emptyCatalog" class="card sup-empty" style="display:none;">
-      <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
-      <p class="muted" style="margin:0">Please check back soon.</p>
+    <!-- Mobile jump (sticky) -->
+    <div class="sup-jump" id="supJump" style="display:none;">
+      <label class="sup-jump-label" for="supJumpSel">Jump to section</label>
+      <select id="supJumpSel" class="sup-jump-sel" aria-label="Jump to section"></select>
     </div>
 
     <!-- Notes (optional; auto-hide when empty) -->
     <div id="supNotes" class="card sup-notes" style="display:none;"></div>
 
-    <!-- Desktop 2-column “PDF-like” wrapper -->
-    <section id="supDesktop2Col" class="sup-2col" aria-live="polite" style="display:none;">
-      <div class="sup-col">
-        <div id="supLeftCol"></div>
-      </div>
-      <div class="sup-col">
-        <div id="supRightCol"></div>
+    <!-- Empty-state (shown when nothing visible) -->
+    <div id="emptyCatalog" class="card sup-empty" style="display:none;">
+      <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
+      <p class="muted" style="margin:0">Please check back soon.</p>
+    </div>
+
+    <!-- Desktop 2-column -->
+    <section class="sup-desktop" aria-label="Supplies list (desktop)">
+      <div class="sup-two">
+        <div id="supColLeft"  class="sup-col"></div>
+        <div id="supColRight" class="sup-col"></div>
       </div>
     </section>
 
-    <!-- Mobile / fallback single-column list -->
-    <section id="supMobileList" class="sup-list" aria-live="polite"></section>
-  </main>
+    <!-- Mobile single-column -->
+    <section id="supMobile" class="sup-mobile" aria-label="Supplies list (mobile)" aria-live="polite"></section>
 
-  <!-- Sticky Top button -->
-  <button id="supTopBtn" class="sup-top" type="button" aria-label="Back to top" style="display:none;">
-    Top ↑
-  </button>
+    <!-- Floating Top button -->
+    <button id="supTopBtn" class="sup-topbtn" type="button" aria-label="Return to top">↑ Top</button>
+  </main>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
@@ -89,15 +81,7 @@
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
-  <!-- Page logic -->
   <script>
-    /* =======================
-       Master availability rule
-       ======================= */
-    // Public should NOT show supplies unless preview=1 (or you later wire to site-settings).
-    const urlParams = new URLSearchParams(location.search);
-    const isPreview = urlParams.get('preview') === '1';
-
     /* =======================
        Helpers
        ======================= */
@@ -122,13 +106,13 @@
       ));
     }
 
-    function mkAnchorId(cat){
-      return 'cat-' + String(cat || 'Other')
+    function mkAnchorId(category){
+      return String(category || 'Other')
         .trim()
         .toLowerCase()
-        .replace(/&/g,'and')
-        .replace(/[^a-z0-9]+/g,'-')
-        .replace(/(^-|-$)/g,'');
+        .replace(/&/g, 'and')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
     }
 
     function parseDate(d){
@@ -149,15 +133,16 @@
       return true;
     }
 
+    // Visible = active true AND within publish window
     function isVisibleItem(item, now){
       if (!item || item.active !== true) return false;
       return isWithinWindow(item, now);
     }
 
-    // Preserve original array order. Group categories by first appearance.
-    function groupByCategoryPreserveOrder(items){
+    // Group items by category
+    function groupByCategory(items){
       const map = new Map();
-      items.forEach(it=>{
+      (items || []).forEach(it=>{
         const cat = String(it.category || 'Other');
         if (!map.has(cat)) map.set(cat, []);
         map.get(cat).push(it);
@@ -165,8 +150,10 @@
       return map;
     }
 
-    function buildCategoryBlock(cat, items, visibleRef){
-      const anchor = mkAnchorId(cat);
+    // Build one category block. idPrefix prevents duplicate IDs across layouts.
+    function buildCategoryBlock(cat, items, visibleRef, idPrefix){
+      const anchor = (idPrefix || '') + mkAnchorId(cat);
+
       const html = [];
       html.push(`<div class="sup-category" id="${escHtml(anchor)}">`);
       html.push(`<div class="sup-cat-title">${escHtml(cat)}</div>`);
@@ -209,11 +196,11 @@
       return html.join('');
     }
 
-    function wireAddButtons(rootEl, visible){
-      rootEl.querySelectorAll('.sup-add').forEach(btn => {
+    function wireAddButtons(containerEl, visibleItems){
+      containerEl.querySelectorAll('.sup-add').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-id');
-          const item = visible.find(x => String(x.id) === String(id));
+          const item = (visibleItems || []).find(x => String(x.id) === String(id));
           if (!item) return;
 
           if (!window.Cart || typeof Cart.addLine !== 'function') {
@@ -221,7 +208,7 @@
             return;
           }
 
-          const sel = rootEl.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
+          const sel = containerEl.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
           const qty = Math.max(1, parseInt(sel?.value || '1', 10));
           const price = normalizePrice(item.price || 0);
 
@@ -241,27 +228,22 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-      // If not preview, hide the entire list (public page becomes “not available”)
-      const listMobile = document.getElementById('supMobileList');
-      const deskWrap   = document.getElementById('supDesktop2Col');
-      const emptyEl    = document.getElementById('emptyCatalog');
-      const notesEl    = document.getElementById('supNotes');
-      const jumpWrap   = document.getElementById('supJumpWrap');
-      const jumpSel    = document.getElementById('supJump');
-
-      if (!isPreview){
-        listMobile.innerHTML = '';
-        deskWrap.style.display = 'none';
-        emptyEl.style.display = '';
-        return;
-      }
-
       // Cart optional
       if (window.Cart && typeof Cart.load === 'function') Cart.load();
 
       const now = new Date();
 
-      // Load items (KV first, then static)
+      const emptyEl = document.getElementById('emptyCatalog');
+      const notesEl = document.getElementById('supNotes');
+
+      const colLeft  = document.getElementById('supColLeft');
+      const colRight = document.getElementById('supColRight');
+      const mobileEl = document.getElementById('supMobile');
+
+      const jumpWrap = document.getElementById('supJump');
+      const jumpSel  = document.getElementById('supJumpSel');
+
+      // 1) Load items (KV first, then static)
       let rawItems = [];
       try {
         const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
@@ -273,10 +255,10 @@
 
       if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
 
-      // Visible items only (active true + publish window)
+      // 2) Visibility filter
       const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
 
-      // Notes
+      // 3) Notes
       const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
       const noteLines = [];
       if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
@@ -293,97 +275,107 @@
         notesEl.style.display = 'none';
       }
 
+      // 4) Empty state
       if (!visible.length){
-        listMobile.innerHTML = '';
-        deskWrap.style.display = 'none';
+        colLeft.innerHTML = '';
+        colRight.innerHTML = '';
+        mobileEl.innerHTML = '';
         emptyEl.style.display = '';
+        jumpWrap.style.display = 'none';
         return;
       }
       emptyEl.style.display = 'none';
 
-      // Group preserving original order
-      const grouped = groupByCategoryPreserveOrder(visible);
-      const categories = Array.from(grouped.keys());
+      // 5) Order you specified
+      const LEFT_ORDER = [
+        "BOOKS",
+        "CARDS",
+        "CERTIFICATES",
+        "CHARTERS",
+        "COMPUTER DISCS",
+        "DISPENSATIONS",
+        "FLAGS"
+      ];
 
-      // Mobile jump menu (only show on small screens)
-      // Still useful on desktop too, but we’ll display it only in mobile CSS.
-      jumpSel.innerHTML = ['<option value="">Select…</option>'].concat(
-        categories.map(cat => `<option value="${escHtml(mkAnchorId(cat))}">${escHtml(cat)}</option>`)
-      ).join('');
-      jumpWrap.style.display = '';
+      const RIGHT_ORDER = [
+        "SEALS",
+        "STANDARDS & BANNERS",
+        "STAFF TOPS",
+        "WREATHS",
+        "HISTORIES",
+        "LETTERS",
+        "PETITION - BLANKS - NOTICES",
+        "PARAPHERNALIA",
+        "BIBLES",
+        "FLAG & TOPS",
+        "JEWELS"
+      ];
 
-      jumpSel.addEventListener('change', () => {
-        const id = jumpSel.value;
-        if (!id) return;
-        const el = document.getElementById(id);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
+      const FULL_MOBILE_ORDER = [...LEFT_ORDER, ...RIGHT_ORDER];
 
-      // Build MOBILE single-column list (all categories in order)
-      const mobileHTML = [];
-      for (const [cat, items] of grouped.entries()){
-        mobileHTML.push(buildCategoryBlock(cat, items, visible));
+      const grouped = groupByCategory(visible);
+
+      // 6) Render desktop columns (prefix IDs so they never collide with mobile IDs)
+      colLeft.innerHTML = LEFT_ORDER
+        .filter(cat => grouped.has(cat))
+        .map(cat => buildCategoryBlock(cat, grouped.get(cat), visible, 'd-'))
+        .join('');
+
+      colRight.innerHTML = RIGHT_ORDER
+        .filter(cat => grouped.has(cat))
+        .map(cat => buildCategoryBlock(cat, grouped.get(cat), visible, 'd-'))
+        .join('');
+
+      // 7) Render mobile (IDs WITHOUT prefix so jump works reliably)
+      mobileEl.innerHTML = FULL_MOBILE_ORDER
+        .filter(cat => grouped.has(cat))
+        .map(cat => buildCategoryBlock(cat, grouped.get(cat), visible, ''))
+        .join('');
+
+      // 8) Wire Add buttons for both layouts
+      wireAddButtons(document.querySelector('.sup-desktop'), visible);
+      wireAddButtons(mobileEl, visible);
+
+      // 9) Build mobile jump dropdown
+      const mobileCats = FULL_MOBILE_ORDER.filter(cat => grouped.has(cat));
+      if (mobileCats.length){
+        jumpWrap.style.display = '';
+        jumpSel.innerHTML =
+          `<option value="">Jump to…</option>` +
+          mobileCats.map(cat => `<option value="${escHtml(mkAnchorId(cat))}">${escHtml(cat)}</option>`).join('');
+
+        jumpSel.addEventListener('change', () => {
+          const val = String(jumpSel.value || '').trim();
+          if (!val) return;
+          const el = document.getElementById(val);
+          if (el){
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // reset so you can pick same again
+            setTimeout(()=>{ jumpSel.value = ''; }, 350);
+          }
+        });
+      } else {
+        jumpWrap.style.display = 'none';
       }
-      listMobile.innerHTML = mobileHTML.join('');
-      wireAddButtons(listMobile, visible);
 
-      // Desktop 2-column:
-      // LEFT: from first category down through the category before SEALS
-      // RIGHT: start at SEALS (if exists), then continue downward
-      const sealsIndex = categories.findIndex(c => String(c).toUpperCase().trim() === 'SEALS');
-      const leftCats  = (sealsIndex >= 0) ? categories.slice(0, sealsIndex) : categories.slice();
-      const rightCats = (sealsIndex >= 0) ? categories.slice(sealsIndex) : [];
-
-      const leftEl  = document.getElementById('supLeftCol');
-      const rightEl = document.getElementById('supRightCol');
-
-      const leftHTML = [];
-      leftCats.forEach(cat => {
-        leftHTML.push(buildCategoryBlock(cat, grouped.get(cat) || [], visible));
-      });
-      leftEl.innerHTML = leftHTML.join('');
-
-      const rightHTML = [];
-      rightCats.forEach(cat => {
-        rightHTML.push(buildCategoryBlock(cat, grouped.get(cat) || [], visible));
-      });
-      rightEl.innerHTML = rightHTML.join('');
-
-      // Only show 2-col on desktop breakpoint
-      deskWrap.style.display = '';
-
-      // Wire add buttons in BOTH columns too
-      wireAddButtons(leftEl, visible);
-      wireAddButtons(rightEl, visible);
-
-      // Top button behavior
+      // 10) Top button behavior
       const topBtn = document.getElementById('supTopBtn');
       function updateTopBtn(){
         const y = window.scrollY || document.documentElement.scrollTop || 0;
-        topBtn.style.display = (y > 500) ? '' : 'none';
+        topBtn.classList.toggle('show', y > 300);
       }
       window.addEventListener('scroll', updateTopBtn, { passive: true });
       updateTopBtn();
+
       topBtn.addEventListener('click', () => {
-        const top = document.getElementById('top');
-        if (top) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        else window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
   </script>
 
   <style>
-    /* ====== Supplies Layout ====== */
-    .sup-header{
-      max-width:1100px;
-      margin:0 auto 10px;
-      padding:0 6px;
-      display:flex;
-      gap:14px;
-      align-items:flex-end;
-      justify-content:space-between;
-      flex-wrap:wrap;
-    }
+    /* ======= Layout wrappers ======= */
+    .sup-header{max-width:1100px;margin:0 auto 10px;padding:0 6px;}
     .sup-sub{margin:.15rem 0 0;}
 
     .sup-empty{max-width:780px;margin:0 auto 16px;padding:16px;}
@@ -392,20 +384,36 @@
     .sup-notes-list{margin:0;padding-left:18px;}
     .sup-notes-list li{margin:6px 0;}
 
-    /* Jump */
-    .sup-jump{display:flex;flex-direction:column;gap:6px;min-width:220px;}
-    .sup-jump-label{font-weight:700;font-size:.9rem;opacity:.85;}
-    .sup-jump-select{
-      width:100%;
-      padding:.55rem .7rem;
-      border:1px solid #d1d5db;
-      border-radius:.6rem;
-      background: rgba(255,255,255,0.9);
+    /* Desktop 2-column */
+    .sup-two{
+      max-width:1100px;
+      margin:0 auto;
+      padding:0 6px 18px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:16px;
+      align-items:start;
     }
 
-    /* Single-column list (mobile + fallback) */
-    .sup-list{max-width:1100px;margin:0 auto;padding:0 6px 24px;}
-    .sup-category{margin:14px 0 18px; scroll-margin-top: 90px;}
+    /* Mobile list */
+    .sup-mobile{
+      max-width:1100px;
+      margin:0 auto;
+      padding:0 6px 24px;
+    }
+
+    /* Show/hide based on width */
+    @media (max-width: 900px){
+      .sup-desktop{display:none;}
+      .sup-mobile{display:block;}
+    }
+    @media (min-width: 901px){
+      .sup-desktop{display:block;}
+      .sup-mobile{display:none;}
+    }
+
+    /* ======= Category blocks ======= */
+    .sup-category{margin:14px 0 18px;}
     .sup-cat-title{
       font-weight:900;
       letter-spacing:.02em;
@@ -450,6 +458,7 @@
     }
 
     .sup-price{font-weight:900;}
+
     .sup-controls{display:flex;gap:10px;align-items:center;}
     .sup-controls-disabled{opacity:.35;}
 
@@ -461,54 +470,58 @@
       background: rgba(255,255,255,0.9);
     }
 
-    /* Desktop 2-column wrapper (PDF-like) */
-    .sup-2col{
-      max-width:1200px;
-      margin:0 auto;
-      padding:0 6px 24px;
-      display:none;
-    }
-    .sup-2col .sup-col{
-      min-width:0;
-    }
-
-    /* Sticky Top button */
-    .sup-top{
-      position:fixed;
-      right:14px;
-      bottom:14px;
-      z-index:999;
-      border:0;
-      border-radius:999px;
-      padding:10px 14px;
-      box-shadow:0 8px 22px rgba(0,0,0,0.18);
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      font-weight:800;
-      cursor:pointer;
-    }
-
     /* Small screens: stack price/controls under name */
     @media (max-width: 620px){
       .sup-row{flex-direction:column;}
       .sup-right{width:100%;justify-content:flex-start;}
     }
 
-    /* DESKTOP BREAKPOINT:
-       - show 2-column
-       - hide single-column mobile list
-       - show jump menu only on mobile (optional; keeping it mobile-only)
-    */
-    @media (min-width: 980px){
-      #supMobileList{display:none;}
-      .sup-2col{
-        display:grid;
-        grid-template-columns: 1fr 1fr;
-        gap:16px;
-      }
-      /* hide jump menu on desktop */
+    /* ======= Mobile Jump UI ======= */
+    .sup-jump{
+      max-width:1100px;
+      margin:0 auto 10px;
+      padding:10px 6px 0;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(247,247,251,0.70);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border-bottom: 1px solid rgba(229,231,235,0.6);
+    }
+    @media (min-width: 901px){
       .sup-jump{display:none !important;}
+    }
+    .sup-jump-label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+    .sup-jump-sel{
+      width:100%;
+      padding:.65rem .8rem;
+      border:1px solid #d1d5db;
+      border-radius:.65rem;
+      background: rgba(255,255,255,0.95);
+      font-weight:700;
+    }
+
+    /* ======= Top Button ======= */
+    .sup-topbtn{
+      position: fixed;
+      right: 14px;
+      bottom: 16px;
+      z-index: 30;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 800;
+      box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+      display:none;
+    }
+    .sup-topbtn.show{display:inline-flex;}
+    @media (min-width: 901px){
+      .sup-topbtn{display:none !important;}
     }
 
     /* Utility: screen-reader only */
