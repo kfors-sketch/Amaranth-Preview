@@ -32,27 +32,52 @@
   </header>
 
   <main class="container mt-lg">
+    <a id="top"></a>
+
     <div class="sup-header">
-      <h1>Supplies</h1>
-      <p class="muted sup-sub">
-        Supreme Council Order of the Amaranth — Price List 2026
-      </p>
+      <div>
+        <h1>Supplies</h1>
+        <p class="muted sup-sub">
+          Supreme Council Order of the Amaranth — Price List 2026
+        </p>
+      </div>
+
+      <!-- Mobile jump menu -->
+      <div class="sup-jump" id="supJumpWrap" style="display:none;">
+        <label class="sup-jump-label" for="supJump">Jump to section</label>
+        <select id="supJump" class="sup-jump-select" aria-label="Jump to section">
+          <option value="">Select…</option>
+        </select>
+      </div>
     </div>
 
     <!-- Empty-state (shown when master publish is off or nothing visible) -->
     <div id="emptyCatalog" class="card sup-empty" style="display:none;">
       <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
-      <p class="muted" style="margin:0">
-        Please check back soon.
-      </p>
+      <p class="muted" style="margin:0">Please check back soon.</p>
     </div>
 
     <!-- Notes (optional; auto-hide when empty) -->
     <div id="supNotes" class="card sup-notes" style="display:none;"></div>
 
-    <!-- PDF-style list -->
-    <section id="supList" class="sup-list" aria-live="polite"></section>
+    <!-- Desktop 2-column “PDF-like” wrapper -->
+    <section id="supDesktop2Col" class="sup-2col" aria-live="polite" style="display:none;">
+      <div class="sup-col">
+        <div id="supLeftCol"></div>
+      </div>
+      <div class="sup-col">
+        <div id="supRightCol"></div>
+      </div>
+    </section>
+
+    <!-- Mobile / fallback single-column list -->
+    <section id="supMobileList" class="sup-list" aria-live="polite"></section>
   </main>
+
+  <!-- Sticky Top button -->
+  <button id="supTopBtn" class="sup-top" type="button" aria-label="Back to top" style="display:none;">
+    Top ↑
+  </button>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
@@ -67,28 +92,11 @@
   <!-- Page logic -->
   <script>
     /* =======================
-       Gate (PREVIEW / ADMIN)
+       Master availability rule
        ======================= */
-    function isPreviewMode(){
-      try {
-        const u = new URL(window.location.href);
-        return (u.searchParams.get('preview') === '1');
-      } catch (_) {
-        return false;
-      }
-    }
-
-    function hasAdminToken(){
-      // Your admin token is stored here per your setup.
-      try {
-        return !!(window.localStorage && localStorage.getItem('amaranth_report_token'));
-      } catch (_) {
-        return false;
-      }
-    }
-
-    // MASTER PUBLISH: OFF for public. ON only for preview=1 or admin token.
-    const MASTER_SUPPLIES_ON = (isPreviewMode() || hasAdminToken());
+    // Public should NOT show supplies unless preview=1 (or you later wire to site-settings).
+    const urlParams = new URLSearchParams(location.search);
+    const isPreview = urlParams.get('preview') === '1';
 
     /* =======================
        Helpers
@@ -114,6 +122,15 @@
       ));
     }
 
+    function mkAnchorId(cat){
+      return 'cat-' + String(cat || 'Other')
+        .trim()
+        .toLowerCase()
+        .replace(/&/g,'and')
+        .replace(/[^a-z0-9]+/g,'-')
+        .replace(/(^-|-$)/g,'');
+    }
+
     function parseDate(d){
       if (!d) return null;
       if (typeof d === 'number') return new Date(d);
@@ -132,14 +149,12 @@
       return true;
     }
 
-    // Visible = MASTER ON + item.active true + within publish window
     function isVisibleItem(item, now){
-      if (!MASTER_SUPPLIES_ON) return false;
       if (!item || item.active !== true) return false;
       return isWithinWindow(item, now);
     }
 
-    // Keep PDF order: use original array order; group by category in order first seen
+    // Preserve original array order. Group categories by first appearance.
     function groupByCategoryPreserveOrder(items){
       const map = new Map();
       items.forEach(it=>{
@@ -150,117 +165,52 @@
       return map;
     }
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      // Cart optional (and we also prevent ordering if master is off)
-      if (MASTER_SUPPLIES_ON && window.Cart && typeof Cart.load === 'function') Cart.load();
-
-      const listEl  = document.getElementById('supList');
-      const emptyEl = document.getElementById('emptyCatalog');
-      const notesEl = document.getElementById('supNotes');
-
-      const now = new Date();
-
-      // If master is OFF, show the empty-state and stop.
-      if (!MASTER_SUPPLIES_ON){
-        listEl.innerHTML = '';
-        emptyEl.style.display = '';
-        notesEl.style.display = 'none';
-        return;
-      }
-
-      // 1) Load items (KV first, then static)
-      let rawItems = [];
-      try {
-        const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
-        if (resp.ok){
-          const data = await resp.json();
-          if (Array.isArray(data.items) && data.items.length) rawItems = data.items;
-        }
-      } catch (e) {
-        // ignore; fall back to static
-      }
-
-      if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
-
-      // 2) Apply visibility rules (master + active + publish window)
-      const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
-
-      // Notes from supplies.js (optional)
-      const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
-      const noteLines = [];
-      if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
-
-      if (noteLines.length){
-        notesEl.style.display = '';
-        notesEl.innerHTML = `
-          <div class="sup-notes-title">Notes</div>
-          <ul class="sup-notes-list">
-            ${noteLines.map(x => `<li>${escHtml(x)}</li>`).join('')}
-          </ul>
-        `;
-      } else {
-        notesEl.style.display = 'none';
-      }
-
-      // 3) Empty state if nothing visible
-      if (!visible.length){
-        listEl.innerHTML = '';
-        emptyEl.style.display = '';
-        return;
-      }
-      emptyEl.style.display = 'none';
-
-      // 4) Render grouped list
-      const grouped = groupByCategoryPreserveOrder(visible);
-
+    function buildCategoryBlock(cat, items, visibleRef){
+      const anchor = mkAnchorId(cat);
       const html = [];
-      for (const [cat, items] of grouped.entries()){
-        html.push(`<div class="sup-category">`);
-        html.push(`<div class="sup-cat-title">${escHtml(cat)}</div>`);
-        html.push(`<div class="sup-table">`);
+      html.push(`<div class="sup-category" id="${escHtml(anchor)}">`);
+      html.push(`<div class="sup-cat-title">${escHtml(cat)}</div>`);
+      html.push(`<div class="sup-table">`);
 
-        items.forEach(item => {
-          const price = normalizePrice(item.price || 0);
+      items.forEach(item => {
+        const price = normalizePrice(item.price || 0);
+        const desc = (item.description || item.notes || '').trim();
+        const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
 
-          // Order controls: only if Cart exists AND item is orderable (active true)
-          const canOrder = (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
+        const canOrder = (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
 
-          const controls = canOrder ? `
-            <div class="sup-controls">
-              <label class="sup-qty">
-                <span class="sr-only">Qty</span>
-                <select class="sup-qtysel" data-id="${escHtml(item.id)}">
-                  ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join('')}
-                </select>
-              </label>
-              <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}">Add</button>
+        const controls = canOrder ? `
+          <div class="sup-controls">
+            <label class="sup-qty">
+              <span class="sr-only">Qty</span>
+              <select class="sup-qtysel" data-id="${escHtml(item.id)}">
+                ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join('')}
+              </select>
+            </label>
+            <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}">Add</button>
+          </div>
+        ` : `<div class="sup-controls sup-controls-disabled"></div>`;
+
+        html.push(`
+          <div class="sup-row" data-id="${escHtml(item.id)}">
+            <div class="sup-left">
+              <div class="sup-name">${escHtml(item.name || '')}</div>
+              ${descHtml}
             </div>
-          ` : `<div class="sup-controls sup-controls-disabled"></div>`;
-
-          const desc = (item.description || item.notes || '').trim();
-          const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
-
-          html.push(`
-            <div class="sup-row" data-id="${escHtml(item.id)}">
-              <div class="sup-left">
-                <div class="sup-name">${escHtml(item.name || '')}</div>
-                ${descHtml}
-              </div>
-              <div class="sup-right">
-                <span class="sup-price">${money(price)}</span>
-                ${controls}
-              </div>
+            <div class="sup-right">
+              <span class="sup-price">${money(price)}</span>
+              ${controls}
             </div>
-          `);
-        });
+          </div>
+        `);
+      });
 
-        html.push(`</div></div>`);
-      }
+      html.push(`</div></div>`);
+      return html.join('');
+    }
 
-      listEl.innerHTML = html.join('');
-
-      // 5) Wire Add buttons
-      listEl.querySelectorAll('.sup-add').forEach(btn => {
+    function wireAddButtons(rootEl, visible){
+      rootEl.querySelectorAll('.sup-add').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-id');
           const item = visible.find(x => String(x.id) === String(id));
@@ -271,8 +221,7 @@
             return;
           }
 
-          // Avoid CSS.escape compatibility issues by selecting via dataset scan
-          const sel = Array.from(listEl.querySelectorAll('.sup-qtysel')).find(x => String(x.dataset.id) === String(id));
+          const sel = rootEl.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
           const qty = Math.max(1, parseInt(sel?.value || '1', 10));
           const price = normalizePrice(item.price || 0);
 
@@ -289,12 +238,152 @@
           alert('Added to order.');
         });
       });
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // If not preview, hide the entire list (public page becomes “not available”)
+      const listMobile = document.getElementById('supMobileList');
+      const deskWrap   = document.getElementById('supDesktop2Col');
+      const emptyEl    = document.getElementById('emptyCatalog');
+      const notesEl    = document.getElementById('supNotes');
+      const jumpWrap   = document.getElementById('supJumpWrap');
+      const jumpSel    = document.getElementById('supJump');
+
+      if (!isPreview){
+        listMobile.innerHTML = '';
+        deskWrap.style.display = 'none';
+        emptyEl.style.display = '';
+        return;
+      }
+
+      // Cart optional
+      if (window.Cart && typeof Cart.load === 'function') Cart.load();
+
+      const now = new Date();
+
+      // Load items (KV first, then static)
+      let rawItems = [];
+      try {
+        const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
+        if (resp.ok){
+          const data = await resp.json();
+          if (Array.isArray(data.items) && data.items.length) rawItems = data.items;
+        }
+      } catch (e) {}
+
+      if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
+
+      // Visible items only (active true + publish window)
+      const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
+
+      // Notes
+      const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
+      const noteLines = [];
+      if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
+
+      if (noteLines.length){
+        notesEl.style.display = '';
+        notesEl.innerHTML = `
+          <div class="sup-notes-title">Notes</div>
+          <ul class="sup-notes-list">
+            ${noteLines.map(x => `<li>${escHtml(x)}</li>`).join('')}
+          </ul>
+        `;
+      } else {
+        notesEl.style.display = 'none';
+      }
+
+      if (!visible.length){
+        listMobile.innerHTML = '';
+        deskWrap.style.display = 'none';
+        emptyEl.style.display = '';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      // Group preserving original order
+      const grouped = groupByCategoryPreserveOrder(visible);
+      const categories = Array.from(grouped.keys());
+
+      // Mobile jump menu (only show on small screens)
+      // Still useful on desktop too, but we’ll display it only in mobile CSS.
+      jumpSel.innerHTML = ['<option value="">Select…</option>'].concat(
+        categories.map(cat => `<option value="${escHtml(mkAnchorId(cat))}">${escHtml(cat)}</option>`)
+      ).join('');
+      jumpWrap.style.display = '';
+
+      jumpSel.addEventListener('change', () => {
+        const id = jumpSel.value;
+        if (!id) return;
+        const el = document.getElementById(id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      // Build MOBILE single-column list (all categories in order)
+      const mobileHTML = [];
+      for (const [cat, items] of grouped.entries()){
+        mobileHTML.push(buildCategoryBlock(cat, items, visible));
+      }
+      listMobile.innerHTML = mobileHTML.join('');
+      wireAddButtons(listMobile, visible);
+
+      // Desktop 2-column:
+      // LEFT: from first category down through the category before SEALS
+      // RIGHT: start at SEALS (if exists), then continue downward
+      const sealsIndex = categories.findIndex(c => String(c).toUpperCase().trim() === 'SEALS');
+      const leftCats  = (sealsIndex >= 0) ? categories.slice(0, sealsIndex) : categories.slice();
+      const rightCats = (sealsIndex >= 0) ? categories.slice(sealsIndex) : [];
+
+      const leftEl  = document.getElementById('supLeftCol');
+      const rightEl = document.getElementById('supRightCol');
+
+      const leftHTML = [];
+      leftCats.forEach(cat => {
+        leftHTML.push(buildCategoryBlock(cat, grouped.get(cat) || [], visible));
+      });
+      leftEl.innerHTML = leftHTML.join('');
+
+      const rightHTML = [];
+      rightCats.forEach(cat => {
+        rightHTML.push(buildCategoryBlock(cat, grouped.get(cat) || [], visible));
+      });
+      rightEl.innerHTML = rightHTML.join('');
+
+      // Only show 2-col on desktop breakpoint
+      deskWrap.style.display = '';
+
+      // Wire add buttons in BOTH columns too
+      wireAddButtons(leftEl, visible);
+      wireAddButtons(rightEl, visible);
+
+      // Top button behavior
+      const topBtn = document.getElementById('supTopBtn');
+      function updateTopBtn(){
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        topBtn.style.display = (y > 500) ? '' : 'none';
+      }
+      window.addEventListener('scroll', updateTopBtn, { passive: true });
+      updateTopBtn();
+      topBtn.addEventListener('click', () => {
+        const top = document.getElementById('top');
+        if (top) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        else window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
     });
   </script>
 
   <style>
-    /* PDF-style Supplies Layout */
-    .sup-header{max-width:1100px;margin:0 auto 10px;padding:0 6px;}
+    /* ====== Supplies Layout ====== */
+    .sup-header{
+      max-width:1100px;
+      margin:0 auto 10px;
+      padding:0 6px;
+      display:flex;
+      gap:14px;
+      align-items:flex-end;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
     .sup-sub{margin:.15rem 0 0;}
 
     .sup-empty{max-width:780px;margin:0 auto 16px;padding:16px;}
@@ -303,8 +392,20 @@
     .sup-notes-list{margin:0;padding-left:18px;}
     .sup-notes-list li{margin:6px 0;}
 
+    /* Jump */
+    .sup-jump{display:flex;flex-direction:column;gap:6px;min-width:220px;}
+    .sup-jump-label{font-weight:700;font-size:.9rem;opacity:.85;}
+    .sup-jump-select{
+      width:100%;
+      padding:.55rem .7rem;
+      border:1px solid #d1d5db;
+      border-radius:.6rem;
+      background: rgba(255,255,255,0.9);
+    }
+
+    /* Single-column list (mobile + fallback) */
     .sup-list{max-width:1100px;margin:0 auto;padding:0 6px 24px;}
-    .sup-category{margin:14px 0 18px;}
+    .sup-category{margin:14px 0 18px; scroll-margin-top: 90px;}
     .sup-cat-title{
       font-weight:900;
       letter-spacing:.02em;
@@ -360,10 +461,54 @@
       background: rgba(255,255,255,0.9);
     }
 
+    /* Desktop 2-column wrapper (PDF-like) */
+    .sup-2col{
+      max-width:1200px;
+      margin:0 auto;
+      padding:0 6px 24px;
+      display:none;
+    }
+    .sup-2col .sup-col{
+      min-width:0;
+    }
+
+    /* Sticky Top button */
+    .sup-top{
+      position:fixed;
+      right:14px;
+      bottom:14px;
+      z-index:999;
+      border:0;
+      border-radius:999px;
+      padding:10px 14px;
+      box-shadow:0 8px 22px rgba(0,0,0,0.18);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      font-weight:800;
+      cursor:pointer;
+    }
+
     /* Small screens: stack price/controls under name */
     @media (max-width: 620px){
       .sup-row{flex-direction:column;}
       .sup-right{width:100%;justify-content:flex-start;}
+    }
+
+    /* DESKTOP BREAKPOINT:
+       - show 2-column
+       - hide single-column mobile list
+       - show jump menu only on mobile (optional; keeping it mobile-only)
+    */
+    @media (min-width: 980px){
+      #supMobileList{display:none;}
+      .sup-2col{
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:16px;
+      }
+      /* hide jump menu on desktop */
+      .sup-jump{display:none !important;}
     }
 
     /* Utility: screen-reader only */
