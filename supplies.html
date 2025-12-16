@@ -9,7 +9,7 @@
   <title>Supplies</title>
 </head>
 
-<body class="shop" data-page="supplies">
+<body data-page="supplies">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
   <!-- Header / Logo + Nav -->
@@ -37,30 +37,30 @@
       <p class="muted sup-sub">Supreme Council Order of the Amaranth — Price List 2026</p>
     </div>
 
-    <!-- Mobile jump menu -->
-    <div class="sup-jump card" id="supJumpWrap" style="display:none;">
-      <div class="sup-jump-row">
-        <label class="sup-jump-label" for="supJump">Jump to section</label>
-        <select id="supJump" class="sup-jump-select" aria-label="Jump to section"></select>
-        <button class="btn" id="supJumpTop" type="button">Top</button>
-      </div>
-      <div class="tiny muted">Tip: choose a heading to scroll to that section.</div>
-    </div>
-
     <!-- Empty-state -->
     <div id="emptyCatalog" class="card sup-empty" style="display:none;">
       <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
       <p class="muted" style="margin:0">Please check back soon.</p>
     </div>
 
-    <!-- Notes -->
+    <!-- Notes (optional; auto-hide when empty) -->
     <div id="supNotes" class="card sup-notes" style="display:none;"></div>
 
-    <!-- Two-column (desktop) / one-column (mobile) -->
-    <section class="sup-columns" id="supColumns" aria-live="polite"></section>
+    <!-- Mobile jump dropdown -->
+    <div class="sup-jumpbar" id="supJumpWrap" style="display:none;">
+      <select id="supJump">
+        <option value="">Jump to section…</option>
+      </select>
+    </div>
 
-    <!-- Sticky mobile “Back to top” button -->
-    <button id="supStickyTop" class="sup-sticky-top" type="button" aria-label="Back to top">↑ Top</button>
+    <!-- Desktop 2-column + mobile 1-column container -->
+    <section class="sup-cols" aria-live="polite">
+      <div class="sup-col" id="supColLeft"></div>
+      <div class="sup-col" id="supColRight"></div>
+    </section>
+
+    <!-- Floating Top button -->
+    <button class="btn btn-secondary sup-topbtn" id="supTopBtn" type="button" aria-label="Back to top">Top</button>
   </main>
 
   <footer class="site-footer">
@@ -81,13 +81,11 @@
       const v = Math.max(0, Math.round(Number(n) * 100) / 100);
       return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
     }
-
     function normalizePrice(p){
       const n = Number(p);
       if (!isFinite(n)) return 0;
       return (n > 0 && n < 1) ? Math.round(n * 100) : n; // legacy cents safeguard
     }
-
     function escHtml(s){
       return String(s || '').replace(/[&<>"]/g, c => (
         c === '&' ? '&amp;'
@@ -96,7 +94,6 @@
         : '&quot;'
       ));
     }
-
     function parseDate(d){
       if (!d) return null;
       if (typeof d === 'number') return new Date(d);
@@ -106,7 +103,6 @@
       const t = Date.parse(s);
       return isNaN(t) ? null : new Date(t);
     }
-
     function isWithinWindow(item, now){
       const start = parseDate(item.publishStart);
       const end   = parseDate(item.publishEnd);
@@ -114,343 +110,283 @@
       if (end && now > end)     return false;
       return true;
     }
-
-    // IMPORTANT: accept boolean true OR string "true" OR 1/"1"
-    function isTruthyFlag(v){
-      return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true";
-    }
-
-    // Visible = active truthy AND within publish window
     function isVisibleItem(item, now){
-      if (!item) return false;
-      if (!isTruthyFlag(item.active)) return false;
+      if (!item || item.active !== true) return false;
       return isWithinWindow(item, now);
     }
 
-    function normCat(c){
-      return String(c || "Other").trim();
-    }
-
-    function mkAnchorId(cat){
-      return "sup-cat-" + String(cat || "")
+    // stable anchor id from category label
+    function mkAnchorId(label){
+      return 'cat-' + String(label || '')
+        .trim()
         .toLowerCase()
-        .replace(/&/g, "and")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "");
+        .replace(/&/g,'and')
+        .replace(/[^a-z0-9]+/g,'-')
+        .replace(/(^-|-$)/g,'');
     }
 
-    // Category order (exactly as you specified)
-    const LEFT_ORDER = [
-      "BOOKS",
-      "CARDS",
-      "CERTIFICATES",
-      "CHARTERS",
-      "COMPUTER DISCS",
-      "DISPENSATIONS",
-      "FLAGS"
-    ];
-
-    const RIGHT_ORDER = [
-      "SEALS",
-      "STANDARDS & BANNERS",
-      "STAFF TOPS",
-      "WREATHS",
-      "HISTORIES",
-      "LETTERS",
-      "PETITION - BLANKS - NOTICES",
-      "PARAPHERNALIA",
-      "BIBLES",
-      "FLAG & TOPS",
-      "JEWELS"
-    ];
-
-    // Group items by category, preserve item order inside category
-    function groupItems(items){
+    // Group by category preserving original item order + category first appearance
+    function groupByCategoryPreserveOrder(items){
       const map = new Map();
-      for (const it of items){
-        const cat = normCat(it.category);
+      items.forEach(it=>{
+        const cat = String(it.category || 'Other');
         if (!map.has(cat)) map.set(cat, []);
         map.get(cat).push(it);
-      }
+      });
       return map;
     }
 
-    function pickYoyId(item){
-      // show something useful even if yoy isn’t defined yet
-      const yoy =
-        item?.yoyId ??
-        item?.yoy_id ??
-        item?.yoy ??
-        item?.yoySlot ??
-        "";
-      return String(yoy || "").trim();
-    }
+    // Render a single category block
+    function renderCategoryBlock(catLabel, items){
+      const catId = mkAnchorId(catLabel);
 
-    function buildCategoryBlock(cat, items){
-      const anchor = mkAnchorId(cat);
-      const html = [];
-
-      html.push(`<div class="sup-category" id="${escHtml(anchor)}">`);
-      html.push(`
-        <div class="sup-cat-title">
-          <span>${escHtml(cat)}</span>
-          <a class="sup-cat-toplink" href="#top" data-toplink>Return to top</a>
-        </div>
-      `);
-      html.push(`<div class="sup-table">`);
-
-      items.forEach(item => {
+      const rows = items.map(item => {
         const price = normalizePrice(item.price || 0);
-        const canOrder = (window.Cart && typeof Cart.addLine === "function" && isTruthyFlag(item.active));
 
-        const yoy = pickYoyId(item);
-        const yoyLine = `<div class="sup-yoy tiny muted">YOY: ${escHtml(yoy || item.id || "")}</div>`;
+        const canOrder =
+          (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
 
-        const desc = (item.description || item.notes || "").trim();
+        const desc = (item.description || item.notes || '').trim();
         const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
-
-        const rightLabel = `<span class="sup-price">${money(price)}</span>`;
 
         const controls = canOrder ? `
           <div class="sup-controls">
-            <select class="sup-qtysel" data-id="${escHtml(item.id)}" aria-label="Quantity">
-              ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join("")}
-            </select>
-            <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}" type="button">Add</button>
+            <label class="sup-qty">
+              <span class="sr-only">Qty</span>
+              <select class="sup-qtysel" data-id="${escHtml(item.id)}">
+                ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join('')}
+              </select>
+            </label>
+            <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}">Add</button>
           </div>
         ` : `<div class="sup-controls sup-controls-disabled"></div>`;
 
-        html.push(`
+        return `
           <div class="sup-row" data-id="${escHtml(item.id)}">
             <div class="sup-left">
-              <div class="sup-name">${escHtml(item.name || "")}</div>
-              ${yoyLine}
+              <div class="sup-name">${escHtml(item.name || '')}</div>
               ${descHtml}
+              <div class="sup-yoy tiny">YOY: <span class="mono">${escHtml(item.yoyId || item.yoy || '(none)')}</span></div>
             </div>
             <div class="sup-right">
-              ${rightLabel}
+              <span class="sup-price">${money(price)}</span>
               ${controls}
             </div>
           </div>
-        `);
-      });
+        `;
+      }).join('');
 
-      html.push(`</div></div>`);
-      return html.join("");
+      return `
+        <div class="sup-category" id="${escHtml(catId)}">
+          <div class="sup-cat-title">${escHtml(catLabel)}</div>
+          <div class="sup-table">
+            ${rows}
+          </div>
+        </div>
+      `;
     }
 
-    function scrollToId(id){
+    function jumpToId(id){
+      if (!id) return;
       const el = document.getElementById(id);
       if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.scrollIntoView({ behavior:'smooth', block:'start' });
     }
 
-    document.addEventListener("DOMContentLoaded", async () => {
-      // Anchor for “top”
-      if (!document.getElementById("top")) {
-        const topAnchor = document.createElement("div");
-        topAnchor.id = "top";
-        topAnchor.style.position = "relative";
-        topAnchor.style.top = "-80px"; // offset for header
-        document.body.prepend(topAnchor);
+    document.addEventListener('DOMContentLoaded', async () => {
+      // cart is optional
+      if (window.Cart && typeof Cart.load === 'function') Cart.load();
+
+      const emptyEl = document.getElementById('emptyCatalog');
+      const notesEl = document.getElementById('supNotes');
+      const colLeft = document.getElementById('supColLeft');
+      const colRight = document.getElementById('supColRight');
+      const jumpWrap = document.getElementById('supJumpWrap');
+      const jumpSel  = document.getElementById('supJump');
+
+      // Preview-only gate (keeps page from being usable on public URL)
+      const qs = new URLSearchParams(location.search);
+      const isPreview = qs.get('preview') === '1';
+      if (!isPreview){
+        colLeft.innerHTML = '';
+        colRight.innerHTML = '';
+        notesEl.style.display = 'none';
+        emptyEl.style.display = '';
+        return;
       }
-
-      if (window.Cart && typeof Cart.load === "function") Cart.load();
-
-      const columnsEl = document.getElementById("supColumns");
-      const emptyEl   = document.getElementById("emptyCatalog");
-      const notesEl   = document.getElementById("supNotes");
-      const jumpWrap  = document.getElementById("supJumpWrap");
-      const jumpSel   = document.getElementById("supJump");
-      const jumpTop   = document.getElementById("supJumpTop");
-      const stickyTop = document.getElementById("supStickyTop");
 
       const now = new Date();
 
-      // Load items (KV first, then static)
+      // Load items: KV first, fallback to supplies.js
       let rawItems = [];
       try {
-        const resp = await fetch("/api/router?type=catalog_items&cat=supplies", { cache: "no-store" });
-        if (resp.ok) {
+        const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache:'no-store' });
+        if (resp.ok){
           const data = await resp.json();
-          if (Array.isArray(data.items) && data.items.length > 0) rawItems = data.items;
+          if (Array.isArray(data.items) && data.items.length) rawItems = data.items;
         }
       } catch (e) {}
 
-      if (!Array.isArray(rawItems) || rawItems.length === 0) {
-        rawItems = (window.SUPPLIES_ITEMS || []);
-      }
+      if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
 
-      // Filter visible (IMPORTANT: accepts active true OR "true")
       const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
 
       // Notes
       const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
       const noteLines = [];
-      if (packaging > 0) noteLines.push("Packaging: minimum " + money(packaging / 100) + " packaging charge may apply.");
-
-      if (noteLines.length) {
-        notesEl.style.display = "";
+      if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
+      if (noteLines.length){
+        notesEl.style.display = '';
         notesEl.innerHTML = `
           <div class="sup-notes-title">Notes</div>
           <ul class="sup-notes-list">
-            ${noteLines.map(x => `<li>${escHtml(x)}</li>`).join("")}
+            ${noteLines.map(x => `<li>${escHtml(x)}</li>`).join('')}
           </ul>
         `;
       } else {
-        notesEl.style.display = "none";
+        notesEl.style.display = 'none';
       }
 
-      if (!visible.length) {
-        columnsEl.innerHTML = "";
-        emptyEl.style.display = "";
-        jumpWrap.style.display = "none";
-        stickyTop.style.display = "none";
+      if (!visible.length){
+        colLeft.innerHTML = '';
+        colRight.innerHTML = '';
+        emptyEl.style.display = '';
         return;
       }
-      emptyEl.style.display = "none";
+      emptyEl.style.display = 'none';
 
-      // Group
-      const grouped = groupItems(visible);
+      const grouped = groupByCategoryPreserveOrder(visible);
 
-      // Build left/right category sets (only include categories that actually exist)
-      const leftCats  = LEFT_ORDER.filter(c => grouped.has(c));
-      const rightCats = RIGHT_ORDER.filter(c => grouped.has(c));
+      // Desired PDF ordering
+      const LEFT_ORDER = [
+        "BOOKS",
+        "CARDS",
+        "CERTIFICATES",
+        "CHARTERS",
+        "COMPUTER DISCS",
+        "DISPENSATIONS",
+        "FLAGS"
+      ];
+      const RIGHT_ORDER = [
+        "SEALS",
+        "STANDARDS & BANNERS",
+        "STAFF TOPS",
+        "WREATHS",
+        "HISTORIES",
+        "LETTERS",
+        "PETITION - BLANKS - NOTICES",
+        "PARAPHERNALIA",
+        "BIBLES",
+        "FLAG & TOPS",
+        "JEWELS"
+      ];
 
-      // Anything unexpected goes to the end (mobile will still see it)
-      const known = new Set([...LEFT_ORDER, ...RIGHT_ORDER]);
-      const extraCats = [...grouped.keys()].filter(c => !known.has(c));
-
-      // Desktop columns (still stacks as one column on mobile via CSS)
+      // Render columns
       const leftHtml = [];
-      leftCats.forEach(cat => leftHtml.push(buildCategoryBlock(cat, grouped.get(cat))));
-      extraCats.forEach(cat => leftHtml.push(buildCategoryBlock(cat, grouped.get(cat)))); // keep “extra” on left
+      LEFT_ORDER.forEach(cat=>{
+        const items = grouped.get(cat);
+        if (items && items.length) leftHtml.push(renderCategoryBlock(cat, items));
+      });
 
       const rightHtml = [];
-      rightCats.forEach(cat => rightHtml.push(buildCategoryBlock(cat, grouped.get(cat))));
+      RIGHT_ORDER.forEach(cat=>{
+        const items = grouped.get(cat);
+        if (items && items.length) rightHtml.push(renderCategoryBlock(cat, items));
+      });
 
-      columnsEl.innerHTML = `
-        <div class="sup-col sup-col-left">${leftHtml.join("")}</div>
-        <div class="sup-col sup-col-right">${rightHtml.join("")}</div>
-      `;
+      // Any categories not listed (safety)
+      const known = new Set([...LEFT_ORDER, ...RIGHT_ORDER]);
+      for (const [cat, items] of grouped.entries()){
+        if (known.has(cat)) continue;
+        rightHtml.push(renderCategoryBlock(cat, items));
+      }
+
+      colLeft.innerHTML = leftHtml.join('');
+      colRight.innerHTML = rightHtml.join('');
+
+      // Build mobile jump dropdown (includes both columns in order)
+      const jumpCats = [...LEFT_ORDER, ...RIGHT_ORDER].filter(cat => grouped.get(cat)?.length);
+      if (jumpCats.length){
+        jumpWrap.style.display = '';
+        jumpSel.innerHTML = `
+          <option value="">Jump to section…</option>
+          ${jumpCats.map(cat => `<option value="${escHtml(mkAnchorId(cat))}">${escHtml(cat)}</option>`).join('')}
+        `;
+        jumpSel.addEventListener('change', () => {
+          const id = jumpSel.value;
+          if (!id) return;
+          jumpToId(id);
+          setTimeout(() => { jumpSel.value = ""; }, 400);
+        });
+      } else {
+        jumpWrap.style.display = 'none';
+      }
 
       // Wire Add buttons
-      columnsEl.querySelectorAll(".sup-add").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-id");
+      document.querySelectorAll('.sup-add').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
           const item = visible.find(x => String(x.id) === String(id));
           if (!item) return;
 
-          if (!window.Cart || typeof Cart.addLine !== "function") {
-            alert("Cart is not available yet. Please refresh and try again.");
+          if (!window.Cart || typeof Cart.addLine !== 'function') {
+            alert('Cart is not available yet. Please refresh and try again.');
             return;
           }
 
-          const sel = columnsEl.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
-          const qty = Math.max(1, parseInt(sel?.value || "1", 10));
+          const sel = document.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
+          const qty = Math.max(1, parseInt(sel?.value || '1', 10));
           const price = normalizePrice(item.price || 0);
 
           Cart.addLine({
-            attendeeId: "(unassigned)",
-            itemType: "catalog:supplies",
+            attendeeId: '(unassigned)',
+            itemType: 'catalog:supplies',
             itemId: String(item.id),
-            itemName: item.name || "Item",
+            itemName: item.name || 'Item',
             qty,
             unitPrice: price,
-            meta: { sku: item.sku || "", note: "", category: item.category || "" }
+            meta: { sku: item.sku || '', note: '', category: item.category || '', yoyId: item.yoyId || item.yoy || '' }
           });
 
-          alert("Added to order.");
+          alert('Added to order.');
         });
       });
 
-      // “Return to top” links
-      columnsEl.querySelectorAll("[data-toplink]").forEach(a => {
-        a.addEventListener("click", (e) => {
-          e.preventDefault();
-          scrollToId("top");
-        });
-      });
-
-      // Mobile jump dropdown (shows on small screens)
-      const allCatsInOrder = [...LEFT_ORDER, ...RIGHT_ORDER].filter(c => grouped.has(c)).concat(extraCats);
-      if (allCatsInOrder.length) {
-        jumpWrap.style.display = "";
-        jumpSel.innerHTML = `
-          <option value="">Select a section…</option>
-          ${allCatsInOrder.map(cat => {
-            const id = mkAnchorId(cat);
-            return `<option value="${escHtml(id)}">${escHtml(cat)}</option>`;
-          }).join("")}
-        `;
-
-        jumpSel.addEventListener("change", () => {
-          const id = jumpSel.value;
-          if (!id) return;
-          // reset select so user can pick same thing again later
-          jumpSel.value = "";
-          scrollToId(id);
-        });
-
-        jumpTop.addEventListener("click", () => scrollToId("top"));
-      }
-
-      // Sticky top button (mobile-friendly)
-      stickyTop.style.display = "";
-      stickyTop.addEventListener("click", () => scrollToId("top"));
-
-      // If the page loads with a hash, scroll to it
-      if (location.hash && location.hash.length > 1) {
-        const id = location.hash.slice(1);
-        setTimeout(() => scrollToId(id), 50);
+      // Top button
+      const topBtn = document.getElementById('supTopBtn');
+      if (topBtn){
+        topBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
       }
     });
   </script>
 
   <style>
-    /* Header / notes */
+    /* Header */
     .sup-header{max-width:1200px;margin:0 auto 10px;padding:0 6px;}
     .sup-sub{margin:.15rem 0 0;}
+
+    /* Empty + notes */
     .sup-empty{max-width:780px;margin:0 auto 16px;padding:16px;}
     .sup-notes{max-width:1200px;margin:0 auto 12px;padding:14px;}
     .sup-notes-title{font-weight:800;margin-bottom:8px;}
     .sup-notes-list{margin:0;padding-left:18px;}
     .sup-notes-list li{margin:6px 0;}
 
-    /* Mobile jump */
-    .sup-jump{max-width:1200px;margin:0 auto 12px;padding:14px;}
-    .sup-jump-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
-    .sup-jump-label{font-weight:800;}
-    .sup-jump-select{
-      min-width: 220px;
-      padding:.5rem .65rem;
-      border:1px solid #d1d5db;
-      border-radius:.6rem;
-      background: rgba(255,255,255,0.9);
-    }
-
     /* Columns */
-    .sup-columns{
+    .sup-cols{
       max-width:1200px;
       margin:0 auto;
-      padding:0 6px 24px;
+      padding:0 6px 28px;
       display:grid;
       grid-template-columns: 1fr 1fr;
-      gap: 14px;
+      gap:16px;
       align-items:start;
     }
     .sup-col{min-width:0;}
-    @media (max-width: 860px){
-      .sup-columns{grid-template-columns: 1fr;}
-    }
 
-    /* Category */
-    .sup-category{margin:12px 0 16px;}
+    /* Category blocks */
+    .sup-category{margin:14px 0 18px;}
     .sup-cat-title{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
       font-weight:900;
       letter-spacing:.02em;
       padding:10px 12px;
@@ -460,13 +396,7 @@
       backdrop-filter: saturate(120%) blur(2px);
       -webkit-backdrop-filter: saturate(120%) blur(2px);
     }
-    .sup-cat-toplink{
-      font-size:.85rem;
-      font-weight:800;
-      text-decoration:none;
-    }
 
-    /* Table */
     .sup-table{
       margin-top:10px;
       border:1px solid rgba(229,231,235,0.6);
@@ -476,6 +406,7 @@
       backdrop-filter: saturate(120%) blur(2px);
       -webkit-backdrop-filter: saturate(120%) blur(2px);
     }
+
     .sup-row{
       display:flex;
       gap:12px;
@@ -487,9 +418,10 @@
     .sup-row:first-child{border-top:0;}
 
     .sup-left{flex:1 1 auto;min-width:0;}
-    .sup-name{font-weight:900;line-height:1.2;}
-    .sup-yoy{margin-top:2px;}
+    .sup-name{font-weight:800;line-height:1.2;}
     .sup-desc{margin-top:3px;color:#374151;font-size:.92rem;line-height:1.25;}
+    .sup-yoy{margin-top:6px;color:#6b7280;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
 
     .sup-right{
       flex:0 0 auto;
@@ -502,6 +434,7 @@
 
     .sup-controls{display:flex;gap:10px;align-items:center;}
     .sup-controls-disabled{opacity:.35;}
+
     .sup-qtysel{
       width:86px;
       padding:.45rem .55rem;
@@ -510,34 +443,63 @@
       background: rgba(255,255,255,0.9);
     }
 
-    /* Small screens: stack price/controls under name */
-    @media (max-width: 620px){
-      .sup-row{flex-direction:column;}
-      .sup-right{width:100%;justify-content:flex-start;flex-wrap:wrap;}
+    /* Make anchor jumps land below header */
+    .sup-category,
+    .sup-cat-title{
+      scroll-margin-top: 92px;
     }
 
-    /* Sticky top button (mobile) */
-    .sup-sticky-top{
+    /* Mobile jump bar */
+    .sup-jumpbar{
+      display:none;
+      position: sticky;
+      top: 70px;
+      z-index: 20;
+      margin: 10px 0 12px;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(229,231,235,0.6);
+      background: rgba(255,255,255,0.65);
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+    }
+    .sup-jumpbar select{
+      width:100%;
+      padding:.6rem .7rem;
+      border:1px solid #d1d5db;
+      border-radius:.6rem;
+      background: rgba(255,255,255,0.95);
+    }
+
+    /* Floating Top button */
+    .sup-topbtn{
       position: fixed;
       right: 14px;
       bottom: 14px;
-      z-index: 999;
-      padding: .6rem .8rem;
-      border-radius: 999px;
-      border: 1px solid rgba(0,0,0,0.15);
-      background: rgba(255,255,255,0.85);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-      cursor: pointer;
+      z-index: 50;
       display:none;
+      border-radius: 999px;
+      padding: .55rem .8rem;
     }
-    @media (min-width: 861px){
-      .sup-sticky-top{display:none!important;}
+
+    /* Responsive: collapse to 1 column on mobile */
+    @media (max-width: 900px){
+      .sup-cols{grid-template-columns: 1fr;}
+      .sup-jumpbar{display:block;}
+      .sup-topbtn{display:inline-flex;}
+    }
+
+    /* Utility: screen-reader only */
+    .sr-only{
+      position:absolute!important;
+      width:1px;height:1px;
+      padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0,0,0,0);
+      white-space:nowrap;border:0;
     }
   </style>
 
-  <!-- Maintenance check (match other pages) -->
+  <!-- Maintenance check -->
   <script>
   (async () => {
     try {
