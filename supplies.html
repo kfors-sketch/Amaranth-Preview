@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Supplies – Supreme Council price list items." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v3" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v4" />
   <title>Supplies</title>
 </head>
 
 <body data-page="supplies">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
-  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="home.html">
@@ -37,29 +36,24 @@
       <p class="muted sup-sub">Supreme Council Order of the Amaranth — Price List 2026</p>
     </div>
 
-    <!-- Empty-state -->
     <div id="emptyCatalog" class="card sup-empty" style="display:none;">
       <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
       <p class="muted" style="margin:0">Please check back soon.</p>
     </div>
 
-    <!-- Notes (optional; auto-hide when empty) -->
     <div id="supNotes" class="card sup-notes" style="display:none;"></div>
 
-    <!-- Mobile jump dropdown -->
     <div class="sup-jumpbar" id="supJumpWrap" style="display:none;">
       <select id="supJump">
         <option value="">Jump to section…</option>
       </select>
     </div>
 
-    <!-- Desktop 2-column + mobile 1-column container -->
     <section class="sup-cols" aria-live="polite">
       <div class="sup-col" id="supColLeft"></div>
       <div class="sup-col" id="supColRight"></div>
     </section>
 
-    <!-- Floating Top button -->
     <button class="btn btn-secondary sup-topbtn" id="supTopBtn" type="button" aria-label="Back to top">Top</button>
   </main>
 
@@ -67,16 +61,12 @@
     <div class="container tiny">© 2025</div>
   </footer>
 
-  <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
   <script src="assets/js/supplies.js?v=nov-06-2025"></script>
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
   <script>
-    /* =======================
-       Helpers
-       ======================= */
     function money(n){
       const v = Math.max(0, Math.round(Number(n) * 100) / 100);
       return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
@@ -84,7 +74,7 @@
     function normalizePrice(p){
       const n = Number(p);
       if (!isFinite(n)) return 0;
-      return (n > 0 && n < 1) ? Math.round(n * 100) : n; // legacy cents safeguard
+      return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
     function escHtml(s){
       return String(s || '').replace(/[&<>"]/g, c => (
@@ -115,7 +105,6 @@
       return isWithinWindow(item, now);
     }
 
-    // stable anchor id from category label
     function mkAnchorId(label){
       return 'cat-' + String(label || '')
         .trim()
@@ -125,18 +114,47 @@
         .replace(/(^-|-$)/g,'');
     }
 
-    // Group by category preserving original item order + category first appearance
+    // ✅ NEW: normalize category strings coming from KV/admin
+    function normCat(raw){
+      let s = String(raw || '').trim();
+      if (!s) return 'OTHER';
+      s = s.replace(/\s+/g, ' ');               // collapse spaces
+      s = s.replace(/\s+AND\s+/ig, ' & ');      // AND -> &
+      s = s.replace(/\s*&\s*/g, ' & ');         // normalize & spacing
+      s = s.toUpperCase();
+
+      // common variants / punctuation differences
+      s = s.replace(/\s*-\s*/g, ' - ');         // normalize hyphen spacing
+      s = s.replace(/\s+/g, ' ').trim();
+
+      // map known aliases to canonical keys
+      const alias = {
+        "PETITION- BLANKS- NOTICES": "PETITION - BLANKS - NOTICES",
+        "PETITION - BLANKS- NOTICES": "PETITION - BLANKS - NOTICES",
+        "PETITION- BLANKS - NOTICES": "PETITION - BLANKS - NOTICES",
+        "PETITIONS - BLANKS - NOTICES": "PETITION - BLANKS - NOTICES",
+        "FLAG AND TOPS": "FLAG & TOPS",
+        "FLAG & TOPS": "FLAG & TOPS",
+        "FLAG & TOP": "FLAG & TOPS",
+        "STANDARDS & BANNERS": "STANDARDS & BANNERS",
+        "STANDARD & BANNERS": "STANDARDS & BANNERS"
+      };
+      if (alias[s]) s = alias[s];
+
+      return s;
+    }
+
+    // group by normalized category, preserve item order
     function groupByCategoryPreserveOrder(items){
-      const map = new Map();
+      const map = new Map(); // key: canonical CAT, value: { label, items }
       items.forEach(it=>{
-        const cat = String(it.category || 'Other');
-        if (!map.has(cat)) map.set(cat, []);
-        map.get(cat).push(it);
+        const key = normCat(it.category);
+        if (!map.has(key)) map.set(key, { label: key, items: [] });
+        map.get(key).items.push(it);
       });
       return map;
     }
 
-    // Render a single category block
     function renderCategoryBlock(catLabel, items){
       const catId = mkAnchorId(catLabel);
 
@@ -179,9 +197,7 @@
       return `
         <div class="sup-category" id="${escHtml(catId)}">
           <div class="sup-cat-title">${escHtml(catLabel)}</div>
-          <div class="sup-table">
-            ${rows}
-          </div>
+          <div class="sup-table">${rows}</div>
         </div>
       `;
     }
@@ -194,7 +210,6 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
-      // cart is optional
       if (window.Cart && typeof Cart.load === 'function') Cart.load();
 
       const emptyEl = document.getElementById('emptyCatalog');
@@ -204,7 +219,7 @@
       const jumpWrap = document.getElementById('supJumpWrap');
       const jumpSel  = document.getElementById('supJump');
 
-      // Preview-only gate (keeps page from being usable on public URL)
+      // Preview gate
       const qs = new URLSearchParams(location.search);
       const isPreview = qs.get('preview') === '1';
       if (!isPreview){
@@ -217,7 +232,6 @@
 
       const now = new Date();
 
-      // Load items: KV first, fallback to supplies.js
       let rawItems = [];
       try {
         const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache:'no-store' });
@@ -228,10 +242,8 @@
       } catch (e) {}
 
       if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
-
       const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
 
-      // Notes
       const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
       const noteLines = [];
       if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
@@ -257,55 +269,39 @@
 
       const grouped = groupByCategoryPreserveOrder(visible);
 
-      // Desired PDF ordering
+      // Canonical order lists (normalized keys)
       const LEFT_ORDER = [
-        "BOOKS",
-        "CARDS",
-        "CERTIFICATES",
-        "CHARTERS",
-        "COMPUTER DISCS",
-        "DISPENSATIONS",
-        "FLAGS"
+        "BOOKS","CARDS","CERTIFICATES","CHARTERS","COMPUTER DISCS","DISPENSATIONS","FLAGS"
       ];
       const RIGHT_ORDER = [
-        "SEALS",
-        "STANDARDS & BANNERS",
-        "STAFF TOPS",
-        "WREATHS",
-        "HISTORIES",
-        "LETTERS",
-        "PETITION - BLANKS - NOTICES",
-        "PARAPHERNALIA",
-        "BIBLES",
-        "FLAG & TOPS",
-        "JEWELS"
+        "SEALS","STANDARDS & BANNERS","STAFF TOPS","WREATHS","HISTORIES","LETTERS",
+        "PETITION - BLANKS - NOTICES","PARAPHERNALIA","BIBLES","FLAG & TOPS","JEWELS"
       ];
 
-      // Render columns
       const leftHtml = [];
       LEFT_ORDER.forEach(cat=>{
-        const items = grouped.get(cat);
-        if (items && items.length) leftHtml.push(renderCategoryBlock(cat, items));
+        const block = grouped.get(cat);
+        if (block?.items?.length) leftHtml.push(renderCategoryBlock(block.label, block.items));
       });
 
       const rightHtml = [];
       RIGHT_ORDER.forEach(cat=>{
-        const items = grouped.get(cat);
-        if (items && items.length) rightHtml.push(renderCategoryBlock(cat, items));
+        const block = grouped.get(cat);
+        if (block?.items?.length) rightHtml.push(renderCategoryBlock(block.label, block.items));
       });
 
-      // Any categories not listed (safety)
+      // Any categories not listed go at bottom (right column) in first-appearance order
       const known = new Set([...LEFT_ORDER, ...RIGHT_ORDER]);
-      for (const [cat, items] of grouped.entries()){
+      for (const [cat, block] of grouped.entries()){
         if (known.has(cat)) continue;
-        rightHtml.push(renderCategoryBlock(cat, items));
+        rightHtml.push(renderCategoryBlock(block.label, block.items));
       }
 
       colLeft.innerHTML = leftHtml.join('');
       colRight.innerHTML = rightHtml.join('');
 
-      // Build mobile jump dropdown (includes both columns in order)
-      const jumpCats = [...LEFT_ORDER, ...RIGHT_ORDER].filter(cat => grouped.get(cat)?.length);
+      // Mobile jump dropdown (same order)
+      const jumpCats = [...LEFT_ORDER, ...RIGHT_ORDER].filter(cat => grouped.get(cat)?.items?.length);
       if (jumpCats.length){
         jumpWrap.style.display = '';
         jumpSel.innerHTML = `
@@ -361,18 +357,14 @@
   </script>
 
   <style>
-    /* Header */
     .sup-header{max-width:1200px;margin:0 auto 10px;padding:0 6px;}
     .sup-sub{margin:.15rem 0 0;}
-
-    /* Empty + notes */
     .sup-empty{max-width:780px;margin:0 auto 16px;padding:16px;}
     .sup-notes{max-width:1200px;margin:0 auto 12px;padding:14px;}
     .sup-notes-title{font-weight:800;margin-bottom:8px;}
     .sup-notes-list{margin:0;padding-left:18px;}
     .sup-notes-list li{margin:6px 0;}
 
-    /* Columns */
     .sup-cols{
       max-width:1200px;
       margin:0 auto;
@@ -384,7 +376,6 @@
     }
     .sup-col{min-width:0;}
 
-    /* Category blocks */
     .sup-category{margin:14px 0 18px;}
     .sup-cat-title{
       font-weight:900;
@@ -443,13 +434,11 @@
       background: rgba(255,255,255,0.9);
     }
 
-    /* Make anchor jumps land below header */
     .sup-category,
     .sup-cat-title{
       scroll-margin-top: 92px;
     }
 
-    /* Mobile jump bar */
     .sup-jumpbar{
       display:none;
       position: sticky;
@@ -471,7 +460,6 @@
       background: rgba(255,255,255,0.95);
     }
 
-    /* Floating Top button */
     .sup-topbtn{
       position: fixed;
       right: 14px;
@@ -482,14 +470,12 @@
       padding: .55rem .8rem;
     }
 
-    /* Responsive: collapse to 1 column on mobile */
     @media (max-width: 900px){
       .sup-cols{grid-template-columns: 1fr;}
       .sup-jumpbar{display:block;}
       .sup-topbtn{display:inline-flex;}
     }
 
-    /* Utility: screen-reader only */
     .sr-only{
       position:absolute!important;
       width:1px;height:1px;
@@ -499,16 +485,13 @@
     }
   </style>
 
-  <!-- Maintenance check -->
   <script>
   (async () => {
     try {
       const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
-
       const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
       const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
       if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
