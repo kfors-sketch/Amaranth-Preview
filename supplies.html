@@ -4,14 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Supplies – Supreme Council price list items." />
+  <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v4" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=supplies-v3.1" /><!-- bump -->
   <title>Supplies</title>
 </head>
 
 <body data-page="supplies">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
+  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="home.html">
@@ -33,49 +35,90 @@
   <main class="container mt-lg">
     <div class="sup-header">
       <h1>Supplies</h1>
-      <p class="muted sup-sub">Supreme Council Order of the Amaranth — Price List 2026</p>
+      <p class="muted sup-sub">
+        Supreme Council Order of the Amaranth — Price List 2026
+      </p>
     </div>
 
+    <!-- Empty-state (shown when master publish is off or nothing visible) -->
     <div id="emptyCatalog" class="card sup-empty" style="display:none;">
       <h2 style="margin:.25rem 0 .5rem;">Supplies are not available right now</h2>
-      <p class="muted" style="margin:0">Please check back soon.</p>
+      <p class="muted" style="margin:0">
+        Please check back soon.
+      </p>
     </div>
 
+    <!-- Notes (optional; auto-hide when empty) -->
     <div id="supNotes" class="card sup-notes" style="display:none;"></div>
 
-    <div class="sup-jumpbar" id="supJumpWrap" style="display:none;">
-      <select id="supJump">
-        <option value="">Jump to section…</option>
-      </select>
-    </div>
-
-    <section class="sup-cols" aria-live="polite">
-      <div class="sup-col" id="supColLeft"></div>
-      <div class="sup-col" id="supColRight"></div>
-    </section>
-
-    <button class="btn btn-secondary sup-topbtn" id="supTopBtn" type="button" aria-label="Back to top">Top</button>
+    <!-- PDF-style list -->
+    <section id="supList" class="sup-list" aria-live="polite"></section>
   </main>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
   </footer>
 
+  <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
-  <script src="assets/js/supplies.js?v=nov-06-2025"></script>
+  <script src="assets/js/supplies.js?v=2025-12-17a"></script><!-- bump -->
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/site-boot.js"></script>
 
+  <!-- ✅ HARD GATE: Hide Supplies page unless explicitly enabled (or admin/preview) -->
   <script>
+    function isPreviewMode(){
+      try {
+        const u = new URL(window.location.href);
+        return (u.searchParams.get('preview') === '1');
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function hasAdminToken(){
+      // Your admin token is stored here per your setup.
+      try {
+        return !!(window.localStorage && localStorage.getItem('amaranth_report_token'));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // Page is reachable if:
+    // - preview=1 OR admin token OR supplies.js set window.SUPPLIES_ACTIVE = true
+    const PAGE_ALLOWED = !!(isPreviewMode() || hasAdminToken() || window.SUPPLIES_ACTIVE === true);
+
+    if (!PAGE_ALLOWED) {
+      window.location.replace("home.html");
+    }
+  </script>
+
+  <!-- Page logic -->
+  <script>
+    /* =======================
+       Gate (PREVIEW / ADMIN)
+       ======================= */
+
+    // MASTER PUBLISH: OFF for public. ON only for preview=1 or admin token.
+    // NOTE: This controls *ordering/visibility of priced items*, not page access.
+    const MASTER_SUPPLIES_ON = (isPreviewMode() || hasAdminToken());
+
+    /* =======================
+       Helpers
+       ======================= */
     function money(n){
       const v = Math.max(0, Math.round(Number(n) * 100) / 100);
       return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
     }
+
     function normalizePrice(p){
       const n = Number(p);
       if (!isFinite(n)) return 0;
+      // Treat 0<n<1 as cents accidentally stored
       return (n > 0 && n < 1) ? Math.round(n * 100) : n;
     }
+
     function escHtml(s){
       return String(s || '').replace(/[&<>"]/g, c => (
         c === '&' ? '&amp;'
@@ -84,6 +127,7 @@
         : '&quot;'
       ));
     }
+
     function parseDate(d){
       if (!d) return null;
       if (typeof d === 'number') return new Date(d);
@@ -93,6 +137,7 @@
       const t = Date.parse(s);
       return isNaN(t) ? null : new Date(t);
     }
+
     function isWithinWindow(item, now){
       const start = parseDate(item.publishStart);
       const end   = parseDate(item.publishEnd);
@@ -100,153 +145,65 @@
       if (end && now > end)     return false;
       return true;
     }
+
+    // Visible = MASTER ON + item.active true + within publish window
     function isVisibleItem(item, now){
+      if (!MASTER_SUPPLIES_ON) return false;
       if (!item || item.active !== true) return false;
       return isWithinWindow(item, now);
     }
 
-    function mkAnchorId(label){
-      return 'cat-' + String(label || '')
-        .trim()
-        .toLowerCase()
-        .replace(/&/g,'and')
-        .replace(/[^a-z0-9]+/g,'-')
-        .replace(/(^-|-$)/g,'');
-    }
-
-    // ✅ NEW: normalize category strings coming from KV/admin
-    function normCat(raw){
-      let s = String(raw || '').trim();
-      if (!s) return 'OTHER';
-      s = s.replace(/\s+/g, ' ');               // collapse spaces
-      s = s.replace(/\s+AND\s+/ig, ' & ');      // AND -> &
-      s = s.replace(/\s*&\s*/g, ' & ');         // normalize & spacing
-      s = s.toUpperCase();
-
-      // common variants / punctuation differences
-      s = s.replace(/\s*-\s*/g, ' - ');         // normalize hyphen spacing
-      s = s.replace(/\s+/g, ' ').trim();
-
-      // map known aliases to canonical keys
-      const alias = {
-        "PETITION- BLANKS- NOTICES": "PETITION - BLANKS - NOTICES",
-        "PETITION - BLANKS- NOTICES": "PETITION - BLANKS - NOTICES",
-        "PETITION- BLANKS - NOTICES": "PETITION - BLANKS - NOTICES",
-        "PETITIONS - BLANKS - NOTICES": "PETITION - BLANKS - NOTICES",
-        "FLAG AND TOPS": "FLAG & TOPS",
-        "FLAG & TOPS": "FLAG & TOPS",
-        "FLAG & TOP": "FLAG & TOPS",
-        "STANDARDS & BANNERS": "STANDARDS & BANNERS",
-        "STANDARD & BANNERS": "STANDARDS & BANNERS"
-      };
-      if (alias[s]) s = alias[s];
-
-      return s;
-    }
-
-    // group by normalized category, preserve item order
+    // Keep PDF order: use original array order; group by category in order first seen
     function groupByCategoryPreserveOrder(items){
-      const map = new Map(); // key: canonical CAT, value: { label, items }
+      const map = new Map();
       items.forEach(it=>{
-        const key = normCat(it.category);
-        if (!map.has(key)) map.set(key, { label: key, items: [] });
-        map.get(key).items.push(it);
+        const cat = String(it.category || 'Other');
+        if (!map.has(cat)) map.set(cat, []);
+        map.get(cat).push(it);
       });
       return map;
     }
 
-    function renderCategoryBlock(catLabel, items){
-      const catId = mkAnchorId(catLabel);
-
-      const rows = items.map(item => {
-        const price = normalizePrice(item.price || 0);
-
-        const canOrder =
-          (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
-
-        const desc = (item.description || item.notes || '').trim();
-        const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
-
-        const controls = canOrder ? `
-          <div class="sup-controls">
-            <label class="sup-qty">
-              <span class="sr-only">Qty</span>
-              <select class="sup-qtysel" data-id="${escHtml(item.id)}">
-                ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join('')}
-              </select>
-            </label>
-            <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}">Add</button>
-          </div>
-        ` : `<div class="sup-controls sup-controls-disabled"></div>`;
-
-        return `
-          <div class="sup-row" data-id="${escHtml(item.id)}">
-            <div class="sup-left">
-              <div class="sup-name">${escHtml(item.name || '')}</div>
-              ${descHtml}
-              <div class="sup-yoy tiny">YOY: <span class="mono">${escHtml(item.yoyId || item.yoy || '(none)')}</span></div>
-            </div>
-            <div class="sup-right">
-              <span class="sup-price">${money(price)}</span>
-              ${controls}
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      return `
-        <div class="sup-category" id="${escHtml(catId)}">
-          <div class="sup-cat-title">${escHtml(catLabel)}</div>
-          <div class="sup-table">${rows}</div>
-        </div>
-      `;
-    }
-
-    function jumpToId(id){
-      if (!id) return;
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.scrollIntoView({ behavior:'smooth', block:'start' });
-    }
-
     document.addEventListener('DOMContentLoaded', async () => {
-      if (window.Cart && typeof Cart.load === 'function') Cart.load();
+      // Cart optional (and we also prevent ordering if master is off)
+      if (MASTER_SUPPLIES_ON && window.Cart && typeof Cart.load === 'function') Cart.load();
 
+      const listEl  = document.getElementById('supList');
       const emptyEl = document.getElementById('emptyCatalog');
       const notesEl = document.getElementById('supNotes');
-      const colLeft = document.getElementById('supColLeft');
-      const colRight = document.getElementById('supColRight');
-      const jumpWrap = document.getElementById('supJumpWrap');
-      const jumpSel  = document.getElementById('supJump');
-
-      // Preview gate
-      const qs = new URLSearchParams(location.search);
-      const isPreview = qs.get('preview') === '1';
-      if (!isPreview){
-        colLeft.innerHTML = '';
-        colRight.innerHTML = '';
-        notesEl.style.display = 'none';
-        emptyEl.style.display = '';
-        return;
-      }
 
       const now = new Date();
 
+      // If master is OFF, show the empty-state and stop.
+      if (!MASTER_SUPPLIES_ON){
+        listEl.innerHTML = '';
+        emptyEl.style.display = '';
+        notesEl.style.display = 'none';
+        return;
+      }
+
+      // 1) Load items (KV first, then static)
       let rawItems = [];
       try {
-        const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache:'no-store' });
+        const resp = await fetch('/api/router?type=catalog_items&cat=supplies', { cache: 'no-store' });
         if (resp.ok){
           const data = await resp.json();
           if (Array.isArray(data.items) && data.items.length) rawItems = data.items;
         }
-      } catch (e) {}
+      } catch (e) {
+        // ignore; fall back to static
+      }
 
       if (!rawItems.length) rawItems = (window.SUPPLIES_ITEMS || []);
+
+      // 2) Apply visibility rules (master + active + publish window)
       const visible = (rawItems || []).filter(it => isVisibleItem(it, now));
 
+      // Notes from supplies.js (optional)
       const packaging = Number(window.SUPPLIES_PACKAGING_FEE_CENTS || 0);
       const noteLines = [];
       if (packaging > 0) noteLines.push('Packaging: minimum ' + money(packaging / 100) + ' packaging charge may apply.');
+
       if (noteLines.length){
         notesEl.style.display = '';
         notesEl.innerHTML = `
@@ -259,67 +216,65 @@
         notesEl.style.display = 'none';
       }
 
+      // 3) Empty state if nothing visible
       if (!visible.length){
-        colLeft.innerHTML = '';
-        colRight.innerHTML = '';
+        listEl.innerHTML = '';
         emptyEl.style.display = '';
         return;
       }
       emptyEl.style.display = 'none';
 
+      // 4) Render grouped list
       const grouped = groupByCategoryPreserveOrder(visible);
 
-      // Canonical order lists (normalized keys)
-      const LEFT_ORDER = [
-        "BOOKS","CARDS","CERTIFICATES","CHARTERS","COMPUTER DISCS","DISPENSATIONS","FLAGS"
-      ];
-      const RIGHT_ORDER = [
-        "SEALS","STANDARDS & BANNERS","STAFF TOPS","WREATHS","HISTORIES","LETTERS",
-        "PETITION - BLANKS - NOTICES","PARAPHERNALIA","BIBLES","FLAG & TOPS","JEWELS"
-      ];
+      const html = [];
+      for (const [cat, items] of grouped.entries()){
+        html.push(`<div class="sup-category">`);
+        html.push(`<div class="sup-cat-title">${escHtml(cat)}</div>`);
+        html.push(`<div class="sup-table">`);
 
-      const leftHtml = [];
-      LEFT_ORDER.forEach(cat=>{
-        const block = grouped.get(cat);
-        if (block?.items?.length) leftHtml.push(renderCategoryBlock(block.label, block.items));
-      });
+        items.forEach(item => {
+          const price = normalizePrice(item.price || 0);
 
-      const rightHtml = [];
-      RIGHT_ORDER.forEach(cat=>{
-        const block = grouped.get(cat);
-        if (block?.items?.length) rightHtml.push(renderCategoryBlock(block.label, block.items));
-      });
+          // Order controls: only if Cart exists AND item is orderable (active true)
+          const canOrder = (window.Cart && typeof Cart.addLine === 'function' && item.active === true);
 
-      // Any categories not listed go at bottom (right column) in first-appearance order
-      const known = new Set([...LEFT_ORDER, ...RIGHT_ORDER]);
-      for (const [cat, block] of grouped.entries()){
-        if (known.has(cat)) continue;
-        rightHtml.push(renderCategoryBlock(block.label, block.items));
-      }
+          const controls = canOrder ? `
+            <div class="sup-controls">
+              <label class="sup-qty">
+                <span class="sr-only">Qty</span>
+                <select class="sup-qtysel" data-id="${escHtml(item.id)}">
+                  ${[1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,50,75,100].map(n=>`<option value="${n}">${n}</option>`).join('')}
+                </select>
+              </label>
+              <button class="btn btn-primary sup-add" data-id="${escHtml(item.id)}">Add</button>
+            </div>
+          ` : `<div class="sup-controls sup-controls-disabled"></div>`;
 
-      colLeft.innerHTML = leftHtml.join('');
-      colRight.innerHTML = rightHtml.join('');
+          const desc = (item.description || item.notes || '').trim();
+          const descHtml = desc ? `<div class="sup-desc">${escHtml(desc)}</div>` : ``;
 
-      // Mobile jump dropdown (same order)
-      const jumpCats = [...LEFT_ORDER, ...RIGHT_ORDER].filter(cat => grouped.get(cat)?.items?.length);
-      if (jumpCats.length){
-        jumpWrap.style.display = '';
-        jumpSel.innerHTML = `
-          <option value="">Jump to section…</option>
-          ${jumpCats.map(cat => `<option value="${escHtml(mkAnchorId(cat))}">${escHtml(cat)}</option>`).join('')}
-        `;
-        jumpSel.addEventListener('change', () => {
-          const id = jumpSel.value;
-          if (!id) return;
-          jumpToId(id);
-          setTimeout(() => { jumpSel.value = ""; }, 400);
+          html.push(`
+            <div class="sup-row" data-id="${escHtml(item.id)}">
+              <div class="sup-left">
+                <div class="sup-name">${escHtml(item.name || '')}</div>
+                ${descHtml}
+              </div>
+              <div class="sup-right">
+                <span class="sup-price">${money(price)}</span>
+                ${controls}
+              </div>
+            </div>
+          `);
         });
-      } else {
-        jumpWrap.style.display = 'none';
+
+        html.push(`</div></div>`);
       }
 
-      // Wire Add buttons
-      document.querySelectorAll('.sup-add').forEach(btn => {
+      listEl.innerHTML = html.join('');
+
+      // 5) Wire Add buttons
+      listEl.querySelectorAll('.sup-add').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-id');
           const item = visible.find(x => String(x.id) === String(id));
@@ -330,7 +285,8 @@
             return;
           }
 
-          const sel = document.querySelector(`.sup-qtysel[data-id="${CSS.escape(id)}"]`);
+          // Avoid CSS.escape compatibility issues by selecting via dataset scan
+          const sel = Array.from(listEl.querySelectorAll('.sup-qtysel')).find(x => String(x.dataset.id) === String(id));
           const qty = Math.max(1, parseInt(sel?.value || '1', 10));
           const price = normalizePrice(item.price || 0);
 
@@ -341,41 +297,27 @@
             itemName: item.name || 'Item',
             qty,
             unitPrice: price,
-            meta: { sku: item.sku || '', note: '', category: item.category || '', yoyId: item.yoyId || item.yoy || '' }
+            meta: { sku: item.sku || '', note: '', category: item.category || '' }
           });
 
           alert('Added to order.');
         });
       });
-
-      // Top button
-      const topBtn = document.getElementById('supTopBtn');
-      if (topBtn){
-        topBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
-      }
     });
   </script>
 
   <style>
-    .sup-header{max-width:1200px;margin:0 auto 10px;padding:0 6px;}
+    /* PDF-style Supplies Layout */
+    .sup-header{max-width:1100px;margin:0 auto 10px;padding:0 6px;}
     .sup-sub{margin:.15rem 0 0;}
+
     .sup-empty{max-width:780px;margin:0 auto 16px;padding:16px;}
-    .sup-notes{max-width:1200px;margin:0 auto 12px;padding:14px;}
+    .sup-notes{max-width:1100px;margin:0 auto 12px;padding:14px;}
     .sup-notes-title{font-weight:800;margin-bottom:8px;}
     .sup-notes-list{margin:0;padding-left:18px;}
     .sup-notes-list li{margin:6px 0;}
 
-    .sup-cols{
-      max-width:1200px;
-      margin:0 auto;
-      padding:0 6px 28px;
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:16px;
-      align-items:start;
-    }
-    .sup-col{min-width:0;}
-
+    .sup-list{max-width:1100px;margin:0 auto;padding:0 6px 24px;}
     .sup-category{margin:14px 0 18px;}
     .sup-cat-title{
       font-weight:900;
@@ -411,8 +353,6 @@
     .sup-left{flex:1 1 auto;min-width:0;}
     .sup-name{font-weight:800;line-height:1.2;}
     .sup-desc{margin-top:3px;color:#374151;font-size:.92rem;line-height:1.25;}
-    .sup-yoy{margin-top:6px;color:#6b7280;}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
 
     .sup-right{
       flex:0 0 auto;
@@ -421,8 +361,8 @@
       gap:12px;
       white-space:nowrap;
     }
-    .sup-price{font-weight:900;}
 
+    .sup-price{font-weight:900;}
     .sup-controls{display:flex;gap:10px;align-items:center;}
     .sup-controls-disabled{opacity:.35;}
 
@@ -434,48 +374,13 @@
       background: rgba(255,255,255,0.9);
     }
 
-    .sup-category,
-    .sup-cat-title{
-      scroll-margin-top: 92px;
+    /* Small screens: stack price/controls under name */
+    @media (max-width: 620px){
+      .sup-row{flex-direction:column;}
+      .sup-right{width:100%;justify-content:flex-start;}
     }
 
-    .sup-jumpbar{
-      display:none;
-      position: sticky;
-      top: 70px;
-      z-index: 20;
-      margin: 10px 0 12px;
-      padding: 10px;
-      border-radius: 12px;
-      border: 1px solid rgba(229,231,235,0.6);
-      background: rgba(255,255,255,0.65);
-      backdrop-filter: saturate(120%) blur(2px);
-      -webkit-backdrop-filter: saturate(120%) blur(2px);
-    }
-    .sup-jumpbar select{
-      width:100%;
-      padding:.6rem .7rem;
-      border:1px solid #d1d5db;
-      border-radius:.6rem;
-      background: rgba(255,255,255,0.95);
-    }
-
-    .sup-topbtn{
-      position: fixed;
-      right: 14px;
-      bottom: 14px;
-      z-index: 50;
-      display:none;
-      border-radius: 999px;
-      padding: .55rem .8rem;
-    }
-
-    @media (max-width: 900px){
-      .sup-cols{grid-template-columns: 1fr;}
-      .sup-jumpbar{display:block;}
-      .sup-topbtn{display:inline-flex;}
-    }
-
+    /* Utility: screen-reader only */
     .sr-only{
       position:absolute!important;
       width:1px;height:1px;
@@ -485,13 +390,16 @@
     }
   </style>
 
+  <!-- Maintenance check (match other pages) -->
   <script>
   (async () => {
     try {
       const resp = await fetch('/api/router?type=settings');
       const data = await resp.json();
+
       const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
       const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
       if (on === 'true' || on === true) {
         document.body.innerHTML = `
           <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
@@ -507,5 +415,6 @@
     }
   })();
   </script>
+
 </body>
 </html>
