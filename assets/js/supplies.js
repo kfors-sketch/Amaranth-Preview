@@ -19,8 +19,20 @@
   // Optional: make the packaging fee available to other scripts
   window.SUPPLIES_PACKAGING_FEE_CENTS = 200;
 
-  // ✅ MASTER SWITCH (turn supplies ON later by setting true)
-  // Right now you asked to "turn off the active" -> keep this FALSE.
+  // =========================================================
+  // ✅ PAGE VISIBILITY SWITCH (controls whether supplies.html should be reachable)
+  // Set TRUE later when you want Supplies visible again.
+  // =========================================================
+  window.SUPPLIES_ACTIVE = false;
+
+  // Optional future-proofing: publish window fields (leave blank for now)
+  window.SUPPLIES_PUBLISH_START = ""; // "2026-01-01"
+  window.SUPPLIES_PUBLISH_END = "";   // "2026-12-31"
+
+  // =========================================================
+  // ✅ MASTER SWITCH FOR PRICED ITEMS (controls purchasability)
+  // If page is active but you still want everything "view only", keep this FALSE.
+  // =========================================================
   const SUPPLIES_PUBLISHED = false;
 
   const mkId = (s) =>
