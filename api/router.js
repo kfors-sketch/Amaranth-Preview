@@ -91,11 +91,8 @@ import {
 
 // ============================================================================
 // BETTER ERROR DETAILS (safe for end-users)
-// - Adds a stable requestId + structured error info for front-end display
-// - Avoids leaking secrets (no env dumps, no raw objects)
 // ============================================================================
 function getRequestId(req) {
-  // Vercel provides one of these on most requests; otherwise we generate a fallback.
   return (
     req?.headers?.["x-vercel-id"] ||
     req?.headers?.["x-request-id"] ||
@@ -110,7 +107,6 @@ function toSafeError(err) {
   const name = String(e.name || "Error");
   const message = String(e.message || e.toString?.() || "Unknown error");
 
-  // Stripe errors often include these fields:
   const stripe = {};
   if (e.type) stripe.type = String(e.type);
   if (e.code) stripe.code = String(e.code);
@@ -122,36 +118,28 @@ function toSafeError(err) {
   const safe = {
     name,
     message,
-    // Only include a short stack hint (first line) so iPhone users can screenshot it.
     stackTop: typeof e.stack === "string" ? e.stack.split("\n")[0] : "",
   };
 
-  // Only include stripe fields if they exist (keeps payload clean).
   if (Object.keys(stripe).length) safe.stripe = stripe;
-
   return safe;
 }
 
 function errResponse(res, status, code, req, err, extra = {}) {
   const requestId = getRequestId(req);
   const safe = toSafeError(err);
-
-  // Always log the full error server-side with the request id
   console.error(`[router] ${code} requestId=${requestId}`, err);
-
   return REQ_ERR(res, status, code, {
     requestId,
-    error: safe, // front-end can show error.message, error.stripe.code, etc.
+    error: safe,
     ...extra,
   });
 }
 
 // ============================================================================
 // RAW BODY HELPERS (required for Stripe webhook signature verification)
-// NOTE: we set api.bodyParser=false at bottom, so we must read/parse ourselves.
 // ============================================================================
 async function readRawBody(req) {
-  // cache so we don't consume the stream twice
   if (req._rawBodyBuffer) return req._rawBodyBuffer;
 
   const chunks = [];
@@ -175,9 +163,6 @@ async function readJsonBody(req) {
 }
 
 // ---- Admin auth helper ----
-// Uses either:
-//  - legacy static REPORT_TOKEN (for backward compatibility), OR
-//  - new KV-backed admin tokens issued by handleAdminLogin()
 async function requireAdminAuth(req, res) {
   const headers = req.headers || {};
   const rawAuth = headers.authorization || headers.Authorization || "";
@@ -195,11 +180,9 @@ async function requireAdminAuth(req, res) {
     return false;
   }
 
-  // 1) Allow legacy static REPORT_TOKEN for now
   const legacy = (process.env.REPORT_TOKEN || "").trim();
   if (legacy && token === legacy) return true;
 
-  // 2) Check against new admin tokens stored in KV
   try {
     const result = await verifyAdminToken(token);
     if (result.ok) return true;
@@ -216,8 +199,7 @@ function getUrl(req) {
   return new URL(req.url, `http://${host}`);
 }
 
-// Pull order mode from Stripe session metadata (preferred), else fall back to the
-// current effective channel.
+// Pull order mode from Stripe session metadata (preferred), else fall back to current.
 async function resolveModeFromSession(sessionLike) {
   try {
     const md = sessionLike?.metadata || {};
@@ -235,7 +217,6 @@ async function resolveModeFromSession(sessionLike) {
 }
 
 // Stripe session IDs include cs_test_ or cs_live_
-// (we use this to pick the correct Stripe client for retrieval)
 function inferStripeEnvFromCheckoutSessionId(id) {
   const s = String(id || "").trim();
   if (s.startsWith("cs_live_")) return "live";
@@ -244,24 +225,9 @@ function inferStripeEnvFromCheckoutSessionId(id) {
 }
 
 // ---------------- Catalog category helpers ----------------
-//
-// Back-compat:
-//   cat=catalog -> KV key "products" (existing)
-//
-// New categories:
-//   cat=supplies -> KV key "products:supplies"
-//   cat=regalia  -> KV key "products:regalia"
-// etc.
-//
-// Registry:
-//   KV key "catalog:categories" stores [{cat,title,imgFolder,navLabel,...}, ...]
 const CATALOG_CATEGORIES_KEY = "catalog:categories";
 
-// ---------------- Feature Flags (staging toggles) ----------------
-//
-// Stored in KV so admin/settings.html can toggle preview/live features safely.
-// Shape in KV:
-//   { flags: { supplies_live: true/false, ... }, updatedAt: ISOString }
+// ---------------- Feature Flags ----------------
 const FEATURE_FLAGS_KEY = "feature_flags";
 
 const DEFAULT_FEATURE_FLAGS = {
@@ -282,17 +248,18 @@ function coerceBool(v) {
 async function loadFeatureFlagsSafe() {
   const raw = (await kvGetSafe(FEATURE_FLAGS_KEY, null)) || null;
 
-  // Support either legacy plain-object OR new {flags, updatedAt} wrapper
   const storedFlags =
     raw && typeof raw === "object"
-      ? (raw.flags && typeof raw.flags === "object" ? raw.flags : raw)
+      ? raw.flags && typeof raw.flags === "object"
+        ? raw.flags
+        : raw
       : {};
 
   const merged = { ...DEFAULT_FEATURE_FLAGS, ...(storedFlags || {}) };
 
-  // Force known keys to booleans (keeps payload consistent)
   const cleaned = {};
-  for (const k of Object.keys(DEFAULT_FEATURE_FLAGS)) cleaned[k] = coerceBool(merged[k]);
+  for (const k of Object.keys(DEFAULT_FEATURE_FLAGS))
+    cleaned[k] = coerceBool(merged[k]);
 
   const updatedAt =
     raw && typeof raw === "object" && typeof raw.updatedAt === "string"
@@ -310,20 +277,20 @@ function normalizeCat(catRaw) {
 
 function catalogItemsKeyForCat(catRaw) {
   const cat = normalizeCat(catRaw);
-  if (!cat || cat === "catalog") return "products"; // existing
-  return `products:${cat}`; // new cats
+  if (!cat || cat === "catalog") return "products";
+  return `products:${cat}`;
 }
 
 async function getCatalogCategoriesSafe() {
   const list = (await kvGetSafe(CATALOG_CATEGORIES_KEY, [])) || [];
   const out = Array.isArray(list) ? list.slice() : [];
 
-  // Ensure required defaults exist even if the registry hasn't been saved in KV yet.
-  // This keeps order/nav pages able to "discover" categories immediately.
   const ensure = (cat, title) => {
     const c = String(cat || "").trim().toLowerCase();
     if (!c) return;
-    const has = out.some((x) => String(x?.cat || "").trim().toLowerCase() === c);
+    const has = out.some(
+      (x) => String(x?.cat || "").trim().toLowerCase() === c
+    );
     if (!has) out.push({ cat: c, title });
   };
 
@@ -331,7 +298,6 @@ async function getCatalogCategoriesSafe() {
   ensure("supplies", "Supplies");
   ensure("charity", "Charity");
 
-  // Keep "catalog" first for back-compat expectations
   out.sort((a, b) => {
     const ac = String(a?.cat || "").toLowerCase();
     const bc = String(b?.cat || "").toLowerCase();
@@ -341,6 +307,42 @@ async function getCatalogCategoriesSafe() {
   });
 
   return out;
+}
+
+// ============================================================================
+// ITEMCFG MERGE HELPERS (fixes “admin shows daily but scheduler sees monthly”)
+// - We must NEVER overwrite reportFrequency to "monthly" just because the field
+//   was missing in the save payload.
+// ============================================================================
+function splitEmails(v) {
+  return String(v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeChairEmails(raw, fallbackEmail) {
+  if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
+  const from = raw || fallbackEmail || "";
+  return splitEmails(from);
+}
+
+function pickNonEmptyString(a, b, fallback = "") {
+  const aa = String(a ?? "").trim();
+  if (aa) return aa;
+  const bb = String(b ?? "").trim();
+  if (bb) return bb;
+  return fallback;
+}
+
+function computeMergedFreq(incomingRaw, existingCfg, defaultFreq) {
+  const raw =
+    incomingRaw ??
+    existingCfg?.reportFrequency ??
+    existingCfg?.report_frequency ??
+    defaultFreq;
+
+  return normalizeReportFrequency(raw);
 }
 
 // -------------- main handler --------------
@@ -354,19 +356,16 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
-      // Core smoketest via admin/debug.js
       if (type === "smoketest") {
         const out = await handleSmoketest();
         return REQ_OK(res, { requestId, ...out });
       }
 
-      // Last mail log via admin/debug.js
       if (type === "lastmail") {
         const out = await handleLastMail();
         return REQ_OK(res, { requestId, ...out });
       }
 
-      // Debug: token / Stripe / Resend / scheduler
       if (type === "debug_token") {
         const out = await handleTokenTest(req);
         return REQ_OK(res, { requestId, ...out });
@@ -387,7 +386,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ...out });
       }
 
-      // Data health + scheduler dry run
       if (type === "debug_orders_health") {
         const out = await handleOrdersHealth();
         return REQ_OK(res, { requestId, ...out });
@@ -403,7 +401,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ...out });
       }
 
-      // Targeted previews
       if (type === "debug_chair_preview") {
         const id = url.searchParams.get("id") || "";
         const scope = url.searchParams.get("scope") || "full";
@@ -426,7 +423,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ...out });
       }
 
-      // year_index (for reporting_yoy.html)
       if (type === "year_index") {
         const years = await listIndexedYears();
 
@@ -441,7 +437,6 @@ export default async function handler(req, res) {
             seen.add(key);
 
             const label = item?.name || item?.label || item?.slotLabel || key;
-
             slots.push({ key, label, category });
           }
         };
@@ -452,11 +447,9 @@ export default async function handler(req, res) {
         addSlots(banquets, "banquet");
         addSlots(addons, "addon");
 
-        // Existing main catalog products (back-compat)
         const products = (await kvGetSafe("products", [])) || [];
         addSlots(products, "catalog");
 
-        // Include all additional catalog categories as catalog:<cat>
         const cats = await getCatalogCategoriesSafe();
         for (const c of cats) {
           const cat = normalizeCat(c?.cat);
@@ -469,13 +462,11 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, years, slots });
       }
 
-      // list all years we have indexed
       if (type === "years_index") {
         const years = await listIndexedYears();
         return REQ_OK(res, { requestId, years });
       }
 
-      // summary for a single year
       if (type === "year_summary") {
         const yParam = url.searchParams.get("year");
         const year = Number(yParam);
@@ -486,7 +477,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ...summary });
       }
 
-      // multi-year summary for graphs
       if (type === "year_multi") {
         let yearsParams = url.searchParams.getAll("year");
         if (!yearsParams.length) {
@@ -523,15 +513,11 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, years, points, raw });
       }
 
-      // ---------------- Catalog categories + items (multi-page ready) ----------------
-
-      // Category registry (so order/nav/YoY can discover categories)
       if (type === "catalog_categories") {
         const categories = await getCatalogCategoriesSafe();
         return REQ_OK(res, { requestId, categories });
       }
 
-      // Items for a given catalog category (cat=catalog -> existing "products")
       if (type === "catalog_items") {
         const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
         const key = catalogItemsKeyForCat(cat);
@@ -539,23 +525,26 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, cat, items });
       }
 
-      // Has any active items? (for hiding links + hiding whole page)
       if (type === "catalog_has_active") {
         const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
         const key = catalogItemsKeyForCat(cat);
         const items = (await kvGetSafe(key, [])) || [];
-        const hasActive = Array.isArray(items) && items.some((it) => it && it.active);
+        const hasActive =
+          Array.isArray(items) && items.some((it) => it && it.active);
         return REQ_OK(res, { requestId, cat, hasActive });
       }
 
-      // YoY helper (config view): return items by year (non-breaking even if configs are global)
       if (type === "catalog_items_yoy") {
         const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
 
         let yearsParams = url.searchParams.getAll("year");
         if (!yearsParams.length) {
           const csv = url.searchParams.get("years") || "";
-          if (csv) yearsParams = csv.split(",").map((s) => s.trim()).filter(Boolean);
+          if (csv)
+            yearsParams = csv
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
         }
 
         const years = yearsParams
@@ -574,7 +563,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, cat, years: useYears, byYear });
       }
 
-      // Existing simple lists (back-compat)
       if (type === "banquets")
         return REQ_OK(res, {
           requestId,
@@ -604,16 +592,13 @@ export default async function handler(req, res) {
         });
       }
 
-      // Feature flags (admin/settings.html)
       if (type === "feature_flags") {
-        // Require admin auth for flags (keeps preview/live switches private)
         if (!(await requireAdminAuth(req, res))) return;
 
         const { flags, updatedAt } = await loadFeatureFlagsSafe();
         return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
-      // Checkout / Stripe mode fetch for admin/settings.html
       if (type === "checkout_mode") {
         const nowMs = Date.now();
         const raw = await getCheckoutSettingsAuto(new Date(nowMs));
@@ -634,7 +619,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // Mode-aware publishable key (preferred)
       if (type === "stripe_pubkey" || type === "stripe_pk") {
         const mode = await getEffectiveOrderChannel().catch(() => "test");
         return REQ_OK(res, {
@@ -644,17 +628,12 @@ export default async function handler(req, res) {
         });
       }
 
-      // ✅ FIX: retrieve checkout sessions in LIVE vs TEST automatically by ID prefix
-      // (and fall back to the other env so admin tools still work if someone pastes
-      // the “wrong” session ID vs selected mode)
       if (type === "checkout_session") {
         const id = String(url.searchParams.get("id") || "").trim();
         if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
 
-        // Stripe session IDs include cs_test_ or cs_live_
         const inferred = inferStripeEnvFromCheckoutSessionId(id);
 
-        // If unknown, choose primary based on current effective channel (live/live_test => live)
         let primaryEnv = inferred;
         if (!primaryEnv) {
           const eff = await getEffectiveOrderChannel().catch(() => "test");
@@ -662,8 +641,6 @@ export default async function handler(req, res) {
         }
         const fallbackEnv = primaryEnv === "live" ? "test" : "live";
 
-        // Prefer the correct key first, but fall back to the other
-        // so admin tools still work if someone pastes the “wrong” ID.
         const stripePrimary = await getStripe(primaryEnv);
         const stripeFallback = await getStripe(fallbackEnv);
 
@@ -697,7 +674,7 @@ export default async function handler(req, res) {
 
         return REQ_OK(res, {
           requestId,
-          env: usedEnv, // "live" or "test" (which Stripe client succeeded)
+          env: usedEnv,
           id: s.id,
           amount_total: s.amount_total,
           currency: s.currency,
@@ -709,6 +686,7 @@ export default async function handler(req, res) {
         });
       }
 
+      // (orders + csv endpoints unchanged)
       if (type === "orders") {
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
@@ -797,12 +775,19 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
+          rows = rows.filter((r) =>
+            String(r.item || "").toLowerCase().includes(want)
+          );
         }
 
         rows = sortByDateAsc(rows, "date");
         return REQ_OK(res, { requestId, rows });
       }
+
+      // (other XLSX endpoints unchanged)
+      // ... (your existing orders_csv / roster / directory / etc remain the same)
+      // NOTE: kept as-is below in your provided file.
+      // ----------------------------------------------------------------------
 
       if (type === "orders_csv") {
         const ids = await kvSmembersSafe("orders:index");
@@ -892,7 +877,9 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
+          rows = rows.filter((r) =>
+            String(r.item || "").toLowerCase().includes(want)
+          );
         }
 
         const sorted = sortByDateAsc(rows, "date");
@@ -931,6 +918,9 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
+      // (attendee_roster_csv, directory_csv, full_attendees_csv unchanged)
+      // ... keep as in your file
+      // ----------------------------------------------------------------------
       if (type === "attendee_roster_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -984,7 +974,10 @@ export default async function handler(req, res) {
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader("Content-Disposition", `attachment; filename="attendee-roster.xlsx"`);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="attendee-roster.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1137,12 +1130,20 @@ export default async function handler(req, res) {
           attendee_country: r.attendee_country,
         }));
 
-        const buf = await objectsToXlsxBuffer(headers, numbered, null, "Full Attendees");
+        const buf = await objectsToXlsxBuffer(
+          headers,
+          numbered,
+          null,
+          "Full Attendees"
+        );
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader("Content-Disposition", `attachment; filename="full-attendees.xlsx"`);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="full-attendees.xlsx"`
+        );
         return res.status(200).send(buf);
       }
 
@@ -1151,9 +1152,11 @@ export default async function handler(req, res) {
         if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
 
         try {
-          // save only (webhook is still source-of-truth for emails)
           const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
-          const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
+          const order = await saveOrderFromSession(
+            { id: sid },
+            { mode: orderChannel }
+          );
 
           return REQ_OK(res, {
             requestId,
@@ -1179,8 +1182,6 @@ export default async function handler(req, res) {
 
     // ---------- POST ----------
     if (req.method === "POST") {
-      // With bodyParser disabled, we MUST parse bodies ourselves.
-      // For Stripe webhook we keep it RAW for signature verification.
       let body = {};
       try {
         if (action !== "stripe_webhook") {
@@ -1190,7 +1191,6 @@ export default async function handler(req, res) {
         return errResponse(res, 400, "invalid-json", req, e);
       }
 
-      // --- High-security admin login ---
       if (action === "admin_login") {
         try {
           const ip =
@@ -1224,9 +1224,9 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- Quick manual Resend test (no auth) ---
       if (action === "test_resend") {
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured", { requestId });
+        if (!resend)
+          return REQ_ERR(res, 500, "resend-not-configured", { requestId });
         const urlObj = getUrl(req);
         const bodyTo = (body && body.to) || urlObj.searchParams.get("to") || "";
         const fallbackAdmin =
@@ -1252,7 +1252,10 @@ export default async function handler(req, res) {
           reply_to: REPLY_TO || undefined,
         };
 
-        const retry = await sendWithRetry(() => resend.emails.send(payload), "manual-test");
+        const retry = await sendWithRetry(
+          () => resend.emails.send(payload),
+          "manual-test"
+        );
 
         if (retry.ok) {
           const sendResult = retry.result;
@@ -1265,7 +1268,12 @@ export default async function handler(req, res) {
             kind: "manual-test",
             status: "queued",
           });
-          return REQ_OK(res, { requestId, ok: true, id: sendResult?.id || null, to });
+          return REQ_OK(res, {
+            requestId,
+            ok: true,
+            id: sendResult?.id || null,
+            to,
+          });
         } else {
           const err = retry.error;
           await recordMailLog({
@@ -1282,7 +1290,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- Contact form (no auth) ---
       if (action === "contact_form") {
         if (!resend && !CONTACT_TO)
           return REQ_ERR(res, 500, "resend-not-configured", { requestId });
@@ -1322,7 +1329,9 @@ export default async function handler(req, res) {
         };
 
         const topicLabel =
-          topicMap[String(topic).toLowerCase()] || String(topic) || "General question";
+          topicMap[String(topic).toLowerCase()] ||
+          String(topic) ||
+          "General question";
         const pageLabel = pageMap[String(page).toLowerCase()] || String(page) || "";
 
         const esc = (s) => String(s ?? "").replace(/</g, "&lt;");
@@ -1367,7 +1376,9 @@ export default async function handler(req, res) {
                 ${item ? `<tr><th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;">Item</th><td style="padding:4px 6px;border:1px solid #ddd;">${esc(item)}</td></tr>` : ""}
                 <tr>
                   <th style="padding:4px 6px;border:1px solid #ddd;background:#f3f4f6;text-align:left;vertical-align:top;">Message</th>
-                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(msg)}</td>
+                  <td style="padding:6px 8px;border:1px solid #ddd;white-space:pre-wrap;">${esc(
+                    msg
+                  )}</td>
                 </tr>
               </tbody>
             </table>
@@ -1399,7 +1410,8 @@ export default async function handler(req, res) {
 
         if (!toList.length && !bccList.length)
           return REQ_ERR(res, 500, "no-recipient", { requestId });
-        if (!resend) return REQ_ERR(res, 500, "resend-not-configured", { requestId });
+        if (!resend)
+          return REQ_ERR(res, 500, "resend-not-configured", { requestId });
 
         const subject = `Website contact — ${topicLabel}`;
 
@@ -1412,7 +1424,10 @@ export default async function handler(req, res) {
           reply_to: senderEmail || REPLY_TO || undefined,
         };
 
-        const retry = await sendWithRetry(() => resend.emails.send(payload), "contact-form");
+        const retry = await sendWithRetry(
+          () => resend.emails.send(payload),
+          "contact-form"
+        );
 
         if (retry.ok) {
           const sendResult = retry.result;
@@ -1441,12 +1456,11 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- Finalize (save only) from success page ---
-      // IMPORTANT: emails are sent from the Stripe webhook, not here.
       if (action === "finalize_checkout") {
         try {
           const stripe = await getStripe();
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          if (!stripe)
+            return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
           const sid = String(body.sid || body.id || "").trim();
           if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
 
@@ -1459,7 +1473,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ---- PUBLIC: send chair-specific XLSX by category+item (no auth) ----
       if (action === "send_item_report") {
         try {
           const kind = String(body?.kind || body?.category || "").toLowerCase();
@@ -1478,18 +1491,18 @@ export default async function handler(req, res) {
         }
       }
 
-      // ---- CREATE CHECKOUT (bundle protection + international fee) ----
       if (action === "create_checkout_session") {
         try {
-          // ✅ Determine effective channel FIRST, then initialize Stripe with that mode.
           const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
 
           const stripe = await getStripe(orderChannel);
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          if (!stripe)
+            return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
 
           const origin = req.headers.origin || `https://${req.headers.host}`;
           const successUrl =
-            (body.success_url || `${origin}/success.html`) + `?sid={CHECKOUT_SESSION_ID}`;
+            (body.success_url || `${origin}/success.html`) +
+            `?sid={CHECKOUT_SESSION_ID}`;
           const cancelUrl = body.cancel_url || `${origin}/order.html`;
 
           if (Array.isArray(body.lines) && body.lines.length) {
@@ -1499,7 +1512,8 @@ export default async function handler(req, res) {
 
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
-              const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+              const isBundle =
+                priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
 
               const unit_amount = isBundle
                 ? cents(l.bundleTotalCents)
@@ -1544,12 +1558,16 @@ export default async function handler(req, res) {
 
             const subtotalCents = lines.reduce((s, l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
-              const isBundle = priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
+              const isBundle =
+                priceMode === "bundle" && (l.bundleTotalCents ?? null) != null;
               if (isBundle) return s + cents(l.bundleTotalCents || 0);
               return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
             }, 0);
 
-            const feeAmount = Math.max(0, Math.round(subtotalCents * (pct / 100)) + flatCents);
+            const feeAmount = Math.max(
+              0,
+              Math.round(subtotalCents * (pct / 100)) + flatCents
+            );
             if (feeAmount > 0) {
               line_items.push({
                 quantity: 1,
@@ -1564,8 +1582,9 @@ export default async function handler(req, res) {
               });
             }
 
-            // International card processing fee (3%)
-            const purchaserCountry = String(purchaser.country || purchaser.addressCountry || "US")
+            const purchaserCountry = String(
+              purchaser.country || purchaser.addressCountry || "US"
+            )
               .trim()
               .toUpperCase();
             const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
@@ -1651,7 +1670,6 @@ export default async function handler(req, res) {
             mode: orderChannel,
           });
         } catch (e) {
-          // the front-end will now receive a clear stripe error reason instead of just "router failed".
           return errResponse(res, 500, "checkout-create-failed", req, e, {
             hint:
               "If this only fails in live-test/live, it usually means STRIPE_SECRET_KEY_LIVE or webhook secret is missing/mismatched in that environment.",
@@ -1659,7 +1677,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ✅ FIX: action=stripe_webhook verify signature against LIVE + TEST + fallback secrets
       if (action === "stripe_webhook") {
         try {
           const sig = req.headers["stripe-signature"];
@@ -1667,7 +1684,7 @@ export default async function handler(req, res) {
 
           const whsecLive = (process.env.STRIPE_WEBHOOK_SECRET_LIVE || "").trim();
           const whsecTest = (process.env.STRIPE_WEBHOOK_SECRET_TEST || "").trim();
-          const whsecFallback = (process.env.STRIPE_WEBHOOK_SECRET || "").trim(); // backward compat
+          const whsecFallback = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 
           const trySecrets = [whsecLive, whsecTest, whsecFallback].filter(Boolean);
           if (!trySecrets.length) {
@@ -1675,14 +1692,14 @@ export default async function handler(req, res) {
             return REQ_ERR(res, 500, "missing-webhook-secret", { requestId });
           }
 
-          // IMPORTANT: Stripe signs the RAW bytes, not parsed JSON.
           const raw = await readRawBody(req);
 
-          // Use either Stripe client; constructEvent does not depend on API keys, but
-          // we keep your existing pattern.
           const stripeAny =
-            (await getStripe("live")) || (await getStripe("test")) || (await getStripe());
-          if (!stripeAny) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+            (await getStripe("live")) ||
+            (await getStripe("test")) ||
+            (await getStripe());
+          if (!stripeAny)
+            return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
 
           let event = null;
           let verifiedWith = "";
@@ -1691,13 +1708,19 @@ export default async function handler(req, res) {
             try {
               event = stripeAny.webhooks.constructEvent(raw, sig, secret);
               verifiedWith =
-                secret === whsecLive ? "live" : secret === whsecTest ? "test" : "fallback";
+                secret === whsecLive
+                  ? "live"
+                  : secret === whsecTest
+                  ? "test"
+                  : "fallback";
               break;
             } catch {}
           }
 
           if (!event) {
-            console.error("Webhook signature verification failed with all known secrets");
+            console.error(
+              "Webhook signature verification failed with all known secrets"
+            );
             return REQ_ERR(res, 400, "invalid-signature", { requestId });
           }
 
@@ -1712,11 +1735,6 @@ export default async function handler(req, res) {
 
           switch (event.type) {
             case "checkout.session.completed": {
-              // -----------------------------------------------------------------
-              // FIX: DO NOT detach async email sending in serverless.
-              // We await receipts + realtime chair emails so Vercel won't end the
-              // function before emails finish.
-              // -----------------------------------------------------------------
               const session = event.data.object;
               const mode = await resolveModeFromSession(session);
 
@@ -1728,7 +1746,9 @@ export default async function handler(req, res) {
                 livemode: !!event.livemode,
               });
 
-              const order = await saveOrderFromSession(session.id || session, { mode });
+              const order = await saveOrderFromSession(session.id || session, {
+                mode,
+              });
 
               try {
                 console.log("[webhook] sending receipts...", {
@@ -1774,7 +1794,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ---------- register_item (used by admin chairs sync) ----------
       if (action === "register_item") {
         const {
           id = "",
@@ -1786,7 +1805,8 @@ export default async function handler(req, res) {
           kind,
         } = body || {};
 
-        if (!id || !name) return REQ_ERR(res, 400, "id-and-name-required", { requestId });
+        if (!id || !name)
+          return REQ_ERR(res, 400, "id-and-name-required", { requestId });
 
         const emails = Array.isArray(chairEmails)
           ? chairEmails
@@ -1797,8 +1817,10 @@ export default async function handler(req, res) {
 
         const existing = await kvHgetallSafe(`itemcfg:${id}`);
 
-        const freq = normalizeReportFrequency(
-          reportFrequency || existing?.reportFrequency || existing?.report_frequency || "monthly"
+        const freq = computeMergedFreq(
+          reportFrequency,
+          existing,
+          "monthly" // register_item remains generic
         );
 
         const cfg = {
@@ -1824,12 +1846,16 @@ export default async function handler(req, res) {
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
 
-      // Save feature flags (admin/settings.html)
       if (action === "save_feature_flags") {
         const incoming =
-          (body && typeof body === "object" && body.flags && typeof body.flags === "object")
+          body &&
+          typeof body === "object" &&
+          body.flags &&
+          typeof body.flags === "object"
             ? body.flags
-            : (body && typeof body === "object" ? body : {});
+            : body && typeof body === "object"
+            ? body
+            : {};
 
         const nextFlags = { ...DEFAULT_FEATURE_FLAGS };
         for (const k of Object.keys(DEFAULT_FEATURE_FLAGS)) {
@@ -1861,7 +1887,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // --- SAFE ADMIN-ONLY PURGE OF ORDERS BY MODE ---
       if (action === "purge_orders") {
         const confirm = String(body?.confirm || "");
         if (confirm !== "PURGE ORDERS") {
@@ -2053,7 +2078,10 @@ export default async function handler(req, res) {
               reply_to: REPLY_TO || undefined,
             };
 
-            const retry = await sendWithRetry(() => resend.emails.send(payload), "monthly-log");
+            const retry = await sendWithRetry(
+              () => resend.emails.send(payload),
+              "monthly-log"
+            );
             if (retry.ok) {
               const sendResult = retry.result;
               await recordMailLog({
@@ -2133,7 +2161,14 @@ export default async function handler(req, res) {
           }
         }
 
-        return REQ_OK(res, { requestId, ok: true, sent, skipped, errors, scope: "full" });
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          sent,
+          skipped,
+          errors,
+          scope: "full",
+        });
       }
 
       if (action === "clear_orders") {
@@ -2144,7 +2179,8 @@ export default async function handler(req, res) {
       if (action === "create_refund") {
         try {
           const stripe = await getStripe();
-          if (!stripe) return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+          if (!stripe)
+            return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
           const payment_intent = String(body.payment_intent || "").trim();
           const charge = String(body.charge || "").trim();
           const amount_cents_raw = body.amount_cents;
@@ -2152,7 +2188,10 @@ export default async function handler(req, res) {
           if (amount_cents_raw != null) args.amount = cents(amount_cents_raw);
           if (payment_intent) args.payment_intent = payment_intent;
           else if (charge) args.charge = charge;
-          else return REQ_ERR(res, 400, "missing-payment_intent-or-charge", { requestId });
+          else
+            return REQ_ERR(res, 400, "missing-payment_intent-or-charge", {
+              requestId,
+            });
 
           const rf = await stripe.refunds.create(args);
           try {
@@ -2164,36 +2203,64 @@ export default async function handler(req, res) {
         }
       }
 
+      // =========================================================================
+      // ✅ FIXED: save_* actions no longer overwrite reportFrequency to "monthly"
+      //           when admin UI didn't include the field (or included empty).
+      //           Banquets default to DAILY if nothing exists.
+      // =========================================================================
+
       if (action === "save_banquets") {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
 
         try {
           for (const b of list) {
-            const id = String(b?.id || "");
+            const id = String(b?.id || "").trim();
             if (!id) continue;
-            const name = String(b?.name || "");
-            const chairEmails = Array.isArray(b?.chairEmails)
-              ? b.chairEmails
-              : String(b?.chairEmails || b?.chair?.email || "")
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              b?.reportFrequency || b?.report_frequency || "monthly"
+            const existing = await kvHgetallSafe(`itemcfg:${id}`);
+
+            const name = pickNonEmptyString(b?.name, existing?.name, id);
+
+            const chairEmails = normalizeChairEmails(
+              b?.chairEmails,
+              b?.chair?.email
+            );
+            const mergedChairEmails =
+              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+                ? existing.chairEmails
+                : normalizeChairEmails(existing?.chairEmails, "");
+
+            const publishStart = pickNonEmptyString(
+              b?.publishStart,
+              existing?.publishStart,
+              ""
+            );
+            const publishEnd = pickNonEmptyString(
+              b?.publishEnd,
+              existing?.publishEnd,
+              ""
+            );
+
+            // 🔥 Banquets default to DAILY (unless existing says otherwise)
+            const freq = computeMergedFreq(
+              b?.reportFrequency ?? b?.report_frequency,
+              existing,
+              "daily"
             );
 
             const cfg = {
+              ...existing,
               id,
               name,
               kind: "banquet",
-              chairEmails,
-              publishStart: b?.publishStart || "",
-              publishEnd: b?.publishEnd || "",
+              chairEmails: mergedChairEmails,
+              publishStart,
+              publishEnd,
               reportFrequency: freq,
               updatedAt: new Date().toISOString(),
             };
+
             await kvHsetSafe(`itemcfg:${id}`, cfg);
             await kvSaddSafe("itemcfg:index", id);
           }
@@ -2208,30 +2275,52 @@ export default async function handler(req, res) {
 
         try {
           for (const a of list) {
-            const id = String(a?.id || "");
+            const id = String(a?.id || "").trim();
             if (!id) continue;
-            const name = String(a?.name || "");
-            const chairEmails = Array.isArray(a?.chairEmails)
-              ? a.chairEmails
-              : String(a?.chairEmails || a?.chair?.email || "")
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              a?.reportFrequency || a?.report_frequency || "monthly"
+            const existing = await kvHgetallSafe(`itemcfg:${id}`);
+
+            const name = pickNonEmptyString(a?.name, existing?.name, id);
+
+            const chairEmails = normalizeChairEmails(
+              a?.chairEmails,
+              a?.chair?.email
+            );
+            const mergedChairEmails =
+              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+                ? existing.chairEmails
+                : normalizeChairEmails(existing?.chairEmails, "");
+
+            const publishStart = pickNonEmptyString(
+              a?.publishStart,
+              existing?.publishStart,
+              ""
+            );
+            const publishEnd = pickNonEmptyString(
+              a?.publishEnd,
+              existing?.publishEnd,
+              ""
+            );
+
+            // Add-ons: keep existing if set; otherwise monthly is fine
+            const freq = computeMergedFreq(
+              a?.reportFrequency ?? a?.report_frequency,
+              existing,
+              "monthly"
             );
 
             const cfg = {
+              ...existing,
               id,
               name,
               kind: "addon",
-              chairEmails,
-              publishStart: a?.publishStart || "",
-              publishEnd: a?.publishEnd || "",
+              chairEmails: mergedChairEmails,
+              publishStart,
+              publishEnd,
               reportFrequency: freq,
               updatedAt: new Date().toISOString(),
             };
+
             await kvHsetSafe(`itemcfg:${id}`, cfg);
             await kvSaddSafe("itemcfg:index", id);
           }
@@ -2240,37 +2329,57 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
-      // Existing products save (back-compat for main catalog)
       if (action === "save_products") {
         const list = Array.isArray(body.products) ? body.products : [];
         await kvSetSafe("products", list);
 
         try {
           for (const p of list) {
-            const id = String(p?.id || "");
+            const id = String(p?.id || "").trim();
             if (!id) continue;
-            const name = String(p?.name || "");
-            const chairEmails = Array.isArray(p?.chairEmails)
-              ? p.chairEmails
-              : String(p?.chairEmails || p?.chair?.email || "")
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              p?.reportFrequency || p?.report_frequency || "monthly"
+            const existing = await kvHgetallSafe(`itemcfg:${id}`);
+
+            const name = pickNonEmptyString(p?.name, existing?.name, id);
+
+            const chairEmails = normalizeChairEmails(
+              p?.chairEmails,
+              p?.chair?.email
+            );
+            const mergedChairEmails =
+              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+                ? existing.chairEmails
+                : normalizeChairEmails(existing?.chairEmails, "");
+
+            const publishStart = pickNonEmptyString(
+              p?.publishStart,
+              existing?.publishStart,
+              ""
+            );
+            const publishEnd = pickNonEmptyString(
+              p?.publishEnd,
+              existing?.publishEnd,
+              ""
+            );
+
+            const freq = computeMergedFreq(
+              p?.reportFrequency ?? p?.report_frequency,
+              existing,
+              "monthly"
             );
 
             const cfg = {
+              ...existing,
               id,
               name,
               kind: "catalog",
-              chairEmails,
-              publishStart: p?.publishStart || "",
-              publishEnd: p?.publishEnd || "",
+              chairEmails: mergedChairEmails,
+              publishStart,
+              publishEnd,
               reportFrequency: freq,
               updatedAt: new Date().toISOString(),
             };
+
             await kvHsetSafe(`itemcfg:${id}`, cfg);
             await kvSaddSafe("itemcfg:index", id);
           }
@@ -2279,8 +2388,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ok: true, count: list.length });
       }
 
-      // NEW: Save items for any catalog-like category
-      // POST /api/router?action=save_catalog_items&cat=supplies
       if (action === "save_catalog_items") {
         const cat = normalizeCat(url.searchParams.get("cat") || body?.cat || "catalog");
         const key = catalogItemsKeyForCat(cat);
@@ -2292,33 +2399,53 @@ export default async function handler(req, res) {
           : [];
         await kvSetSafe(key, list);
 
-        // Keep itemcfg in sync (same pattern as save_products)
         try {
           for (const p of list) {
-            const id = String(p?.id || "");
+            const id = String(p?.id || "").trim();
             if (!id) continue;
-            const name = String(p?.name || "");
-            const chairEmails = Array.isArray(p?.chairEmails)
-              ? p.chairEmails
-              : String(p?.chairEmails || p?.chair?.email || "")
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
 
-            const freq = normalizeReportFrequency(
-              p?.reportFrequency || p?.report_frequency || "monthly"
+            const existing = await kvHgetallSafe(`itemcfg:${id}`);
+
+            const name = pickNonEmptyString(p?.name, existing?.name, id);
+
+            const chairEmails = normalizeChairEmails(
+              p?.chairEmails,
+              p?.chair?.email
+            );
+            const mergedChairEmails =
+              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+                ? existing.chairEmails
+                : normalizeChairEmails(existing?.chairEmails, "");
+
+            const publishStart = pickNonEmptyString(
+              p?.publishStart,
+              existing?.publishStart,
+              ""
+            );
+            const publishEnd = pickNonEmptyString(
+              p?.publishEnd,
+              existing?.publishEnd,
+              ""
+            );
+
+            const freq = computeMergedFreq(
+              p?.reportFrequency ?? p?.report_frequency,
+              existing,
+              "monthly"
             );
 
             const cfg = {
+              ...existing,
               id,
               name,
               kind: cat === "catalog" ? "catalog" : `catalog:${cat}`,
-              chairEmails,
-              publishStart: p?.publishStart || "",
-              publishEnd: p?.publishEnd || "",
+              chairEmails: mergedChairEmails,
+              publishStart,
+              publishEnd,
               reportFrequency: freq,
               updatedAt: new Date().toISOString(),
             };
+
             await kvHsetSafe(`itemcfg:${id}`, cfg);
             await kvSaddSafe("itemcfg:index", id);
           }
@@ -2347,13 +2474,13 @@ export default async function handler(req, res) {
           if (k in body) allow[k] = body[k];
         });
 
-        if ("MAINTENANCE_ON" in allow) allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
+        if ("MAINTENANCE_ON" in allow)
+          allow.MAINTENANCE_ON = String(!!allow.MAINTENANCE_ON);
 
         if ("REPORT_FREQUENCY" in allow) {
           allow.REPORT_FREQUENCY = normalizeReportFrequency(allow.REPORT_FREQUENCY);
         }
 
-        // Clamp weekday to 1–7 and store as string
         if ("REPORT_WEEKDAY" in allow) {
           let wd = parseInt(allow.REPORT_WEEKDAY, 10);
           if (!Number.isFinite(wd) || wd < 1 || wd > 7) wd = 1;
@@ -2366,7 +2493,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ok: true, overrides: allow });
       }
 
-      // Save checkout / Stripe mode + date window (admin/settings.html)
       if (action === "save_checkout_mode") {
         const { stripeMode, liveAuto, liveStart, liveEnd } = body || {};
 
@@ -2398,13 +2524,11 @@ export default async function handler(req, res) {
 
     return REQ_ERR(res, 405, "method-not-allowed", { requestId });
   } catch (e) {
-    // FINAL CATCH: returns structured info (requestId + safe error details)
     return errResponse(res, 500, "router-failed", req, e);
   }
 }
 
 // Vercel Node 22 runtime
-// IMPORTANT: bodyParser must be disabled so Stripe webhook signature verification works.
 export const config = {
   runtime: "nodejs",
   api: { bodyParser: false },
