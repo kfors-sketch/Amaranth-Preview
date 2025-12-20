@@ -2,6 +2,7 @@
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 
 // ============================================================================
 // STRIPE MODE-AWARE KEY SELECTION
@@ -197,6 +198,9 @@ const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
 const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
 const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // log recipients for monthly cron summary
 const CONTACT_TO = (process.env.CONTACT_TO || "pa_sessions@yahoo.com").trim(); // contact form receiver
+
+// NEW: backup receipts inbox (XLSX copy of each receipt)
+const EMAIL_RECEIPTS = (process.env.EMAIL_RECEIPTS || "").trim();
 
 const REQ_OK = (res, data) => res.status(200).json(data);
 const REQ_ERR = (res, code, msg, extra = {}) =>
@@ -412,9 +416,7 @@ function applyItemFilters(rows, { category, item_id, item }) {
 
   if (category) {
     const cat = String(category).toLowerCase();
-    out = out.filter(
-      (r) => String(r.category || "").toLowerCase() === cat
-    );
+    out = out.filter((r) => String(r.category || "").toLowerCase() === cat);
   }
 
   if (item_id) {
@@ -438,9 +440,7 @@ function applyItemFilters(rows, { category, item_id, item }) {
     });
   } else if (item) {
     const want = String(item).toLowerCase();
-    out = out.filter((r) =>
-      String(r.item || "").toLowerCase().includes(want)
-    );
+    out = out.filter((r) => String(r.item || "").toLowerCase().includes(want));
   }
 
   return out;
@@ -457,19 +457,14 @@ async function recordMailLog(payload) {
 // --- Coverage text helper for chair reports ---
 function formatCoverageRange({ startMs, endMs, rows }) {
   const fmt = (ms) =>
-    new Date(ms)
-      .toISOString()
-      .replace("T", " ")
-      .replace(/\.\d+Z$/, " UTC");
+    new Date(ms).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
 
   let start = typeof startMs === "number" && !isNaN(startMs) ? startMs : null;
   let end =
     typeof endMs === "number" && !isNaN(endMs) ? endMs - 1 : null; // endMs is exclusive → subtract 1 ms
 
   if ((start == null || end == null) && Array.isArray(rows) && rows.length) {
-    const ts = rows
-      .map((r) => parseDateISO(r.date))
-      .filter((t) => !isNaN(t));
+    const ts = rows.map((r) => parseDateISO(r.date)).filter((t) => !isNaN(t));
     if (ts.length) {
       const min = Math.min(...ts);
       const max = Math.max(...ts);
@@ -480,8 +475,7 @@ function formatCoverageRange({ startMs, endMs, rows }) {
 
   if (start == null && end == null) return "";
 
-  const startLabel =
-    start != null ? fmt(start) : "beginning of recorded orders";
+  const startLabel = start != null ? fmt(start) : "beginning of recorded orders";
   const endLabel = end != null ? fmt(end) : "now";
 
   return `This report covers orders from ${startLabel} through ${endLabel}.`;
@@ -512,9 +506,7 @@ async function getChairEmailsForItemId(id) {
   try {
     const banquets = await kvGetSafe("banquets", []);
     if (Array.isArray(banquets)) {
-      const b = banquets.find(
-        (x) => String(x?.id || "") === String(id)
-      );
+      const b = banquets.find((x) => String(x?.id || "") === String(id));
       if (b) {
         const arr = Array.isArray(b.chairEmails)
           ? b.chairEmails
@@ -528,9 +520,7 @@ async function getChairEmailsForItemId(id) {
   try {
     const addons = await kvGetSafe("addons", []);
     if (Array.isArray(addons)) {
-      const a = addons.find(
-        (x) => String(x?.id || "") === String(id)
-      );
+      const a = addons.find((x) => String(x?.id || "") === String(id));
       if (a) {
         const arr = Array.isArray(a.chairEmails)
           ? a.chairEmails
@@ -554,12 +544,8 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
 
-  const sid =
-    typeof sessionLike === "string" ? sessionLike : sessionLike.id;
-  const { session: s, lineItems } = await fetchSessionAndItems(
-    stripe,
-    sid
-  );
+  const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
+  const { session: s, lineItems } = await fetchSessionAndItems(stripe, sid);
 
   const lines = lineItems.map((li) => {
     const name = li.description || li.price?.product?.name || "Item";
@@ -617,21 +603,15 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     id: sid,
     created: Date.now(),
     payment_intent:
-      typeof s.payment_intent === "string"
-        ? s.payment_intent
-        : s.payment_intent?.id || "",
+      typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
-    customer_email: (
-      s.customer_details?.email || purchaserFromMeta.email || ""
-    ).trim(),
+    customer_email: (s.customer_details?.email || purchaserFromMeta.email || "").trim(),
     purchaser: {
       name: purchaserFromMeta.name || s.customer_details?.name || "",
-      email:
-        purchaserFromMeta.email || s.customer_details?.email || "",
-      phone:
-        purchaserFromMeta.phone || s.customer_details?.phone || "",
+      email: purchaserFromMeta.email || s.customer_details?.email || "",
+      phone: purchaserFromMeta.phone || s.customer_details?.phone || "",
       title: purchaserFromMeta.title || "",
       address1: purchaserFromMeta.address1 || "",
       address2: purchaserFromMeta.address2 || "",
@@ -654,13 +634,10 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await (
-      await getStripe()
-    ).paymentIntents
+    const pi = await (await getStripe()).paymentIntents
       .retrieve(piId, { expand: ["charges.data"] })
       .catch(() => null);
-    if (pi?.charges?.data?.length)
-      order.charge = pi.charges.data[0].id;
+    if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
   await kvSetSafe(`order:${order.id}`, order);
@@ -684,8 +661,7 @@ async function applyRefundToOrder(chargeId, refund) {
       o.refunds = Array.isArray(o.refunds) ? o.refunds : [];
       o.refunds.push(entry);
       o.refunded_cents = (o.refunded_cents || 0) + entry.amount;
-      o.status =
-        o.refunded_cents >= o.amount_total ? "refunded" : "partial_refund";
+      o.status = o.refunded_cents >= o.amount_total ? "refunded" : "partial_refund";
       await kvSetSafe(key, o);
       return true;
     }
@@ -719,9 +695,7 @@ function flattenOrderToRows(o) {
       status: o.status || "paid",
       notes:
         li.category === "banquet"
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
-              .filter(Boolean)
-              .join("; ")
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : li.meta?.itemNote || "",
       _itemId: rawId,
       _itemBase: base,
@@ -733,9 +707,7 @@ function flattenOrderToRows(o) {
     });
   });
 
-  const feeLine = (o.lines || []).find((li) =>
-    /processing fee/i.test(li.itemName || "")
-  );
+  const feeLine = (o.lines || []).find((li) => /processing fee/i.test(li.itemName || ""));
   if (feeLine) {
     rows.push({
       id: o.id,
@@ -786,14 +758,9 @@ function computeStripeProcessingFeeFromLines(
       itemId === "processing-fee" ||
       ((cat === "fee" || metaType === "fee" || metaType === "other") &&
         /processing\s*fee/i.test(name));
-    const isIntlFee =
-      itemId === "intl-fee" ||
-      /international card processing fee/i.test(name);
+    const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
 
-    const isShipping =
-      cat === "shipping" ||
-      metaType === "shipping" ||
-      itemId === "shipping";
+    const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
     // Skip any existing fee lines from the base
     if (isProcessingFee || isIntlFee) continue;
@@ -852,9 +819,7 @@ function renderOrderEmailHTML(order) {
       ((cat === "fee" || metaType === "fee" || metaType === "other") &&
         /processing\s*fee/i.test(name));
 
-    const isIntlFee =
-      itemId === "intl-fee" ||
-      /international card processing fee/i.test(name);
+    const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
 
     // Skip fee lines from the item tables and track them for the summary
     if (isProcessingFee) {
@@ -866,16 +831,14 @@ function renderOrderEmailHTML(order) {
       return;
     }
 
-    const isBanquet =
-      cat === "banquet" || /banquet/i.test(name);
+    const isBanquet = cat === "banquet" || /banquet/i.test(name);
     const isAddon =
       cat === "addon" ||
       /addon/i.test(li.meta?.itemType || "") ||
       /addon/i.test(name);
 
     if (isBanquet || isAddon) {
-      const attName =
-        (li.meta && li.meta.attendeeName) || purchaserName;
+      const attName = (li.meta && li.meta.attendeeName) || purchaserName;
       (attendeeGroups[attName] ||= []).push(li);
     } else {
       topCatalog.push(li);
@@ -886,20 +849,16 @@ function renderOrderEmailHTML(order) {
     const bodyRows = rows
       .map((li) => {
         const cat = String(li.category || "").toLowerCase();
-        const isBanquet =
-          cat === "banquet" || /banquet/i.test(li.itemName || "");
+        const isBanquet = cat === "banquet" || /banquet/i.test(li.itemName || "");
         const notes = isBanquet
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
-              .filter(Boolean)
-              .join("; ")
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : li.meta?.itemNote || "";
         const notesRow = notes
           ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(
               notes
             ).replace(/</g, "&lt;")}</div>`
           : "";
-        const lineTotal =
-          Number(li.unitPrice || 0) * Number(li.qty || 1);
+        const lineTotal = Number(li.unitPrice || 0) * Number(li.qty || 1);
         return `
         <tr>
           <td style="padding:8px;border-bottom:1px solid #eee">
@@ -918,12 +877,7 @@ function renderOrderEmailHTML(order) {
       })
       .join("");
 
-    const subtotal = rows.reduce(
-      (s, li) =>
-        s +
-        Number(li.unitPrice || 0) * Number(li.qty || 1),
-      0
-    );
+    const subtotal = rows.reduce((s, li) => s + Number(li.unitPrice || 0) * Number(li.qty || 1), 0);
 
     return `
       <table style="width:100%;border-collapse:collapse">
@@ -980,21 +934,12 @@ function renderOrderEmailHTML(order) {
 
       const isProcessingFee =
         itemId === "processing-fee" ||
-        ((cat === "fee" ||
-          metaType === "fee" ||
-          metaType === "other") &&
+        ((cat === "fee" || metaType === "fee" || metaType === "other") &&
           /processing\s*fee/i.test(name));
-      const isIntlFee =
-        itemId === "intl-fee" ||
-        /international card processing fee/i.test(name);
-      const isShipping =
-        cat === "shipping" ||
-        metaType === "shipping" ||
-        itemId === "shipping";
+      const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
+      const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
-      if (isProcessingFee || isIntlFee) {
-        continue; // handled separately
-      }
+      if (isProcessingFee || isIntlFee) continue; // handled separately
 
       if (isShipping) {
         shipping += lineCents;
@@ -1004,31 +949,19 @@ function renderOrderEmailHTML(order) {
       itemsSubtotal += lineCents;
     }
 
-    return {
-      itemsSubtotalCents: itemsSubtotal,
-      shippingCents: shipping,
-    };
+    return { itemsSubtotalCents: itemsSubtotal, shippingCents: shipping };
   })();
 
-  const grandTotalCents =
-    itemsSubtotalCents +
-    shippingCents +
-    processingFeeCents +
-    intlFeeCents;
+  const grandTotalCents = itemsSubtotalCents + shippingCents + processingFeeCents + intlFeeCents;
 
-  const totalCents =
-    grandTotalCents > 0
-      ? grandTotalCents
-      : Number(order.amount_total || 0);
+  const totalCents = grandTotalCents > 0 ? grandTotalCents : Number(order.amount_total || 0);
 
   const shippingRow =
     shippingCents > 0
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Shipping &amp; Handling</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
-          shippingCents
-        )}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(shippingCents)}</td>
       </tr>`
       : "";
 
@@ -1048,9 +981,7 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">International Card Processing Fee (3%)</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
-          intlFeeCents
-        )}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(intlFeeCents)}</td>
       </tr>`
       : "";
 
@@ -1079,18 +1010,14 @@ function renderOrderEmailHTML(order) {
       <tfoot>
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid:#eee">Subtotal</td>
-          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
-            itemsSubtotalCents
-          )}</td>
+          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(itemsSubtotalCents)}</td>
         </tr>
         ${shippingRow}
         ${processingRow}
         ${intlRow}
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(
-            totalCents
-          )}</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(totalCents)}</td>
         </tr>
       </tfoot>
     </table>
@@ -1100,17 +1027,421 @@ function renderOrderEmailHTML(order) {
   </body></html>`;
 }
 
+// ---------------------------------------------------------------------------
+// Receipt XLSX backup (standard columns + year/month/day) → emailed to EMAIL_RECEIPTS
+// ---------------------------------------------------------------------------
+
+// NOTE: Headers are FIXED and ordered. Do not change without versioning.
+const RECEIPT_XLSX_HEADERS = [
+  "year",
+  "month",
+  "day",
+  "order_id",
+  "date",
+  "mode",
+  "purchaser_name",
+  "purchaser_email",
+  "purchaser_phone",
+  "attendee",
+  "attendee_title",
+  "attendee_email",
+  "attendee_phone",
+  "category",
+  "item",
+  "item_id",
+  "qty",
+  "unit_price",
+  "line_total",
+  "status",
+  "notes",
+  "_pi",
+  "_charge",
+  "_session",
+];
+
+const RECEIPT_XLSX_HEADER_LABELS = {
+  year: "Year",
+  month: "Month",
+  day: "Day",
+  order_id: "Order ID",
+  date: "Date",
+  mode: "Mode",
+  purchaser_name: "Purchaser",
+  purchaser_email: "Purchaser Email",
+  purchaser_phone: "Purchaser Phone",
+  attendee: "Attendee",
+  attendee_title: "Title",
+  attendee_email: "Attendee Email",
+  attendee_phone: "Attendee Phone",
+  category: "Category",
+  item: "Item",
+  item_id: "Item ID",
+  qty: "Qty",
+  unit_price: "Unit Price",
+  line_total: "Line Total",
+  status: "Status",
+  notes: "Notes",
+  _pi: "Payment Intent",
+  _charge: "Charge",
+  _session: "Session ID",
+};
+
+function deriveYMDParts(createdMs) {
+  const d = new Date(Number(createdMs || Date.now()));
+  const iso = d.toISOString(); // UTC
+  const day = iso.slice(0, 10); // YYYY-MM-DD
+  const year = day.slice(0, 4);
+  const month = day.slice(0, 7); // YYYY-MM
+  return { year, month, day, iso };
+}
+
+function buildReceiptXlsxRows(order) {
+  const o = order || {};
+  const { year, month, day, iso } = deriveYMDParts(o.created || Date.now());
+  const mode = String(o.mode || "test").toLowerCase();
+  const purchaserName =
+    String(o?.purchaser?.name || "").trim() || String(o.customer_email || "").trim();
+  const purchaserEmail = String(o?.purchaser?.email || o.customer_email || "").trim();
+  const purchaserPhone = String(o?.purchaser?.phone || "").trim();
+  const status = String(o.status || "paid");
+
+  const rows = [];
+  for (const li of o.lines || []) {
+    const qty = Number(li?.qty || 1);
+    const unit = Number(li?.unitPrice || 0); // cents
+    const lineCents = unit * qty;
+
+    const cat = String(li?.category || "other").toLowerCase();
+    const itemId = String(li?.itemId || "");
+    const itemName = String(li?.itemName || "");
+
+    const isBanquet = cat === "banquet" || /banquet/i.test(itemName);
+    const notes = isBanquet
+      ? [li?.meta?.attendeeNotes, li?.meta?.dietaryNote].filter(Boolean).join("; ")
+      : li?.meta?.itemNote || "";
+
+    rows.push({
+      year,
+      month,
+      day,
+      order_id: String(o.id || ""),
+      date: iso,
+      mode,
+      purchaser_name: purchaserName,
+      purchaser_email: purchaserEmail,
+      purchaser_phone: purchaserPhone,
+
+      attendee: String(li?.meta?.attendeeName || ""),
+      attendee_title: String(li?.meta?.attendeeTitle || ""),
+      attendee_email: String(li?.meta?.attendeeEmail || ""),
+      attendee_phone: String(li?.meta?.attendeePhone || ""),
+
+      category: cat,
+      item: itemName,
+      item_id: itemId,
+      qty: qty,
+
+      // keep as NUMBERS (not strings) for easy sum in Excel
+      unit_price: Number((unit / 100).toFixed(2)),
+      line_total: Number((lineCents / 100).toFixed(2)),
+
+      status,
+      notes: String(notes || ""),
+
+      _pi: String(o.payment_intent || ""),
+      _charge: String(o.charge || ""),
+      _session: String(o.id || ""),
+    });
+  }
+
+  // Always return at least one row so the XLSX has headers even if lines missing
+  if (!rows.length) {
+    const blank = {};
+    for (const h of RECEIPT_XLSX_HEADERS) blank[h] = "";
+    blank.year = year;
+    blank.month = month;
+    blank.day = day;
+    blank.order_id = String(o.id || "");
+    blank.date = iso;
+    blank.mode = mode;
+    blank.purchaser_email = purchaserEmail;
+    blank.status = status;
+    rows.push(blank);
+  }
+
+  return rows;
+}
+
+async function sendReceiptXlsxBackup(order) {
+  if (!resend || !EMAIL_RECEIPTS) return { ok: false, reason: "not-configured" };
+
+  const rows = buildReceiptXlsxRows(order);
+  const xlsxBuf = await objectsToXlsxBuffer(
+    RECEIPT_XLSX_HEADERS,
+    rows,
+    RECEIPT_XLSX_HEADER_LABELS,
+    "Receipt"
+  );
+  const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
+
+  const orderId = String(order?.id || "").trim() || "unknown-order";
+  const mode = String(order?.mode || "test").toLowerCase();
+  const purchaserEmail = String(order?.purchaser?.email || order?.customer_email || "").trim();
+
+  const subject = `Receipt XLSX backup — ${orderId}${mode ? ` (${mode})` : ""}`;
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
+      <h2 style="margin:0 0 6px;">Receipt Backup (XLSX)</h2>
+      <div>Order ID: <b>${orderId.replace(/</g, "&lt;")}</b></div>
+      ${purchaserEmail ? `<div>Purchaser: <b>${purchaserEmail.replace(/</g, "&lt;")}</b></div>` : ""}
+      <div style="margin-top:10px;color:#555;font-size:12px;">
+        Automated backup copy in a standard spreadsheet format (stable headers &amp; order).
+      </div>
+    </div>
+  `;
+
+  const payload = {
+    from: RESEND_FROM,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    html,
+    reply_to: REPLY_TO || undefined,
+    attachments: [
+      {
+        filename: `receipt-${orderId}.xlsx`,
+        content: xlsxB64,
+      },
+    ],
+  };
+
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:xlsx-backup:${orderId}`);
+
+  if (retry.ok) {
+    const sendResult = retry.result;
+    await recordMailLog({
+      ts: Date.now(),
+      from: RESEND_FROM,
+      to: [EMAIL_RECEIPTS],
+      subject,
+      orderId: order?.id || "",
+      resultId: sendResult?.id || null,
+      status: "queued",
+      kind: "receipt-xlsx-backup",
+    });
+    return { ok: true };
+  }
+
+  const err = retry.error;
+  await recordMailLog({
+    ts: Date.now(),
+    from: RESEND_FROM,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    orderId: order?.id || "",
+    resultId: null,
+    status: "error",
+    kind: "receipt-xlsx-backup",
+    error: String(err?.message || err),
+  });
+
+  return { ok: false, error: err?.message || String(err) };
+}
+
+// ---------------------------------------------------------------------------
+// Monthly / Final ZIP builders (XLSX + CSV inside)
+//   - These are helpers for router endpoints or cron jobs.
+//   - They do NOT run automatically unless you call them.
+// ---------------------------------------------------------------------------
+
+function monthRangeUTC(year, month1to12) {
+  const y = Number(year);
+  const m = Number(month1to12);
+  if (!y || !m || m < 1 || m > 12) throw new Error("Invalid year/month");
+  const start = Date.UTC(y, m - 1, 1, 0, 0, 0, 0);
+  const end = Date.UTC(y, m, 1, 0, 0, 0, 0); // exclusive
+  return { startMs: start, endMs: end };
+}
+
+function rowsFromOrdersForReceipts(orders, { startMs, endMs } = {}) {
+  const out = [];
+  for (const o of orders || []) {
+    const t = Number(o?.created || 0);
+    if (startMs && t && t < startMs) continue;
+    if (endMs && t && t >= endMs) continue;
+
+    const rows = buildReceiptXlsxRows(o);
+    for (const r of rows) out.push(r);
+  }
+  // sort by Date ASC for predictable paste/append behavior
+  out.sort((a, b) => parseDateISO(a.date) - parseDateISO(b.date));
+  return out;
+}
+
+function buildReceiptCSVFromRows(rows) {
+  const headers = RECEIPT_XLSX_HEADERS.slice();
+
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const lines = [headers.join(",")];
+  for (const r of rows || []) {
+    lines.push(headers.map((h) => esc(r[h])).join(","));
+  }
+  return "\uFEFF" + lines.join("\n");
+}
+
+async function buildReceiptsXlsxBufferFromRows(rows, sheetName = "Receipts") {
+  return await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, sheetName);
+}
+
+async function sendZipToEmailReceipts({ subject, html, filename, zipBuffer }) {
+  if (!resend || !EMAIL_RECEIPTS) return { ok: false, reason: "not-configured" };
+
+  const b64 = Buffer.from(zipBuffer).toString("base64");
+  const payload = {
+    from: RESEND_FROM,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    html,
+    reply_to: REPLY_TO || undefined,
+    attachments: [
+      {
+        filename,
+        content: b64,
+      },
+    ],
+  };
+
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:zip:${filename}`);
+
+  if (retry.ok) {
+    const sendResult = retry.result;
+    await recordMailLog({
+      ts: Date.now(),
+      from: RESEND_FROM,
+      to: [EMAIL_RECEIPTS],
+      subject,
+      resultId: sendResult?.id || null,
+      status: "queued",
+      kind: "receipt-zip",
+    });
+    return { ok: true };
+  }
+
+  const err = retry.error;
+  await recordMailLog({
+    ts: Date.now(),
+    from: RESEND_FROM,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    resultId: null,
+    status: "error",
+    kind: "receipt-zip",
+    error: String(err?.message || err),
+  });
+  return { ok: false, error: err?.message || String(err) };
+}
+
+/**
+ * Build + email a monthly receipts zip:
+ * - Receipts_YYYY-MM.xlsx (combined)
+ * - Receipts_YYYY-MM.csv  (combined)
+ */
+async function emailMonthlyReceiptsZip({ year, month } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m) return { ok: false, error: "missing-year-or-month" };
+
+  const { startMs, endMs } = monthRangeUTC(y, m);
+  const orders = await loadAllOrdersWithRetry();
+
+  const rows = rowsFromOrdersForReceipts(orders, { startMs, endMs });
+  const xlsxBuf = await buildReceiptsXlsxBufferFromRows(rows, "Receipts");
+  const csv = buildReceiptCSVFromRows(rows);
+
+  const mm = String(m).padStart(2, "0");
+  const ym = `${y}-${mm}`;
+
+  const zip = new JSZip();
+  zip.file(`Receipts_${ym}.xlsx`, Buffer.from(xlsxBuf));
+  zip.file(`Receipts_${ym}.csv`, csv);
+
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+
+  const subject = `Monthly receipts backup — ${ym}`;
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+      <p>Attached is the <b>monthly receipts backup</b> for <b>${ym}</b>.</p>
+      <ul>
+        <li>Rows: <b>${rows.length}</b></li>
+        <li>Files: <code>Receipts_${ym}.xlsx</code>, <code>Receipts_${ym}.csv</code></li>
+      </ul>
+      <p style="font-size:12px;color:#555">Stable headers &amp; order. Safe to copy/paste append across months.</p>
+    </div>
+  `;
+
+  return await sendZipToEmailReceipts({
+    subject,
+    html,
+    filename: `Receipts_${ym}.zip`,
+    zipBuffer: zipBuf,
+  });
+}
+
+/**
+ * Build + email a final receipts zip for a year.
+ * Uses:
+ * - all orders whose created year matches (UTC year)
+ * (If you prefer EVENT_START/EVENT_END window, call with { startMs, endMs } instead via a custom wrapper.)
+ */
+async function emailFinalReceiptsZip({ year } = {}) {
+  const y = Number(year);
+  if (!y) return { ok: false, error: "missing-year" };
+
+  const startMs = Date.UTC(y, 0, 1, 0, 0, 0, 0);
+  const endMs = Date.UTC(y + 1, 0, 1, 0, 0, 0, 0);
+  const orders = await loadAllOrdersWithRetry();
+
+  const rows = rowsFromOrdersForReceipts(orders, { startMs, endMs });
+  const xlsxBuf = await buildReceiptsXlsxBufferFromRows(rows, "Receipts");
+  const csv = buildReceiptCSVFromRows(rows);
+
+  const zip = new JSZip();
+  zip.file(`Receipts_${y}_Final.xlsx`, Buffer.from(xlsxBuf));
+  zip.file(`Receipts_${y}_Final.csv`, csv);
+
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+
+  const subject = `Final receipts backup — ${y}`;
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+      <p>Attached is the <b>final receipts backup</b> for <b>${y}</b>.</p>
+      <ul>
+        <li>Rows: <b>${rows.length}</b></li>
+        <li>Files: <code>Receipts_${y}_Final.xlsx</code>, <code>Receipts_${y}_Final.csv</code></li>
+      </ul>
+      <p style="font-size:12px;color:#555">Stable headers &amp; order. Safe to copy/paste append across years.</p>
+    </div>
+  `;
+
+  return await sendZipToEmailReceipts({
+    subject,
+    html,
+    filename: `Receipts_${y}_Final.zip`,
+    zipBuffer: zipBuf,
+  });
+}
+
 async function sendOrderReceipts(order) {
-  if (!resend)
-    return { sent: false, reason: "resend-not-configured" };
+  if (!resend) return { sent: false, reason: "resend-not-configured" };
 
   const html = renderOrderEmailHTML(order);
   const subject = `Grand Court of PA - order #${order.id}`;
 
   const purchaserEmail = (order.customer_email || "").trim();
-  const adminList = (
-    process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
-  )
+  const adminList = (process.env.REPORTS_BCC || process.env.REPORTS_CC || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -1125,10 +1456,7 @@ async function sendOrderReceipts(order) {
       reply_to: REPLY_TO || undefined,
     };
 
-    const retry = await sendWithRetry(
-      () => resend.emails.send(payload),
-      `receipt:purchaser:${order.id}`
-    );
+    const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:purchaser:${order.id}`);
 
     if (retry.ok) {
       const sendResult = retry.result;
@@ -1168,10 +1496,7 @@ async function sendOrderReceipts(order) {
       reply_to: REPLY_TO || undefined,
     };
 
-    const retryAdmin = await sendWithRetry(
-      () => resend.emails.send(payloadAdmin),
-      `receipt:admin:${order.id}`
-    );
+    const retryAdmin = await sendWithRetry(() => resend.emails.send(payloadAdmin), `receipt:admin:${order.id}`);
 
     if (retryAdmin.ok) {
       const sendResult = retryAdmin.result;
@@ -1201,8 +1526,14 @@ async function sendOrderReceipts(order) {
     }
   }
 
-  if (!purchaserEmail && !adminList.length)
-    return { sent: false, reason: "no-recipients" };
+  // NEW: Receipt XLSX backup to EMAIL_RECEIPTS (with retry) — does not block purchaser/admin
+  try {
+    await sendReceiptXlsxBackup(order);
+  } catch (e) {
+    console.error("[receipt-xlsx-backup] unexpected failure:", e?.message || e);
+  }
+
+  if (!purchaserEmail && !adminList.length && !EMAIL_RECEIPTS) return { sent: false, reason: "no-recipients" };
   return { sent: true };
 }
 
@@ -1265,12 +1596,7 @@ function buildCSVSelected(rows, headers) {
 }
 
 // ---- generic XLSX helper ----
-async function objectsToXlsxBuffer(
-  headers,
-  rows,
-  headerLabels = null,
-  sheetName = "Report"
-) {
+async function objectsToXlsxBuffer(headers, rows, headerLabels = null, sheetName = "Report") {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(sheetName || "Report");
 
@@ -1278,9 +1604,7 @@ async function objectsToXlsxBuffer(
 
   if (effectiveHeaders.length) {
     const headerRowValues = effectiveHeaders.map((h) =>
-      headerLabels && headerLabels[h] !== undefined
-        ? headerLabels[h]
-        : h
+      headerLabels && headerLabels[h] !== undefined ? headerLabels[h] : h
     );
     worksheet.addRow(headerRowValues);
 
@@ -1310,16 +1634,9 @@ async function objectsToXlsxBuffer(
 
 function collectAttendeesFromOrders(
   orders,
-  {
-    includeAddress = false,
-    categories = ["banquet", "addon"],
-    startMs,
-    endMs,
-  } = {}
+  { includeAddress = false, categories = ["banquet", "addon"], startMs, endMs } = {}
 ) {
-  const cats = new Set(
-    (categories || []).map((c) => String(c || "").toLowerCase())
-  );
+  const cats = new Set((categories || []).map((c) => String(c || "").toLowerCase()));
   const out = [];
   for (const o of orders || []) {
     const createdMs = Number(o?.created || 0);
@@ -1332,8 +1649,7 @@ function collectAttendeesFromOrders(
       const m = li?.meta || {};
       out.push({
         date: new Date(o.created || Date.now()).toISOString(),
-        purchaser:
-          o?.purchaser?.name || o?.customer_email || "",
+        purchaser: o?.purchaser?.name || o?.customer_email || "",
         attendee: m.attendeeName || "",
         attendee_title: m.attendeeTitle || "",
         attendee_phone: m.attendeePhone || "",
@@ -1343,20 +1659,14 @@ function collectAttendeesFromOrders(
         qty: li?.qty || 1,
         notes:
           cat === "banquet"
-            ? [m.attendeeNotes, m.dietaryNote]
-                .filter(Boolean)
-                .join("; ")
+            ? [m.attendeeNotes, m.dietaryNote].filter(Boolean).join("; ")
             : m.itemNote || "",
         attendee_addr1: includeAddress ? m.attendeeAddr1 || "" : "",
         attendee_addr2: includeAddress ? m.attendeeAddr2 || "" : "",
         attendee_city: includeAddress ? m.attendeeCity || "" : "",
         attendee_state: includeAddress ? m.attendeeState || "" : "",
-        attendee_postal: includeAddress
-          ? m.attendeePostal || "" 
-          : "",
-        attendee_country: includeAddress
-          ? m.attendeeCountry || "" 
-          : "",
+        attendee_postal: includeAddress ? m.attendeePostal || "" : "",
+        attendee_country: includeAddress ? m.attendeeCountry || "" : "",
       });
     }
   }
@@ -1364,8 +1674,7 @@ function collectAttendeesFromOrders(
 }
 
 // ---- per-mode purge helper ----
-const ALLOW_LIVE_PURGE =
-  (process.env.ALLOW_LIVE_PURGE || "").toLowerCase() === "true";
+const ALLOW_LIVE_PURGE = (process.env.ALLOW_LIVE_PURGE || "").toLowerCase() === "true";
 
 function resolveOrderKey(order) {
   if (order.kvKey) return order.kvKey;
@@ -1434,10 +1743,8 @@ async function sendItemReportEmailInternal({
   scheduledAt,
   scheduled_at,
 } = {}) {
-  if (!resend)
-    return { ok: false, error: "resend-not-configured" };
-  if (!kind || !id)
-    return { ok: false, error: "missing-kind-or-id" };
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+  if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
   // Normalize scheduled time (Resend expects scheduled_at)
   let scheduledAtIso = (scheduled_at || scheduledAt || "").trim();
@@ -1461,20 +1768,13 @@ async function sendItemReportEmailInternal({
 
   // These window bounds are used both for filtering AND for coverage text.
   let startMs =
-    typeof explicitStartMs === "number" && !isNaN(explicitStartMs)
-      ? explicitStartMs
-      : undefined;
-  let endMs =
-    typeof explicitEndMs === "number" && !isNaN(explicitEndMs)
-      ? explicitEndMs
-      : undefined;
+    typeof explicitStartMs === "number" && !isNaN(explicitStartMs) ? explicitStartMs : undefined;
+  let endMs = typeof explicitEndMs === "number" && !isNaN(explicitEndMs) ? explicitEndMs : undefined;
 
   // Month-to-date: earliest possible on the 1st (UTC) through "now"
   if (scope === "current-month" && startMs == null && endMs == null) {
     const now = new Date();
-    const start = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
-    );
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     startMs = start.getTime();
     endMs = Date.now() + 1; // exclusive
   }
@@ -1497,8 +1797,7 @@ async function sendItemReportEmailInternal({
   // coverage helper will fall back to row dates.
 
   const base = baseKey(id);
-  const includeAddressForThisItem =
-    base === "pre-reg" || base === "directory";
+  const includeAddressForThisItem = base === "pre-reg" || base === "directory";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1513,21 +1812,10 @@ async function sendItemReportEmailInternal({
       wantBase(r.item_id) === wantBase(id) ||
       (!r.item_id &&
         label &&
-        String(r.item || "")
-          .toLowerCase()
-          .includes(String(label).toLowerCase()))
+        String(r.item || "").toLowerCase().includes(String(label).toLowerCase()))
   );
 
-  let EMAIL_COLUMNS = [
-    "#",
-    "date",
-    "attendee",
-    "attendee_title",
-    "attendee_phone",
-    "item",
-    "qty",
-    "notes",
-  ];
+  let EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
 
   let EMAIL_HEADER_LABELS = {
     "#": "#",
@@ -1582,8 +1870,7 @@ async function sendItemReportEmailInternal({
   let counter = 1;
 
   const numbered = sorted.map((r) => {
-    const hasAttendee =
-      String(r.attendee || "").trim().length > 0;
+    const hasAttendee = String(r.attendee || "").trim().length > 0;
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
@@ -1608,28 +1895,16 @@ async function sendItemReportEmailInternal({
       };
     }
 
-    return {
-      ...baseRow,
-      item: r.item,
-      qty: r.qty,
-      notes: r.notes,
-    };
+    return { ...baseRow, item: r.item, qty: r.qty, notes: r.notes };
   });
 
-  const xlsxBuf = await objectsToXlsxBuffer(
-    EMAIL_COLUMNS,
-    numbered,
-    EMAIL_HEADER_LABELS,
-    "Item Report"
-  );
+  const xlsxBuf = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
   const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
 
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
   const baseNameRaw = label || id || "report";
-  const baseName = baseNameRaw
-    .replace(/[^a-z0-9]+/gi, "_")
-    .replace(/^_+|_+$/g, "");
+  const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
 
   const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
@@ -1645,25 +1920,15 @@ async function sendItemReportEmailInternal({
 
   // Fallback addresses from env (e.g. pa_sessions@yahoo.com, etc.)
   const envFallback = safeSplit(
-    effective.REPORTS_CC ||
-      effective.REPORTS_BCC ||
-      process.env.REPORTS_CC ||
-      process.env.REPORTS_BCC ||
-      ""
+    effective.REPORTS_CC || effective.REPORTS_BCC || process.env.REPORTS_CC || process.env.REPORTS_BCC || ""
   );
 
   // NEW BEHAVIOR:
   // - If there are chair emails *and* env fallback, send to BOTH.
-  //   Example (banquets):
-  //     to: [chairEmails..., envFallback...]
-  //   so Yahoo is a primary recipient, not just BCC.
-  // - If no chair emails, envFallback becomes the To list (same as before).
+  // - If no chair emails, envFallback becomes the To list.
   let toList = [];
   if (toListPref.length && envFallback.length) {
-    toList = [
-      ...toListPref,
-      ...envFallback.filter((addr) => !toListPref.includes(addr)),
-    ];
+    toList = [...toListPref, ...envFallback.filter((addr) => !toListPref.includes(addr))];
   } else if (toListPref.length) {
     toList = [...toListPref];
   } else {
@@ -1671,18 +1936,11 @@ async function sendItemReportEmailInternal({
   }
 
   const adminBccBase = safeSplit(
-    effective.REPORTS_BCC ||
-      effective.REPORTS_CC ||
-      process.env.REPORTS_BCC ||
-      process.env.REPORTS_CC ||
-      ""
+    effective.REPORTS_BCC || effective.REPORTS_CC || process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
   );
-  const bccList = adminBccBase.filter(
-    (addr) => !toList.includes(addr)
-  );
+  const bccList = adminBccBase.filter((addr) => !toList.includes(addr));
 
-  if (!toList.length && !bccList.length)
-    return { ok: false, error: "no-recipient" };
+  if (!toList.length && !bccList.length) return { ok: false, error: "no-recipient" };
 
   const prettyKind = kind === "other" ? "catalog" : kind;
 
@@ -1695,18 +1953,12 @@ async function sendItemReportEmailInternal({
           ? "custom date range"
           : String(scope || "");
 
-  const coverageText = formatCoverageRange({
-    startMs,
-    endMs,
-    rows: sorted,
-  });
+  const coverageText = formatCoverageRange({ startMs, endMs, rows: sorted });
 
   const subject = `Report — ${prettyKind}: ${label || id}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-      <p>Attached is the Excel report for <b>${prettyKind}</b> “${
-        label || id
-      }”.</p>
+      <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555;margin:2px 0;">Scope: ${scopeLabel}</div>
       ${
@@ -1723,24 +1975,12 @@ async function sendItemReportEmailInternal({
     subject,
     html: tablePreview,
     reply_to: REPLY_TO || undefined,
-    attachments: [
-      {
-        filename,
-        content: xlsxB64,
-      },
-    ],
+    attachments: [{ filename, content: xlsxB64 }],
   };
 
-  // ✅ Correct Resend field:
-  // If scheduledAtIso exists, Resend will queue it and you'll see scheduled_at populated.
-  if (scheduledAtIso) {
-    payload.scheduled_at = scheduledAtIso;
-  }
+  if (scheduledAtIso) payload.scheduled_at = scheduledAtIso;
 
-  const retry = await sendWithRetry(
-    () => resend.emails.send(payload),
-    `item-report:${kind}:${id}`
-  );
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `item-report:${kind}:${id}`);
 
   if (retry.ok) {
     const sendResult = retry.result;
@@ -1754,32 +1994,22 @@ async function sendItemReportEmailInternal({
       status: "queued",
       scheduled_at: scheduledAtIso || null,
     });
-    return {
-      ok: true,
-      count: sorted.length,
-      to: toList,
-      bcc: bccList,
-      scheduled_at: scheduledAtIso || null,
-    };
-  } else {
-    const err = retry.error;
-    await recordMailLog({
-      ts: Date.now(),
-      from: RESEND_FROM,
-      to: [...toList, ...bccList],
-      subject,
-      resultId: null,
-      kind: "item-report",
-      status: "error",
-      error: String(err?.message || err),
-      scheduled_at: scheduledAtIso || null,
-    });
-    return {
-      ok: false,
-      error: "send-failed",
-      message: err?.message || String(err),
-    };
+    return { ok: true, count: sorted.length, to: toList, bcc: bccList, scheduled_at: scheduledAtIso || null };
   }
+
+  const err = retry.error;
+  await recordMailLog({
+    ts: Date.now(),
+    from: RESEND_FROM,
+    to: [...toList, ...bccList],
+    subject,
+    resultId: null,
+    kind: "item-report",
+    status: "error",
+    error: String(err?.message || err),
+    scheduled_at: scheduledAtIso || null,
+  });
+  return { ok: false, error: "send-failed", message: err?.message || String(err) };
 }
 
 // ---- real-time per-order chair emails for CATALOG items ----
@@ -1794,9 +2024,7 @@ async function sendRealtimeChairEmailsForOrder(order) {
     const cat = String(li.category || "").toLowerCase();
     const metaType = String(li.meta?.itemType || "").toLowerCase();
 
-    const isCatalog =
-      cat === "catalog" || metaType === "catalog";
-
+    const isCatalog = cat === "catalog" || metaType === "catalog";
     if (!isCatalog) continue;
 
     const id = String(li.itemId || "").trim();
@@ -1831,10 +2059,7 @@ async function maybeSendRealtimeChairEmails(order) {
     await sendRealtimeChairEmailsForOrder(order);
     await kvSetSafe(key, new Date().toISOString());
   } catch (e) {
-    console.error(
-      "realtime-chair-email-failed",
-      e?.message || e
-    );
+    console.error("realtime-chair-email-failed", e?.message || e);
   }
 }
 
@@ -1852,6 +2077,12 @@ export {
   REPLY_TO,
   REPORTS_LOG_TO,
   CONTACT_TO,
+
+  // NEW: receipts mailbox + helpers
+  EMAIL_RECEIPTS,
+  sendReceiptXlsxBackup,
+  emailMonthlyReceiptsZip,
+  emailFinalReceiptsZip,
 
   // generic helpers
   REQ_OK,
