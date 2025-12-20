@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Contact — 2026 Grand Court of Pennsylvania - Order of the Amaranth">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=contact-v2" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=contact-v3" /><!-- bump -->
   <title>Contact Us</title>
 
   <style>
@@ -188,7 +188,7 @@
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <a href="product-catalog.html" data-catalog-link>Product Catalog</a>
-        
+
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
         <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
 
@@ -277,10 +277,11 @@
       </form>
     </section>
 
+    <!-- ✅ changed: this is now driven by EMAIL_CONTACT (via router settings effective.REPLY_TO) -->
     <p class="org-intro" style="font-size:0.95rem;">
       Prefer email instead of the form?
       <br>
-      <a href="mailto:pa_sessions@yahoo.com">pa_sessions@yahoo.com</a>
+      <span id="contact-email-slot" style="opacity:.75;">Loading contact email…</span>
     </p>
   </main>
 
@@ -351,6 +352,42 @@
   })();
   </script>
 
+  <!-- ✅ NEW: populate the "Prefer email" line from EMAIL_CONTACT via settings -->
+  <script>
+  (async function(){
+    const slot = document.getElementById('contact-email-slot');
+    if (!slot) return;
+
+    const esc = (s) => String(s || "").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+
+    try {
+      const r = await fetch('/api/router?type=settings', { cache: 'no-store' });
+      if (!r.ok) throw new Error('settings fetch failed');
+      const j = await r.json().catch(() => ({}));
+
+      // Your router returns effective settings; REPLY_TO should be backed by EMAIL_CONTACT
+      const email =
+        (j && j.effective && j.effective.REPLY_TO) ||
+        j.REPLY_TO ||
+        '';
+
+      const e = String(email || '').trim();
+      if (!e) {
+        slot.textContent = 'Please use the form above.';
+        slot.style.opacity = '1';
+        return;
+      }
+
+      slot.innerHTML = `<a href="mailto:${esc(e)}">${esc(e)}</a>`;
+      slot.style.opacity = '1';
+    } catch (err) {
+      // fail closed-ish: don't expose any old/stale address
+      slot.textContent = 'Please use the form above.';
+      slot.style.opacity = '1';
+    }
+  })();
+  </script>
+
   <!-- Contact form JS -->
   <script>
   (function(){
@@ -405,27 +442,26 @@
   })();
   </script>
 
-
-<script>
-(async function(){
-  async function hasActive(cat){
-    try{
-      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
-      if (!r.ok) return true;
-      const j = await r.json();
-      return !!(j && j.hasActive);
-    }catch(e){
-      // fail open: show links if API fails
-      return true;
+  <script>
+  (async function(){
+    async function hasActive(cat){
+      try{
+        const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
+        if (!r.ok) return true;
+        const j = await r.json();
+        return !!(j && j.hasActive);
+      }catch(e){
+        // fail open: show links if API fails
+        return true;
+      }
     }
-  }
-  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
-  for (const a of links){
-    const cat = a.getAttribute("data-cat") || "";
-    const ok = await hasActive(cat);
-    if (!ok) a.style.display = "none";
-  }
-})();
-</script>
+    const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
+    for (const a of links){
+      const cat = a.getAttribute("data-cat") || "";
+      const ok = await hasActive(cat);
+      if (!ok) a.style.display = "none";
+    }
+  })();
+  </script>
 </body>
 </html>
