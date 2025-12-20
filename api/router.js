@@ -55,6 +55,10 @@ import {
   getCheckoutSettingsAuto,
   getEffectiveOrderChannel,
   purgeOrdersByMode,
+
+  // ✅ ADDED: Receipts ZIP helpers
+  emailMonthlyReceiptsZip,
+  emailFinalReceiptsZip,
 } from "./admin/core.js";
 
 import {
@@ -599,6 +603,97 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
+      // ✅ ADDED: Receipts ZIP endpoints (admin-only)
+      if (type === "receipts_zip_month") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
+          const yearParam = url.searchParams.get("year");
+          const monthParam = url.searchParams.get("month");
+
+          const now = new Date();
+          const year = Number(yearParam ?? now.getUTCFullYear());
+          const month = Number(monthParam ?? (now.getUTCMonth() + 1)); // 1-12
+
+          const result = await emailMonthlyReceiptsZip({
+            to: to || undefined,
+            year,
+            month,
+            requestId,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-month-failed", req, e);
+        }
+      }
+
+      if (type === "receipts_zip_final") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
+          const yearParam = url.searchParams.get("year");
+
+          const now = new Date();
+          const year = Number(yearParam ?? now.getUTCFullYear());
+
+          const result = await emailFinalReceiptsZip({
+            to: to || undefined,
+            year,
+            requestId,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-final-failed", req, e);
+        }
+      }
+
+      // helper: sends the *previous* month ZIP (useful for cron)
+      if (type === "receipts_zip_month_auto") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional
+          const now = new Date();
+
+          // previous month in UTC
+          let y = now.getUTCFullYear();
+          let m = now.getUTCMonth() + 1; // 1-12 current
+          m -= 1;
+          if (m <= 0) {
+            m = 12;
+            y -= 1;
+          }
+
+          const result = await emailMonthlyReceiptsZip({
+            to: to || undefined,
+            year: y,
+            month: m,
+            requestId,
+            auto: true,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
+        }
+      }
+
       if (type === "checkout_mode") {
         const nowMs = Date.now();
         const raw = await getCheckoutSettingsAuto(new Date(nowMs));
@@ -784,11 +879,6 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, rows });
       }
 
-      // (other XLSX endpoints unchanged)
-      // ... (your existing orders_csv / roster / directory / etc remain the same)
-      // NOTE: kept as-is below in your provided file.
-      // ----------------------------------------------------------------------
-
       if (type === "orders_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
@@ -918,9 +1008,6 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
-      // (attendee_roster_csv, directory_csv, full_attendees_csv unchanged)
-      // ... keep as in your file
-      // ----------------------------------------------------------------------
       if (type === "attendee_roster_csv") {
         const ids = await kvSmembersSafe("orders:index");
         const orders = [];
@@ -1458,13 +1545,16 @@ export default async function handler(req, res) {
 
       if (action === "finalize_checkout") {
         try {
-          const stripe = await getStripe();
+          const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
+
+          // ✅ FIX: use the correct Stripe client for the current order channel
+          const stripe = await getStripe(orderChannel);
           if (!stripe)
             return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+
           const sid = String(body.sid || body.id || "").trim();
           if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
 
-          const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
           const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
 
           return REQ_OK(res, { requestId, ok: true, orderId: order.id });
@@ -1988,6 +2078,49 @@ export default async function handler(req, res) {
           sendItemReportEmailInternal: wrappedSendItemReport,
         });
 
+        // ✅ NEW: Also send last-month receipts ZIP (keeps cron unchanged)
+        // - Does NOT fail the whole endpoint if ZIP fails; we log and continue.
+        let receiptsZip = { ok: false, skipped: true };
+        try {
+          const now = new Date();
+
+          // previous month in UTC
+          let y = now.getUTCFullYear();
+          let m = now.getUTCMonth() + 1; // 1-12 current
+          m -= 1;
+          if (m <= 0) {
+            m = 12;
+            y -= 1;
+          }
+
+          receiptsZip = await emailMonthlyReceiptsZip({
+            year: y,
+            month: m,
+            requestId,
+            auto: true,
+          });
+
+          // optional mail log (only if the helper didn’t already log)
+          if (receiptsZip && receiptsZip.ok) {
+            try {
+              await recordMailLog({
+                ts: Date.now(),
+                from: RESEND_FROM || "onboarding@resend.dev",
+                to: receiptsZip.to ? [receiptsZip.to] : [],
+                subject:
+                  receiptsZip.subject ||
+                  `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
+                kind: "receipts-zip-month-auto",
+                status: "queued",
+                resultId: receiptsZip.resultId || receiptsZip.id || null,
+              });
+            } catch {}
+          }
+        } catch (e) {
+          console.error("receipts_zip_month_auto_failed", e?.message || e);
+          receiptsZip = { ok: false, error: String(e?.message || e) };
+        }
+
         // Monthly log email to admins (REPORTS_LOG_TO)
         try {
           const logRecipients = REPORTS_LOG_TO.split(",")
@@ -2033,6 +2166,20 @@ export default async function handler(req, res) {
                   .join("")
               : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
 
+            const receiptsZipLine = (() => {
+              const rz = receiptsZip || {};
+              const ok = !!rz.ok;
+              const err = rz.error ? String(rz.error) : "";
+              const label = ok
+                ? "OK"
+                : rz.skipped
+                ? "SKIPPED"
+                : "ERROR";
+              return `<p style="margin:8px 0 2px;">Receipts ZIP (auto last month): <b>${esc(
+                label
+              )}</b>${err ? ` — <span style="color:#b91c1c;">${esc(err)}</span>` : ""}</p>`;
+            })();
+
             const html = `
               <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
                 <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
@@ -2049,6 +2196,7 @@ export default async function handler(req, res) {
                   Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
                   Errors: <b>${errors}</b>
                 </p>
+                ${receiptsZipLine}
                 <table style="border-collapse:collapse;border:1px solid #ccc;font-size:13px;">
                   <thead>
                     <tr>
@@ -2118,6 +2266,7 @@ export default async function handler(req, res) {
           skipped,
           errors,
           scope: "current-month",
+          receiptsZip,
         });
       }
 
@@ -2178,9 +2327,16 @@ export default async function handler(req, res) {
 
       if (action === "create_refund") {
         try {
-          const stripe = await getStripe();
+          // ✅ FIX: refund should run against the intended environment
+          let mode = String(body?.mode || "").toLowerCase().trim();
+          if (!["test", "live_test", "live"].includes(mode)) {
+            mode = await getEffectiveOrderChannel().catch(() => "test");
+          }
+
+          const stripe = await getStripe(mode);
           if (!stripe)
-            return REQ_ERR(res, 500, "stripe-not-configured", { requestId });
+            return REQ_ERR(res, 500, "stripe-not-configured", { requestId, mode });
+
           const payment_intent = String(body.payment_intent || "").trim();
           const charge = String(body.charge || "").trim();
           const amount_cents_raw = body.amount_cents;
@@ -2197,7 +2353,13 @@ export default async function handler(req, res) {
           try {
             await applyRefundToOrder(rf.charge, rf);
           } catch {}
-          return REQ_OK(res, { requestId, ok: true, id: rf.id, status: rf.status });
+          return REQ_OK(res, {
+            requestId,
+            ok: true,
+            id: rf.id,
+            status: rf.status,
+            mode,
+          });
         } catch (e) {
           return errResponse(res, 500, "refund-failed", req, e);
         }
