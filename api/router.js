@@ -1,4 +1,6 @@
 // /api/router.js
+import crypto from "crypto";
+
 import {
   kv,
   getStripe,
@@ -56,7 +58,7 @@ import {
   getEffectiveOrderChannel,
   purgeOrdersByMode,
 
-  // ✅ ADDED: Receipts ZIP helpers
+  // ✅ Receipts ZIP helpers
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
 } from "./admin/core.js";
@@ -326,7 +328,8 @@ function splitEmails(v) {
 }
 
 function normalizeChairEmails(raw, fallbackEmail) {
-  if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
+  if (Array.isArray(raw))
+    return raw.map((s) => String(s).trim()).filter(Boolean);
   const from = raw || fallbackEmail || "";
   return splitEmails(from);
 }
@@ -347,6 +350,405 @@ function computeMergedFreq(incomingRaw, existingCfg, defaultFreq) {
     defaultFreq;
 
   return normalizeReportFrequency(raw);
+}
+
+// ============================================================================
+// ✅ NEW: Immutable order hash + createdAt markers (tamper detection)
+// - Writes once per order ID:
+//     order:<id>:createdAt
+//     order:<id>:hash
+// - Never overwrites if already present.
+// ============================================================================
+function stableStringify(value) {
+  const seen = new WeakSet();
+
+  const walk = (v) => {
+    if (v === null || typeof v !== "object") return v;
+
+    if (seen.has(v)) return "[Circular]";
+    seen.add(v);
+
+    if (Array.isArray(v)) return v.map(walk);
+
+    const out = {};
+    const keys = Object.keys(v).sort();
+    for (const k of keys) out[k] = walk(v[k]);
+    return out;
+  };
+
+  return JSON.stringify(walk(value));
+}
+
+function normalizeOrderForHash(order) {
+  // Keep “what matters” for integrity. Exclude volatile/runtime markers.
+  const o = order && typeof order === "object" ? order : {};
+  const clone = { ...o };
+
+  // strip volatile fields if present
+  delete clone._raw;
+  delete clone._debug;
+  delete clone._requestId;
+  delete clone._email;
+  delete clone._emailStatus;
+  delete clone._emailsSentAt;
+  delete clone._postEmailsSentAt;
+  delete clone.post_emails_sent;
+  delete clone.admin_receipt_sent;
+
+  // If your order has internal timestamps that can change, exclude them:
+  // (We DO store createdAt separately as immutable KV marker.)
+  delete clone.updatedAt;
+  delete clone.lastUpdatedAt;
+
+  return clone;
+}
+
+function sha256Hex(s) {
+  return crypto.createHash("sha256").update(String(s), "utf8").digest("hex");
+}
+
+async function ensureOrderIntegrityMarkers(order, requestId) {
+  try {
+    const id = String(order?.id || "").trim();
+    if (!id) return;
+
+    const createdKey = `order:${id}:createdAt`;
+    const hashKey = `order:${id}:hash`;
+
+    // createdAt: write-once
+    const existingCreated = await kvGetSafe(createdKey, "");
+    if (!existingCreated) {
+      const createdAt =
+        String(order?.createdAt || order?.created_at || "").trim() ||
+        new Date().toISOString();
+      await kvSetSafe(createdKey, createdAt);
+    }
+
+    // hash: write-once
+    const existingHash = await kvGetSafe(hashKey, "");
+    if (!existingHash) {
+      const normalized = normalizeOrderForHash(order);
+      const payload = stableStringify(normalized);
+      const hash = sha256Hex(payload);
+      await kvSetSafe(hashKey, hash);
+    }
+  } catch (e) {
+    // Never block user for integrity marker issues — just log.
+    console.error("[order-hash] failed", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
+}
+
+// ============================================================================
+// ✅ NEW: Lockdown mode (blocks admin write actions during event week / emergencies)
+// - Source of truth:
+//   1) KV key: security:lockdown (object or boolean)
+//   2) Env: LOCKDOWN_ON (true/false)
+// - Bypass by IP list (env LOCKDOWN_BYPASS_IPS, comma-separated)
+// ============================================================================
+const LOCKDOWN_KEY = "security:lockdown";
+
+function splitCsv(v) {
+  return String(v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function getClientIp(req) {
+  return (
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-real-ip"] ||
+    req.socket?.remoteAddress ||
+    ""
+  );
+}
+
+function ipMatchesAllowlist(ip, allowlist) {
+  const raw = String(ip || "").trim();
+  if (!raw) return false;
+
+  // x-forwarded-for can contain "ip, ip, ip"
+  const first = raw.split(",")[0].trim();
+
+  for (const a of allowlist) {
+    const aa = String(a || "").trim();
+    if (!aa) continue;
+
+    // exact match
+    if (first === aa) return true;
+
+    // allow prefix match for IPv6 shorthand / internal ranges if user supplies like "192.168."
+    if (aa.endsWith("*")) {
+      const pref = aa.slice(0, -1);
+      if (first.startsWith(pref)) return true;
+    }
+  }
+  return false;
+}
+
+async function getLockdownStateSafe() {
+  // KV wins over env
+  const raw = await kvGetSafe(LOCKDOWN_KEY, null);
+
+  // allow either boolean or object
+  if (typeof raw === "boolean") {
+    return { on: raw, message: raw ? "Lockdown is enabled." : "", updatedAt: "" };
+  }
+
+  if (raw && typeof raw === "object") {
+    const on = coerceBool(raw.on ?? raw.enabled ?? raw.locked ?? false);
+    const message = String(raw.message || raw.note || "").trim();
+    const updatedAt = String(raw.updatedAt || "").trim();
+    return { on, message, updatedAt };
+  }
+
+  const envOn = coerceBool(process.env.LOCKDOWN_ON || "");
+  return {
+    on: envOn,
+    message: envOn ? "Lockdown is enabled (env)." : "",
+    updatedAt: "",
+  };
+}
+
+async function isLockdownBypassed(req) {
+  const allowIps = splitCsv(process.env.LOCKDOWN_BYPASS_IPS || "");
+  if (!allowIps.length) return false;
+  return ipMatchesAllowlist(getClientIp(req), allowIps);
+}
+
+function isWriteAction(action) {
+  // Anything that mutates settings/items/orders should be blocked in lockdown.
+  // (We keep a conservative list to prevent surprises.)
+  return [
+    "save_feature_flags",
+    "purge_orders",
+    "save_banquets",
+    "save_addons",
+    "save_products",
+    "save_catalog_items",
+    "save_settings",
+    "save_checkout_mode",
+    "clear_orders",
+    "create_refund",
+    "send_full_report",
+    "send_month_to_date",
+    "send_monthly_chair_reports",
+    "send_end_of_event_reports",
+    // You can decide whether to allow these during lockdown:
+    "send_item_report",
+    "register_item",
+  ].includes(String(action || ""));
+}
+
+async function enforceLockdownIfNeeded(req, res, action, requestId) {
+  const st = await getLockdownStateSafe();
+  if (!st.on) return true;
+
+  // bypass
+  if (await isLockdownBypassed(req)) return true;
+
+  // Only block write actions; allow read-only admin endpoints.
+  if (!isWriteAction(action)) return true;
+
+  return !REQ_ERR(res, 423, "lockdown", {
+    requestId,
+    message:
+      st.message ||
+      "Site is in lockdown mode. Admin write actions are temporarily disabled.",
+    updatedAt: st.updatedAt || "",
+    action,
+  });
+}
+
+// ============================================================================
+// ✅ NEW: Post-order email helper
+// - Ensures receipts (including admin copy) are sent immediately after finalize,
+//   across ALL finalize paths (manual finalize, finalize_checkout, webhook).
+// - Also sends realtime chair emails.
+// - Adds idempotency keys to avoid double-sends.
+// - Never throws to end-user on email failure.
+// ============================================================================
+function postEmailKey(orderId) {
+  return `order:${String(orderId || "").trim()}:post_emails_sent`;
+}
+
+function adminReceiptKey(orderId) {
+  return `order:${String(orderId || "").trim()}:admin_receipt_sent`;
+}
+
+async function getAdminReceiptRecipientsSafe() {
+  // Priority:
+  // 1) settings override: RECEIPTS_ADMIN_TO (comma list)
+  // 2) settings override: REPORTS_BCC / REPORTS_CC
+  // 3) env: RECEIPTS_ADMIN_TO
+  // 4) env: REPORTS_BCC / REPORTS_CC
+  try {
+    const { effective } = await getEffectiveSettings();
+    const pick =
+      effective?.RECEIPTS_ADMIN_TO ||
+      effective?.REPORTS_BCC ||
+      effective?.REPORTS_CC ||
+      "";
+    const list = splitEmails(pick);
+    if (list.length) return list;
+  } catch {}
+
+  const pickEnv =
+    (process.env.RECEIPTS_ADMIN_TO || "").trim() ||
+    (process.env.REPORTS_BCC || "").trim() ||
+    (process.env.REPORTS_CC || "").trim() ||
+    "";
+  return splitEmails(pickEnv);
+}
+
+async function sendAdminReceiptCopyOnce(order, requestId) {
+  try {
+    if (!order?.id) return;
+    if (!resend) return; // no email system configured
+
+    // Idempotency: prevent duplicates if finalize paths overlap.
+    const already = await kvGetSafe(adminReceiptKey(order.id), "");
+    if (already) return;
+
+    const toList = await getAdminReceiptRecipientsSafe();
+    if (!toList.length) return;
+
+    // NOTE: sendOrderReceipts() may already include admin copy in your core.js.
+    // This helper is a "guarantee" path, but idempotent to prevent spam.
+    const html =
+      (await renderOrderEmailHTML(order, { includeAdminNote: true })) ||
+      `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+        <h2>Order receipt</h2>
+        <p>orderId: ${String(order.id).replace(/</g, "&lt;")}</p>
+      </div>`;
+
+    const subject = `Admin copy — receipt — Order ${order.id}`;
+
+    const payload = {
+      from: RESEND_FROM || "onboarding@resend.dev",
+      to: toList,
+      subject,
+      html,
+      reply_to: REPLY_TO || undefined,
+    };
+
+    const retry = await sendWithRetry(
+      () => resend.emails.send(payload),
+      "admin-receipt"
+    );
+
+    if (retry.ok) {
+      const sendResult = retry.result;
+      await kvSetSafe(adminReceiptKey(order.id), new Date().toISOString());
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: payload.from,
+          to: toList,
+          subject,
+          resultId: sendResult?.id || null,
+          kind: "admin-receipt",
+          status: "queued",
+        });
+      } catch {}
+    } else {
+      const err = retry.error;
+      console.error("[admin-receipt] send failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: payload.from,
+          to: toList,
+          subject,
+          kind: "admin-receipt",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[admin-receipt] unexpected failure", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
+}
+
+async function sendPostOrderEmails(order, requestId) {
+  try {
+    if (!order?.id) return;
+
+    // Idempotency to prevent double send when:
+    // - user hits finalize endpoint and Stripe webhook also comes in
+    // - page refresh retries finalize_checkout
+    const already = await kvGetSafe(postEmailKey(order.id), "");
+    if (already) return;
+
+    // Set the idempotency marker early to avoid race-double-sends.
+    await kvSetSafe(postEmailKey(order.id), new Date().toISOString());
+
+    // 1) Receipts (buyer + chairs + admin copy, if core.js supports it)
+    try {
+      await sendOrderReceipts(order);
+    } catch (err) {
+      console.error("[post-email] sendOrderReceipts failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: [],
+          subject: `receipts-failed order=${order?.id || ""}`,
+          kind: "receipts",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+
+    // 1b) ✅ GUARANTEE: Admin copy right after order (idempotent)
+    await sendAdminReceiptCopyOnce(order, requestId);
+
+    // 2) Realtime chair emails (your existing logic)
+    try {
+      await maybeSendRealtimeChairEmails(order);
+    } catch (err) {
+      console.error("[post-email] maybeSendRealtimeChairEmails failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: [],
+          subject: `realtime-chair-failed order=${order?.id || ""}`,
+          kind: "realtime-chair",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[post-email] unexpected failure", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
 }
 
 // -------------- main handler --------------
@@ -425,6 +827,20 @@ export default async function handler(req, res) {
           "";
         const out = await handleWebhookPreview(sessionId);
         return REQ_OK(res, { requestId, ...out });
+      }
+
+      // ✅ NEW: Lockdown status (admin-only; handy for quick checks)
+      if (type === "lockdown_status") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const st = await getLockdownStateSafe();
+        const bypass = await isLockdownBypassed(req);
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          lockdown: st,
+          bypass,
+          ip: String(getClientIp(req) || ""),
+        });
       }
 
       if (type === "year_index") {
@@ -585,6 +1001,11 @@ export default async function handler(req, res) {
 
       if (type === "settings") {
         const { env, overrides, effective } = await getEffectiveSettings();
+        const lockdown = await getLockdownStateSafe().catch(() => ({
+          on: false,
+          message: "",
+          updatedAt: "",
+        }));
         return REQ_OK(res, {
           requestId,
           env,
@@ -593,6 +1014,7 @@ export default async function handler(req, res) {
           MAINTENANCE_ON: effective.MAINTENANCE_ON,
           MAINTENANCE_MESSAGE:
             effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
+          lockdown,
         });
       }
 
@@ -603,7 +1025,7 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
-      // ✅ ADDED: Receipts ZIP endpoints (admin-only)
+      // ✅ Receipts ZIP endpoints (admin-only)
       if (type === "receipts_zip_month") {
         if (!(await requireAdminAuth(req, res))) return;
 
@@ -1234,6 +1656,7 @@ export default async function handler(req, res) {
         return res.status(200).send(buf);
       }
 
+      // ✅ finalize_order now writes hash markers + sends receipts + realtime chair emails immediately
       if (type === "finalize_order") {
         const sid = String(url.searchParams.get("sid") || "").trim();
         if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
@@ -1244,6 +1667,12 @@ export default async function handler(req, res) {
             { id: sid },
             { mode: orderChannel }
           );
+
+          // ✅ write-once createdAt + hash (tamper detection)
+          await ensureOrderIntegrityMarkers(order, requestId);
+
+          // 🔥 Immediate: buyer receipts + chair emails + admin copy
+          await sendPostOrderEmails(order, requestId);
 
           return REQ_OK(res, {
             requestId,
@@ -1543,6 +1972,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // ✅ finalize_checkout now writes hash markers + sends receipts + realtime chair emails immediately
       if (action === "finalize_checkout") {
         try {
           const orderChannel = await getEffectiveOrderChannel().catch(() => "test");
@@ -1556,6 +1986,12 @@ export default async function handler(req, res) {
           if (!sid) return REQ_ERR(res, 400, "missing-sid", { requestId });
 
           const order = await saveOrderFromSession({ id: sid }, { mode: orderChannel });
+
+          // ✅ write-once createdAt + hash (tamper detection)
+          await ensureOrderIntegrityMarkers(order, requestId);
+
+          // 🔥 Immediate: buyer receipts + chair emails + admin copy
+          await sendPostOrderEmails(order, requestId);
 
           return REQ_OK(res, { requestId, ok: true, orderId: order.id });
         } catch (e) {
@@ -1840,30 +2276,11 @@ export default async function handler(req, res) {
                 mode,
               });
 
-              try {
-                console.log("[webhook] sending receipts...", {
-                  requestId,
-                  orderId: order?.id || null,
-                });
-                await sendOrderReceipts(order);
+              // ✅ write-once createdAt + hash (tamper detection)
+              await ensureOrderIntegrityMarkers(order, requestId);
 
-                console.log("[webhook] sending realtime chair emails...", {
-                  requestId,
-                  orderId: order?.id || null,
-                });
-                await maybeSendRealtimeChairEmails(order);
-
-                console.log("[webhook] emails done", {
-                  requestId,
-                  orderId: order?.id || null,
-                });
-              } catch (err) {
-                console.error(
-                  "[webhook] email-failed",
-                  { requestId, message: err?.message || String(err) },
-                  err
-                );
-              }
+              // ✅ Centralized: immediate receipts + chair + admin copy (idempotent)
+              await sendPostOrderEmails(order, requestId);
 
               break;
             }
@@ -1935,6 +2352,23 @@ export default async function handler(req, res) {
 
       // -------- ADMIN (auth required below) --------
       if (!(await requireAdminAuth(req, res))) return;
+
+      // ✅ Lockdown enforcement (blocks admin write actions when enabled)
+      if (!(await enforceLockdownIfNeeded(req, res, action, requestId))) return;
+
+      // ✅ NEW: toggle lockdown (admin-only)
+      if (action === "set_lockdown") {
+        const on = coerceBool(body?.on ?? body?.enabled ?? body?.lockdown ?? false);
+        const message = String(body?.message || body?.note || "").trim();
+        const payload = {
+          on,
+          message,
+          updatedAt: new Date().toISOString(),
+          updatedByIp: String(getClientIp(req) || ""),
+        };
+        await kvSetSafe(LOCKDOWN_KEY, payload);
+        return REQ_OK(res, { requestId, ok: true, lockdown: payload });
+      }
 
       if (action === "save_feature_flags") {
         const incoming =
@@ -2078,8 +2512,7 @@ export default async function handler(req, res) {
           sendItemReportEmailInternal: wrappedSendItemReport,
         });
 
-        // ✅ NEW: Also send last-month receipts ZIP (keeps cron unchanged)
-        // - Does NOT fail the whole endpoint if ZIP fails; we log and continue.
+        // ✅ Also send last-month receipts ZIP
         let receiptsZip = { ok: false, skipped: true };
         try {
           const now = new Date();
@@ -2100,7 +2533,6 @@ export default async function handler(req, res) {
             auto: true,
           });
 
-          // optional mail log (only if the helper didn’t already log)
           if (receiptsZip && receiptsZip.ok) {
             try {
               await recordMailLog({
@@ -2327,7 +2759,6 @@ export default async function handler(req, res) {
 
       if (action === "create_refund") {
         try {
-          // ✅ FIX: refund should run against the intended environment
           let mode = String(body?.mode || "").toLowerCase().trim();
           if (!["test", "live_test", "live"].includes(mode)) {
             mode = await getEffectiveOrderChannel().catch(() => "test");
@@ -2367,8 +2798,6 @@ export default async function handler(req, res) {
 
       // =========================================================================
       // ✅ FIXED: save_* actions no longer overwrite reportFrequency to "monthly"
-      //           when admin UI didn't include the field (or included empty).
-      //           Banquets default to DAILY if nothing exists.
       // =========================================================================
 
       if (action === "save_banquets") {
@@ -2389,7 +2818,9 @@ export default async function handler(req, res) {
               b?.chair?.email
             );
             const mergedChairEmails =
-              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+              chairEmails.length
+                ? chairEmails
+                : Array.isArray(existing?.chairEmails)
                 ? existing.chairEmails
                 : normalizeChairEmails(existing?.chairEmails, "");
 
@@ -2404,7 +2835,6 @@ export default async function handler(req, res) {
               ""
             );
 
-            // 🔥 Banquets default to DAILY (unless existing says otherwise)
             const freq = computeMergedFreq(
               b?.reportFrequency ?? b?.report_frequency,
               existing,
@@ -2449,7 +2879,9 @@ export default async function handler(req, res) {
               a?.chair?.email
             );
             const mergedChairEmails =
-              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+              chairEmails.length
+                ? chairEmails
+                : Array.isArray(existing?.chairEmails)
                 ? existing.chairEmails
                 : normalizeChairEmails(existing?.chairEmails, "");
 
@@ -2464,7 +2896,6 @@ export default async function handler(req, res) {
               ""
             );
 
-            // Add-ons: keep existing if set; otherwise monthly is fine
             const freq = computeMergedFreq(
               a?.reportFrequency ?? a?.report_frequency,
               existing,
@@ -2509,7 +2940,9 @@ export default async function handler(req, res) {
               p?.chair?.email
             );
             const mergedChairEmails =
-              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+              chairEmails.length
+                ? chairEmails
+                : Array.isArray(existing?.chairEmails)
                 ? existing.chairEmails
                 : normalizeChairEmails(existing?.chairEmails, "");
 
@@ -2575,7 +3008,9 @@ export default async function handler(req, res) {
               p?.chair?.email
             );
             const mergedChairEmails =
-              chairEmails.length ? chairEmails : Array.isArray(existing?.chairEmails)
+              chairEmails.length
+                ? chairEmails
+                : Array.isArray(existing?.chairEmails)
                 ? existing.chairEmails
                 : normalizeChairEmails(existing?.chairEmails, "");
 
@@ -2622,6 +3057,7 @@ export default async function handler(req, res) {
           "RESEND_FROM",
           "REPORTS_CC",
           "REPORTS_BCC",
+          "RECEIPTS_ADMIN_TO",
           "SITE_BASE_URL",
           "MAINTENANCE_ON",
           "MAINTENANCE_MESSAGE",
