@@ -1,4 +1,5 @@
 // /api/admin/core.js
+import crypto from "crypto";
 import { kv } from "@vercel/kv";
 import { Resend } from "resend";
 import ExcelJS from "exceljs";
@@ -295,6 +296,148 @@ async function sendWithRetry(sendFn, label = "email") {
   return { ok: false, error: lastErr };
 }
 
+// ---------------------------------------------------------------------------
+// ORDER HASHING (immutable receipt / tamper detection)
+// ---------------------------------------------------------------------------
+
+function stableStringify(value) {
+  // Deterministic JSON stringify (sorts object keys recursively)
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  const keys = Object.keys(value).sort();
+  const parts = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`);
+  return `{${parts.join(",")}}`;
+}
+
+function computeOrderHash(order) {
+  const o = order && typeof order === "object" ? order : {};
+
+  // Never include hash fields in the hash input
+  const clone = { ...o };
+  delete clone.hash;
+  delete clone.hashVersion;
+  delete clone.hashCreatedAt;
+
+  const normalized = stableStringify(clone);
+  return crypto.createHash("sha256").update(normalized).digest("hex");
+}
+
+function attachImmutableOrderHash(order) {
+  const hashCreatedAt = new Date().toISOString();
+  const next = { ...order, hashVersion: 1, hashCreatedAt };
+  next.hash = computeOrderHash(next);
+  return next;
+}
+
+function verifyOrderHash(order) {
+  if (!order || typeof order !== "object") return { ok: false, reason: "not-object" };
+  if (!order.hash || !order.hashVersion) return { ok: false, reason: "missing-hash" };
+  const expected = computeOrderHash(order);
+  return { ok: expected === order.hash, expected, actual: order.hash };
+}
+
+// ---------------------------------------------------------------------------
+// LOCKDOWN MODE (block write actions during live/event week)
+// ---------------------------------------------------------------------------
+//
+// Env / overrides supported:
+// - LOCKDOWN_MODE: "off" | "admin" | "all"   (default: off)
+//     admin = blocks admin/data writes, but allows checkout/orders
+//     all   = blocks both admin writes AND checkout/order creation
+//
+// - LOCKDOWN_ALLOW_IPS: comma-separated list of IPs allowed to bypass
+// - LOCKDOWN_ALLOW_TOKEN_FPS: comma-separated list of admin token fingerprints allowed to bypass
+//
+// Fingerprint = first 6 chars of SHA256(token)
+
+function getClientIp(req) {
+  const xf = req?.headers?.["x-forwarded-for"];
+  if (xf) return String(xf).split(",")[0].trim();
+  const real = req?.headers?.["x-real-ip"];
+  if (real) return String(real).trim();
+  return (req?.socket?.remoteAddress || "").trim();
+}
+
+function tokenFingerprint(token) {
+  const t = String(token || "").trim();
+  if (!t) return "";
+  return crypto.createHash("sha256").update(t).digest("hex").slice(0, 6);
+}
+
+async function getLockdownConfig() {
+  // Use effective settings so you can override in KV later if you want
+  const { effective } = await getEffectiveSettings();
+
+  const modeRaw = String(effective.LOCKDOWN_MODE || process.env.LOCKDOWN_MODE || "off")
+    .trim()
+    .toLowerCase();
+
+  const mode = ["off", "admin", "all"].includes(modeRaw) ? modeRaw : "off";
+
+  const allowIps = String(effective.LOCKDOWN_ALLOW_IPS || process.env.LOCKDOWN_ALLOW_IPS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const allowTokenFps = String(
+    effective.LOCKDOWN_ALLOW_TOKEN_FPS || process.env.LOCKDOWN_ALLOW_TOKEN_FPS || ""
+  )
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  return { mode, allowIps, allowTokenFps };
+}
+
+async function lockdownAllowsBypass(req) {
+  const { allowIps, allowTokenFps } = await getLockdownConfig();
+
+  const ip = getClientIp(req);
+  if (ip && allowIps.includes(ip)) return { ok: true, reason: "ip-allow" };
+
+  // If your admin token comes in as a header, use it here.
+  // Keep BOTH headers as compatibility, since you may change one later:
+  const token =
+    req?.headers?.["x-amaranth-admin-token"] ||
+    req?.headers?.["x-admin-token"] ||
+    "";
+
+  const fp = tokenFingerprint(token);
+  if (fp && allowTokenFps.includes(fp.toLowerCase())) {
+    return { ok: true, reason: "token-allow", fp };
+  }
+
+  return { ok: false, reason: "not-allowed" };
+}
+
+// Call this from router BEFORE performing a write action.
+// action: "admin-write" | "checkout-write"
+async function assertNotLocked(req, action = "admin-write") {
+  const { mode } = await getLockdownConfig();
+  if (!mode || mode === "off") return;
+
+  const blocksAdmin = mode === "admin" || mode === "all";
+  const blocksCheckout = mode === "all";
+
+  const shouldBlock =
+    (action === "admin-write" && blocksAdmin) ||
+    (action === "checkout-write" && blocksCheckout);
+
+  if (!shouldBlock) return;
+
+  const bypass = await lockdownAllowsBypass(req);
+  if (bypass.ok) return;
+
+  const err = new Error(`LOCKDOWN: ${action} blocked`);
+  err.code = "lockdown";
+  throw err;
+}
+
 // Cached orders for the lifetime of a single lambda invocation
 let _ordersCache = null;
 let _ordersCacheLoadedAt = 0;
@@ -390,6 +533,11 @@ async function getEffectiveSettings() {
     EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
     EVENT_END: process.env.EVENT_END || "", // e.g. "2025-11-10"
     REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "", // e.g. "30"
+
+    // Lockdown settings (can be overridden by KV settings:overrides)
+    LOCKDOWN_MODE: process.env.LOCKDOWN_MODE || "off",
+    LOCKDOWN_ALLOW_IPS: process.env.LOCKDOWN_ALLOW_IPS || "",
+    LOCKDOWN_ALLOW_TOKEN_FPS: process.env.LOCKDOWN_ALLOW_TOKEN_FPS || "",
   };
   const effective = {
     ...env,
@@ -603,7 +751,9 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     id: sid,
     created: Date.now(),
     payment_intent:
-      typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
+      typeof s.payment_intent === "string"
+        ? s.payment_intent
+        : s.payment_intent?.id || "",
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
@@ -639,6 +789,9 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
       .catch(() => null);
     if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
+
+  // Attach immutable hash at the very end (tamper-evident snapshot)
+  order = attachImmutableOrderHash(order);
 
   await kvSetSafe(`order:${order.id}`, order);
   await kvSaddSafe("orders:index", order.id);
@@ -1172,8 +1325,20 @@ function buildReceiptXlsxRows(order) {
   return rows;
 }
 
+// Idempotency: don’t re-send XLSX backup for the same order
+function receiptXlsxSentKey(orderId) {
+  return `order:${String(orderId || "").trim()}:receipt_xlsx_sent`;
+}
+
 async function sendReceiptXlsxBackup(order) {
   if (!resend || !EMAIL_RECEIPTS) return { ok: false, reason: "not-configured" };
+
+  const orderId = String(order?.id || "").trim();
+  if (!orderId) return { ok: false, reason: "missing-order-id" };
+
+  // If already sent, skip (prevents Stripe webhook retries from duplicating)
+  const already = await kvGetSafe(receiptXlsxSentKey(orderId), null);
+  if (already) return { ok: true, skipped: true, reason: "already-sent" };
 
   const rows = buildReceiptXlsxRows(order);
   const xlsxBuf = await objectsToXlsxBuffer(
@@ -1184,7 +1349,6 @@ async function sendReceiptXlsxBackup(order) {
   );
   const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
 
-  const orderId = String(order?.id || "").trim() || "unknown-order";
   const mode = String(order?.mode || "test").toLowerCase();
   const purchaserEmail = String(order?.purchaser?.email || order?.customer_email || "").trim();
 
@@ -1200,27 +1364,41 @@ async function sendReceiptXlsxBackup(order) {
     </div>
   `;
 
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+
   const payload = {
-    from: RESEND_FROM,
+    from,
     to: [EMAIL_RECEIPTS],
     subject,
     html,
     reply_to: REPLY_TO || undefined,
     attachments: [
       {
-        filename: `receipt-${orderId}.xlsx`,
+        filename: `receipt-${mode || "test"}-${orderId}.xlsx`,
         content: xlsxB64,
       },
     ],
   };
 
-  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:xlsx-backup:${orderId}`);
+  const retry = await sendWithRetry(
+    () => resend.emails.send(payload),
+    `receipt:xlsx-backup:${orderId}`
+  );
 
   if (retry.ok) {
     const sendResult = retry.result;
+
+    // Mark as sent (idempotency). Keep around long-term.
+    await kvSetSafe(receiptXlsxSentKey(orderId), {
+      sentAt: new Date().toISOString(),
+      to: EMAIL_RECEIPTS,
+      mode,
+      resultId: sendResult?.id || null,
+    });
+
     await recordMailLog({
       ts: Date.now(),
-      from: RESEND_FROM,
+      from,
       to: [EMAIL_RECEIPTS],
       subject,
       orderId: order?.id || "",
@@ -1234,7 +1412,7 @@ async function sendReceiptXlsxBackup(order) {
   const err = retry.error;
   await recordMailLog({
     ts: Date.now(),
-    from: RESEND_FROM,
+    from,
     to: [EMAIL_RECEIPTS],
     subject,
     orderId: order?.id || "",
@@ -1293,15 +1471,22 @@ function buildReceiptCSVFromRows(rows) {
 }
 
 async function buildReceiptsXlsxBufferFromRows(rows, sheetName = "Receipts") {
-  return await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, sheetName);
+  return await objectsToXlsxBuffer(
+    RECEIPT_XLSX_HEADERS,
+    rows,
+    RECEIPT_XLSX_HEADER_LABELS,
+    sheetName
+  );
 }
 
 async function sendZipToEmailReceipts({ subject, html, filename, zipBuffer }) {
   if (!resend || !EMAIL_RECEIPTS) return { ok: false, reason: "not-configured" };
 
   const b64 = Buffer.from(zipBuffer).toString("base64");
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+
   const payload = {
-    from: RESEND_FROM,
+    from,
     to: [EMAIL_RECEIPTS],
     subject,
     html,
@@ -1320,7 +1505,7 @@ async function sendZipToEmailReceipts({ subject, html, filename, zipBuffer }) {
     const sendResult = retry.result;
     await recordMailLog({
       ts: Date.now(),
-      from: RESEND_FROM,
+      from,
       to: [EMAIL_RECEIPTS],
       subject,
       resultId: sendResult?.id || null,
@@ -1333,7 +1518,7 @@ async function sendZipToEmailReceipts({ subject, html, filename, zipBuffer }) {
   const err = retry.error;
   await recordMailLog({
     ts: Date.now(),
-    from: RESEND_FROM,
+    from,
     to: [EMAIL_RECEIPTS],
     subject,
     resultId: null,
@@ -1446,23 +1631,28 @@ async function sendOrderReceipts(order) {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+
   // Purchaser receipt (with retry)
   if (purchaserEmail) {
     const payload = {
-      from: RESEND_FROM,
+      from,
       to: [purchaserEmail],
       subject,
       html,
       reply_to: REPLY_TO || undefined,
     };
 
-    const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:purchaser:${order.id}`);
+    const retry = await sendWithRetry(
+      () => resend.emails.send(payload),
+      `receipt:purchaser:${order.id}`
+    );
 
     if (retry.ok) {
       const sendResult = retry.result;
       await recordMailLog({
         ts: Date.now(),
-        from: RESEND_FROM,
+        from,
         to: [purchaserEmail],
         subject,
         orderId: order?.id || "",
@@ -1474,7 +1664,7 @@ async function sendOrderReceipts(order) {
       const err = retry.error;
       await recordMailLog({
         ts: Date.now(),
-        from: RESEND_FROM,
+        from,
         to: [purchaserEmail],
         subject,
         orderId: order?.id || "",
@@ -1489,20 +1679,23 @@ async function sendOrderReceipts(order) {
   // Admin copy (with retry)
   if (adminList.length) {
     const payloadAdmin = {
-      from: RESEND_FROM,
+      from,
       to: adminList,
       subject: `${subject} (admin copy)`,
       html,
       reply_to: REPLY_TO || undefined,
     };
 
-    const retryAdmin = await sendWithRetry(() => resend.emails.send(payloadAdmin), `receipt:admin:${order.id}`);
+    const retryAdmin = await sendWithRetry(
+      () => resend.emails.send(payloadAdmin),
+      `receipt:admin:${order.id}`
+    );
 
     if (retryAdmin.ok) {
       const sendResult = retryAdmin.result;
       await recordMailLog({
         ts: Date.now(),
-        from: RESEND_FROM,
+        from,
         to: adminList,
         subject: `${subject} (admin copy)`,
         orderId: order?.id || "",
@@ -1514,7 +1707,7 @@ async function sendOrderReceipts(order) {
       const err = retryAdmin.error;
       await recordMailLog({
         ts: Date.now(),
-        from: RESEND_FROM,
+        from,
         to: adminList,
         subject: `${subject} (admin copy)`,
         orderId: order?.id || "",
@@ -1526,14 +1719,15 @@ async function sendOrderReceipts(order) {
     }
   }
 
-  // NEW: Receipt XLSX backup to EMAIL_RECEIPTS (with retry) — does not block purchaser/admin
+  // Receipt XLSX backup to EMAIL_RECEIPTS (with retry + idempotency) — does not block purchaser/admin
   try {
     await sendReceiptXlsxBackup(order);
   } catch (e) {
     console.error("[receipt-xlsx-backup] unexpected failure:", e?.message || e);
   }
 
-  if (!purchaserEmail && !adminList.length && !EMAIL_RECEIPTS) return { sent: false, reason: "no-recipients" };
+  if (!purchaserEmail && !adminList.length && !EMAIL_RECEIPTS)
+    return { sent: false, reason: "no-recipients" };
   return { sent: true };
 }
 
@@ -1969,7 +2163,7 @@ async function sendItemReportEmailInternal({
     </div>`;
 
   const payload = {
-    from: RESEND_FROM,
+    from: from,
     to: toList.length ? toList : bccList,
     bcc: toList.length && bccList.length ? bccList : undefined,
     subject,
@@ -1986,7 +2180,7 @@ async function sendItemReportEmailInternal({
     const sendResult = retry.result;
     await recordMailLog({
       ts: Date.now(),
-      from: RESEND_FROM,
+      from: from,
       to: [...toList, ...bccList],
       subject,
       resultId: sendResult?.id || null,
@@ -2000,7 +2194,7 @@ async function sendItemReportEmailInternal({
   const err = retry.error;
   await recordMailLog({
     ts: Date.now(),
-    from: RESEND_FROM,
+    from: from,
     to: [...toList, ...bccList],
     subject,
     resultId: null,
@@ -2078,11 +2272,17 @@ export {
   REPORTS_LOG_TO,
   CONTACT_TO,
 
-  // NEW: receipts mailbox + helpers
+  // receipts mailbox + helpers
   EMAIL_RECEIPTS,
   sendReceiptXlsxBackup,
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
+
+  // NEW: hash + lockdown exports
+  verifyOrderHash,
+  assertNotLocked,
+  getLockdownConfig,
+  tokenFingerprint,
 
   // generic helpers
   REQ_OK,
@@ -2128,7 +2328,7 @@ export {
   sendRealtimeChairEmailsForOrder,
   maybeSendRealtimeChairEmails,
 
-  // NEW: checkout mode helpers + purge
+  // checkout mode helpers + purge
   getCheckoutSettingsRaw,
   saveCheckoutSettings,
   getCheckoutSettingsAuto,
