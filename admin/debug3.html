@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Debugging 3 — Safety Tools</title>
+  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=debug3-v1" />
+
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111;margin:0}
+    .container{max-width:none;width:min(1800px, calc(100vw - 48px));margin:24px auto;padding:0 24px;box-sizing:border-box}
+    h1{margin:0 0 8px;font-size:26px}
+    .sub{color:#555;margin:0 0 18px;font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,.04);padding:14px}
+    .span-12{grid-column:span 12}
+    .span-8{grid-column:span 8}
+    .span-6{grid-column:span 6}
+    .span-4{grid-column:span 4}
+    .span-3{grid-column:span 3}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{border:1px solid #d1d5db;background:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:650}
+    .btn.primary{background:#111;color:#fff;border-color:#111}
+    .btn.danger{background:#b91c1c;color:#fff;border-color:#b91c1c}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .field{display:flex;flex-direction:column;gap:6px;min-width:240px}
+    .field label{font-size:12px;color:#555}
+    input, textarea, select{
+      border:1px solid #d1d5db;border-radius:10px;padding:9px 10px;font-size:14px;outline:none;
+      background:#fff;
+    }
+    textarea{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    pre{
+      margin:10px 0 0;
+      background:#0b1020;color:#dbeafe;border-radius:12px;
+      padding:12px;overflow:auto;font-size:12px;line-height:1.35;
+      border:1px solid rgba(255,255,255,.06);
+      max-height:340px;
+    }
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid #e5e7eb}
+    .ok{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+    .warn{background:#fffbeb;color:#92400e;border-color:#fcd34d}
+    .bad{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+    .muted{color:#6b7280;font-size:12px}
+    .hr{height:1px;background:#e5e7eb;margin:12px 0}
+    @media (max-width: 1100px){
+      .span-8,.span-6,.span-4,.span-3{grid-column:span 12}
+      .container{width:calc(100vw - 24px);padding:0 12px}
+      textarea{min-height:160px}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Debugging 3 — Safety Tools</h1>
+    <p class="sub">
+      Admin-only safety + verification dashboard (Lockdown, Order Integrity, Logs, Mail).
+    </p>
+
+    <div class="grid">
+
+      <!-- AUTH / STATUS -->
+      <div class="card span-12">
+        <div class="row" style="justify-content:space-between;">
+          <div class="row">
+            <span id="authPill" class="pill warn">Auth: unknown</span>
+            <span id="apiPill" class="pill warn">API: unknown</span>
+            <span class="muted">Token source: localStorage <code>amaranth_report_token</code></span>
+          </div>
+          <div class="row">
+            <button class="btn" id="btnPing">Ping</button>
+            <button class="btn" id="btnOpenAdmin">Admin Hub</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOCKDOWN -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0;font-size:18px;">Admin Lockdown</h2>
+          <span id="lockPill" class="pill warn">Loading…</span>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="row">
+          <div class="field" style="flex:1;min-width:320px;">
+            <label>Message (optional)</label>
+            <input id="lockMessage" placeholder="Event week freeze — admin writes disabled" />
+          </div>
+          <div class="field" style="min-width:180px;">
+            <label>Mode</label>
+            <select id="lockMode">
+              <option value="on">ON (block admin writes)</option>
+              <option value="off">OFF</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnApplyLock">Apply</button>
+          <button class="btn" id="btnRefreshLock">Refresh</button>
+          <button class="btn danger" id="btnWriteTest">Write-test (expected 423)</button>
+          <span class="muted">Write-test requires endpoint <code>action=debug_lockdown_write_test</code>.</span>
+        </div>
+
+        <pre id="lockOut">{}</pre>
+      </div>
+
+      <!-- ORDER INTEGRITY -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0;font-size:18px;">Order Integrity</h2>
+          <span class="muted">Verify order hash markers / detect tampering</span>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="row">
+          <div class="field" style="flex:1;min-width:320px;">
+            <label>Order ID (oid)</label>
+            <input id="oid" placeholder="ord_... or whatever your order IDs are" />
+          </div>
+          <button class="btn" id="btnOrderPreview">Order preview</button>
+          <button class="btn primary" id="btnOrderHash">Verify hash</button>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <span class="muted">
+            Hash verification requires endpoint <code>type=debug_order_hash</code> (recommended).
+          </span>
+        </div>
+
+        <pre id="orderOut">{}</pre>
+      </div>
+
+      <!-- MAIL LOG -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0;font-size:18px;">Mail Log</h2>
+          <div class="row">
+            <button class="btn" id="btnLastMail">Last mail</button>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <pre id="mailOut">{}</pre>
+      </div>
+
+      <!-- ADMIN AUDIT LOG -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0;font-size:18px;">Admin Audit Log</h2>
+          <div class="row">
+            <div class="field" style="min-width:140px;">
+              <label>Limit</label>
+              <input id="logLimit" value="20" />
+            </div>
+            <button class="btn primary" id="btnAdminLog">Fetch</button>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <span class="muted">
+            Requires endpoint <code>type=admin_log_tail</code>. (KV keys: <code>admin:log:{timestamp}:{requestId}</code>)
+          </span>
+        </div>
+
+        <pre id="adminLogOut">{}</pre>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Load the external JS (keep this as the ONLY script for this page) -->
+  <script src="/admin/debug3.js?v=dbg3-v1"></script>
+</body>
+</html>
