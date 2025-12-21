@@ -93,17 +93,12 @@ export async function handleSmoketest() {
       SITE_BASE_URL: process.env.SITE_BASE_URL ? "set" : "missing",
       REPORT_TOKEN: process.env.REPORT_TOKEN ? "set" : "missing",
 
-      // Stripe (mode-aware)
+      // Stripe (mode-aware, canonical)
       STRIPE_SECRET_KEY_TEST: process.env.STRIPE_SECRET_KEY_TEST ? "set" : "missing",
       STRIPE_SECRET_KEY_LIVE: process.env.STRIPE_SECRET_KEY_LIVE ? "set" : "missing",
-
-      // Optional legacy visibility
-      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "set" : "missing",
-
-      // 🔍 One-line sanity check
       stripeReady:
-        !!process.env.STRIPE_SECRET_KEY_TEST &&
-        !!process.env.STRIPE_SECRET_KEY_LIVE
+        process.env.STRIPE_SECRET_KEY_TEST &&
+        process.env.STRIPE_SECRET_KEY_LIVE
           ? "ok"
           : "missing",
 
@@ -125,6 +120,7 @@ export async function handleSmoketest() {
 
   return out;
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* 2. Last mail log — returns recent email metadata                           */
