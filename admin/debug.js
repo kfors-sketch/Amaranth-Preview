@@ -19,11 +19,12 @@
 // them with ../api/admin/...
 
 import { kv } from "@vercel/kv";
+
 import {
   normalizeReportFrequency,
   computeDailyWindow,
   computeWeeklyWindow,
-  computeTwicePerMonthWindow,
+  // computeTwicePerMonthWindow, // TEMP DISABLED — not exported by ../api/admin/report-scheduler.js currently
   computeMonthlyWindow,
 } from "../api/admin/report-scheduler.js";
 
@@ -39,6 +40,46 @@ import {
   flattenOrderToRows,
   filterRowsByWindow,
 } from "../api/admin/core.js";
+
+/* -------------------------------------------------------------------------- */
+/* TEMP NOTE (IMPORTANT)                                                      */
+/* -------------------------------------------------------------------------- */
+/*
+  computeTwicePerMonthWindow used to work, but the module
+  ../api/admin/report-scheduler.js no longer exports it. In ESM on Vercel,
+  importing a missing named export is a fatal error and causes ALL /api/router
+  requests (including admin_login) to return 500.
+
+  For now:
+  - we DO NOT import computeTwicePerMonthWindow (so the API can boot)
+  - we treat "twice-per-month" as a monthly window fallback in debug tools
+  - once the export is restored or renamed, re-enable the import and switch cases
+*/
+
+/* -------------------------------------------------------------------------- */
+/* Helper: compute window safely (with twice-per-month fallback)              */
+/* -------------------------------------------------------------------------- */
+function computeWindowSafe(freq, now, lastWindowEndMs) {
+  switch (freq) {
+    case "daily":
+      return computeDailyWindow(now, lastWindowEndMs);
+    case "weekly":
+      return computeWeeklyWindow(now, lastWindowEndMs);
+
+    case "twice-per-month":
+      // TEMP fallback until computeTwicePerMonthWindow is exported again
+      return {
+        ...computeMonthlyWindow(now, lastWindowEndMs),
+        _note:
+          "twice-per-month window disabled (missing export). Using monthly fallback.",
+        _fallback: true,
+      };
+
+    case "monthly":
+    default:
+      return computeMonthlyWindow(now, lastWindowEndMs);
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /* 1. Smoketest — verifies KV, runtime, and key env vars                      */
@@ -96,7 +137,7 @@ export async function debugScheduleForItem(id) {
   const cfg = (await kv.hgetall(`itemcfg:${id}`)) || {};
 
   const publishStart = cfg.publishStart || null;
-  const publishEnd   = cfg.publishEnd   || null;
+  const publishEnd = cfg.publishEnd || null;
 
   const freqRaw = cfg.reportFrequency ?? cfg.report_frequency;
   const freq = normalizeReportFrequency(freqRaw);
@@ -111,23 +152,8 @@ export async function debugScheduleForItem(id) {
   }
 
   const now = new Date();
-  let debugWindow;
 
-  switch (freq) {
-    case "daily":
-      debugWindow = computeDailyWindow(now, lastWindowEndMs);
-      break;
-    case "weekly":
-      debugWindow = computeWeeklyWindow(now, lastWindowEndMs);
-      break;
-    case "twice-per-month":
-      debugWindow = computeTwicePerMonthWindow(now, lastWindowEndMs);
-      break;
-    case "monthly":
-    default:
-      debugWindow = computeMonthlyWindow(now, lastWindowEndMs);
-      break;
-  }
+  const debugWindow = computeWindowSafe(freq, now, lastWindowEndMs);
 
   return {
     ok: true,
@@ -147,10 +173,7 @@ export async function debugScheduleForItem(id) {
 /* -------------------------------------------------------------------------- */
 export async function handleTokenTest(req) {
   const headers = (req && req.headers) || {};
-  const rawAuth =
-    headers.authorization ||
-    headers.Authorization ||
-    "";
+  const rawAuth = headers.authorization || headers.Authorization || "";
 
   const auth = String(rawAuth || "");
   const envToken = (process.env.REPORT_TOKEN || "").trim();
@@ -160,8 +183,7 @@ export async function handleTokenTest(req) {
     providedToken = auth.slice(7).trim();
   }
 
-  const matches =
-    !!providedToken && !!envToken && providedToken === envToken;
+  const matches = !!providedToken && !!envToken && providedToken === envToken;
 
   return {
     ok: matches,
@@ -169,9 +191,7 @@ export async function handleTokenTest(req) {
     hasHeader: !!auth,
     hasEnvToken: !!envToken,
     matches,
-    note: matches
-      ? "Token matches REPORT_TOKEN"
-      : "Token mismatch or missing.",
+    note: matches ? "Token matches REPORT_TOKEN" : "Token mismatch or missing.",
   };
 }
 
@@ -224,11 +244,7 @@ export async function handleResendTest(req, urlLike) {
     url = new URL(req.url || "/api/router", base);
   }
 
-  const to =
-    (url.searchParams.get("to") ||
-      REPORTS_LOG_TO ||
-      RESEND_FROM ||
-      "").trim();
+  const to = (url.searchParams.get("to") || REPORTS_LOG_TO || RESEND_FROM || "").trim();
 
   const out = {
     ok: true,
@@ -281,7 +297,13 @@ export async function handleSchedulerDiagnostic() {
   const windows = {
     daily: computeDailyWindow(now),
     weekly: computeWeeklyWindow(now),
-    twicePerMonth: computeTwicePerMonthWindow(now),
+    // twicePerMonth: computeTwicePerMonthWindow(now), // TEMP DISABLED — missing export
+    twicePerMonth: {
+      ...computeMonthlyWindow(now),
+      _note:
+        "twice-per-month window disabled (missing export). Showing monthly fallback.",
+      _fallback: true,
+    },
     monthly: computeMonthlyWindow(now),
   };
 
@@ -363,20 +385,13 @@ export async function handleItemcfgHealth() {
   for (const id of ids) {
     const cfg = await kvHgetallSafe(`itemcfg:${id}`);
     if (!cfg) {
-      items.push({
-        id,
-        missing: true,
-      });
+      items.push({ id, missing: true });
       continue;
     }
 
-    const freq = normalizeReportFrequency(
-      cfg.reportFrequency ?? cfg.report_frequency
-    );
+    const freq = normalizeReportFrequency(cfg.reportFrequency ?? cfg.report_frequency);
 
-    const chairEmails = Array.isArray(cfg.chairEmails)
-      ? cfg.chairEmails
-      : [];
+    const chairEmails = Array.isArray(cfg.chairEmails) ? cfg.chairEmails : [];
 
     items.push({
       id,
@@ -391,11 +406,7 @@ export async function handleItemcfgHealth() {
     });
   }
 
-  return {
-    ok: true,
-    count: items.length,
-    items,
-  };
+  return { ok: true, count: items.length, items };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -410,9 +421,7 @@ export async function handleSchedulerDryRun() {
   const allRows = [];
   for (const oid of orderIds) {
     const o = await kvGetSafe(`order:${oid}`, null);
-    if (o) {
-      allRows.push(...flattenOrderToRows(o));
-    }
+    if (o) allRows.push(...flattenOrderToRows(o));
   }
 
   // Load all item configs
@@ -436,29 +445,10 @@ export async function handleSchedulerDryRun() {
       if (Number.isFinite(n)) lastWindowEndMs = n;
     }
 
-    let windowObj;
-    switch (freq) {
-      case "daily":
-        windowObj = computeDailyWindow(now, lastWindowEndMs);
-        break;
-      case "weekly":
-        windowObj = computeWeeklyWindow(now, lastWindowEndMs);
-        break;
-      case "twice-per-month":
-        windowObj = computeTwicePerMonthWindow(now, lastWindowEndMs);
-        break;
-      case "monthly":
-      default:
-        windowObj = computeMonthlyWindow(now, lastWindowEndMs);
-        break;
-    }
+    const windowObj = computeWindowSafe(freq, now, lastWindowEndMs);
 
-    const startMs = Number.isFinite(windowObj?.startMs)
-      ? windowObj.startMs
-      : null;
-    const endMs = Number.isFinite(windowObj?.endMs)
-      ? windowObj.endMs
-      : null;
+    const startMs = Number.isFinite(windowObj?.startMs) ? windowObj.startMs : null;
+    const endMs = Number.isFinite(windowObj?.endMs) ? windowObj.endMs : null;
 
     // Rows for this item
     const idLower = String(id || "").toLowerCase();
@@ -496,9 +486,7 @@ export async function handleSchedulerDryRun() {
       reason = "ok";
     }
 
-    const chairEmails = Array.isArray(cfg.chairEmails)
-      ? cfg.chairEmails
-      : [];
+    const chairEmails = Array.isArray(cfg.chairEmails) ? cfg.chairEmails : [];
 
     itemsLog.push({
       id,
@@ -531,11 +519,7 @@ export async function handleSchedulerDryRun() {
 export async function handleChairPreview({ id, scope = "full" }) {
   const itemId = String(id || "").trim();
   if (!itemId) {
-    return {
-      ok: false,
-      error: "missing-id",
-      message: "Item id is required.",
-    };
+    return { ok: false, error: "missing-id", message: "Item id is required." };
   }
 
   const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
@@ -547,9 +531,7 @@ export async function handleChairPreview({ id, scope = "full" }) {
     };
   }
 
-  const chairEmails = Array.isArray(cfg.chairEmails)
-    ? cfg.chairEmails
-    : [];
+  const chairEmails = Array.isArray(cfg.chairEmails) ? cfg.chairEmails : [];
 
   const orderIds = await kvSmembersSafe("orders:index");
   const allRows = [];
@@ -571,20 +553,13 @@ export async function handleChairPreview({ id, scope = "full" }) {
   let scopeInfo = {};
 
   if (scope === "current-month") {
-    const start = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
-    );
-    const end = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0)
-    );
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
     rowsInScope = filterRowsByWindow(rowsForItem, {
       startMs: start.getTime(),
       endMs: end.getTime(),
     });
-    scopeInfo = {
-      startUTC: start.toISOString(),
-      endUTC: end.toISOString(),
-    };
+    scopeInfo = { startUTC: start.toISOString(), endUTC: end.toISOString() };
   } else if (scope === "full" || !scope) {
     scope = "full";
     scopeInfo = { note: "No date filtering applied." };
@@ -615,11 +590,7 @@ export async function handleChairPreview({ id, scope = "full" }) {
 export async function handleOrderPreview(orderId) {
   const oid = String(orderId || "").trim();
   if (!oid) {
-    return {
-      ok: false,
-      error: "missing-id",
-      message: "Order id is required.",
-    };
+    return { ok: false, error: "missing-id", message: "Order id is required." };
   }
 
   const order = await kvGetSafe(`order:${oid}`, null);
@@ -679,9 +650,7 @@ export async function handleWebhookPreview(sessionId) {
         currency: session.currency,
         customer_details: session.customer_details || null,
         metadata: session.metadata || null,
-        line_items: session.line_items
-          ? session.line_items.data
-          : undefined,
+        line_items: session.line_items ? session.line_items.data : undefined,
       },
     };
   } catch (err) {
