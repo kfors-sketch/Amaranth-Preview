@@ -582,14 +582,14 @@ function adminReceiptKey(orderId) {
 
 async function getAdminReceiptRecipientsSafe() {
   // Priority:
-  // 1) settings override: RECEIPTS_ADMIN_TO (comma list)
+  // 1) settings override: EMAIL_RECEIPTS (comma list)
   // 2) settings override: REPORTS_BCC / REPORTS_CC
-  // 3) env: RECEIPTS_ADMIN_TO
+  // 3) env: EMAIL_RECEIPTS
   // 4) env: REPORTS_BCC / REPORTS_CC
   try {
     const { effective } = await getEffectiveSettings();
     const pick =
-      effective?.RECEIPTS_ADMIN_TO ||
+      effective?.EMAIL_RECEIPTS ||
       effective?.REPORTS_BCC ||
       effective?.REPORTS_CC ||
       "";
@@ -598,7 +598,7 @@ async function getAdminReceiptRecipientsSafe() {
   } catch {}
 
   const pickEnv =
-    (process.env.RECEIPTS_ADMIN_TO || "").trim() ||
+    (process.env.EMAIL_RECEIPTS || "").trim() ||
     (process.env.REPORTS_BCC || "").trim() ||
     (process.env.REPORTS_CC || "").trim() ||
     "";
@@ -3113,7 +3113,7 @@ export default async function handler(req, res) {
           "RESEND_FROM",
           "REPORTS_CC",
           "REPORTS_BCC",
-          "RECEIPTS_ADMIN_TO",
+          "EMAIL_RECEIPTS",
           "SITE_BASE_URL",
           "MAINTENANCE_ON",
           "MAINTENANCE_MESSAGE",
