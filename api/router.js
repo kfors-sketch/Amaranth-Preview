@@ -581,27 +581,20 @@ function adminReceiptKey(orderId) {
 }
 
 async function getAdminReceiptRecipientsSafe() {
+  // Admin receipt copy should ONLY go to EMAIL_RECEIPTS.
+  // (Reports and other operational mail can still go to REPORTS_LOG_TO / REPORTS_BCC elsewhere.)
+  //
   // Priority:
   // 1) settings override: EMAIL_RECEIPTS (comma list)
-  // 2) settings override: REPORTS_BCC / REPORTS_CC
-  // 3) env: EMAIL_RECEIPTS
-  // 4) env: REPORTS_BCC / REPORTS_CC
+  // 2) env: EMAIL_RECEIPTS
   try {
     const { effective } = await getEffectiveSettings();
-    const pick =
-      effective?.EMAIL_RECEIPTS ||
-      effective?.REPORTS_BCC ||
-      effective?.REPORTS_CC ||
-      "";
+    const pick = (effective?.EMAIL_RECEIPTS || "").trim();
     const list = splitEmails(pick);
     if (list.length) return list;
   } catch {}
 
-  const pickEnv =
-    (process.env.EMAIL_RECEIPTS || "").trim() ||
-    (process.env.REPORTS_BCC || "").trim() ||
-    (process.env.REPORTS_CC || "").trim() ||
-    "";
+  const pickEnv = (process.env.EMAIL_RECEIPTS || "").trim();
   return splitEmails(pickEnv);
 }
 
@@ -686,6 +679,16 @@ async function sendAdminReceiptCopyOnce(order, requestId) {
 async function sendPostOrderEmails(order, requestId) {
   try {
     if (!order?.id) return;
+
+    // Compatibility shim:
+    // Older code paths (including some versions of core.js) look for RECEIPTS_ADMIN_TO.
+    // Your project standard is EMAIL_RECEIPTS. Keep receipts routed correctly without
+    // impacting reports.
+    try {
+      const er = (process.env.EMAIL_RECEIPTS || "").trim();
+      if (!process.env.RECEIPTS_ADMIN_TO && er) process.env.RECEIPTS_ADMIN_TO = er;
+    } catch {}
+
 
     // Idempotency to prevent double send when:
     // - user hits finalize endpoint and Stripe webhook also comes in
