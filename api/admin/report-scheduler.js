@@ -1,6 +1,16 @@
 // /api/admin/report-scheduler.js
 import { kv } from "@vercel/kv";
 
+/**
+ * Goals of this edit:
+ * 1) Align frequency naming with the rest of the codebase:
+ *    internal normalized values: "daily", "weekly", "biweekly", "monthly", "none"
+ *    (while still accepting legacy "twice-per-month" etc.)
+ * 2) Keep your existing “twice per month” window behavior, but normalize it to "biweekly"
+ *    so core.js / admin UIs / older configs don’t drift.
+ * 3) Harden logging + error isolation so one item failure never stops the loop.
+ */
+
 // Small KV helpers (duplicated here to avoid importing from router.js)
 async function kvGetSafe(key, fallback = null) {
   try {
@@ -28,17 +38,23 @@ async function kvSetSafe(key, val) {
 
 // ---- Frequency helpers ----
 // Internal normalized values:
-//   "daily", "weekly", "twice-per-month", "monthly", "none"
-const VALID_FREQS = ["daily", "weekly", "twice-per-month", "monthly", "none"];
+//   "daily", "weekly", "biweekly", "monthly", "none"
+const VALID_FREQS = ["daily", "weekly", "biweekly", "monthly", "none"];
 
 function normalizeFrequency(raw) {
   const v = String(raw || "").trim().toLowerCase();
   if (!v) return "monthly"; // default if nothing set
 
   // Map various UI / legacy labels to our internal set
-  if (v === "biweekly") return "twice-per-month"; // backward compatibility
-  if (v === "twice" || v === "twice per month" || v === "2x")
-    return "twice-per-month";
+  // Legacy variants for “biweekly / twice per month”
+  if (v === "twice-per-month") return "biweekly";
+  if (v === "twice per month") return "biweekly";
+  if (v === "twice") return "biweekly";
+  if (v === "2x") return "biweekly";
+  if (v === "bi-weekly") return "biweekly";
+  if (v === "bi weekly") return "biweekly";
+
+  // Legacy “do not auto send”
   if (v === "do not auto send" || v === "do-not-auto-send") return "none";
 
   if (VALID_FREQS.includes(v)) return v;
@@ -52,15 +68,7 @@ function normalizeReportFrequency(raw) {
 
 // Basic UTC date helpers (we do everything in UTC to avoid TZ gaps)
 function startOfUTCDay(d) {
-  return Date.UTC(
-    d.getUTCFullYear(),
-    d.getUTCMonth(),
-    d.getUTCDate(),
-    0,
-    0,
-    0,
-    0
-  );
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
 }
 
 function addDays(ms, days) {
@@ -78,60 +86,31 @@ function startOfCurrentMonthUTC(now) {
 function startOfNextMonthUTC(now) {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
-  if (m === 11) {
-    return startOfUTCMonth(y + 1, 0);
-  }
+  if (m === 11) return startOfUTCMonth(y + 1, 0);
   return startOfUTCMonth(y, m + 1);
 }
 
 function startOfPreviousMonthUTC(now) {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
-  if (m === 0) {
-    return startOfUTCMonth(y - 1, 11);
-  }
+  if (m === 0) return startOfUTCMonth(y - 1, 11);
   return startOfUTCMonth(y, m - 1);
 }
 
 // ISO-week (Mon–Sun) helpers
 function startOfISOWeekUTC(date) {
-  const d = new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate()
-    )
-  );
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = d.getUTCDay() || 7;
-  if (day !== 1) {
-    d.setUTCDate(d.getUTCDate() - (day - 1));
-  }
-  return Date.UTC(
-    d.getUTCFullYear(),
-    d.getUTCMonth(),
-    d.getUTCDate(),
-    0,
-    0,
-    0,
-    0
-  );
+  if (day !== 1) d.setUTCDate(d.getUTCDate() - (day - 1));
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
 }
 
 function isoWeekIdUTC(date) {
-  const d = new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate()
-    )
-  );
-
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - day);
-
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
@@ -162,10 +141,9 @@ function computePeriodId(freq, now, windowStartMs, windowEndMs) {
   if (f === "daily") return ymd(start);
   if (f === "weekly") return isoWeekIdUTC(start);
 
-  if (f === "twice-per-month") {
-    const ym = `${start.getUTCFullYear()}-${String(
-      start.getUTCMonth() + 1
-    ).padStart(2, "0")}`;
+  // We keep the original “twice per month” split, but call it biweekly.
+  if (f === "biweekly") {
+    const ym = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`;
     const half = start.getUTCDate() <= 15 ? "1" : "2";
     return `${ym}-${half}`;
   }
@@ -195,17 +173,14 @@ function computeDailyWindow(now, lastWindowEndMs, lastSentIso) {
 
   // Base window is yesterday -> todayStart.
   // If we have a stored lastWindowEndMs, continue from there.
-  let startMs =
-    lastWindowEndMs != null ? lastWindowEndMs : yesterdayStart;
+  let startMs = lastWindowEndMs != null ? lastWindowEndMs : yesterdayStart;
 
-  // Guard: if lastWindowEndMs is in the future or >= todayStart, clamp back
-  // to yesterdayStart so we still deliver the expected “yesterday” window.
+  // Guard: if lastWindowEndMs is in the future or >= todayStart, clamp back.
   if (startMs >= todayStart) startMs = yesterdayStart;
 
   const endMs = todayStart;
 
   if (endMs <= startMs) return { skip: true, reason: "Not due yet" };
-
   return { skip: false, startMs, endMs, label: "Daily (yesterday)" };
 }
 
@@ -226,24 +201,33 @@ function computeWeeklyWindow(now, lastWindowEndMs) {
   };
 }
 
-function computeTwicePerMonthWindow(now, lastWindowEndMs) {
+/**
+ * Biweekly (your existing behavior):
+ * - Window 1: 1st -> 15th (exclusive midpoint at day 16 00:00Z, i.e. start + 15 days)
+ * - Window 2: 15th -> next month start
+ *
+ * This is intentionally calendar-based (not “every 14 days”), matching your prior file.
+ */
+function computeBiweeklyWindow(now, lastWindowEndMs) {
   const nowMs = now.getTime();
   const monthStart = startOfCurrentMonthUTC(now);
-  const midPoint = addDays(monthStart, 15);
+  const midPoint = addDays(monthStart, 15); // 1st 00:00Z + 15 days => 16th 00:00Z
   const nextMonthStart = startOfNextMonthUTC(now);
 
+  // First time ever: only send after we’ve reached the midpoint (so we can deliver 1st–15th).
   if (lastWindowEndMs == null) {
     if (nowMs < midPoint) return { skip: true, reason: "Not due yet" };
     return {
       skip: false,
       startMs: monthStart,
       endMs: midPoint,
-      label: "Twice-per-month (1st–15th)",
+      label: "Biweekly (1st–15th)",
     };
   }
 
   const lastEnd = lastWindowEndMs;
 
+  // Catch-up to midpoint
   if (lastEnd < midPoint) {
     if (nowMs < midPoint) return { skip: true, reason: "Not due yet" };
     const startMs = lastEnd;
@@ -253,10 +237,11 @@ function computeTwicePerMonthWindow(now, lastWindowEndMs) {
       skip: false,
       startMs,
       endMs,
-      label: "Twice-per-month (1st–15th, catch-up)",
+      label: "Biweekly (1st–15th, catch-up)",
     };
   }
 
+  // Second half: only send after month ends (so we can deliver 16th–end)
   if (lastEnd < nextMonthStart) {
     if (nowMs < nextMonthStart) return { skip: true, reason: "Not due yet" };
     const startMs = lastEnd;
@@ -266,7 +251,7 @@ function computeTwicePerMonthWindow(now, lastWindowEndMs) {
       skip: false,
       startMs,
       endMs,
-      label: "Twice-per-month (16th–end)",
+      label: "Biweekly (16th–end)",
     };
   }
 
@@ -294,12 +279,14 @@ function computeMonthlyWindow(now, lastWindowEndMs) {
 }
 
 // ---- Main scheduler ----
-export async function runScheduledChairReports({
-  now = new Date(),
-  sendItemReportEmailInternal,
-}) {
+export async function runScheduledChairReports({ now = new Date(), sendItemReportEmailInternal }) {
+  if (typeof sendItemReportEmailInternal !== "function") {
+    throw new Error("runScheduledChairReports: sendItemReportEmailInternal is required");
+  }
+
   const nowMs = now.getTime();
 
+  // Load lists (KV may store null)
   const banquets = (await kvGetSafe("banquets", [])) || [];
   const addons = (await kvGetSafe("addons", [])) || [];
   const products = (await kvGetSafe("products", [])) || [];
@@ -311,13 +298,11 @@ export async function runScheduledChairReports({
   const isEntryEligible = (entry) => {
     if (!entry || typeof entry !== "object") return false;
 
-    // Common patterns we’ve used across pages:
+    // Common patterns across pages:
     if (entry.active === false) return false;
     if (entry.archived === true) return false;
     if (entry.isArchived === true) return false;
 
-    // If you use publishStart/publishEnd for visibility, that is handled later,
-    // but “archived” should be treated as hard-excluded.
     return true;
   };
 
@@ -347,139 +332,164 @@ export async function runScheduledChairReports({
 
   for (const item of queue) {
     const id = item.id;
-    const cfg = await kvHgetallSafe(`itemcfg:${id}`);
 
-    const publishStartMs = cfg?.publishStart
-      ? Date.parse(cfg.publishStart)
-      : NaN;
-    const publishEndMs = cfg?.publishEnd
-      ? Date.parse(cfg.publishEnd)
-      : NaN;
-
-    const label = cfg?.name || item.label || id;
-    const kind = String(cfg?.kind || "").toLowerCase() || item.kind;
-
-    const freq = normalizeFrequency(
-      cfg?.reportFrequency ??
-        cfg?.report_frequency ??
-        item.fromList?.reportFrequency ??
-        item.fromList?.report_frequency
-    );
-
-    let skip = false;
-    let skipReason = "";
-
-    if (!isNaN(publishStartMs) && nowMs < publishStartMs) {
-      skip = true;
-      skipReason = "Not yet open (publishStart in future)";
-    } else if (!isNaN(publishEndMs) && nowMs > publishEndMs) {
-      skip = true;
-      skipReason = "Closed (publishEnd in past)";
-    } else if (freq === "none") {
-      skip = true;
-      skipReason = "Frequency set to 'none'";
-    }
-
-    const lastWindowEndKey = `itemcfg:${id}:last_window_end_ms`;
-    const lastWindowEndRaw = await kvGetSafe(lastWindowEndKey, null);
-    let lastWindowEndMs = null;
-    if (lastWindowEndRaw != null && lastWindowEndRaw !== "") {
-      const num = Number(lastWindowEndRaw);
-      if (Number.isFinite(num) && num > 0) lastWindowEndMs = num;
-    }
-
-    const lastSentKey = `itemcfg:${id}:last_sent_at`;
-    const lastSentIso = await kvGetSafe(lastSentKey, "");
-
-    let startMs = null;
-    let endMs = null;
-    let windowLabel = "";
-    let periodId = "";
-
-    if (!skip) {
-      let result;
-      switch (freq) {
-        case "daily":
-          result = computeDailyWindow(now, lastWindowEndMs, lastSentIso);
-          break;
-        case "weekly":
-          result = computeWeeklyWindow(now, lastWindowEndMs);
-          break;
-        case "twice-per-month":
-          result = computeTwicePerMonthWindow(now, lastWindowEndMs);
-          break;
-        case "monthly":
-        default:
-          result = computeMonthlyWindow(now, lastWindowEndMs);
-          break;
-      }
-
-      if (result.skip) {
-        skip = true;
-        skipReason = result.reason || "Not due yet";
-      } else {
-        startMs = result.startMs;
-        endMs = result.endMs;
-        windowLabel = result.label || "";
-        periodId = computePeriodId(freq, now, startMs, endMs);
-      }
-    }
-
-    if (skip) {
-      skipped += 1;
-      itemsLog.push({
-        id,
-        label,
-        kind,
-        freq,
-        periodId: periodId || "",
-        ok: false,
-        skipped: true,
-        skipReason,
-        count: 0,
-        to: [],
-        bcc: [],
-        error: "",
-        windowStartUTC: null,
-        windowEndUTC: null,
-      });
-      continue;
-    }
-
-    const result = await sendItemReportEmailInternal({
-      kind,
+    // Default log skeleton (filled as we go)
+    const baseLog = {
       id,
-      label,
-      scope: "window",
-      startMs,
-      endMs,
-      windowLabel,
-    });
-
-    if (result.ok) {
-      sent += 1;
-      await kvSetSafe(lastWindowEndKey, String(endMs));
-      await kvSetSafe(lastSentKey, now.toISOString());
-    } else {
-      errors += 1;
-    }
-
-    itemsLog.push({
-      id,
-      label,
-      kind,
-      freq,
-      periodId: periodId || "",
-      ok: !!result.ok,
+      label: item.label || id,
+      kind: item.kind,
+      freq: "",
+      periodId: "",
+      ok: false,
       skipped: false,
       skipReason: "",
-      count: result.count ?? 0,
-      to: Array.isArray(result.to) ? result.to : [],
-      bcc: Array.isArray(result.bcc) ? result.bcc : [],
-      error: !result.ok ? result.error || result.message || "" : "",
-      windowStartUTC: new Date(startMs).toISOString(),
-      windowEndUTC: new Date(endMs).toISOString(),
-    });
+      count: 0,
+      to: [],
+      bcc: [],
+      error: "",
+      windowStartUTC: null,
+      windowEndUTC: null,
+      windowLabel: "",
+    };
+
+    try {
+      const cfg = await kvHgetallSafe(`itemcfg:${id}`);
+
+      const publishStartMs = cfg?.publishStart ? Date.parse(cfg.publishStart) : NaN;
+      const publishEndMs = cfg?.publishEnd ? Date.parse(cfg.publishEnd) : NaN;
+
+      const label = cfg?.name || item.label || id;
+      const kind = String(cfg?.kind || "").toLowerCase() || item.kind;
+
+      const freq = normalizeFrequency(
+        cfg?.reportFrequency ??
+          cfg?.report_frequency ??
+          item.fromList?.reportFrequency ??
+          item.fromList?.report_frequency
+      );
+
+      baseLog.label = label;
+      baseLog.kind = kind;
+      baseLog.freq = freq;
+
+      let skip = false;
+      let skipReason = "";
+
+      if (!isNaN(publishStartMs) && nowMs < publishStartMs) {
+        skip = true;
+        skipReason = "Not yet open (publishStart in future)";
+      } else if (!isNaN(publishEndMs) && nowMs > publishEndMs) {
+        skip = true;
+        skipReason = "Closed (publishEnd in past)";
+      } else if (freq === "none") {
+        skip = true;
+        skipReason = "Frequency set to 'none'";
+      }
+
+      const lastWindowEndKey = `itemcfg:${id}:last_window_end_ms`;
+      const lastWindowEndRaw = await kvGetSafe(lastWindowEndKey, null);
+      let lastWindowEndMs = null;
+      if (lastWindowEndRaw != null && lastWindowEndRaw !== "") {
+        const num = Number(lastWindowEndRaw);
+        if (Number.isFinite(num) && num > 0) lastWindowEndMs = num;
+      }
+
+      const lastSentKey = `itemcfg:${id}:last_sent_at`;
+      const lastSentIso = await kvGetSafe(lastSentKey, "");
+
+      let startMs = null;
+      let endMs = null;
+      let windowLabel = "";
+      let periodId = "";
+
+      if (!skip) {
+        let result;
+        switch (freq) {
+          case "daily":
+            result = computeDailyWindow(now, lastWindowEndMs, lastSentIso);
+            break;
+          case "weekly":
+            result = computeWeeklyWindow(now, lastWindowEndMs);
+            break;
+          case "biweekly":
+            result = computeBiweeklyWindow(now, lastWindowEndMs);
+            break;
+          case "monthly":
+          default:
+            result = computeMonthlyWindow(now, lastWindowEndMs);
+            break;
+        }
+
+        if (result.skip) {
+          skip = true;
+          skipReason = result.reason || "Not due yet";
+        } else {
+          startMs = result.startMs;
+          endMs = result.endMs;
+          windowLabel = result.label || "";
+          periodId = computePeriodId(freq, now, startMs, endMs);
+        }
+      }
+
+      if (skip) {
+        skipped += 1;
+        itemsLog.push({
+          ...baseLog,
+          periodId: periodId || "",
+          ok: false,
+          skipped: true,
+          skipReason,
+          windowStartUTC: null,
+          windowEndUTC: null,
+          windowLabel: windowLabel || "",
+        });
+        continue;
+      }
+
+      // Call sender (protect loop: any throw becomes an error entry, but loop continues)
+      const result = await sendItemReportEmailInternal({
+        kind,
+        id,
+        label,
+        scope: "window",
+        startMs,
+        endMs,
+        windowLabel,
+      });
+
+      if (result?.ok) {
+        sent += 1;
+        // Persist window end + last sent time
+        await kvSetSafe(lastWindowEndKey, String(endMs));
+        await kvSetSafe(lastSentKey, now.toISOString());
+      } else {
+        errors += 1;
+      }
+
+      itemsLog.push({
+        ...baseLog,
+        periodId: periodId || "",
+        ok: !!result?.ok,
+        skipped: false,
+        skipReason: "",
+        count: result?.count ?? 0,
+        to: Array.isArray(result?.to) ? result.to : [],
+        bcc: Array.isArray(result?.bcc) ? result.bcc : [],
+        error: !result?.ok ? result?.error || result?.message || "send-failed" : "",
+        windowStartUTC: new Date(startMs).toISOString(),
+        windowEndUTC: new Date(endMs).toISOString(),
+        windowLabel: windowLabel || "",
+      });
+    } catch (e) {
+      errors += 1;
+      itemsLog.push({
+        ...baseLog,
+        ok: false,
+        skipped: false,
+        error: String(e?.message || e || "unknown-error"),
+      });
+      // continue to next item
+    }
   }
 
   return { sent, skipped, errors, itemsLog };
@@ -491,6 +501,6 @@ export {
   normalizeReportFrequency,
   computeDailyWindow,
   computeWeeklyWindow,
-  computeTwicePerMonthWindow,
+  computeBiweeklyWindow,
   computeMonthlyWindow,
 };
