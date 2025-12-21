@@ -1693,6 +1693,62 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, order });
       }
 
+      // --------------------------------------------------------------------
+      // ✅ Compatibility: allow GET /api/router?type=send_item_report&... for testing
+      // - If dryRun=1, returns a preview (no email sent) and does NOT require auth.
+      // - If dryRun is falsey, requires admin auth and will send the email.
+      // --------------------------------------------------------------------
+      if (type === "send_item_report") {
+        const kind = String(url.searchParams.get("kind") || "").trim().toLowerCase();
+        const id = String(url.searchParams.get("id") || "").trim();
+        const label = String(url.searchParams.get("label") || "").trim();
+        const scope = String(url.searchParams.get("scope") || "current-month").trim();
+        const dryRun = coerceBool(url.searchParams.get("dryRun") || url.searchParams.get("dry_run") || "");
+
+        if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
+
+        // Dry-run: provide a safe preview (no email)
+        if (dryRun) {
+          try {
+            // We reuse the existing preview helper. It uses itemcfg + orders to show
+            // what *would* be sent, without sending anything.
+            const out = await handleChairPreview({ id, scope });
+            return REQ_OK(res, {
+              requestId,
+              ok: true,
+              dryRun: true,
+              kind: kind || (out?.kind || ""),
+              id,
+              label: label || out?.label || out?.name || "",
+              scope,
+              preview: out,
+            });
+          } catch (e) {
+            return errResponse(res, 500, "send-item-report-dryrun-failed", req, e, {
+              id,
+              scope,
+            });
+          }
+        }
+
+        // Real send: admin-only + respects lockdown
+        if (!(await requireAdminAuth(req, res))) return;
+        if (!(await enforceLockdownIfNeeded(req, res, "send_item_report", requestId))) return;
+
+        try {
+          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+          if (!result?.ok) {
+            return REQ_ERR(res, 500, result?.error || "send-failed", {
+              requestId,
+              ...(result || {}),
+            });
+          }
+          return REQ_OK(res, { requestId, ok: true, ...result });
+        } catch (e) {
+          return errResponse(res, 500, "send-item-report-failed", req, e, { kind, id, scope });
+        }
+      }
+
       return REQ_ERR(res, 400, "unknown-type", { requestId });
     }
 
