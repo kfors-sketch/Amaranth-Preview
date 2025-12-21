@@ -35,18 +35,12 @@ async function getStripe() {
   }
 
   const env = process.env || {};
-
   const TEST_SECRET = (env.STRIPE_SECRET_KEY_TEST || "").trim();
   const LIVE_SECRET = (env.STRIPE_SECRET_KEY_LIVE || "").trim();
 
   let key = "";
-
-  if (mode === "test") {
-    key = TEST_SECRET;
-  } else {
-    // live_test + live both use the LIVE key
-    key = LIVE_SECRET;
-  }
+  if (mode === "test") key = TEST_SECRET;
+  else key = LIVE_SECRET; // live_test + live both use LIVE key
 
   if (!key) {
     console.error("getStripe: No valid Stripe secret key configured for mode:", mode);
@@ -69,16 +63,10 @@ async function getStripe() {
  */
 function getStripePublishableKey(mode = "test") {
   const env = process.env || {};
-
   const TEST_PK = (env.STRIPE_PUBLISHABLE_KEY_TEST || "").trim();
   const LIVE_PK = (env.STRIPE_PUBLISHABLE_KEY_LIVE || "").trim();
-
-  if (mode === "test") {
-    return TEST_PK;
-  }
-
-  // live_test + live → LIVE publishable key
-  return LIVE_PK;
+  if (mode === "test") return TEST_PK;
+  return LIVE_PK; // live_test + live
 }
 
 // ---- Checkout mode & window settings ----
@@ -89,21 +77,15 @@ const CHECKOUT_SETTINGS_KEY = "settings:checkout";
  * {
  *   stripeMode: "test" | "live_test" | "live",
  *   liveAuto: boolean (legacy – now treated as always-on),
- *   liveStart: string,   // e.g. "2025-11-01T00:00:00Z"
- *   liveEnd:   string    // e.g. "2025-11-10T23:59:59Z"
+ *   liveStart: string,
+ *   liveEnd:   string
  * }
- *
- * NOTE: We now treat the LIVE window as automatic:
- * - If stripeMode is "live" AND we have a liveStart/liveEnd window,
- *   being outside the window will automatically revert mode to "test"
- *   without any manual "auto revert" button.
  */
 async function getCheckoutSettingsRaw() {
   const s = await kv.get(CHECKOUT_SETTINGS_KEY);
   if (!s || typeof s !== "object") {
     return {
       stripeMode: "test",
-      // legacy flag kept for compatibility but treated as always-on:
       liveAuto: true,
       liveStart: "",
       liveEnd: "",
@@ -111,9 +93,7 @@ async function getCheckoutSettingsRaw() {
   }
   const out = { ...s };
   if (!out.stripeMode) out.stripeMode = "test";
-  if (out.liveAuto === undefined || out.liveAuto === null) {
-    out.liveAuto = true;
-  }
+  if (out.liveAuto === undefined || out.liveAuto === null) out.liveAuto = true;
   return out;
 }
 
@@ -125,15 +105,8 @@ async function saveCheckoutSettings(patch = {}) {
 }
 
 /**
- * Same as raw, but with **automatic LIVE window handling**:
- *
- * - If stripeMode is "live"
- * - AND there is at least one of liveStart/liveEnd defined
- * - AND current time is outside [liveStart, liveEnd]
- *   => automatically reset stripeMode back to "test" and persist.
- *
- * The old `liveAuto` flag is effectively ignored now; the presence of
- * a LIVE window is what drives the automatic behavior.
+ * Same as raw, but with automatic LIVE window handling:
+ * - If stripeMode is "live" and window exists and now outside -> revert to test + persist.
  */
 async function getCheckoutSettingsAuto(now = new Date()) {
   let s = await getCheckoutSettingsRaw();
@@ -153,28 +126,19 @@ async function getCheckoutSettingsAuto(now = new Date()) {
     }
   }
 
-  if (changed) {
-    await kv.set(CHECKOUT_SETTINGS_KEY, s);
-  }
-
+  if (changed) await kv.set(CHECKOUT_SETTINGS_KEY, s);
   return s;
 }
 
 /**
- * Compute the effective channel to stamp onto each order:
+ * Compute effective channel stamped onto each order:
  * Returns: "test" | "live_test" | "live"
- *
- * LIVE is **always** governed by the date window:
- * - If stripeMode is "live" but we're outside [liveStart, liveEnd]
- *   (and a window is defined), the effective mode is downgraded to "test".
  */
 async function getEffectiveOrderChannel(now = new Date()) {
   const s = await getCheckoutSettingsAuto(now);
 
   let mode = s.stripeMode;
-  if (mode !== "live" && mode !== "live_test" && mode !== "test") {
-    mode = "test";
-  }
+  if (mode !== "live" && mode !== "live_test" && mode !== "test") mode = "test";
 
   if (mode === "live") {
     const start = s.liveStart ? new Date(s.liveStart) : null;
@@ -184,9 +148,7 @@ async function getEffectiveOrderChannel(now = new Date()) {
     const tooEarly = start && now < start;
     const tooLate = end && now > end;
 
-    if (hasWindow && (tooEarly || tooLate)) {
-      mode = "test";
-    }
+    if (hasWindow && (tooEarly || tooLate)) mode = "test";
   }
 
   return mode;
@@ -194,18 +156,17 @@ async function getEffectiveOrderChannel(now = new Date()) {
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// ---- Mail “From / Reply-To” (sanitized) ----
+// ---- Mail “From / Reply-To” ----
 const RESEND_FROM = (process.env.RESEND_FROM || "").trim();
 const REPLY_TO = (process.env.REPLY_TO || process.env.REPORTS_REPLY_TO || "").trim();
-const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim(); // log recipients for monthly cron summary
-const CONTACT_TO = (process.env.CONTACT_TO || "pa_sessions@yahoo.com").trim(); // contact form receiver
+const REPORTS_LOG_TO = (process.env.REPORTS_LOG_TO || "").trim();
+const CONTACT_TO = (process.env.CONTACT_TO || "pa_sessions@yahoo.com").trim();
 
-// NEW: backup receipts inbox (XLSX copy of each receipt)
+// Backup receipts inbox (XLSX copy of each receipt)
 const EMAIL_RECEIPTS = (process.env.EMAIL_RECEIPTS || "").trim();
 
 const REQ_OK = (res, data) => res.status(200).json(data);
-const REQ_ERR = (res, code, msg, extra = {}) =>
-  res.status(code).json({ error: msg, ...extra });
+const REQ_ERR = (res, code, msg, extra = {}) => res.status(code).json({ error: msg, ...extra });
 
 // ---------- helpers ----------
 function cents(n) {
@@ -221,7 +182,8 @@ function toCentsAuto(v) {
 
 async function kvGetSafe(key, fallback = null) {
   try {
-    return await kv.get(key);
+    const v = await kv.get(key);
+    return v == null ? fallback : v;
   } catch {
     return fallback;
   }
@@ -259,7 +221,7 @@ async function kvHgetallSafe(key) {
 }
 async function kvSmembersSafe(key) {
   try {
-    return await kv.smembers(key);
+    return (await kv.smembers(key)) || [];
   } catch {
     return [];
   }
@@ -283,9 +245,7 @@ async function sendWithRetry(sendFn, label = "email") {
 
   for (let i = 1; i <= 3; i++) {
     try {
-      if (attempts[i] > 0) {
-        await sleep(attempts[i]);
-      }
+      if (attempts[i] > 0) await sleep(attempts[i]);
       const result = await sendFn();
       return { ok: true, attempt: i, result };
     } catch (err) {
@@ -301,13 +261,10 @@ async function sendWithRetry(sendFn, label = "email") {
 // ---------------------------------------------------------------------------
 
 function stableStringify(value) {
-  // Deterministic JSON stringify (sorts object keys recursively)
   if (value === null || value === undefined) return JSON.stringify(value);
   if (typeof value !== "object") return JSON.stringify(value);
 
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
 
   const keys = Object.keys(value).sort();
   const parts = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`);
@@ -316,13 +273,10 @@ function stableStringify(value) {
 
 function computeOrderHash(order) {
   const o = order && typeof order === "object" ? order : {};
-
-  // Never include hash fields in the hash input
   const clone = { ...o };
   delete clone.hash;
   delete clone.hashVersion;
   delete clone.hashCreatedAt;
-
   const normalized = stableStringify(clone);
   return crypto.createHash("sha256").update(normalized).digest("hex");
 }
@@ -344,16 +298,6 @@ function verifyOrderHash(order) {
 // ---------------------------------------------------------------------------
 // LOCKDOWN MODE (block write actions during live/event week)
 // ---------------------------------------------------------------------------
-//
-// Env / overrides supported:
-// - LOCKDOWN_MODE: "off" | "admin" | "all"   (default: off)
-//     admin = blocks admin/data writes, but allows checkout/orders
-//     all   = blocks both admin writes AND checkout/order creation
-//
-// - LOCKDOWN_ALLOW_IPS: comma-separated list of IPs allowed to bypass
-// - LOCKDOWN_ALLOW_TOKEN_FPS: comma-separated list of admin token fingerprints allowed to bypass
-//
-// Fingerprint = first 6 chars of SHA256(token)
 
 function getClientIp(req) {
   const xf = req?.headers?.["x-forwarded-for"];
@@ -369,14 +313,38 @@ function tokenFingerprint(token) {
   return crypto.createHash("sha256").update(t).digest("hex").slice(0, 6);
 }
 
+async function getEffectiveSettings() {
+  const overrides = await kvHgetallSafe("settings:overrides");
+  const env = {
+    RESEND_FROM: RESEND_FROM,
+    REPORTS_CC: process.env.REPORTS_CC || "",
+    REPORTS_BCC: process.env.REPORTS_BCC || "",
+    SITE_BASE_URL: process.env.SITE_BASE_URL || "",
+    MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
+    MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
+    REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
+    REPLY_TO,
+    EVENT_START: process.env.EVENT_START || "",
+    EVENT_END: process.env.EVENT_END || "",
+    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "",
+    LOCKDOWN_MODE: process.env.LOCKDOWN_MODE || "off",
+    LOCKDOWN_ALLOW_IPS: process.env.LOCKDOWN_ALLOW_IPS || "",
+    LOCKDOWN_ALLOW_TOKEN_FPS: process.env.LOCKDOWN_ALLOW_TOKEN_FPS || "",
+  };
+  const effective = {
+    ...env,
+    ...overrides,
+    MAINTENANCE_ON: String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
+  };
+  return { env, overrides, effective };
+}
+
 async function getLockdownConfig() {
-  // Use effective settings so you can override in KV later if you want
   const { effective } = await getEffectiveSettings();
 
   const modeRaw = String(effective.LOCKDOWN_MODE || process.env.LOCKDOWN_MODE || "off")
     .trim()
     .toLowerCase();
-
   const mode = ["off", "admin", "all"].includes(modeRaw) ? modeRaw : "off";
 
   const allowIps = String(effective.LOCKDOWN_ALLOW_IPS || process.env.LOCKDOWN_ALLOW_IPS || "")
@@ -401,17 +369,10 @@ async function lockdownAllowsBypass(req) {
   const ip = getClientIp(req);
   if (ip && allowIps.includes(ip)) return { ok: true, reason: "ip-allow" };
 
-  // If your admin token comes in as a header, use it here.
-  // Keep BOTH headers as compatibility, since you may change one later:
   const token =
-    req?.headers?.["x-amaranth-admin-token"] ||
-    req?.headers?.["x-admin-token"] ||
-    "";
-
+    req?.headers?.["x-amaranth-admin-token"] || req?.headers?.["x-admin-token"] || "";
   const fp = tokenFingerprint(token);
-  if (fp && allowTokenFps.includes(fp.toLowerCase())) {
-    return { ok: true, reason: "token-allow", fp };
-  }
+  if (fp && allowTokenFps.includes(fp.toLowerCase())) return { ok: true, reason: "token-allow", fp };
 
   return { ok: false, reason: "not-allowed" };
 }
@@ -424,11 +385,8 @@ async function assertNotLocked(req, action = "admin-write") {
 
   const blocksAdmin = mode === "admin" || mode === "all";
   const blocksCheckout = mode === "all";
-
   const shouldBlock =
-    (action === "admin-write" && blocksAdmin) ||
-    (action === "checkout-write" && blocksCheckout);
-
+    (action === "admin-write" && blocksAdmin) || (action === "checkout-write" && blocksCheckout);
   if (!shouldBlock) return;
 
   const bypass = await lockdownAllowsBypass(req);
@@ -441,15 +399,11 @@ async function assertNotLocked(req, action = "admin-write") {
 
 // Cached orders for the lifetime of a single lambda invocation
 let _ordersCache = null;
-let _ordersCacheLoadedAt = 0;
 
 // Load all orders with a few retries to be safer on cold starts
 async function loadAllOrdersWithRetry(options = {}) {
   const { retries = 4, delayMs = 500 } = options;
-
-  if (Array.isArray(_ordersCache)) {
-    return _ordersCache;
-  }
+  if (Array.isArray(_ordersCache)) return _ordersCache;
 
   let lastOrders = [];
 
@@ -462,20 +416,15 @@ async function loadAllOrdersWithRetry(options = {}) {
     }
     lastOrders = orders;
 
-    // If there are any orders, or if there truly are no orders at all, stop retrying.
     if (orders.length > 0 || idx.length === 0) {
       _ordersCache = orders;
-      _ordersCacheLoadedAt = Date.now();
       return orders;
     }
 
-    if (attempt < retries - 1) {
-      await sleep(delayMs);
-    }
+    if (attempt < retries - 1) await sleep(delayMs);
   }
 
   _ordersCache = lastOrders;
-  _ordersCacheLoadedAt = Date.now();
   return lastOrders;
 }
 
@@ -490,7 +439,6 @@ function parseYMD(s) {
   const d = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   return isNaN(d) ? NaN : d;
 }
-// Sort small helper (ASC: old -> new)
 function sortByDateAsc(arr, key = "date") {
   return (arr || []).slice().sort((a, b) => {
     const ta = parseDateISO(a?.[key]);
@@ -499,18 +447,18 @@ function sortByDateAsc(arr, key = "date") {
   });
 }
 
-// Base id helper: everything before the first colon (handles adult/child/custom etc.)
+// Base id helper: everything before the first colon
 const baseKey = (s) => String(s || "").toLowerCase().split(":")[0];
 
-// Legacy normalizer kept (but baseKey is what we actually rely on now)
+// Legacy normalizer kept
 const normalizeKey = (s) =>
   String(s || "")
     .toLowerCase()
     .replace(/:(adult|child|youth)$/i, "");
 
 // ---- Report frequency normalizer (shared) ----
+// NOTE: report-scheduler.js uses a richer normalizer; this is the legacy one
 const VALID_FREQS = ["daily", "weekly", "biweekly", "monthly", "none"];
-
 function normalizeReportFrequency(raw) {
   const v = String(raw || "").trim().toLowerCase();
   if (!v) return "monthly";
@@ -518,36 +466,6 @@ function normalizeReportFrequency(raw) {
   return "monthly";
 }
 
-// Build effective settings (env + overrides)
-async function getEffectiveSettings() {
-  const overrides = await kvHgetallSafe("settings:overrides");
-  const env = {
-    RESEND_FROM: RESEND_FROM,
-    REPORTS_CC: process.env.REPORTS_CC || "",
-    REPORTS_BCC: process.env.REPORTS_BCC || "",
-    SITE_BASE_URL: process.env.SITE_BASE_URL || "",
-    MAINTENANCE_ON: process.env.MAINTENANCE_ON === "true",
-    MAINTENANCE_MESSAGE: process.env.MAINTENANCE_MESSAGE || "",
-    REPORTS_SEND_SEPARATE: String(process.env.REPORTS_SEND_SEPARATE ?? "true"),
-    REPLY_TO,
-    // Optional reporting window
-    EVENT_START: process.env.EVENT_START || "", // e.g. "2025-11-01"
-    EVENT_END: process.env.EVENT_END || "", // e.g. "2025-11-10"
-    REPORT_ORDER_DAYS: process.env.REPORT_ORDER_DAYS || "", // e.g. "30"
-
-    // Lockdown settings (can be overridden by KV settings:overrides)
-    LOCKDOWN_MODE: process.env.LOCKDOWN_MODE || "off",
-    LOCKDOWN_ALLOW_IPS: process.env.LOCKDOWN_ALLOW_IPS || "",
-    LOCKDOWN_ALLOW_TOKEN_FPS: process.env.LOCKDOWN_ALLOW_TOKEN_FPS || "",
-  };
-  const effective = {
-    ...env,
-    ...overrides,
-    MAINTENANCE_ON:
-      String(overrides.MAINTENANCE_ON ?? env.MAINTENANCE_ON) === "true",
-  };
-  return { env, overrides, effective };
-}
 function filterRowsByWindow(rows, { startMs, endMs }) {
   if (!rows?.length) return rows || [];
   return rows.filter((r) => {
@@ -580,11 +498,11 @@ function applyItemFilters(rows, { category, item_id, item }) {
       const rowBase = r._itemBase || keyBase;
 
       return (
-        raw === wantRaw || // exact
-        rawNorm === wantNorm || // legacy normalized (“:adult” etc.)
-        keyBase === wantBase || // base id from raw
-        rowBase === wantBase || // precomputed base on the row
-        String(r._itemKey || "").toLowerCase() === wantNorm // legacy hidden key
+        raw === wantRaw ||
+        rawNorm === wantNorm ||
+        keyBase === wantBase ||
+        rowBase === wantBase ||
+        String(r._itemKey || "").toLowerCase() === wantNorm
       );
     });
   } else if (item) {
@@ -609,8 +527,7 @@ function formatCoverageRange({ startMs, endMs, rows }) {
     new Date(ms).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
 
   let start = typeof startMs === "number" && !isNaN(startMs) ? startMs : null;
-  let end =
-    typeof endMs === "number" && !isNaN(endMs) ? endMs - 1 : null; // endMs is exclusive → subtract 1 ms
+  let end = typeof endMs === "number" && !isNaN(endMs) ? endMs - 1 : null;
 
   if ((start == null || end == null) && Array.isArray(rows) && rows.length) {
     const ts = rows.map((r) => parseDateISO(r.date)).filter((t) => !isNaN(t));
@@ -626,7 +543,6 @@ function formatCoverageRange({ startMs, endMs, rows }) {
 
   const startLabel = start != null ? fmt(start) : "beginning of recorded orders";
   const endLabel = end != null ? fmt(end) : "now";
-
   return `This report covers orders from ${startLabel} through ${endLabel}.`;
 }
 
@@ -651,7 +567,6 @@ async function getChairEmailsForItemId(id) {
       .map((s) => s.trim())
       .filter(Boolean);
 
-  // Prefer Banquets KV
   try {
     const banquets = await kvGetSafe("banquets", []);
     if (Array.isArray(banquets)) {
@@ -665,7 +580,6 @@ async function getChairEmailsForItemId(id) {
     }
   } catch {}
 
-  // Then Addons KV (if you also store chair emails here)
   try {
     const addons = await kvGetSafe("addons", []);
     if (Array.isArray(addons)) {
@@ -679,16 +593,13 @@ async function getChairEmailsForItemId(id) {
     }
   } catch {}
 
-  // Finally, legacy / mirrored configs (banquets/addons/products)
   const cfg = await kvHgetallSafe(`itemcfg:${id}`);
-  const legacyArr = Array.isArray(cfg?.chairEmails)
-    ? cfg.chairEmails
-    : safeSplit(cfg?.chairEmails || "");
+  const legacyArr = Array.isArray(cfg?.chairEmails) ? cfg.chairEmails : safeSplit(cfg?.chairEmails || "");
   return legacyArr;
 }
 
 // ----- order persistence helpers -----
-// NOTE: now accepts optional "extra" object (e.g. { mode: "live" }).
+// NOTE: accepts optional extra object (e.g. { mode: "live" })
 async function saveOrderFromSession(sessionLike, extra = {}) {
   const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
@@ -699,7 +610,7 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
   const lines = lineItems.map((li) => {
     const name = li.description || li.price?.product?.name || "Item";
     const qty = Number(li.quantity || 1);
-    const unit = cents(li.price?.unit_amount || 0); // Stripe returns cents
+    const unit = cents(li.price?.unit_amount || 0);
     const total = unit * qty;
     const meta = li.price?.product?.metadata || {};
     return {
@@ -710,7 +621,7 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
       gross: total,
       category: (meta.itemType || "").toLowerCase() || "other",
       attendeeId: meta.attendeeId || "",
-      itemId: meta.itemId || "", // <-- important
+      itemId: meta.itemId || "",
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeTitle: meta.attendeeTitle || "",
@@ -752,9 +663,7 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     id: sid,
     created: Date.now(),
     payment_intent:
-      typeof s.payment_intent === "string"
-        ? s.payment_intent
-        : s.payment_intent?.id || "",
+      typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
     charge: null,
     currency: s.currency || "usd",
     amount_total: cents(s.amount_total || 0),
@@ -778,20 +687,18 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     status: "paid",
   };
 
-  // Merge any extras (e.g. { mode: "live" })
-  if (extra && typeof extra === "object") {
-    order = { ...order, ...extra };
-  }
+  if (extra && typeof extra === "object") order = { ...order, ...extra };
 
   const piId = order.payment_intent;
   if (piId) {
-    const pi = await (await getStripe()).paymentIntents
+    const stripe2 = await getStripe();
+    const pi = await stripe2?.paymentIntents
       .retrieve(piId, { expand: ["charges.data"] })
       .catch(() => null);
     if (pi?.charges?.data?.length) order.charge = pi.charges.data[0].id;
   }
 
-  // Attach immutable hash at the very end (tamper-evident snapshot)
+  // Attach immutable hash at end
   order = attachImmutableOrderHash(order);
 
   await kvSetSafe(`order:${order.id}`, order);
@@ -826,7 +733,7 @@ async function applyRefundToOrder(chargeId, refund) {
 // --- Flatten an order into report rows (CSV-like) ---
 function flattenOrderToRows(o) {
   const rows = [];
-  const mode = (o.mode || "test").toLowerCase(); // OLD ORDERS → "test"
+  const mode = (o.mode || "test").toLowerCase();
 
   (o.lines || []).forEach((li) => {
     const net = li.gross;
@@ -838,6 +745,15 @@ function flattenOrderToRows(o) {
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: li.meta?.attendeeName || "",
+      attendee_title: li.meta?.attendeeTitle || "",
+      attendee_email: li.meta?.attendeeEmail || "",
+      attendee_phone: li.meta?.attendeePhone || "",
+      attendee_addr1: li.meta?.attendeeAddr1 || "",
+      attendee_addr2: li.meta?.attendeeAddr2 || "",
+      attendee_city: li.meta?.attendeeCity || "",
+      attendee_state: li.meta?.attendeeState || "",
+      attendee_postal: li.meta?.attendeePostal || "",
+      attendee_country: li.meta?.attendeeCountry || "",
       category: li.category || "other",
       item: li.itemName || "",
       item_id: rawId,
@@ -857,7 +773,7 @@ function flattenOrderToRows(o) {
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
-      mode, // <-- report row knows which mode this order belongs to
+      mode,
     });
   });
 
@@ -868,6 +784,15 @@ function flattenOrderToRows(o) {
       date: new Date(o.created || Date.now()).toISOString(),
       purchaser: o.purchaser?.name || o.customer_email || "",
       attendee: "",
+      attendee_title: "",
+      attendee_email: "",
+      attendee_phone: "",
+      attendee_addr1: "",
+      attendee_addr2: "",
+      attendee_city: "",
+      attendee_state: "",
+      attendee_postal: "",
+      attendee_country: "",
       category: "other",
       item: feeLine.itemName || "Processing Fee",
       item_id: "",
@@ -884,17 +809,14 @@ function flattenOrderToRows(o) {
       _pi: o.payment_intent || "",
       _charge: o.charge || "",
       _session: o.id,
-      mode, // keep mode on the fee row too
+      mode,
     });
   }
   return rows;
 }
 
 // --- Helper to estimate Stripe fee from items + shipping ---
-function computeStripeProcessingFeeFromLines(
-  lines,
-  { stripePct = 0.029, stripeFlatCents = 30 } = {}
-) {
+function computeStripeProcessingFeeFromLines(lines, { stripePct = 0.029, stripeFlatCents = 30 } = {}) {
   if (!Array.isArray(lines) || !lines.length) return 0;
 
   let itemsSubtotal = 0;
@@ -910,27 +832,20 @@ function computeStripeProcessingFeeFromLines(
 
     const isProcessingFee =
       itemId === "processing-fee" ||
-      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
-        /processing\s*fee/i.test(name));
+      ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
     const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
-
     const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
-    // Skip any existing fee lines from the base
     if (isProcessingFee || isIntlFee) continue;
-
     if (isShipping) {
       shipping += lineCents;
       continue;
     }
-
-    // Everything else counts as "items subtotal"
     itemsSubtotal += lineCents;
   }
 
   const base = itemsSubtotal + shipping;
   if (base <= 0) return 0;
-
   return Math.round(base * stripePct + stripeFlatCents);
 }
 
@@ -942,12 +857,8 @@ function absoluteUrl(path = "/") {
 }
 
 function renderOrderEmailHTML(order) {
-  // cents → money
   const money = (c) =>
-    (Number(c || 0) / 100).toLocaleString("en-US", {
-      style: "currency",
-      currency: "USD",
-    });
+    (Number(c || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
   const logoUrl = absoluteUrl("/assets/img/receipt_logo.svg");
   const purchaserName = order?.purchaser?.name || "Purchaser";
@@ -955,8 +866,6 @@ function renderOrderEmailHTML(order) {
 
   const topCatalog = [];
   const attendeeGroups = {};
-
-  // NEW: split Stripe fee vs international fee
   let processingFeeCents = 0;
   let intlFeeCents = 0;
 
@@ -970,12 +879,9 @@ function renderOrderEmailHTML(order) {
 
     const isProcessingFee =
       itemId === "processing-fee" ||
-      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
-        /processing\s*fee/i.test(name));
-
+      ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
     const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
 
-    // Skip fee lines from the item tables and track them for the summary
     if (isProcessingFee) {
       processingFeeCents += lineCents;
       return;
@@ -986,10 +892,7 @@ function renderOrderEmailHTML(order) {
     }
 
     const isBanquet = cat === "banquet" || /banquet/i.test(name);
-    const isAddon =
-      cat === "addon" ||
-      /addon/i.test(li.meta?.itemType || "") ||
-      /addon/i.test(name);
+    const isAddon = cat === "addon" || /addon/i.test(li.meta?.itemType || "") || /addon/i.test(name);
 
     if (isBanquet || isAddon) {
       const attName = (li.meta && li.meta.attendeeName) || purchaserName;
@@ -1008,9 +911,7 @@ function renderOrderEmailHTML(order) {
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : li.meta?.itemNote || "";
         const notesRow = notes
-          ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(
-              notes
-            ).replace(/</g, "&lt;")}</div>`
+          ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g, "&lt;")}</div>`
           : "";
         const lineTotal = Number(li.unitPrice || 0) * Number(li.qty || 1);
         return `
@@ -1018,15 +919,9 @@ function renderOrderEmailHTML(order) {
           <td style="padding:8px;border-bottom:1px solid #eee">
             ${li.itemName || ""}${notesRow}
           </td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${
-            Number(li.qty || 1)
-          }</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
-            li.unitPrice || 0
-          )}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
-            lineTotal
-          )}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty || 1)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice || 0)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
         </tr>`;
       })
       .join("");
@@ -1047,9 +942,7 @@ function renderOrderEmailHTML(order) {
         <tfoot>
           <tr>
             <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
-              subtotal
-            )}</td>
+            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -1073,7 +966,6 @@ function renderOrderEmailHTML(order) {
     )
     .join("");
 
-  // --- New summary breakdown to match the order page ---
   const { itemsSubtotalCents, shippingCents } = (function () {
     let itemsSubtotal = 0;
     let shipping = 0;
@@ -1088,18 +980,15 @@ function renderOrderEmailHTML(order) {
 
       const isProcessingFee =
         itemId === "processing-fee" ||
-        ((cat === "fee" || metaType === "fee" || metaType === "other") &&
-          /processing\s*fee/i.test(name));
+        ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
       const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
       const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
-      if (isProcessingFee || isIntlFee) continue; // handled separately
-
+      if (isProcessingFee || isIntlFee) continue;
       if (isShipping) {
         shipping += lineCents;
         continue;
       }
-
       itemsSubtotal += lineCents;
     }
 
@@ -1107,7 +996,6 @@ function renderOrderEmailHTML(order) {
   })();
 
   const grandTotalCents = itemsSubtotalCents + shippingCents + processingFeeCents + intlFeeCents;
-
   const totalCents = grandTotalCents > 0 ? grandTotalCents : Number(order.amount_total || 0);
 
   const shippingRow =
@@ -1124,9 +1012,7 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Online Processing Fee</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
-          processingFeeCents
-        )}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(processingFeeCents)}</td>
       </tr>`
       : "";
 
@@ -1181,18 +1067,10 @@ function renderOrderEmailHTML(order) {
   </body></html>`;
 }
 
-/* ------------- snip -------------
-   Everything below this point is unchanged EXCEPT the fix in
-   sendItemReportEmailInternal. I’m keeping your file intact, but the
-   chat message has a size limit — so if you want the *entire* remainder
-   pasted as well, tell me and I’ll output the rest in a second message.
-   ------------- snip ------------- */
-
 // ---------------------------------------------------------------------------
 // Receipt XLSX backup (standard columns + year/month/day) → emailed to EMAIL_RECEIPTS
 // ---------------------------------------------------------------------------
 
-// NOTE: Headers are FIXED and ordered. Do not change without versioning.
 const RECEIPT_XLSX_HEADERS = [
   "year",
   "month",
@@ -1249,10 +1127,10 @@ const RECEIPT_XLSX_HEADER_LABELS = {
 
 function deriveYMDParts(createdMs) {
   const d = new Date(Number(createdMs || Date.now()));
-  const iso = d.toISOString(); // UTC
-  const day = iso.slice(0, 10); // YYYY-MM-DD
+  const iso = d.toISOString();
+  const day = iso.slice(0, 10);
   const year = day.slice(0, 4);
-  const month = day.slice(0, 7); // YYYY-MM
+  const month = day.slice(0, 7);
   return { year, month, day, iso };
 }
 
@@ -1269,7 +1147,7 @@ function buildReceiptXlsxRows(order) {
   const rows = [];
   for (const li of o.lines || []) {
     const qty = Number(li?.qty || 1);
-    const unit = Number(li?.unitPrice || 0); // cents
+    const unit = Number(li?.unitPrice || 0);
     const lineCents = unit * qty;
 
     const cat = String(li?.category || "other").toLowerCase();
@@ -1291,31 +1169,24 @@ function buildReceiptXlsxRows(order) {
       purchaser_name: purchaserName,
       purchaser_email: purchaserEmail,
       purchaser_phone: purchaserPhone,
-
       attendee: String(li?.meta?.attendeeName || ""),
       attendee_title: String(li?.meta?.attendeeTitle || ""),
       attendee_email: String(li?.meta?.attendeeEmail || ""),
       attendee_phone: String(li?.meta?.attendeePhone || ""),
-
       category: cat,
       item: itemName,
       item_id: itemId,
       qty: qty,
-
-      // keep as NUMBERS (not strings) for easy sum in Excel
       unit_price: Number((unit / 100).toFixed(2)),
       line_total: Number((lineCents / 100).toFixed(2)),
-
       status,
       notes: String(notes || ""),
-
       _pi: String(o.payment_intent || ""),
       _charge: String(o.charge || ""),
       _session: String(o.id || ""),
     });
   }
 
-  // Always return at least one row so the XLSX has headers even if lines missing
   if (!rows.length) {
     const blank = {};
     for (const h of RECEIPT_XLSX_HEADERS) blank[h] = "";
@@ -1338,13 +1209,74 @@ function receiptXlsxSentKey(orderId) {
   return `order:${String(orderId || "").trim()}:receipt_xlsx_sent`;
 }
 
+// ---------------------------------------------------------------------------
+// CSV helpers (THE MISSING FUNCTIONS THAT BROKE YOUR DEPLOY)
+// ---------------------------------------------------------------------------
+
+function buildCSV(rows) {
+  if (!Array.isArray(rows) || !rows.length) return "\uFEFF";
+  const headers = Object.keys(rows[0] || {});
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const out = [headers.join(",")];
+  for (const r of rows) out.push(headers.map((h) => esc(r[h])).join(","));
+  return "\uFEFF" + out.join("\n");
+}
+
+function buildCSVSelected(rows, headers) {
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const out = [headers.join(",")];
+  for (const r of rows || []) out.push(headers.map((h) => esc(r?.[h])).join(","));
+  return "\uFEFF" + out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// XLSX helper: objects → XLSX buffer
+// ---------------------------------------------------------------------------
+
+async function objectsToXlsxBuffer(columns, rows, headerLabels = {}, sheetName = "Sheet1") {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+
+  const cols = (columns || []).map((key) => ({
+    header: headerLabels[key] || key,
+    key,
+    width: Math.min(60, Math.max(10, String(headerLabels[key] || key).length + 2)),
+  }));
+
+  ws.columns = cols;
+
+  for (const r of rows || []) {
+    const obj = {};
+    for (const c of columns || []) obj[c] = r?.[c] ?? "";
+    ws.addRow(obj);
+  }
+
+  ws.getRow(1).font = { bold: true };
+  ws.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: Math.max(1, cols.length) },
+  };
+
+  const buf = await wb.xlsx.writeBuffer();
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Receipt XLSX backup sender
+// ---------------------------------------------------------------------------
+
 async function sendReceiptXlsxBackup(order) {
   if (!resend || !EMAIL_RECEIPTS) return { ok: false, reason: "not-configured" };
 
   const orderId = String(order?.id || "").trim();
   if (!orderId) return { ok: false, reason: "missing-order-id" };
 
-  // If already sent, skip (prevents Stripe webhook retries from duplicating)
   const already = await kvGetSafe(receiptXlsxSentKey(orderId), null);
   if (already) return { ok: true, skipped: true, reason: "already-sent" };
 
@@ -1388,15 +1320,10 @@ async function sendReceiptXlsxBackup(order) {
     ],
   };
 
-  const retry = await sendWithRetry(
-    () => resend.emails.send(payload),
-    `receipt:xlsx-backup:${orderId}`
-  );
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:xlsx-backup:${orderId}`);
 
   if (retry.ok) {
     const sendResult = retry.result;
-
-    // Mark as sent (idempotency). Keep around long-term.
     await kvSetSafe(receiptXlsxSentKey(orderId), {
       sentAt: new Date().toISOString(),
       to: EMAIL_RECEIPTS,
@@ -1414,6 +1341,7 @@ async function sendReceiptXlsxBackup(order) {
       status: "queued",
       kind: "receipt-xlsx-backup",
     });
+
     return { ok: true };
   }
 
@@ -1433,55 +1361,125 @@ async function sendReceiptXlsxBackup(order) {
   return { ok: false, error: err?.message || String(err) };
 }
 
-/* ... everything continues exactly as in your provided file ... */
+// ---------------------------------------------------------------------------
+// Order receipts sender (main receipt email + optional admin copies)
+// ---------------------------------------------------------------------------
 
-/**
- * Purge orders by mode.
- * mode: "test" | "live_test" | "live"
- * options: { hard?: boolean }
- *
- * NOTE: any order with no `mode` is treated as "test".
- */
-async function purgeOrdersByMode(mode, { hard = false } = {}) {
-  if (!["test", "live_test", "live"].includes(mode)) {
-    throw new Error(`Invalid mode for purge: ${mode}`);
+async function sendOrderReceipts(order, { adminEmail } = {}) {
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+
+  const purchaserEmail = String(order?.customer_email || order?.purchaser?.email || "").trim();
+  const to = purchaserEmail ? [purchaserEmail] : [];
+  const bcc = [];
+
+  // If you want every order copied to a single admin inbox, pass adminEmail in
+  const admin = String(adminEmail || "").trim();
+  if (admin) bcc.push(admin);
+
+  if (!to.length && !bcc.length) return { ok: false, error: "no-recipient" };
+
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+  const subject = `Receipt — Order ${order?.id || ""}`.trim();
+  const html = renderOrderEmailHTML(order);
+
+  const payload = {
+    from,
+    to: to.length ? to : bcc,
+    bcc: to.length && bcc.length ? bcc : undefined,
+    subject,
+    html,
+    reply_to: REPLY_TO || undefined,
+  };
+
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:${order?.id || ""}`);
+
+  if (retry.ok) {
+    const sendResult = retry.result;
+    await recordMailLog({
+      ts: Date.now(),
+      from,
+      to: [...to, ...bcc],
+      subject,
+      orderId: order?.id || "",
+      resultId: sendResult?.id || null,
+      status: "queued",
+      kind: "receipt",
+    });
+    return { ok: true, resultId: sendResult?.id || null };
   }
 
-  // Live protection: no hard purge of LIVE unless env explicitly allows it
-  if (mode === "live" && (hard || !ALLOW_LIVE_PURGE)) {
-    throw new Error("Hard purge of LIVE data is disabled for safety.");
-  }
-
-  const all = await loadAllOrdersWithRetry();
-  const target = all.filter((o) => {
-    const m = (o.mode || "test").toLowerCase();
-    return m === mode;
+  const err = retry.error;
+  await recordMailLog({
+    ts: Date.now(),
+    from,
+    to: [...to, ...bcc],
+    subject,
+    orderId: order?.id || "",
+    resultId: null,
+    status: "error",
+    kind: "receipt",
+    error: String(err?.message || err),
   });
 
-  let count = 0;
-
-  for (const order of target) {
-    const key = resolveOrderKey(order);
-
-    if (mode === "live" || !hard) {
-      // soft delete: keep record, mark as deleted
-      await kvHsetSafe(key, {
-        deleted: true,
-        deletedAt: new Date().toISOString(),
-        deletedReason: `purge-${mode}`,
-      });
-    } else {
-      // hard delete for test / live_test
-      await kvDelSafe(key);
-      // if you maintain index sets (like per-year), clean them here too
-    }
-    count++;
-  }
-
-  return { count, mode, hard: mode === "live" ? false : hard };
+  return { ok: false, error: err?.message || String(err) };
 }
 
-// ---- single function that sends a chair XLSX for a given item ----
+// ---------------------------------------------------------------------------
+// Attendee roster collector (used by reports)
+// ---------------------------------------------------------------------------
+
+function collectAttendeesFromOrders(orders, { includeAddress = false, categories = [], startMs, endMs } = {}) {
+  const cats = (categories || []).map((c) => String(c || "").toLowerCase()).filter(Boolean);
+
+  const allRows = [];
+  for (const o of orders || []) {
+    const rows = flattenOrderToRows(o);
+    for (const r of rows) {
+      const t = parseDateISO(r.date);
+      if (startMs && !isNaN(t) && t < startMs) continue;
+      if (endMs && !isNaN(t) && t >= endMs) continue;
+
+      if (cats.length) {
+        const rc = String(r.category || "").toLowerCase();
+        if (!cats.includes(rc)) continue;
+      }
+
+      // These are the “attendee report rows” your sendItemReportEmailInternal expects
+      const base = {
+        date: r.date,
+        attendee: r.attendee,
+        attendee_title: r.attendee_title,
+        attendee_phone: r.attendee_phone,
+        attendee_email: r.attendee_email,
+        item: r.item,
+        item_id: r.item_id,
+        qty: r.qty,
+        notes: r.notes,
+      };
+
+      if (includeAddress) {
+        allRows.push({
+          ...base,
+          attendee_addr1: r.attendee_addr1,
+          attendee_addr2: r.attendee_addr2,
+          attendee_city: r.attendee_city,
+          attendee_state: r.attendee_state,
+          attendee_postal: r.attendee_postal,
+          attendee_country: r.attendee_country,
+        });
+      } else {
+        allRows.push(base);
+      }
+    }
+  }
+
+  return allRows;
+}
+
+// ---------------------------------------------------------------------------
+// Chair report sender (your fixed version, kept intact)
+// ---------------------------------------------------------------------------
+
 async function sendItemReportEmailInternal({
   kind,
   id,
@@ -1491,18 +1489,14 @@ async function sendItemReportEmailInternal({
   endDate,
   startMs: explicitStartMs,
   endMs: explicitEndMs,
-
-  // Accept either casing (router may pass one or the other)
   scheduledAt,
   scheduled_at,
 } = {}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
 
-  // FIX: define `from` so payload/from + logging never throws ReferenceError
   const from = RESEND_FROM || "pa_sessions@yahoo.com";
 
-  // Normalize scheduled time (Resend expects scheduled_at)
   let scheduledAtIso = (scheduled_at || scheduledAt || "").trim();
   if (scheduledAtIso) {
     const t = Date.parse(scheduledAtIso);
@@ -1510,32 +1504,24 @@ async function sendItemReportEmailInternal({
       console.warn("[sendItemReportEmailInternal] invalid scheduled time:", scheduledAtIso);
       scheduledAtIso = "";
     } else {
-      // Don’t schedule in the past (send immediately instead)
-      if (t <= Date.now() + 5000) {
-        scheduledAtIso = "";
-      } else {
-        scheduledAtIso = new Date(t).toISOString();
-      }
+      if (t <= Date.now() + 5000) scheduledAtIso = "";
+      else scheduledAtIso = new Date(t).toISOString();
     }
   }
 
-  // NEW: load all orders with a small retry window (helps cold start / timing issues)
   const orders = await loadAllOrdersWithRetry();
 
-  // These window bounds are used both for filtering AND for coverage text.
   let startMs =
     typeof explicitStartMs === "number" && !isNaN(explicitStartMs) ? explicitStartMs : undefined;
   let endMs = typeof explicitEndMs === "number" && !isNaN(explicitEndMs) ? explicitEndMs : undefined;
 
-  // Month-to-date: earliest possible on the 1st (UTC) through "now"
   if (scope === "current-month" && startMs == null && endMs == null) {
     const now = new Date();
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     startMs = start.getTime();
-    endMs = Date.now() + 1; // exclusive
+    endMs = Date.now() + 1;
   }
 
-  // Custom range: startDate/endDate in Y-M-D, inclusive of the end date
   if (scope === "custom" && startMs == null && endMs == null) {
     if (startDate) {
       const dStart = parseYMD(startDate);
@@ -1543,14 +1529,9 @@ async function sendItemReportEmailInternal({
     }
     if (endDate) {
       const dEnd = parseYMD(endDate);
-      if (!isNaN(dEnd)) {
-        // end date inclusive → next day at 00:00Z as exclusive bound
-        endMs = dEnd + 24 * 60 * 60 * 1000;
-      }
+      if (!isNaN(dEnd)) endMs = dEnd + 24 * 60 * 60 * 1000;
     }
   }
-  // scope === "full" (or anything else) → no explicit startMs/endMs;
-  // coverage helper will fall back to row dates.
 
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory";
@@ -1572,7 +1553,6 @@ async function sendItemReportEmailInternal({
   );
 
   let EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
-
   let EMAIL_HEADER_LABELS = {
     "#": "#",
     date: "Date",
@@ -1602,7 +1582,6 @@ async function sendItemReportEmailInternal({
       "qty",
       "notes",
     ];
-
     EMAIL_HEADER_LABELS = {
       "#": "#",
       date: "Date",
@@ -1661,11 +1640,9 @@ async function sendItemReportEmailInternal({
   const dateStr = today.toISOString().slice(0, 10);
   const baseNameRaw = label || id || "report";
   const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-
   const filename = `${baseName || "report"}_${dateStr}.xlsx`;
 
   const toListPref = await getChairEmailsForItemId(id);
-
   const { effective } = await getEffectiveSettings();
 
   const safeSplit = (val) =>
@@ -1674,14 +1651,14 @@ async function sendItemReportEmailInternal({
       .map((s) => s.trim())
       .filter(Boolean);
 
-  // Fallback addresses from env (e.g. pa_sessions@yahoo.com, etc.)
   const envFallback = safeSplit(
-    effective.REPORTS_CC || effective.REPORTS_BCC || process.env.REPORTS_CC || process.env.REPORTS_BCC || ""
+    effective.REPORTS_CC ||
+      effective.REPORTS_BCC ||
+      process.env.REPORTS_CC ||
+      process.env.REPORTS_BCC ||
+      ""
   );
 
-  // NEW BEHAVIOR:
-  // - If there are chair emails *and* env fallback, send to BOTH.
-  // - If no chair emails, envFallback becomes the To list.
   let toList = [];
   if (toListPref.length && envFallback.length) {
     toList = [...toListPref, ...envFallback.filter((addr) => !toListPref.includes(addr))];
@@ -1717,11 +1694,7 @@ async function sendItemReportEmailInternal({
       <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555;margin:2px 0;">Scope: ${scopeLabel}</div>
-      ${
-        coverageText
-          ? `<p style="font-size:12px;color:#555;margin:2px 0 0;">${coverageText}</p>`
-          : ""
-      }
+      ${coverageText ? `<p style="font-size:12px;color:#555;margin:2px 0 0;">${coverageText}</p>` : ""}
     </div>`;
 
   const payload = {
@@ -1779,7 +1752,6 @@ async function sendRealtimeChairEmailsForOrder(order) {
   for (const li of order.lines) {
     const cat = String(li.category || "").toLowerCase();
     const metaType = String(li.meta?.itemType || "").toLowerCase();
-
     const isCatalog = cat === "catalog" || metaType === "catalog";
     if (!isCatalog) continue;
 
@@ -1819,6 +1791,154 @@ async function maybeSendRealtimeChairEmails(order) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Monthly / final receipts ZIP helpers (simple + safe; used by exports)
+// ---------------------------------------------------------------------------
+
+function monthIdUTC(ms) {
+  const d = new Date(Number(ms || Date.now()));
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+  if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
+
+  const orders = await loadAllOrdersWithRetry();
+  const wantMode = String(mode || "test").toLowerCase();
+  const nowMonth = monthIdUTC(Date.now());
+
+  const rows = [];
+  const zip = new JSZip();
+
+  for (const o of orders) {
+    const om = String(o.mode || "test").toLowerCase();
+    if (om !== wantMode) continue;
+    if (monthIdUTC(o.created) !== nowMonth) continue;
+
+    // add receipt HTML in ZIP (nice for audit)
+    const html = renderOrderEmailHTML(o);
+    zip.file(`receipt-${wantMode}-${o.id}.html`, html);
+
+    // add stable XLSX rows into a combined worksheet later
+    rows.push(...buildReceiptXlsxRows(o));
+  }
+
+  const xlsxBuf = await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, "Receipts");
+  zip.file(`receipts-${wantMode}-${nowMonth}.xlsx`, Buffer.from(xlsxBuf));
+
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
+  const zipB64 = Buffer.from(zipBuf).toString("base64");
+
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+  const subject = `Monthly Receipts ZIP — ${nowMonth} (${wantMode})`;
+
+  const payload = {
+    from,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;">Attached: receipts ZIP for <b>${nowMonth}</b> (${wantMode}).</div>`,
+    reply_to: REPLY_TO || undefined,
+    attachments: [{ filename: `receipts-${wantMode}-${nowMonth}.zip`, content: zipB64 }],
+  };
+
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipts-zip-monthly:${wantMode}:${nowMonth}`);
+  return retry.ok ? { ok: true, month: nowMonth } : { ok: false, error: retry.error?.message || String(retry.error) };
+}
+
+async function emailFinalReceiptsZip({ mode = "test" } = {}) {
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+  if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
+
+  const orders = await loadAllOrdersWithRetry();
+  const wantMode = String(mode || "test").toLowerCase();
+
+  const rows = [];
+  const zip = new JSZip();
+
+  for (const o of orders) {
+    const om = String(o.mode || "test").toLowerCase();
+    if (om !== wantMode) continue;
+
+    const html = renderOrderEmailHTML(o);
+    zip.file(`receipt-${wantMode}-${o.id}.html`, html);
+    rows.push(...buildReceiptXlsxRows(o));
+  }
+
+  const xlsxBuf = await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, "Receipts");
+  zip.file(`receipts-${wantMode}-ALL.xlsx`, Buffer.from(xlsxBuf));
+
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
+  const zipB64 = Buffer.from(zipBuf).toString("base64");
+
+  const from = RESEND_FROM || "pa_sessions@yahoo.com";
+  const subject = `FINAL Receipts ZIP — ALL (${wantMode})`;
+
+  const payload = {
+    from,
+    to: [EMAIL_RECEIPTS],
+    subject,
+    html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;">Attached: <b>FINAL</b> receipts ZIP (ALL) for mode (${wantMode}).</div>`,
+    reply_to: REPLY_TO || undefined,
+    attachments: [{ filename: `receipts-${wantMode}-FINAL.zip`, content: zipB64 }],
+  };
+
+  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipts-zip-final:${wantMode}`);
+  return retry.ok ? { ok: true } : { ok: false, error: retry.error?.message || String(retry.error) };
+}
+
+// ---------------------------------------------------------------------------
+// Purge orders by mode (with safe LIVE guard)
+// ---------------------------------------------------------------------------
+
+const ALLOW_LIVE_PURGE = String(process.env.ALLOW_LIVE_PURGE || "false") === "true";
+
+function resolveOrderKey(order) {
+  // Your storage is: order:<sessionId>
+  return `order:${String(order?.id || "").trim()}`;
+}
+
+/**
+ * Purge orders by mode.
+ * mode: "test" | "live_test" | "live"
+ * options: { hard?: boolean }
+ *
+ * NOTE: any order with no `mode` is treated as "test".
+ */
+async function purgeOrdersByMode(mode, { hard = false } = {}) {
+  if (!["test", "live_test", "live"].includes(mode)) {
+    throw new Error(`Invalid mode for purge: ${mode}`);
+  }
+
+  if (mode === "live" && (hard || !ALLOW_LIVE_PURGE)) {
+    throw new Error("Hard purge of LIVE data is disabled for safety.");
+  }
+
+  const all = await loadAllOrdersWithRetry();
+  const target = all.filter((o) => String(o.mode || "test").toLowerCase() === mode);
+
+  let count = 0;
+
+  for (const order of target) {
+    const key = resolveOrderKey(order);
+
+    if (mode === "live" || !hard) {
+      await kvHsetSafe(key, {
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+        deletedReason: `purge-${mode}`,
+      });
+    } else {
+      await kvDelSafe(key);
+    }
+    count++;
+  }
+
+  return { count, mode, hard: mode === "live" ? false : hard };
+}
+
 // ------------- EXPORTS -------------
 // prettier-ignore
 export {
@@ -1840,7 +1960,7 @@ export {
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
 
-  // NEW: hash + lockdown exports
+  // hash + lockdown exports
   verifyOrderHash,
   assertNotLocked,
   getLockdownConfig,
