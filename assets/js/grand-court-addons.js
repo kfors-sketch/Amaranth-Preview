@@ -187,17 +187,40 @@
   function addAddonToCart(addon, options) {
     if (!window.Cart || typeof Cart.addLine !== "function") {
       alert("Cart is not available yet. Please try again in a moment.");
-      return false;
+      return { ok: false, error: "cart_unavailable" };
     }
 
     const { qty, amount, attendee, variant, notes } = options || {};
+
+    const attendeeId = attendee && attendee.id ? String(attendee.id) : "";
+    const onePerAttendee =
+      addon && addon.type ? !["amount", "variantQty", "qty"].includes(String(addon.type)) : true;
 
     const quantity = Math.max(1, toNumber(qty || 1, 1));
     const price = toNumber(amount || addon.price || 0, 0);
 
     if (!price || price < 0) {
       alert("Please enter a valid amount.");
-      return false;
+      return { ok: false, error: "invalid_amount" };
+    }
+
+    // ✅ Prevent accidental duplicates for single-per-attendee add-ons
+    try {
+      if (onePerAttendee && attendeeId && typeof Cart.get === "function") {
+        const state = Cart.get() || {};
+        const lines = Array.isArray(state.lines) ? state.lines : [];
+        const already = lines.some(
+          (ln) =>
+            String(ln.itemType || "") === "addon" &&
+            String(ln.itemId || "") === String(addon.id || "") &&
+            String(ln.attendeeId || "") === attendeeId
+        );
+        if (already) {
+          return { ok: false, error: "already_assigned" };
+        }
+      }
+    } catch (e) {
+      // don't block adding if the precheck fails
     }
 
     const meta = {};
@@ -227,29 +250,9 @@
       meta.notes = notes; // carry custom/notes text to reports
     }
 
-    // This shape is what order-page + backend expect
-    // ✅ attendeeId MUST be top-level for Cart.merge rules to work
-    const attendeeId = attendee && attendee.id ? String(attendee.id) : "";
-
-    // ✅ If this add-on is "per attendee", prevent accidental duplicates
-    try{
-      const onePer = !!(addon && (addon.onePerAttendee || addon.perAttendee || addon.per_attendee));
-      if (onePer && attendeeId){
-        const st = (window.Cart && typeof window.Cart.get === "function") ? window.Cart.get() : null;
-        const exists = st && Array.isArray(st.lines) && st.lines.some(l =>
-          String(l.itemType||"") === "addon" &&
-          String(l.itemId||"") === String(addon.id||"") &&
-          String(l.attendeeId||"") === attendeeId
-        );
-        if (exists){
-          alert("That add-on is already in the order for this attendee.");
-          return false;
-        }
-      }
-    }catch(e){}
-
+    // ✅ IMPORTANT: attendeeId MUST also be top-level so Cart.mergeLine keeps lines separate per attendee
     Cart.addLine({
-      attendeeId, // <-- critical
+      attendeeId: attendeeId || "",
       itemType: "addon",
       itemId: addon.id,
       itemName: addon.name,
@@ -258,7 +261,7 @@
       meta,
     });
 
-    return true;
+    return { ok: true, onePerAttendee, attendeeId };
   }
 
   // ---- Render helpers ----
@@ -392,6 +395,47 @@
     addBtn.textContent = "Add to cart";
     btnWrap.appendChild(addBtn);
 
+    // Keep button state in sync: single-per-attendee add-ons should not be added twice
+    const isOnePerAttendee =
+      addon && addon.type ? !["amount", "variantQty", "qty"].includes(String(addon.type)) : true;
+
+    const refreshAddBtnState = () => {
+      if (!isOnePerAttendee) {
+        // quantity-style items can always be added again
+        if (!addBtn.disabled) addBtn.textContent = "Add to cart";
+        return;
+      }
+
+      const attKey = attendeeSelect.value || "";
+      const attendee = attKey ? findAttendeeByKey(attKey) : null;
+      const attendeeId = attendee && attendee.id ? String(attendee.id) : "";
+
+      let already = false;
+      try {
+        if (attendeeId && window.Cart && typeof Cart.get === "function") {
+          const state = Cart.get() || {};
+          const lines = Array.isArray(state.lines) ? state.lines : [];
+          already = lines.some(
+            (ln) =>
+              String(ln.itemType || "") === "addon" &&
+              String(ln.itemId || "") === String(addon.id || "") &&
+              String(ln.attendeeId || "") === attendeeId
+          );
+        }
+      } catch {}
+
+      if (already) {
+        addBtn.textContent = "Added";
+        addBtn.disabled = true;
+      } else {
+        addBtn.textContent = "Add to cart";
+        addBtn.disabled = false;
+      }
+    };
+
+    attendeeSelect.addEventListener("change", refreshAddBtnState);
+    setTimeout(refreshAddBtnState, 0);
+
     // assemble row
     row.appendChild(attendeeWrap);
     card.appendChild(title);
@@ -464,17 +508,34 @@
         notes,
       });
 
-      if (ok) {
-        addBtn.textContent = "Added!";
-        addBtn.disabled = true;
-        setTimeout(() => {
-          addBtn.textContent = "Add more";
-          addBtn.disabled = false;
-        }, 1200);
+      if (ok && ok.ok) {
+        const onePer = !!ok.onePerAttendee;
 
+        // Success toast/popup (same vibe as banquets)
         try {
-          window.dispatchEvent(new Event("cart:updated"));
-        } catch (e) {}
+          alert("Add-ons added");
+        } catch {}
+
+        if (onePer) {
+          // Single-per-attendee: lock the button for this attendee/item combo
+          addBtn.textContent = "Added";
+          addBtn.disabled = true;
+        } else {
+          // Quantity-style add-ons: allow adding more
+          addBtn.textContent = "Added!";
+          addBtn.disabled = true;
+          setTimeout(() => {
+            addBtn.disabled = false;
+            addBtn.textContent = "Add More";
+          }, 700);
+        }
+      } else {
+        // Friendly duplicate message (like banquets)
+        if (ok && ok.error === "already_assigned") {
+          try {
+            alert("This attendee is already assigned to this Add-On.");
+          } catch {}
+        }
       }
     });
 
