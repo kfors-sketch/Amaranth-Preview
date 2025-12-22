@@ -270,7 +270,7 @@ if (typeof window !== "undefined") {
       meta,
     });
 
-    alert('Add-ons added');
+    alert('Add-on added');
     return { ok: true, onePerAttendee, attendeeId };
   }
 
