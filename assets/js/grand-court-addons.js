@@ -1,5 +1,13 @@
 // /assets/js/grand-court-addons.js
 (function () {
+
+// -----------------------------------------------------------------------------
+// SAFETY: bind once (prevents double-add / double-alert if script is loaded twice)
+// -----------------------------------------------------------------------------
+if (typeof window !== "undefined") {
+  window.__amaranth_addons_bound = window.__amaranth_addons_bound || false;
+}
+
   const GRID_ID = "addonsGrid";
 
   // --- Simple money formatter (USD) ---
@@ -216,7 +224,8 @@
             String(ln.attendeeId || "") === attendeeId
         );
         if (already) {
-          return { ok: false, error: "already_assigned" };
+          alert("This attendee is already assigned to this add-on.");
+    return { ok: false, error: "already_assigned" };
         }
       }
     } catch (e) {
@@ -261,6 +270,7 @@
       meta,
     });
 
+    alert('Add-ons added');
     return { ok: true, onePerAttendee, attendeeId };
   }
 
@@ -425,7 +435,8 @@
       } catch {}
 
       if (already) {
-        addBtn.textContent = "Added";
+        alert("This attendee is already assigned to this add-on.");
+    addBtn.textContent = "Added";
         addBtn.disabled = true;
       } else {
         addBtn.textContent = "Add to cart";
@@ -513,7 +524,7 @@
 
         // Success toast/popup (same vibe as banquets)
         try {
-          alert("Add-ons added");
+
         } catch {}
 
         if (onePer) {
@@ -533,7 +544,7 @@
         // Friendly duplicate message (like banquets)
         if (ok && ok.error === "already_assigned") {
           try {
-            alert("This attendee is already assigned to this Add-On.");
+            alert("This attendee is already assigned to this add-on.");;
           } catch {}
         }
       }
@@ -550,6 +561,8 @@
   }
 
   async function init() {
+  if (window.__amaranth_addons_bound) return;
+  window.__amaranth_addons_bound = true;
     const grid = document.getElementById(GRID_ID);
     if (!grid) return;
 
