@@ -619,49 +619,68 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
       qty,
       unitPrice: unit,
       gross: total,
-      // NOTE: Stripe line_item price.product_data.metadata is case-sensitive in our own code,
-      // but different checkout builders / legacy paths may send snake_case keys.
-      // Keep BOTH top-level fields + meta fields for backward compatibility with older order page code.
-      category: (meta.itemType || meta.item_type || "").toLowerCase() || "other",
+      category: (meta.itemType || "").toLowerCase() || "other",
+
       attendeeId: meta.attendeeId || meta.attendee_id || "",
-      attendeeName: meta.attendeeName || meta.attendee_name || meta.attendee || "",
+      attendeeName: meta.attendeeName || meta.attendee_name || "",
       attendeeTitle: meta.attendeeTitle || meta.attendee_title || "",
       attendeePhone: meta.attendeePhone || meta.attendee_phone || "",
       attendeeEmail: meta.attendeeEmail || meta.attendee_email || "",
-      attendeeNotes: meta.attendeeNotes || meta.attendee_notes || "",
-      dietaryNote: meta.dietaryNote || meta.dietary_note || "",
-      itemNote: meta.itemNote || meta.item_note || "",
-      attendeeAddr1: meta.attendeeAddr1 || meta.attendee_addr1 || "",
-      attendeeAddr2: meta.attendeeAddr2 || meta.attendee_addr2 || "",
-      attendeeCity: meta.attendeeCity || meta.attendee_city || "",
-      attendeeState: meta.attendeeState || meta.attendee_state || "",
-      attendeePostal: meta.attendeePostal || meta.attendee_postal || "",
-      attendeeCountry: meta.attendeeCountry || meta.attendee_country || "",
       itemId: meta.itemId || meta.item_id || "",
       meta: {
-        attendeeName: meta.attendeeName || meta.attendee_name || meta.attendee || "",
-        attendeeTitle: meta.attendeeTitle || meta.attendee_title || "",
-        attendeePhone: meta.attendeePhone || meta.attendee_phone || "",
-        attendeeEmail: meta.attendeeEmail || meta.attendee_email || "",
-        attendeeNotes: meta.attendeeNotes || meta.attendee_notes || "",
-        dietaryNote: meta.dietaryNote || meta.dietary_note || "",
-        itemNote: meta.itemNote || meta.item_note || "",
-        attendeeAddr1: meta.attendeeAddr1 || meta.attendee_addr1 || "",
-        attendeeAddr2: meta.attendeeAddr2 || meta.attendee_addr2 || "",
-        attendeeCity: meta.attendeeCity || meta.attendee_city || "",
-        attendeeState: meta.attendeeState || meta.attendee_state || "",
-        attendeePostal: meta.attendeePostal || meta.attendee_postal || "",
-        attendeeCountry: meta.attendeeCountry || meta.attendee_country || "",
-        priceMode: meta.priceMode || meta.price_mode || "",
-        bundleQty: meta.bundleQty || meta.bundle_qty || "",
-        bundleTotalCents: meta.bundleTotalCents || meta.bundle_total_cents || "",
-        itemType: meta.itemType || meta.item_type || "",
+        attendeeName: meta.attendeeName || "",
+        attendeeTitle: meta.attendeeTitle || "",
+        attendeePhone: meta.attendeePhone || "",
+        attendeeEmail: meta.attendeeEmail || "",
+        attendeeNotes: meta.attendeeNotes || "",
+        dietaryNote: meta.dietaryNote || "",
+        itemNote: meta.itemNote || "",
+        attendeeAddr1: meta.attendeeAddr1 || "",
+        attendeeAddr2: meta.attendeeAddr2 || "",
+        attendeeCity: meta.attendeeCity || "",
+        attendeeState: meta.attendeeState || "",
+        attendeePostal: meta.attendeePostal || "",
+        attendeeCountry: meta.attendeeCountry || "",
+        priceMode: meta.priceMode || "",
+        bundleQty: meta.bundleQty || "",
+        bundleTotalCents: meta.bundleTotalCents || "",
+        itemType: meta.itemType || "",
       },
       notes: "",
     };
   });
 
-  const md = s.metadata || {};
+  
+  // ---------------------------------------------------------------------------
+  // Attendee name normalization (prevents duplicate attendee boxes on Order page)
+  // If the same attendeeId appears across multiple line items but the name varies
+  // (e.g., "Karl" vs "Karl Forsberg"), pick the "best" name and apply consistently.
+  // ---------------------------------------------------------------------------
+  try {
+    const bestNameById = {};
+    for (const ln of lines) {
+      const aid = String(ln?.attendeeId || "").trim();
+      if (!aid) continue;
+      const n =
+        String(ln?.attendeeName || ln?.meta?.attendeeName || "").trim() ||
+        String(ln?.meta?.attendee_name || "").trim();
+      if (!n) continue;
+      const prev = bestNameById[aid] || "";
+      // prefer the longer (usually full) name
+      if (!prev || n.length > prev.length) bestNameById[aid] = n;
+    }
+    for (const ln of lines) {
+      const aid = String(ln?.attendeeId || "").trim();
+      if (!aid) continue;
+      const best = bestNameById[aid] || "";
+      if (!best) continue;
+      ln.attendeeName = best;
+      ln.meta = ln.meta && typeof ln.meta === "object" ? ln.meta : {};
+      ln.meta.attendeeName = best;
+      ln.meta.attendee_name = best; // snake_case compatibility
+    }
+  } catch {}
+const md = s.metadata || {};
   const purchaserFromMeta = {
     name: (md.purchaser_name || "").trim(),
     email: (md.purchaser_email || "").trim(),
