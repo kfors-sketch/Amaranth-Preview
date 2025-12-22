@@ -234,6 +234,7 @@
       itemName: addon.name,
       qty: quantity,
       unitPrice: price,
+      attendeeId: (meta && meta.attendeeId) || "",
       meta,
     });
 
