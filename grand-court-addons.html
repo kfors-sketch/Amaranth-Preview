@@ -357,14 +357,43 @@
   document.addEventListener('DOMContentLoaded', function(){
     if (document.body?.dataset?.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
       const _add = Cart.addLine.bind(Cart);
+      let __lastAddonAlertAt = 0;
       Cart.addLine = function(line){
         try{
           const copy = JSON.parse(JSON.stringify(line || {}));
           if (copy?.meta && Object.prototype.hasOwnProperty.call(copy.meta,'attendeeNotes')){
             delete copy.meta.attendeeNotes;
           }
-          return _add(copy);
-        }catch(e){ return _add(line); }
+          const out = _add(copy);
+
+          // ✅ Match Banquets UX: ping + confirmation popup (addons page only)
+          try {
+            const isAddon = String(copy?.itemType || '') === 'addon';
+            const now = Date.now();
+            if (isAddon && (now - __lastAddonAlertAt) > 250) {
+              __lastAddonAlertAt = now;
+              try { localStorage.setItem('amaranth_cart_ping', String(now)); } catch(e) {}
+              alert('Add-on added');
+            }
+          } catch(e) {}
+
+          return out;
+        }catch(e){
+          const out = _add(line);
+
+          // best-effort UX even on fallback path
+          try {
+            const isAddon = String(line?.itemType || '') === 'addon';
+            const now = Date.now();
+            if (isAddon && (now - __lastAddonAlertAt) > 250) {
+              __lastAddonAlertAt = now;
+              try { localStorage.setItem('amaranth_cart_ping', String(now)); } catch(e) {}
+              alert('Add-on added');
+            }
+          } catch(e) {}
+
+          return out;
+        }
       };
     }
   });
