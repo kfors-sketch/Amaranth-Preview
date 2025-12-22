@@ -228,13 +228,33 @@
     }
 
     // This shape is what order-page + backend expect
+    // ✅ attendeeId MUST be top-level for Cart.merge rules to work
+    const attendeeId = attendee && attendee.id ? String(attendee.id) : "";
+
+    // ✅ If this add-on is "per attendee", prevent accidental duplicates
+    try{
+      const onePer = !!(addon && (addon.onePerAttendee || addon.perAttendee || addon.per_attendee));
+      if (onePer && attendeeId){
+        const st = (window.Cart && typeof window.Cart.get === "function") ? window.Cart.get() : null;
+        const exists = st && Array.isArray(st.lines) && st.lines.some(l =>
+          String(l.itemType||"") === "addon" &&
+          String(l.itemId||"") === String(addon.id||"") &&
+          String(l.attendeeId||"") === attendeeId
+        );
+        if (exists){
+          alert("That add-on is already in the order for this attendee.");
+          return false;
+        }
+      }
+    }catch(e){}
+
     Cart.addLine({
+      attendeeId, // <-- critical
       itemType: "addon",
       itemId: addon.id,
       itemName: addon.name,
       qty: quantity,
       unitPrice: price,
-      attendeeId: (meta && meta.attendeeId) || "",
       meta,
     });
 
