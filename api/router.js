@@ -754,6 +754,306 @@ async function sendPostOrderEmails(order, requestId) {
   }
 }
 
+
+// ============================================================================
+// ✅ NEW: Server-side Visit Counter (KV) — ground-truth analytics
+// - Intended to be called by client pages via:
+//     GET  /api/router?type=track_visit&path=/banquet.html
+//   or POST /api/router?action=track_visit  { path, title?, referrer? }
+// - Separates stats by effective order channel (test / live_test / live) so you
+//   can compare TEST vs LIVE traffic if desired.
+// - Excludes admin/debug/api/assets by default.
+// - Provides admin-only summary + export endpoints:
+//     GET /api/router?type=visits_summary&days=30&mode=all
+//     GET /api/router?type=visits_export&kind=daily&days=90&mode=live  (xlsx)
+//     GET /api/router?type=visits_export&kind=pages&days=90&mode=all  (xlsx)
+// ============================================================================
+const VISITS_KEY_PREFIX = "visits"; // base namespace
+
+function stripQueryHash(p) {
+  const s = String(p || "").trim();
+  if (!s) return "";
+  return s.split("?")[0].split("#")[0].trim();
+}
+
+function normalizePathForVisit(p) {
+  let path = stripQueryHash(p);
+  if (!path) return "";
+
+  // Allow full URLs too
+  try {
+    if (/^https?:\/\//i.test(path)) {
+      const u = new URL(path);
+      path = u.pathname || "";
+    }
+  } catch {}
+
+  if (!path.startsWith("/")) path = "/" + path;
+
+  // Collapse repeated slashes
+  path = path.replace(/\/{2,}/g, "/");
+
+  // Lowercase for stable counting (your site paths are lowercase)
+  path = path.toLowerCase();
+
+  // Ignore common noise
+  if (path === "/" || path === "/index.html") path = "/home.html";
+
+  return path;
+}
+
+function shouldExcludeVisitPath(path) {
+  const p = String(path || "").toLowerCase();
+  if (!p) return true;
+
+  // exclude admin/debug pages automatically
+  if (p.startsWith("/admin")) return true;
+  if (p.includes("debug")) return true;
+
+  // exclude API/assets/robots/favicons/etc
+  if (p.startsWith("/api")) return true;
+  if (p.startsWith("/assets")) return true;
+  if (p === "/favicon.ico") return true;
+  if (p.startsWith("/robots")) return true;
+  if (p.startsWith("/sitemap")) return true;
+
+  // exclude known internal html pages if any
+  if (p.endsWith(".map")) return true;
+
+  return false;
+}
+
+function ymdUtcFromMs(ms) {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function encKeyPart(s) {
+  // Keep KV keys short, safe, deterministic
+  return encodeURIComponent(String(s || "").trim().toLowerCase());
+}
+
+function visitsKey(mode, ...parts) {
+  const m = String(mode || "test").toLowerCase();
+  return `${VISITS_KEY_PREFIX}:${m}:${parts.filter(Boolean).join(":")}`;
+}
+
+async function kvIncrSafe(key, by = 1) {
+  try {
+    if (kv && typeof kv.incrby === "function") return await kv.incrby(key, by);
+    if (kv && typeof kv.incr === "function") {
+      // Some KV clients support incr only by 1
+      if (by === 1) return await kv.incr(key);
+      // fall through if by != 1
+    }
+  } catch {}
+  // Fallback (non-atomic): acceptable for low-volume / backup counter
+  const cur = Number((await kvGetSafe(key, 0)) || 0) || 0;
+  const next = cur + Number(by || 0);
+  await kvSetSafe(key, next);
+  return next;
+}
+
+async function recordVisit({ mode, path, title = "", referrer = "", userAgent = "" }) {
+  const cleanPath = normalizePathForVisit(path);
+  if (!cleanPath) return { ok: false, skipped: true, reason: "missing-path" };
+  if (shouldExcludeVisitPath(cleanPath))
+    return { ok: false, skipped: true, reason: "excluded-path", path: cleanPath };
+
+  const now = Date.now();
+  const day = ymdUtcFromMs(now);
+
+  const pageKey = encKeyPart(cleanPath);
+
+  // Totals
+  await kvIncrSafe(visitsKey(mode, "total"), 1);
+  await kvIncrSafe(visitsKey(mode, "day", day, "total"), 1);
+  await kvIncrSafe(visitsKey(mode, "page", pageKey, "total"), 1);
+  await kvIncrSafe(visitsKey(mode, "day", day, "page", pageKey), 1);
+
+  // Indexes for listing
+  await kvSaddSafe(visitsKey(mode, "days"), day);
+  await kvSaddSafe(visitsKey(mode, "pages"), pageKey);
+
+  // Optional: store last-seen metadata (useful for debugging)
+  const metaKey = visitsKey(mode, "page", pageKey, "meta");
+  const meta = {
+    path: cleanPath,
+    title: String(title || "").slice(0, 200),
+    lastRef: String(referrer || "").slice(0, 400),
+    lastUA: String(userAgent || "").slice(0, 250),
+    updatedAt: new Date(now).toISOString(),
+  };
+  await kvSetSafe(metaKey, meta);
+
+  return { ok: true, path: cleanPath, day, mode };
+}
+
+async function listVisitModesSafe(modeParam) {
+  const m = String(modeParam || "").trim().toLowerCase();
+  const valid = ["test", "live_test", "live"];
+  if (!m || m === "all") return valid;
+  if (valid.includes(m)) return [m];
+  // If invalid, default to all so UI isn't confusing
+  return valid;
+}
+
+async function getVisitsSummary({ mode = "all", days = 30, startYmd = "", endYmd = "" }) {
+  const modes = await listVisitModesSafe(mode);
+
+  // Determine day range
+  const now = Date.now();
+  let endMs = now;
+  let startMs = now - Math.max(1, Number(days || 30)) * 24 * 60 * 60 * 1000;
+
+  const parseYmdUtc = (ymd) => {
+    const s = String(ymd || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+    return Date.parse(`${s}T00:00:00.000Z`);
+  };
+
+  const sMs = parseYmdUtc(startYmd);
+  const eMs = parseYmdUtc(endYmd);
+  if (!isNaN(sMs)) startMs = sMs;
+  if (!isNaN(eMs)) endMs = eMs + 24 * 60 * 60 * 1000 - 1;
+
+  const startDay = ymdUtcFromMs(startMs);
+  const endDay = ymdUtcFromMs(endMs);
+
+  const outByMode = {};
+  for (const m of modes) {
+    const daySet = (await kvSmembersSafe(visitsKey(m, "days"))) || [];
+    const daysSorted = daySet
+      .map((d) => String(d || "").trim())
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+
+    const inRange = daysSorted.filter((d) => d >= startDay && d <= endDay);
+
+    const daily = [];
+    let total = 0;
+
+    for (const d of inRange) {
+      const c = Number((await kvGetSafe(visitsKey(m, "day", d, "total"), 0)) || 0) || 0;
+      total += c;
+      daily.push({ date: d, visits: c });
+    }
+
+    // Pages (top list by total)
+    const pages = (await kvSmembersSafe(visitsKey(m, "pages"))) || [];
+    const pageTotals = [];
+    for (const pk of pages) {
+      const pTotal = Number((await kvGetSafe(visitsKey(m, "page", pk, "total"), 0)) || 0) || 0;
+      if (!pTotal) continue;
+
+      const meta = (await kvGetSafe(visitsKey(m, "page", pk, "meta"), null)) || null;
+      const path = meta?.path || decodeURIComponent(String(pk || ""));
+      pageTotals.push({ pageKey: pk, path, title: meta?.title || "", total: pTotal });
+    }
+    pageTotals.sort((a, b) => (b.total || 0) - (a.total || 0));
+
+    outByMode[m] = {
+      mode: m,
+      range: { startDay, endDay, days: inRange.length },
+      total,
+      daily,
+      topPages: pageTotals.slice(0, 30),
+      pagesCounted: pageTotals.length,
+    };
+  }
+
+  // Combined totals (for convenience)
+  const combinedDailyMap = new Map();
+  let combinedTotal = 0;
+
+  for (const m of modes) {
+    const s = outByMode[m];
+    if (!s) continue;
+    combinedTotal += Number(s.total || 0) || 0;
+    for (const row of s.daily || []) {
+      const key = row.date;
+      const prev = combinedDailyMap.get(key) || 0;
+      combinedDailyMap.set(key, prev + (Number(row.visits || 0) || 0));
+    }
+  }
+
+  const combinedDaily = Array.from(combinedDailyMap.entries())
+    .map(([date, visits]) => ({ date, visits }))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  return {
+    ok: true,
+    modes,
+    range: { startDay, endDay },
+    combined: { total: combinedTotal, daily: combinedDaily },
+    byMode: outByMode,
+  };
+}
+
+async function buildVisitsExportXlsx({ mode = "all", kind = "daily", days = 90, start = "", end = "" }) {
+  const summary = await getVisitsSummary({ mode, days, startYmd: start, endYmd: end });
+  if (!summary?.ok) return { ok: false, error: "summary-failed" };
+
+  const modes = summary.modes || [];
+  const rows = [];
+
+  if (String(kind || "").toLowerCase() === "pages") {
+    // Pages totals per mode (no time slice)
+    for (const m of modes) {
+      const s = summary.byMode?.[m];
+      const top = s?.topPages || [];
+      for (const p of top) {
+        rows.push({
+          mode: m,
+          path: p.path || "",
+          title: p.title || "",
+          total_visits: Number(p.total || 0) || 0,
+        });
+      }
+    }
+
+    const headers = ["mode", "path", "title", "total_visits"];
+    const buf = await objectsToXlsxBuffer(headers, rows, null, "Visits Pages");
+    return { ok: true, buf, filename: "visits-pages.xlsx" };
+  }
+
+  // Default: daily totals per mode + combined
+  // Combined
+  for (const r of summary.combined?.daily || []) {
+    rows.push({
+      mode: "combined",
+      date: r.date,
+      visits: Number(r.visits || 0) || 0,
+    });
+  }
+
+  for (const m of modes) {
+    const s = summary.byMode?.[m];
+    for (const r of s?.daily || []) {
+      rows.push({
+        mode: m,
+        date: r.date,
+        visits: Number(r.visits || 0) || 0,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    const ad = String(a.date || "");
+    const bd = String(b.date || "");
+    if (ad !== bd) return ad.localeCompare(bd);
+    return String(a.mode || "").localeCompare(String(b.mode || ""));
+  });
+
+  const headers = ["mode", "date", "visits"];
+  const buf = await objectsToXlsxBuffer(headers, rows, null, "Visits Daily");
+  return { ok: true, buf, filename: "visits-daily.xlsx" };
+}
+
+
 // -------------- main handler --------------
 export default async function handler(req, res) {
   const requestId = getRequestId(req);
@@ -1768,7 +2068,51 @@ export default async function handler(req, res) {
         }
       }
 
-      return REQ_ERR(res, 400, "unknown-type", { requestId });
+      
+      // --- Visits: client call to increment visit counter (public; excluded paths ignored) ---
+      if (type === "track_visit") {
+        const { effective } = await getEffectiveSettings();
+        const mode = String(q.mode || q.env || effective?.orderChannel || "test").toLowerCase();
+        const path = q.path || q.page || q.p || req.headers["referer"] || "";
+        const title = q.title || "";
+        const ref = q.ref || req.headers["referer"] || "";
+        const ua = req.headers["user-agent"] || "";
+        const result = await recordVisit({ mode, path, title, referrer: ref, userAgent: ua });
+        res.setHeader("Cache-Control", "no-store");
+        return REQ_OK(res, { ...result, ts: Date.now() });
+      }
+
+      // --- Visits: admin summary (admin-only) ---
+      if (type === "visits_summary") {
+        const ok = await requireAdminAuth(req, res);
+        if (!ok) return;
+        const days = Number(q.days || 30) || 30;
+        const mode = q.mode || "all";
+        const start = q.start || "";
+        const end = q.end || "";
+        const result = await getVisitsSummary({ mode, days, startYmd: start, endYmd: end });
+        res.setHeader("Cache-Control", "no-store");
+        return REQ_OK(res, result);
+      }
+
+      // --- Visits: export XLSX (admin-only) ---
+      if (type === "visits_export") {
+        const ok = await requireAdminAuth(req, res);
+        if (!ok) return;
+        const days = Number(q.days || 90) || 90;
+        const mode = q.mode || "all";
+        const kind = q.kind || "daily"; // daily | pages
+        const start = q.start || "";
+        const end = q.end || "";
+        const built = await buildVisitsExportXlsx({ mode, kind, days, start, end });
+        if (!built?.ok) return REQ_ERR(res, 500, "visits-export-failed", built);
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="${built.filename || "visits.xlsx"}"`);
+        return res.status(200).send(built.buf);
+      }
+
+return REQ_ERR(res, 400, "unknown-type", { requestId });
     }
 
     // ---------- POST ----------
@@ -1781,6 +2125,20 @@ export default async function handler(req, res) {
       } catch (e) {
         return errResponse(res, 400, "invalid-json", req, e);
       }
+    // --- Visits: client call to increment visit counter (public; excluded paths ignored) ---
+    if (action === "track_visit") {
+      const { effective } = await getEffectiveSettings();
+      const mode = String((body && (body.mode || body.env)) || q.mode || q.env || effective?.orderChannel || "test").toLowerCase();
+      const path = (body && (body.path || body.page || body.p)) || q.path || q.page || q.p || req.headers["referer"] || "";
+      const title = (body && body.title) || "";
+      const ref = (body && (body.referrer || body.ref)) || req.headers["referer"] || "";
+      const ua = req.headers["user-agent"] || "";
+      const result = await recordVisit({ mode, path, title, referrer: ref, userAgent: ua });
+      res.setHeader("Cache-Control", "no-store");
+      return REQ_OK(res, { ...result, ts: Date.now() });
+    }
+
+
 
       if (action === "admin_login") {
         try {
