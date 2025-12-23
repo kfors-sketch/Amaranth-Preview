@@ -259,6 +259,13 @@ if (typeof window !== "undefined") {
       meta.notes = notes; // carry custom/notes text to reports
     }
 
+    // WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
+    if (addon && String(addon.type) === "amount") {
+      meta.wholeDollarsOnly = true;
+      // amount in this file is expressed in dollars (integer)
+      meta.dollars = price;
+    }
+
     // ✅ IMPORTANT: attendeeId MUST also be top-level so Cart.mergeLine keeps lines separate per attendee
     Cart.addLine({
       attendeeId: attendeeId || "",
@@ -318,14 +325,25 @@ if (typeof window !== "undefined") {
     if (addon.type === "amount") {
       const amtWrap = document.createElement("label");
       const amtLabel = document.createElement("span");
-      const min = addon.minAmount || 0.01;
-      amtLabel.textContent = `Amount (minimum ${money(min)})`;
+
+      // WHOLE DOLLARS ONLY (no cents)
+      const min = Math.max(1, Math.ceil(addon.minAmount || 1));
+      amtLabel.textContent = `Amount (whole dollars only, minimum ${money(min)})`;
+
       amountInput = document.createElement("input");
       amountInput.type = "number";
       amountInput.min = String(min);
-      amountInput.step = "0.01";
-      amountInput.placeholder = money(min);
-      amtWrap.appendChild(amtLabel);
+      amountInput.step = "1";
+      amountInput.inputMode = "numeric";
+      amountInput.placeholder = String(min);
+
+      // hard-stop: prevent decimals even on paste/scroll
+      amountInput.addEventListener("input", () => {
+        const v = Math.floor(Number(amountInput.value || min));
+        amountInput.value = String(Math.max(min, v));
+      });
+
+amtWrap.appendChild(amtLabel);
       amtWrap.appendChild(amountInput);
       row.appendChild(amtWrap);
 
@@ -476,10 +494,13 @@ if (typeof window !== "undefined") {
           : "";
 
       if (addon.type === "amount") {
-        const min = addon.minAmount || 0.01;
-        amount = toNumber(amountInput && amountInput.value, 0);
-        if (!amount || amount < min) {
-          alert(`Please enter at least ${money(min)}.`);
+        const min = Math.max(1, Math.ceil(addon.minAmount || 1));
+
+        // WHOLE DOLLARS ONLY (no cents)
+        amount = Math.floor(toNumber(amountInput && amountInput.value, 0));
+
+        if (!Number.isInteger(amount) || amount < min) {
+          alert(`Please enter a whole dollar amount of at least ${money(min)}.`);
           return;
         }
       } else if (addon.type === "variantQty") {
