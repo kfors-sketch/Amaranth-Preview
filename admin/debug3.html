@@ -149,6 +149,49 @@
         <pre id="mailOut">{}</pre>
       </div>
 
+
+      <!-- VISITS -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h2 style="margin:0;font-size:18px;">Visits</h2>
+            <div class="sub" style="margin:4px 0 0;">KV-backed “ground truth” visit counts (separate by mode)</div>
+          </div>
+        </div>
+
+        <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px;">
+          <div class="field" style="min-width:160px;">
+            <label>Mode</label>
+            <select id="visitsMode">
+              <option value="auto">Auto (current)</option>
+              <option value="all">All</option>
+              <option value="test">TEST</option>
+              <option value="live_test">LIVE-TEST</option>
+              <option value="live">LIVE</option>
+            </select>
+          </div>
+
+          <div class="field" style="min-width:120px;">
+            <label>Days</label>
+            <input id="visitsDays" value="30" />
+          </div>
+
+          <button class="btn" id="visitsRefresh" style="align-self:flex-end;">Refresh</button>
+          <button class="btn" id="visitsExport" style="align-self:flex-end;">Export XLSX</button>
+        </div>
+
+        <div class="row" style="align-items:flex-start;gap:12px;margin-top:10px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:280px;">
+            <div class="sub" style="margin:0 0 6px;">Daily totals</div>
+            <pre id="visitsOut" class="mono" style="white-space:pre-wrap;max-height:260px;overflow:auto;margin:0;"></pre>
+          </div>
+          <div style="flex:1;min-width:280px;">
+            <div class="sub" style="margin:0 0 6px;">Top pages</div>
+            <pre id="visitsTopOut" class="mono" style="white-space:pre-wrap;max-height:260px;overflow:auto;margin:0;"></pre>
+          </div>
+        </div>
+      </div>
+
       <!-- ADMIN AUDIT LOG -->
       <div class="card span-6">
         <div class="row" style="justify-content:space-between;">

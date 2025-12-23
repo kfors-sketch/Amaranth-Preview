@@ -240,7 +240,96 @@
     }
   }
 
-  // run
+  
+  // ---------- Visits ----------
+  function formatVisitsSummary(data) {
+    if (!data || !data.days) return "No data";
+    const lines = [];
+    lines.push(`Mode: ${data.mode}`);
+    lines.push(`Total (range): ${data.totalRange ?? ""}`);
+    lines.push(`Unique (range): ${data.uniqueRange ?? ""}`);
+    lines.push("");
+    for (const d of data.days) {
+      const date = d.date || "";
+      const t = (d.total ?? "");
+      const u = (d.unique ?? "");
+      lines.push(`${date}  total=${t}  unique=${u}`);
+    }
+    return lines.join("\n");
+  }
+
+  function formatTopPages(data) {
+    if (!data || !Array.isArray(data.pages)) return "No data";
+    const lines = [];
+    lines.push(`Top pages (range ${data.days ?? ""} days)`);
+    lines.push("");
+    for (const p of data.pages.slice(0, 25)) {
+      lines.push(`${String(p.page).padEnd(32).slice(0,32)}  total=${p.total}  unique=${p.unique}`);
+    }
+    return lines.join("\n");
+  }
+
+  async function refreshVisits() {
+    const modeEl = document.getElementById("visitsMode");
+    const daysEl = document.getElementById("visitsDays");
+    const outEl = document.getElementById("visitsOut");
+    const topEl = document.getElementById("visitsTopOut");
+    if (!modeEl || !daysEl || !outEl || !topEl) return;
+
+    const mode = modeEl.value || "auto";
+    const days = Math.max(1, Math.min(365, parseInt(daysEl.value || "30", 10) || 30));
+
+    outEl.textContent = "Loading…";
+    topEl.textContent = "Loading…";
+
+    const qsMode = encodeURIComponent(mode);
+    const qsDays = encodeURIComponent(String(days));
+
+    const summary = await apiGet(`/api/router?type=visits_summary&mode=${qsMode}&days=${qsDays}`);
+    const pages = await apiGet(`/api/router?type=visits_pages&mode=${qsMode}&days=${qsDays}&limit=50`);
+
+    if (summary && summary.ok) outEl.textContent = formatVisitsSummary(summary.data);
+    else outEl.textContent = `Error: ${summary && summary.error ? summary.error : "unknown"}`;
+
+    if (pages && pages.ok) topEl.textContent = formatTopPages(pages.data);
+    else topEl.textContent = `Error: ${pages && pages.error ? pages.error : "unknown"}`;
+  }
+
+  async function exportVisitsXlsx() {
+    const modeEl = document.getElementById("visitsMode");
+    const daysEl = document.getElementById("visitsDays");
+    if (!modeEl || !daysEl) return;
+
+    const mode = modeEl.value || "auto";
+    const days = Math.max(1, Math.min(365, parseInt(daysEl.value || "30", 10) || 30));
+
+    const url = `/api/router?type=visits_export&mode=${encodeURIComponent(mode)}&days=${encodeURIComponent(String(days))}`;
+
+    const res = await fetch(url, { method: "GET", headers: authHeaders() });
+    if (!res.ok) {
+      alert(`Export failed: ${res.status}`);
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    const href = URL.createObjectURL(blob);
+    a.href = href;
+    a.download = `visits_${mode}_${days}d.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 2000);
+  }
+
+  function wireVisits() {
+    const btn = document.getElementById("visitsRefresh");
+    const exp = document.getElementById("visitsExport");
+    if (btn) btn.addEventListener("click", () => refreshVisits());
+    if (exp) exp.addEventListener("click", () => exportVisitsXlsx());
+  }
+
+
+// run
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
