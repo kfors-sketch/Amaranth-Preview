@@ -1696,7 +1696,23 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, order });
       }
 
-      // --------------------------------------------------------------------
+      
+      // ✅ HTML receipt (same formatter as the emailed receipt) — for success.html
+      if (type === "order_receipt_html") {
+        const oid =
+          String(url.searchParams.get("oid") || url.searchParams.get("sid") || "")
+            .trim();
+        if (!oid) return REQ_ERR(res, 400, "missing-oid", { requestId });
+
+        const order = await kvGetSafe(`order:${oid}`, null);
+        if (!order) return REQ_ERR(res, 404, "order-not-found", { requestId });
+
+        // renderOrderEmailHTML already knows how to format attendees + notes.
+        const html = await renderOrderEmailHTML(order);
+        return REQ_OK(res, { requestId, html: html || "" });
+      }
+
+// --------------------------------------------------------------------
       // ✅ Compatibility: allow GET /api/router?type=send_item_report&... for testing
       // - If dryRun=1, returns a preview (no email sent) and does NOT require auth.
       // - If dryRun is falsey, requires admin auth and will send the email.
