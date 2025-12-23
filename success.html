@@ -152,7 +152,8 @@
             <td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td>
           </tr>`
         ).join('');
-        document.getElementById('orderTable').style.display = 'table';
+        // Stripe summary table intentionally hidden
+        // document.getElementById('orderTable').style.display = 'table';
       }
     } catch(_){}
   })
