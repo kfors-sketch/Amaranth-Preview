@@ -19,6 +19,10 @@
     .ok{color:#065f46;font-weight:700}
     .warn{color:#92400e}
     .err{color:#b91c1c}
+    .receiptHtml{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
+    .receiptHtml table{width:100%;border-collapse:collapse}
+    .receiptHtml td,.receiptHtml th{padding:6px;border-bottom:1px solid #e5e7eb}
+    .receiptHtml h1,.receiptHtml h2,.receiptHtml h3{margin:10px 0 6px}
   </style>
 </head>
 <body>
@@ -44,11 +48,6 @@
             </tr>
           </tfoot>
         </table>
-        <div id="attendeeBlock" style="display:none;margin-top:16px">
-          <h2 style="margin:0 0 6px;font-size:18px">Attendee details</h2>
-          <div class="muted" style="margin-bottom:8px">Items and notes saved with your order.</div>
-          <div id="attendeeDetails"></div>
-        </div>
 
       </div>
 
@@ -71,155 +70,6 @@
         .replaceAll("&","&amp;").replaceAll("<","&lt;")
         .replaceAll(">","&gt;").replaceAll('"',"&quot;")
         .replaceAll("'","&#39;");
-    }
-    function norm(s){
-      return String(s||"").toLowerCase().replace(/\s+/g," ").trim();
-    }
-
-    // Deep-scan order object for anything that looks like a note/instruction and
-    // keep nearby context (attendee + item title) when possible.
-    function collectNoteEntries(order){
-      const out = [];
-      const seen = new Set();
-
-      const NOTE_KEY_RE = /(note|notes|instruction|instructions|special|diet|allergy|comment|request)/i;
-      const CONTEXT_KEYS = ["attendee","attendeeName","name","fullName","person","personName","member","memberName","customerName",
-                            "itemName","title","label","banquet","banquetName","entree","meal","addon","product","sku","id"];
-
-      function walk(node, path, ctx){
-        if (!node) return;
-        if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") return;
-
-        // Arrays
-        if (Array.isArray(node)) {
-          node.forEach((v,i)=> walk(v, path.concat([i]), ctx));
-          return;
-        }
-
-        // Objects
-        if (typeof node === "object") {
-          const nextCtx = Object.assign({}, ctx);
-
-          // harvest context from common keys
-          for (const k of Object.keys(node)) {
-            if (!CONTEXT_KEYS.includes(k)) continue;
-            const v = node[k];
-            if (typeof v === "string" && v.trim()) nextCtx[k] = v.trim();
-          }
-
-          // harvest note-like keys
-          for (const [k,v] of Object.entries(node)) {
-            if (!NOTE_KEY_RE.test(k)) continue;
-            if (typeof v !== "string") continue;
-            const val = v.trim();
-            if (!val) continue;
-
-            const key = path.join(".") + ":" + k + ":" + val;
-            if (seen.has(key)) continue;
-            seen.add(key);
-
-            out.push({
-              note: val,
-              key: k,
-              path: path.concat([k]).join("."),
-              attendee: nextCtx.attendeeName || nextCtx.attendee || nextCtx.name || nextCtx.fullName || nextCtx.personName || nextCtx.memberName || "",
-              item: nextCtx.itemName || nextCtx.title || nextCtx.label || nextCtx.banquetName || nextCtx.banquet || nextCtx.product || "",
-              entree: nextCtx.entree || nextCtx.meal || "",
-              id: nextCtx.id || nextCtx.sku || ""
-            });
-          }
-
-          // continue traversal
-          for (const [k,v] of Object.entries(node)) {
-            walk(v, path.concat([k]), nextCtx);
-          }
-        }
-      }
-
-      walk(order, ["order"], {});
-      return out;
-    }
-
-    function renderAttendeeDetails(ord){
-      const block = document.getElementById("attendeeBlock");
-      const holder = document.getElementById("attendeeDetails");
-      if (!block || !holder || !ord) return;
-
-      const entries = collectNoteEntries(ord);
-
-      // Build best-effort attendee -> items list.
-      // First try explicit attendees array if present.
-      const groups = new Map();
-
-      function add(attName, itemName, note){
-        const a = attName && attName.trim() ? attName.trim() : "Order notes";
-        if (!groups.has(a)) groups.set(a, []);
-        groups.get(a).push({ item: itemName || "", note: note || "" });
-      }
-
-      const attArr = Array.isArray(ord.attendees) ? ord.attendees : null;
-      if (attArr && attArr.length) {
-        attArr.forEach(a=>{
-          const an = a.name || a.attendeeName || a.fullName || a.label || "Attendee";
-          // look for common selections arrays
-          const buckets = ["banquets","addons","items","catalog","orders","selections","purchases","products"];
-          let any = false;
-          buckets.forEach(bk=>{
-            if (!Array.isArray(a[bk])) return;
-            a[bk].forEach(it=>{
-              const nm = it.itemName || it.title || it.label || it.name || "";
-              const nt = it.note || it.notes || it.attendeeNote || it.specialInstructions || (it.meta && (it.meta.note || it.meta.notes)) || "";
-              if (nm || nt) {
-                add(an, nm, nt);
-                any = true;
-              }
-            });
-          });
-          if (!any) {
-            // fallback: attach any note entries discovered under this attendee object
-            const local = collectNoteEntries(a);
-            local.forEach(e=> add(an, e.item || e.entree || "", e.note));
-          }
-        });
-      } else if (entries.length) {
-        // No explicit attendees array: try to group scanned note entries by attendee field
-        entries.forEach(e=>{
-          const label = (e.item ? e.item : "") + (e.entree ? (" ("+e.entree+")") : "");
-          add(e.attendee || "", label, e.note);
-        });
-      }
-
-      // If we still don't have anything, don't show the block
-      if (!groups.size) return;
-
-      // Deduplicate & render
-      let html = "";
-      for (const [att, items] of groups.entries()) {
-        const seen = new Set();
-        const clean = [];
-        items.forEach(x=>{
-          const k = norm(att)+"|"+norm(x.item)+"|"+norm(x.note);
-          if (seen.has(k)) return;
-          seen.add(k);
-          if (!x.item && !x.note) return;
-          clean.push(x);
-        });
-
-        html += `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:10px 0;background:#fff">` +
-                `<div style="font-weight:800;margin-bottom:6px">${esc(att)}</div>`;
-
-        clean.forEach(x=>{
-          html += `<div style="margin:8px 0">` +
-                  (x.item ? `<div>${esc(x.item)}</div>` : ``) +
-                  (x.note ? `<div class="muted" style="font-size:12px;margin-top:2px"><b>Note:</b> ${esc(x.note)}</div>` : ``) +
-                  `</div>`;
-        });
-
-        html += `</div>`;
-      }
-
-      holder.innerHTML = html;
-      block.style.display = "block";
     }
 
     // Clear cart and notify other tabs
@@ -288,7 +138,21 @@
         );
         const orderJson = await orderResp.json().catch(()=>null);
         const ord = orderJson && orderJson.order ? orderJson.order : null;
-        if (ord) renderAttendeeDetails(ord);
+                // ---- 3a) Load the *same* formatted receipt HTML used in the email
+                try {
+                  const rh = await fetch(
+                    '/api/router?type=order_receipt_html&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
+                    { cache: 'no-store' }
+                  );
+                  const rj = await rh.json().catch(()=>null);
+                  const html = (rj && (rj.html || (rj.data && rj.data.html))) || "";
+                  if (html) {
+                    document.getElementById('receiptHtml').innerHTML = html;
+                    document.getElementById('receiptHtmlWrap').style.display = 'block';
+                    // Optional: hide the simple line-items table to avoid duplicate info
+                    // document.getElementById('orderTable').style.display = 'none';
+                  }
+                } catch(_) { /* ignore */ }
 
         if (ord && Array.isArray(ord.lines)) {
           rows = ord.lines.map(li => ({
@@ -300,7 +164,6 @@
           const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
           document.getElementById('orderTotal').textContent =
             orderTotal.toLocaleString(undefined,{style:'currency',currency:'USD'});
-          renderAttendeeDetails(ord);
         }
       } catch(_) { /* fall through to list */ }
 
