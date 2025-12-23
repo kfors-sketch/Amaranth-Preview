@@ -131,7 +131,15 @@
             item: li.itemName,
             qty: li.qty,
             price: (li.unitPrice || 0)/100,
-            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100,
+
+            // show notes (banquet notes, attendee notes, etc.) if present
+            note:
+              li.note ||
+              li.notes ||
+              li.attendeeNote ||
+              (li.meta && (li.meta.note || li.meta.notes)) ||
+              ""
           }));
           const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
           document.getElementById('orderTotal').textContent =
@@ -152,10 +160,22 @@
       // Render lines if present
       if (rows.length) {
         const tbody = document.getElementById('orderLines');
-        tbody.innerHTML = rows.map(r =>
-          `<tr>
-            <td>${r.item}</td>
-            <td>${r.qty}</td>
+        function esc(s){
+          return String(s ?? "")
+            .replaceAll("&","&amp;")
+            .replaceAll("<","&lt;")
+            .replaceAll(">","&gt;")
+            .replaceAll('"',"&quot;")
+            .replaceAll("'","&#39;");
+        }
+
+        tbody.innerHTML = rows.map(r => `
+          <tr>
+            <td>
+              ${esc(r.item)}
+              ${r.note ? `<div class="muted" style="margin-top:4px;font-size:12px"><b>Note:</b> ${esc(r.note)}</div>` : ``}
+            </td>
+            <td>${esc(r.qty)}</td>
             <td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td>
             <td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td>
           </tr>`
