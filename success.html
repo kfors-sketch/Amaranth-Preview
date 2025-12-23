@@ -89,6 +89,9 @@
         return;
       }
 
+      // Capture any order payload returned by finalize_checkout (sometimes richer than /type=order)
+      const orderFromFinalize = (j && (j.order || (j.data && j.data.order) || j.savedOrder || j.payload && j.payload.order)) || null;
+
       // Belt & suspenders: idempotent GET finalize in case POST had any hiccup.
       fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache: 'no-store' })
         .catch(()=>{ /* safe to ignore */ });
@@ -120,110 +123,22 @@
 
       // ---- 3) Try to load the single saved order (UNWRAP the { order } shape)
       let rows = [];
-      let attendeeGroups = null;
       try {
         const orderResp = await fetch(
           '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
           { cache: 'no-store' }
         );
         const orderJson = await orderResp.json().catch(()=>null);
-        const ord = orderJson && orderJson.order ? orderJson.order : null;
+        const ord = (orderJson && orderJson.order ? orderJson.order : null) || orderFromFinalize;
 
         if (ord && Array.isArray(ord.lines)) {
-          // ---- Build attendee breakdown from the saved order (not from Stripe line items)
-          const norm = (s) => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
-
-          const groups = new Map(); // name -> { name, items: [] }
-          const ensure = (name) => {
-            const n = norm(name) || 'attendee';
-            const display = String(name||'Attendee').trim() || 'Attendee';
-            if (!groups.has(n)) groups.set(n, { name: display, items: [] });
-            return groups.get(n);
-          };
-          const addItem = (attendeeName, label, note, qty) => {
-            if (!label) return;
-            const g = ensure(attendeeName);
-            g.items.push({
-              label: String(label),
-              note: note ? String(note) : '',
-              qty: qty && Number(qty) ? Number(qty) : 1
-            });
-          };
-
-          // Build quick attendee lookup by id if present
-          const attendeeNameById = new Map();
-          if (Array.isArray(ord.attendees)) {
-            ord.attendees.forEach(a => {
-              const id = a && (a.id || a.attendeeId || a.key);
-              const nm = a && (a.name || a.attendeeName || a.displayName);
-              if (id && nm) attendeeNameById.set(String(id), String(nm));
-            });
-          }
-          const resolveAttendee = (o) => {
-            if (!o) return '';
-            const id = o.attendeeId || o.attendee_id || o.personId || o.person_id;
-            if (id && attendeeNameById.has(String(id))) return attendeeNameById.get(String(id));
-            return o.attendeeName || o.attendee || o.name || o.personName || o.person || '';
-          };
-
-          const getLabel = (o) => {
-            if (!o) return '';
-            const base = o.title || o.itemName || o.name || o.label || o.productName || '';
-            const opt  = o.entree || o.option || o.variant || o.choice || '';
-            return opt ? `${base} (${opt})` : base;
-          };
-          const getNote = (o) => (o && (o.note || o.notes || o.attendeeNote || o.specialInstructions || (o.meta && (o.meta.note || o.meta.notes)) )) || '';
-
-          const scanArray = (arr) => {
-            if (!Array.isArray(arr)) return;
-            arr.forEach(o => {
-              const who = resolveAttendee(o);
-              const label = getLabel(o);
-              const note = getNote(o);
-              const qty = o.qty || o.quantity || 1;
-              if (who && label) addItem(who, label, note, qty);
-            });
-          };
-
-          // Common order sections
-          scanArray(ord.banquets);
-          scanArray(ord.addons);
-          scanArray(ord.catalog);
-          scanArray(ord.products);
-          scanArray(ord.items);
-
-          // Attendee nested sections (if your structure is attendee-centric)
-          if (Array.isArray(ord.attendees)) {
-            ord.attendees.forEach(a => {
-              const who = a && (a.name || a.attendeeName || a.displayName);
-              if (!who) return;
-              scanArray(a.banquets);
-              scanArray(a.addons);
-              scanArray(a.items);
-              scanArray(a.orders);
-            });
-          }
-
-          // If nothing matched but we DO have multiple attendees, at least show attendee names
-          if (!groups.size && Array.isArray(ord.attendees) && ord.attendees.length) {
-            ord.attendees.forEach(a => {
-              const who = a && (a.name || a.attendeeName || a.displayName);
-              if (who) ensure(who);
-            });
-          }
-
-          attendeeGroups = Array.from(groups.values())
-            .map(g => ({ name: g.name, items: g.items }))
-            .filter(g => g.name);
-
-          // ---- Build rows for the summary table
           rows = ord.lines.map(li => ({
             item: li.itemName,
             qty: li.qty,
             price: (li.unitPrice || 0)/100,
-            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100,
+            note: (li.note || li.notes || li.attendeeNote || li.specialInstructions || (li.meta && (li.meta.note || li.meta.notes))) || ''
           }));
-
           const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
           document.getElementById('orderTotal').textContent =
             orderTotal.toLocaleString(undefined,{style:'currency',currency:'USD'});
@@ -243,53 +158,121 @@
       // Render lines if present
       if (rows.length) {
         const tbody = document.getElementById('orderLines');
-        tbody.innerHTML = rows.map(r =>
-          `<tr>
-            <td>${r.item}</td>
-            <td>${r.qty}</td>
+        const esc = (s) => String(s ?? '')
+          .replaceAll('&','&amp;').replaceAll('<','&lt;')
+          .replaceAll('>','&gt;').replaceAll('"','&quot;')
+          .replaceAll("'",'&#39;');
+
+        tbody.innerHTML = rows.map(r => {
+          const noteHtml = r.note ? `<div class="muted" style="margin-top:4px;font-size:12px"><b>Note:</b> ${esc(r.note)}</div>` : '';
+          return `<tr>
+            <td>${esc(r.item)}${noteHtml}</td>
+            <td>${esc(r.qty)}</td>
             <td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td>
             <td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td>
-          </tr>`
-        ).join('');
+          </tr>`;
+        }).join('');
         document.getElementById('orderTable').style.display = 'table';
-        // Render attendee breakdown if available
+
+        // ---- Attendee breakdown (uses richer order shapes; falls back to showing notes-only if no attendee linkage)
         try {
-          if (attendeeGroups && attendeeGroups.length) {
-            const block = document.getElementById('attendeeBlock');
-            if (block) {
-              const esc = (s) => String(s ?? '')
-                .replaceAll('&','&amp;').replaceAll('<','&lt;')
-                .replaceAll('>','&gt;').replaceAll('"','&quot;')
-                .replaceAll("'",'&#39;');
+          const ordForAtt = (orderFromFinalize || null);
+          const ordObj = (typeof ord !== 'undefined' && ord) ? ord : ordForAtt;
+          const block = document.getElementById('attendeeBlock');
+          if (block && ordObj) {
+            const norm = (s) => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
 
+            // Map attendeeId -> name if present
+            const attendeeNameById = new Map();
+            if (Array.isArray(ordObj.attendees)) {
+              ordObj.attendees.forEach(a => {
+                const id = a && (a.id || a.attendeeId || a.attendee_id);
+                const nm = a && (a.name || a.attendeeName || a.displayName);
+                if (id && nm) attendeeNameById.set(String(id), String(nm));
+              });
+            }
+
+            const resolveAttendee = (o) => {
+              if (!o) return '';
+              const id = o.attendeeId || o.attendee_id || o.personId || o.person_id;
+              if (id && attendeeNameById.has(String(id))) return attendeeNameById.get(String(id));
+              return o.attendeeName || o.attendee || o.name || o.personName || o.person || '';
+            };
+            const getLabel = (o) => {
+              if (!o) return '';
+              const base = o.title || o.itemName || o.name || o.label || o.productName || '';
+              const opt  = o.entree || o.option || o.variant || o.choice || '';
+              return opt ? `${base} (${opt})` : base;
+            };
+            const getNote = (o) => (o && (o.note || o.notes || o.attendeeNote || o.specialInstructions || (o.meta && (o.meta.note || o.meta.notes)))) || '';
+
+            const groups = new Map(); // key -> { name, items: [] }
+            const ensure = (name) => {
+              const key = norm(name) || 'attendee';
+              const display = String(name||'Attendee').trim() || 'Attendee';
+              if (!groups.has(key)) groups.set(key, { name: display, items: [] });
+              return groups.get(key);
+            };
+            const addItem = (attendeeName, label, note, qty) => {
+              const g = ensure(attendeeName);
+              g.items.push({ label, note, qty: qty || 1 });
+            };
+            const scanArray = (arr) => {
+              if (!Array.isArray(arr)) return;
+              arr.forEach(o => {
+                const who = resolveAttendee(o);
+                const label = getLabel(o);
+                const note = getNote(o);
+                const qty = o.qty || o.quantity || 1;
+                if (who && label) addItem(who, label, note, qty);
+              });
+            };
+
+            // Common order sections
+            scanArray(ordObj.banquets);
+            scanArray(ordObj.addons);
+            scanArray(ordObj.catalog);
+            scanArray(ordObj.products);
+            scanArray(ordObj.items);
+
+            // Attendee nested sections
+            if (Array.isArray(ordObj.attendees)) {
+              ordObj.attendees.forEach(a => {
+                const who = a && (a.name || a.attendeeName || a.displayName);
+                if (!who) return;
+                scanArray(a.banquets);
+                scanArray(a.addons);
+                scanArray(a.items);
+              });
+            }
+
+            // If still no attendee linkage but we have notes on rows, show a simple "Notes" section
+            const notesOnly = rows.filter(r => r.note).map(r => ({ label: r.item, note: r.note, qty: r.qty || 1 }));
+            if (!groups.size && notesOnly.length) {
+              const g = ensure('Order Notes');
+              notesOnly.forEach(x => g.items.push(x));
+            }
+
+            if (groups.size) {
               block.style.display = 'block';
-              const cards = attendeeGroups.map(g => {
-                const lines = (g.items && g.items.length)
-                  ? g.items.map(it => `
-                      <li style="margin:6px 0">
-                        <div><b>${esc(it.label)}</b>${it.qty && it.qty !== 1 ? ` × ${esc(it.qty)}` : ''}</div>
-                        ${it.note ? `<div class="muted" style="font-size:12px;margin-top:2px"><b>Note:</b> ${esc(it.note)}</div>` : ''}
-                      </li>
-                    `).join('')
-                  : `<li class="muted" style="margin:6px 0">No attendee-specific items were recorded for this order.</li>`;
-
-                return `
-                  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:10px">
-                    <div style="font-weight:800">${esc(g.name)}</div>
-                    <ul style="margin:8px 0 0 18px;padding:0">${lines}</ul>
-                  </div>
-                `;
+              const cards = Array.from(groups.values()).map(g => {
+                const lis = g.items.map(it => {
+                  const q = it.qty && Number(it.qty) !== 1 ? ` × ${esc(it.qty)}` : '';
+                  const n = it.note ? `<div class="muted" style="margin-top:2px;font-size:12px"><b>Note:</b> ${esc(it.note)}</div>` : '';
+                  return `<li style="margin:8px 0"><div><b>${esc(it.label)}</b>${q}</div>${n}</li>`;
+                }).join('');
+                return `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:10px">
+                  <div style="font-weight:800">${esc(g.name)}</div>
+                  <ul style="margin:8px 0 0 18px;padding:0">${lis}</ul>
+                </div>`;
               }).join('');
 
-              block.innerHTML = `
-                <h3 style="margin:16px 0 6px">Attendee details</h3>
+              block.innerHTML = `<h3 style="margin:16px 0 6px">Attendee details</h3>
                 <div class="muted" style="font-size:12px;margin-bottom:8px">What each attendee ordered (with notes).</div>
-                ${cards}
-              `;
+                ${cards}`;
             }
           }
         } catch(e) { /* ignore */ }
-
       }
     })
     .catch(()=>{
