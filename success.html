@@ -44,6 +44,8 @@
             </tr>
           </tfoot>
         </table>
+
+        <div id="attendeeBlock" style="margin-top:14px;display:none"></div>
       </div>
 
       <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
@@ -118,6 +120,7 @@
 
       // ---- 3) Try to load the single saved order (UNWRAP the { order } shape)
       let rows = [];
+      let attendeeGroups = null;
       try {
         const orderResp = await fetch(
           '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
@@ -127,51 +130,99 @@
         const ord = orderJson && orderJson.order ? orderJson.order : null;
 
         if (ord && Array.isArray(ord.lines)) {
-          // Build a lookup of notes from richer structures (banquets/addons/catalog) in case notes
-          // aren't stored directly on ord.lines (emails may render from these).
-          const noteByKey = new Map();
-          const norm = (s) => String(s || '').trim().toLowerCase();
+          // ---- Build attendee breakdown from the saved order (not from Stripe line items)
+          const norm = (s) => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
 
-          const harvest = (arr, getName) => {
-            if (!Array.isArray(arr)) return;
-            for (const it of arr) {
-              if (!it) continue;
-              const name = getName(it);
-              const note = it.note || it.notes || it.attendeeNote || it.specialInstructions || (it.meta && (it.meta.note || it.meta.notes)) || '';
-              const id = it.itemId || it.id || it.yoyId || it.sku || it.key || '';
-              if (note) {
-                if (id) noteByKey.set('id:' + String(id), String(note));
-                if (name) noteByKey.set('name:' + norm(name), String(note));
-              }
-            }
+          const groups = new Map(); // name -> { name, items: [] }
+          const ensure = (name) => {
+            const n = norm(name) || 'attendee';
+            const display = String(name||'Attendee').trim() || 'Attendee';
+            if (!groups.has(n)) groups.set(n, { name: display, items: [] });
+            return groups.get(n);
+          };
+          const addItem = (attendeeName, label, note, qty) => {
+            if (!label) return;
+            const g = ensure(attendeeName);
+            g.items.push({
+              label: String(label),
+              note: note ? String(note) : '',
+              qty: qty && Number(qty) ? Number(qty) : 1
+            });
           };
 
-          // Common shapes in your saved order
-          harvest(ord.banquets, (it) => it.title || it.itemName || it.name);
-          harvest(ord.addons,   (it) => it.title || it.itemName || it.name);
-          harvest(ord.catalog,  (it) => it.title || it.itemName || it.name);
-          harvest(ord.items,    (it) => it.title || it.itemName || it.name);
-
-          rows = ord.lines.map(li => {
-            const direct =
-              li.note ||
-              li.notes ||
-              li.attendeeNote ||
-              (li.meta && (li.meta.note || li.meta.notes)) ||
-              "";
-            const idKey = (li.itemId || li.id || li.yoyId || li.sku) ? ('id:' + String(li.itemId || li.id || li.yoyId || li.sku)) : '';
-            const nameKey = li.itemName ? ('name:' + norm(li.itemName)) : '';
-            const lookup = (idKey && noteByKey.get(idKey)) || (nameKey && noteByKey.get(nameKey)) || "";
-            const note = direct || lookup || "";
-
-            return ({
-              item: li.itemName,
-              qty: li.qty,
-              price: (li.unitPrice || 0)/100,
-              gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100,
-              note
+          // Build quick attendee lookup by id if present
+          const attendeeNameById = new Map();
+          if (Array.isArray(ord.attendees)) {
+            ord.attendees.forEach(a => {
+              const id = a && (a.id || a.attendeeId || a.key);
+              const nm = a && (a.name || a.attendeeName || a.displayName);
+              if (id && nm) attendeeNameById.set(String(id), String(nm));
             });
-          });
+          }
+          const resolveAttendee = (o) => {
+            if (!o) return '';
+            const id = o.attendeeId || o.attendee_id || o.personId || o.person_id;
+            if (id && attendeeNameById.has(String(id))) return attendeeNameById.get(String(id));
+            return o.attendeeName || o.attendee || o.name || o.personName || o.person || '';
+          };
+
+          const getLabel = (o) => {
+            if (!o) return '';
+            const base = o.title || o.itemName || o.name || o.label || o.productName || '';
+            const opt  = o.entree || o.option || o.variant || o.choice || '';
+            return opt ? `${base} (${opt})` : base;
+          };
+          const getNote = (o) => (o && (o.note || o.notes || o.attendeeNote || o.specialInstructions || (o.meta && (o.meta.note || o.meta.notes)) )) || '';
+
+          const scanArray = (arr) => {
+            if (!Array.isArray(arr)) return;
+            arr.forEach(o => {
+              const who = resolveAttendee(o);
+              const label = getLabel(o);
+              const note = getNote(o);
+              const qty = o.qty || o.quantity || 1;
+              if (who && label) addItem(who, label, note, qty);
+            });
+          };
+
+          // Common order sections
+          scanArray(ord.banquets);
+          scanArray(ord.addons);
+          scanArray(ord.catalog);
+          scanArray(ord.products);
+          scanArray(ord.items);
+
+          // Attendee nested sections (if your structure is attendee-centric)
+          if (Array.isArray(ord.attendees)) {
+            ord.attendees.forEach(a => {
+              const who = a && (a.name || a.attendeeName || a.displayName);
+              if (!who) return;
+              scanArray(a.banquets);
+              scanArray(a.addons);
+              scanArray(a.items);
+              scanArray(a.orders);
+            });
+          }
+
+          // If nothing matched but we DO have multiple attendees, at least show attendee names
+          if (!groups.size && Array.isArray(ord.attendees) && ord.attendees.length) {
+            ord.attendees.forEach(a => {
+              const who = a && (a.name || a.attendeeName || a.displayName);
+              if (who) ensure(who);
+            });
+          }
+
+          attendeeGroups = Array.from(groups.values())
+            .map(g => ({ name: g.name, items: g.items }))
+            .filter(g => g.name);
+
+          // ---- Build rows for the summary table
+          rows = ord.lines.map(li => ({
+            item: li.itemName,
+            qty: li.qty,
+            price: (li.unitPrice || 0)/100,
+            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+          }));
 
           const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
           document.getElementById('orderTotal').textContent =
@@ -192,27 +243,53 @@
       // Render lines if present
       if (rows.length) {
         const tbody = document.getElementById('orderLines');
-        function esc(s){
-          return String(s ?? "")
-            .replaceAll("&","&amp;")
-            .replaceAll("<","&lt;")
-            .replaceAll(">","&gt;")
-            .replaceAll('"',"&quot;")
-            .replaceAll("'","&#39;");
-        }
-
-        tbody.innerHTML = rows.map(r => `
-          <tr>
-            <td>
-              ${esc(r.item)}
-              ${r.note ? `<div class="muted" style="margin-top:4px;font-size:12px"><b>Note:</b> ${esc(r.note)}</div>` : ``}
-            </td>
-            <td>${esc(r.qty)}</td>
+        tbody.innerHTML = rows.map(r =>
+          `<tr>
+            <td>${r.item}</td>
+            <td>${r.qty}</td>
             <td style="text-align:right">$${Number(r.price||0).toFixed(2)}</td>
             <td style="text-align:right">$${Number(r.gross||0).toFixed(2)}</td>
           </tr>`
         ).join('');
         document.getElementById('orderTable').style.display = 'table';
+        // Render attendee breakdown if available
+        try {
+          if (attendeeGroups && attendeeGroups.length) {
+            const block = document.getElementById('attendeeBlock');
+            if (block) {
+              const esc = (s) => String(s ?? '')
+                .replaceAll('&','&amp;').replaceAll('<','&lt;')
+                .replaceAll('>','&gt;').replaceAll('"','&quot;')
+                .replaceAll("'",'&#39;');
+
+              block.style.display = 'block';
+              const cards = attendeeGroups.map(g => {
+                const lines = (g.items && g.items.length)
+                  ? g.items.map(it => `
+                      <li style="margin:6px 0">
+                        <div><b>${esc(it.label)}</b>${it.qty && it.qty !== 1 ? ` × ${esc(it.qty)}` : ''}</div>
+                        ${it.note ? `<div class="muted" style="font-size:12px;margin-top:2px"><b>Note:</b> ${esc(it.note)}</div>` : ''}
+                      </li>
+                    `).join('')
+                  : `<li class="muted" style="margin:6px 0">No attendee-specific items were recorded for this order.</li>`;
+
+                return `
+                  <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:10px">
+                    <div style="font-weight:800">${esc(g.name)}</div>
+                    <ul style="margin:8px 0 0 18px;padding:0">${lines}</ul>
+                  </div>
+                `;
+              }).join('');
+
+              block.innerHTML = `
+                <h3 style="margin:16px 0 6px">Attendee details</h3>
+                <div class="muted" style="font-size:12px;margin-bottom:8px">What each attendee ordered (with notes).</div>
+                ${cards}
+              `;
+            }
+          }
+        } catch(e) { /* ignore */ }
+
       }
     })
     .catch(()=>{
