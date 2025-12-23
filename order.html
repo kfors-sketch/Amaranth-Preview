@@ -360,5 +360,27 @@
   }
 })();
 </script>
+  <script src="/assets/js/visits.js?v=visits-v1"></script>
+
+  <!-- Visitor tracking -->
+  <script>
+  (function () {
+    try {
+      const path = location.pathname;
+      if (
+        path.startsWith('/admin') ||
+        path.includes('debug') ||
+        path.startsWith('/api') ||
+        path.startsWith('/assets')
+      ) return;
+
+      fetch(`/api/router?type=track_visit&path=${encodeURIComponent(path)}`, {
+        method: 'GET',
+        keepalive: true
+      });
+    } catch (e) {}
+  })();
+  </script>
+
 </body>
 </html>
