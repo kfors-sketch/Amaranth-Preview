@@ -127,20 +127,52 @@
         const ord = orderJson && orderJson.order ? orderJson.order : null;
 
         if (ord && Array.isArray(ord.lines)) {
-          rows = ord.lines.map(li => ({
-            item: li.itemName,
-            qty: li.qty,
-            price: (li.unitPrice || 0)/100,
-            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100,
+          // Build a lookup of notes from richer structures (banquets/addons/catalog) in case notes
+          // aren't stored directly on ord.lines (emails may render from these).
+          const noteByKey = new Map();
+          const norm = (s) => String(s || '').trim().toLowerCase();
 
-            // show notes (banquet notes, attendee notes, etc.) if present
-            note:
+          const harvest = (arr, getName) => {
+            if (!Array.isArray(arr)) return;
+            for (const it of arr) {
+              if (!it) continue;
+              const name = getName(it);
+              const note = it.note || it.notes || it.attendeeNote || it.specialInstructions || (it.meta && (it.meta.note || it.meta.notes)) || '';
+              const id = it.itemId || it.id || it.yoyId || it.sku || it.key || '';
+              if (note) {
+                if (id) noteByKey.set('id:' + String(id), String(note));
+                if (name) noteByKey.set('name:' + norm(name), String(note));
+              }
+            }
+          };
+
+          // Common shapes in your saved order
+          harvest(ord.banquets, (it) => it.title || it.itemName || it.name);
+          harvest(ord.addons,   (it) => it.title || it.itemName || it.name);
+          harvest(ord.catalog,  (it) => it.title || it.itemName || it.name);
+          harvest(ord.items,    (it) => it.title || it.itemName || it.name);
+
+          rows = ord.lines.map(li => {
+            const direct =
               li.note ||
               li.notes ||
               li.attendeeNote ||
               (li.meta && (li.meta.note || li.meta.notes)) ||
-              ""
-          }));
+              "";
+            const idKey = (li.itemId || li.id || li.yoyId || li.sku) ? ('id:' + String(li.itemId || li.id || li.yoyId || li.sku)) : '';
+            const nameKey = li.itemName ? ('name:' + norm(li.itemName)) : '';
+            const lookup = (idKey && noteByKey.get(idKey)) || (nameKey && noteByKey.get(nameKey)) || "";
+            const note = direct || lookup || "";
+
+            return ({
+              item: li.itemName,
+              qty: li.qty,
+              price: (li.unitPrice || 0)/100,
+              gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100,
+              note
+            });
+          });
+
           const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
           document.getElementById('orderTotal').textContent =
             orderTotal.toLocaleString(undefined,{style:'currency',currency:'USD'});
