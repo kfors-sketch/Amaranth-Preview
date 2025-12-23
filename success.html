@@ -16,9 +16,9 @@
     table{width:100%;border-collapse:collapse;margin-top:16px}
     th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
     th{text-align:left;background:#f9fafb}
-    .ok{color:#065f46;font-weight:700}
-    .warn{color:#92400e}
-    .err{color:#b91c1c}
+
+    /* Receipt (email HTML) container styling */
+    .receiptHtmlWrap{margin-top:16px}
     .receiptHtml{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
     .receiptHtml table{width:100%;border-collapse:collapse}
     .receiptHtml td,.receiptHtml th{padding:6px;border-bottom:1px solid #e5e7eb}
@@ -36,6 +36,7 @@
         <div class="row"><div>Paid</div><div class="val" id="paid">$0.00</div></div>
         <div class="row"><div>Email</div><div class="val" id="email">—</div></div>
 
+        <!-- Stripe-style summary table (optional) -->
         <table id="orderTable" style="display:none">
           <thead>
             <tr><th>Item</th><th>Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Line</th></tr>
@@ -49,6 +50,10 @@
           </tfoot>
         </table>
 
+        <!-- Email-style receipt HTML goes HERE -->
+        <div id="receiptHtmlWrap" class="receiptHtmlWrap" style="display:none">
+          <div id="receiptHtml" class="receiptHtml"></div>
+        </div>
       </div>
 
       <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
@@ -58,127 +63,86 @@
     </div>
   </main>
 
-  <script>
-  (function(){
-    const q = new URLSearchParams(location.search);
-    const sid = q.get('sid') || q.get('session_id');
-    const nowTs = () => Date.now();
+<script>
+(function(){
+  const q = new URLSearchParams(location.search);
+  const sid = q.get('sid') || q.get('session_id');
+  const nowTs = () => Date.now();
 
+  // Clear cart
+  try {
+    if (window.Cart && Cart.clear) Cart.clear();
+    localStorage.removeItem('amaranth_cart');
+    localStorage.setItem('amaranth_cart_ping', String(Date.now()));
+  } catch(e){}
 
-    function esc(v){
-      return String(v ?? "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;")
-        .replaceAll(">","&gt;").replaceAll('"',"&quot;")
-        .replaceAll("'","&#39;");
-    }
+  const status  = document.getElementById('status');
+  const details = document.getElementById('details');
 
-    // Clear cart and notify other tabs
-    try {
-      if (window.Cart && Cart.clear) Cart.clear();
-      localStorage.removeItem('amaranth_cart');
-      localStorage.setItem('amaranth_cart_ping', String(Date.now()));
-    } catch(e){}
+  if (!sid) {
+    status.textContent = 'Payment completed, but no session id was provided.';
+    return;
+  }
 
-    const status  = document.getElementById('status');
-    const details = document.getElementById('details');
-
-    if (!sid) {
-      status.textContent = 'Payment completed, but no session id was provided.';
+  // 1) Finalize checkout (idempotent)
+  fetch('/api/router?action=finalize_checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sid })
+  })
+  .then(r => r.json())
+  .then(async (j) => {
+    if (!j || j.error) {
+      status.textContent = (j && j.error) ? j.error : 'Could not finalize order.';
       return;
     }
 
-    // ---- 1) Finalize (SAVES the order + sends emails)
-    fetch('/api/router?action=finalize_checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sid })
-    })
-    .then(r => r.json())
-    .then(async (j) => {
-      if (!j || j.error) {
-        status.textContent = (j && j.error) ? j.error : 'Could not finalize order.';
-        return;
-      }
+    // Belt & suspenders
+    fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache: 'no-store' })
+      .catch(()=>{});
 
-      // Belt & suspenders: idempotent GET finalize in case POST had any hiccup.
-      fetch('/api/router?type=finalize_order&sid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache: 'no-store' })
-        .catch(()=>{ /* safe to ignore */ });
-
-      // ---- 2) Show confirmation basics using Stripe session data
-      try {
-        const sessResp = await fetch(
-          '/api/router?type=checkout_session&id=' + encodeURIComponent(sid) + '&t=' + nowTs(),
-          { cache: 'no-store' }
-        );
-        const s = await sessResp.json().catch(()=>null);
-
-        if (s && s.id) {
-          status.textContent = 'Payment confirmed.';
-          details.style.display = 'block';
-          document.getElementById('ordId').textContent = s.id;
-          const total = (s.amount_total||0)/100;
-          document.getElementById('paid').textContent =
-            total.toLocaleString(undefined,{style:'currency',currency:'USD'});
-          document.getElementById('email').textContent = (s.customer_details && s.customer_details.email) || '—';
-          document.getElementById('orderTotal').textContent =
-            total.toLocaleString(undefined,{style:'currency',currency:'USD'});
-        } else {
-          status.textContent = 'Payment confirmed.';
-        }
-      } catch(_) {
+    // 2) Stripe session basics
+    try {
+      const sessResp = await fetch('/api/router?type=checkout_session&id=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache:'no-store' });
+      const s = await sessResp.json().catch(()=>null);
+      if (s && s.id) {
+        status.textContent = 'Payment confirmed.';
+        details.style.display = 'block';
+        document.getElementById('ordId').textContent = s.id;
+        const total = (s.amount_total||0)/100;
+        document.getElementById('paid').textContent = total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+        document.getElementById('email').textContent = (s.customer_details && s.customer_details.email) || '—';
+        document.getElementById('orderTotal').textContent = total.toLocaleString(undefined,{style:'currency',currency:'USD'});
+      } else {
         status.textContent = 'Payment confirmed.';
       }
+    } catch(_) {
+      status.textContent = 'Payment confirmed.';
+    }
 
-      // ---- 3) Try to load the single saved order (UNWRAP the { order } shape)
-      let rows = [];
-      try {
-        const orderResp = await fetch(
-          '/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
-          { cache: 'no-store' }
-        );
-        const orderJson = await orderResp.json().catch(()=>null);
-        const ord = orderJson && orderJson.order ? orderJson.order : null;
-                // ---- 3a) Load the *same* formatted receipt HTML used in the email
-                try {
-                  const rh = await fetch(
-                    '/api/router?type=order_receipt_html&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(),
-                    { cache: 'no-store' }
-                  );
-                  const rj = await rh.json().catch(()=>null);
-                  const html = (rj && (rj.html || (rj.data && rj.data.html))) || "";
-                  if (html) {
-                    document.getElementById('receiptHtml').innerHTML = html;
-                    document.getElementById('receiptHtmlWrap').style.display = 'block';
-                    // Optional: hide the simple line-items table to avoid duplicate info
-                    // document.getElementById('orderTable').style.display = 'none';
-                  }
-                } catch(_) { /* ignore */ }
-
-        if (ord && Array.isArray(ord.lines)) {
-          rows = ord.lines.map(li => ({
-            item: li.itemName,
-            qty: li.qty,
-            price: (li.unitPrice || 0)/100,
-            gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
-          }));
-          const orderTotal = rows.reduce((s,r)=> s + Number(r.gross||0), 0);
-          document.getElementById('orderTotal').textContent =
-            orderTotal.toLocaleString(undefined,{style:'currency',currency:'USD'});
-        }
-      } catch(_) { /* fall through to list */ }
-
-      // Fallback: scan the rows list for this sid
-      if (!rows.length) {
-        const listResp = await fetch(
-          '/api/router?type=orders&t=' + nowTs(),
-          { cache: 'no-store' }
-        ).catch(()=>null);
-        const all = listResp ? await listResp.json().catch(()=>null) : null;
-        rows = (all && Array.isArray(all.rows) ? all.rows : []).filter(r => r.id === sid);
+    // 3) Load the SAME receipt HTML used in the email
+    try {
+      const rh = await fetch('/api/router?type=order_receipt_html&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache:'no-store' });
+      const rj = await rh.json().catch(()=>null);
+      const html = (rj && (rj.html || (rj.data && rj.data.html))) || '';
+      if (html) {
+        document.getElementById('receiptHtml').innerHTML = html;
+        document.getElementById('receiptHtmlWrap').style.display = 'block';
       }
+    } catch(_){}
 
-      // Render lines if present
-      if (rows.length) {
+    // Optional: still show Stripe-style line items table
+    try {
+      const orderResp = await fetch('/api/router?type=order&oid=' + encodeURIComponent(sid) + '&t=' + nowTs(), { cache:'no-store' });
+      const orderJson = await orderResp.json().catch(()=>null);
+      const ord = orderJson && orderJson.order ? orderJson.order : null;
+      if (ord && Array.isArray(ord.lines) && ord.lines.length) {
+        const rows = ord.lines.map(li => ({
+          item: li.itemName,
+          qty: li.qty,
+          price: (li.unitPrice||0)/100,
+          gross: (li.gross || (li.qty||1)*(li.unitPrice||0))/100
+        }));
         const tbody = document.getElementById('orderLines');
         tbody.innerHTML = rows.map(r =>
           `<tr>
@@ -190,11 +154,10 @@
         ).join('');
         document.getElementById('orderTable').style.display = 'table';
       }
-    })
-    .catch(()=>{
-      status.textContent = 'Could not finalize order.';
-    });
-  })();
-  </script>
+    } catch(_){}
+  })
+  .catch(()=>{ status.textContent = 'Could not finalize order.'; });
+})();
+</script>
 </body>
 </html>
