@@ -754,6 +754,121 @@ async function sendPostOrderEmails(order, requestId) {
   }
 }
 
+
+// ============================================================================
+// ✅ VISITS COUNTER (KV ground truth)
+// - Public endpoint: POST /api/router?action=track_visit  (no auth)
+// - Optional GET:    /api/router?type=track_visit&path=/home.html (no auth)
+// - Stores totals + per-day + per-month + per-path, split by channel (test/live_test/live)
+// ============================================================================
+const VISITS_KEY_PREFIX = "visits";
+
+function ymdUtc(d = new Date()) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function ymUtc(d = new Date()) {
+  return d.toISOString().slice(0, 7); // YYYY-MM
+}
+
+function normalizeVisitPath(p) {
+  const raw = String(p || "").trim();
+  if (!raw) return "/";
+  // strip protocol/host if someone passed full URL
+  try {
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      const u = new URL(raw);
+      return normalizeVisitPath(u.pathname || "/");
+    }
+  } catch {}
+  const noQuery = raw.split("?")[0].split("#")[0].trim();
+  let out = noQuery.startsWith("/") ? noQuery : `/${noQuery}`;
+  // basic cleanup
+  out = out.replace(/\/{2,}/g, "/");
+  if (out.length > 256) out = out.slice(0, 256);
+  return out || "/";
+}
+
+function shouldCountVisit(pathname) {
+  const p = String(pathname || "").toLowerCase();
+  if (!p) return false;
+
+  // exclude API + admin + common debug pages
+  if (p.startsWith("/api/")) return false;
+  if (p.startsWith("/admin/")) return false;
+  if (p.includes("debug")) return false;
+
+  // exclude obvious assets
+  if (
+    p.startsWith("/assets/") ||
+    p.endsWith(".js") ||
+    p.endsWith(".css") ||
+    p.endsWith(".png") ||
+    p.endsWith(".jpg") ||
+    p.endsWith(".jpeg") ||
+    p.endsWith(".webp") ||
+    p.endsWith(".gif") ||
+    p.endsWith(".svg") ||
+    p.endsWith(".ico") ||
+    p.endsWith(".map")
+  ) return false;
+
+  return true;
+}
+
+async function kvIncrSafe(key, delta = 1) {
+  try {
+    if (kv && typeof kv.incrby === "function") {
+      return await kv.incrby(key, delta);
+    }
+    if (kv && typeof kv.incr === "function") {
+      if (delta === 1) return await kv.incr(key);
+      // fall back for non-1 deltas
+    }
+  } catch (e) {
+    // fall through
+  }
+
+  // fallback: get + set
+  const prev = Number(await kvGetSafe(key, 0)) || 0;
+  const next = prev + Number(delta || 0);
+  await kvSetSafe(key, next);
+  return next;
+}
+
+function visitsKey(mode, parts) {
+  const m = String(mode || "test").trim().toLowerCase() || "test";
+  return [VISITS_KEY_PREFIX, m, ...parts].join(":");
+}
+
+async function trackVisitInternal({ path, mode, now }) {
+  const pathname = normalizeVisitPath(path);
+  if (!shouldCountVisit(pathname)) return { ok: true, skipped: true, path: pathname };
+
+  const d = now || new Date();
+  const day = ymdUtc(d);
+  const month = ymUtc(d);
+
+  // totals
+  const kTotal = visitsKey(mode, ["total"]);
+  const kDayTotal = visitsKey(mode, ["day", day, "total"]);
+  const kMonthTotal = visitsKey(mode, ["month", month, "total"]);
+
+  // per-path
+  const safePathKey = encodeURIComponent(pathname);
+  const kDayPath = visitsKey(mode, ["day", day, "path", safePathKey]);
+  const kMonthPath = visitsKey(mode, ["month", month, "path", safePathKey]);
+
+  await Promise.all([
+    kvIncrSafe(kTotal, 1),
+    kvIncrSafe(kDayTotal, 1),
+    kvIncrSafe(kMonthTotal, 1),
+    kvIncrSafe(kDayPath, 1),
+    kvIncrSafe(kMonthPath, 1),
+  ]);
+
+  return { ok: true, path: pathname, day, month, mode };
+}
+
 // -------------- main handler --------------
 export default async function handler(req, res) {
   const requestId = getRequestId(req);
@@ -766,6 +881,24 @@ export default async function handler(req, res) {
 
     // ---------- GET ----------
     if (req.method === "GET") {
+      // ✅ Public: track a visit (no auth)
+      if (type === "track_visit") {
+        try {
+          const pathParam =
+            url.searchParams.get("path") ||
+            url.searchParams.get("p") ||
+            url.pathname ||
+            "/";
+          const mode = await getEffectiveOrderChannel().catch(() => "test");
+          const out = await trackVisitInternal({ path: pathParam, mode, now: new Date() });
+          // For GET beacon calls, 204 is fine, but we return JSON for easier debugging.
+          return REQ_OK(res, { requestId, ...out });
+        } catch (e) {
+          return errResponse(res, 500, "track-visit-failed", req, e);
+        }
+      }
+
+
       if (type === "smoketest") {
         const out = await handleSmoketest();
         return REQ_OK(res, { requestId, ...out });
@@ -1781,6 +1914,26 @@ export default async function handler(req, res) {
         }
       } catch (e) {
         return errResponse(res, 400, "invalid-json", req, e);
+      }
+
+
+      // ✅ Public: track a visit (no auth)
+      if (action === "track_visit") {
+        try {
+          const pathParam =
+            String(body?.path || body?.pathname || "") ||
+            String(url.searchParams.get("path") || url.searchParams.get("p") || "");
+          const fallbackPath = url.pathname || "/";
+          const mode = await getEffectiveOrderChannel().catch(() => "test");
+          const out = await trackVisitInternal({
+            path: pathParam || fallbackPath,
+            mode,
+            now: new Date(),
+          });
+          return REQ_OK(res, { requestId, ...out });
+        } catch (e) {
+          return errResponse(res, 500, "track-visit-failed", req, e);
+        }
       }
 
       if (action === "admin_login") {
