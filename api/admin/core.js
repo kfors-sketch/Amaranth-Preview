@@ -594,7 +594,9 @@ async function getChairEmailsForItemId(id) {
   } catch {}
 
   const cfg = await kvHgetallSafe(`itemcfg:${id}`);
-  const legacyArr = Array.isArray(cfg?.chairEmails) ? cfg.chairEmails : safeSplit(cfg?.chairEmails || "");
+  const legacyArr = Array.isArray(cfg?.chairEmails)
+    ? cfg.chairEmails
+    : safeSplit(cfg?.chairEmails || "");
   return legacyArr;
 }
 
@@ -650,7 +652,6 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     };
   });
 
-  
   // ---------------------------------------------------------------------------
   // Attendee name normalization (prevents duplicate attendee boxes on Order page)
   // If the same attendeeId appears across multiple line items but the name varies
@@ -680,7 +681,8 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
       ln.meta.attendee_name = best; // snake_case compatibility
     }
   } catch {}
-const md = s.metadata || {};
+
+  const md = s.metadata || {};
   const purchaserFromMeta = {
     name: (md.purchaser_name || "").trim(),
     email: (md.purchaser_email || "").trim(),
@@ -851,7 +853,10 @@ function flattenOrderToRows(o) {
 }
 
 // --- Helper to estimate Stripe fee from items + shipping ---
-function computeStripeProcessingFeeFromLines(lines, { stripePct = 0.029, stripeFlatCents = 30 } = {}) {
+function computeStripeProcessingFeeFromLines(
+  lines,
+  { stripePct = 0.029, stripeFlatCents = 30 } = {}
+) {
   if (!Array.isArray(lines) || !lines.length) return 0;
 
   let itemsSubtotal = 0;
@@ -867,7 +872,8 @@ function computeStripeProcessingFeeFromLines(lines, { stripePct = 0.029, stripeF
 
     const isProcessingFee =
       itemId === "processing-fee" ||
-      ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
+      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+        /processing\s*fee/i.test(name));
     const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
     const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
@@ -914,7 +920,8 @@ function renderOrderEmailHTML(order) {
 
     const isProcessingFee =
       itemId === "processing-fee" ||
-      ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
+      ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+        /processing\s*fee/i.test(name));
     const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
 
     if (isProcessingFee) {
@@ -946,7 +953,10 @@ function renderOrderEmailHTML(order) {
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : li.meta?.itemNote || "";
         const notesRow = notes
-          ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(/</g, "&lt;")}</div>`
+          ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(
+              /</g,
+              "&lt;"
+            )}</div>`
           : "";
         const lineTotal = Number(li.unitPrice || 0) * Number(li.qty || 1);
         return `
@@ -954,9 +964,15 @@ function renderOrderEmailHTML(order) {
           <td style="padding:8px;border-bottom:1px solid #eee">
             ${li.itemName || ""}${notesRow}
           </td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(li.qty || 1)}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(li.unitPrice || 0)}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(lineTotal)}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(
+            li.qty || 1
+          )}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
+            li.unitPrice || 0
+          )}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(
+            lineTotal
+          )}</td>
         </tr>`;
       })
       .join("");
@@ -977,7 +993,9 @@ function renderOrderEmailHTML(order) {
         <tfoot>
           <tr>
             <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">Subtotal</td>
-            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(subtotal)}</td>
+            <td style="text-align:right;padding:8px;border-top:2px solid #ddd;font-weight:700">${money(
+              subtotal
+            )}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -1015,7 +1033,8 @@ function renderOrderEmailHTML(order) {
 
       const isProcessingFee =
         itemId === "processing-fee" ||
-        ((cat === "fee" || metaType === "fee" || metaType === "other") && /processing\s*fee/i.test(name));
+        ((cat === "fee" || metaType === "fee" || metaType === "other") &&
+          /processing\s*fee/i.test(name));
       const isIntlFee = itemId === "intl-fee" || /international card processing fee/i.test(name);
       const isShipping = cat === "shipping" || metaType === "shipping" || itemId === "shipping";
 
@@ -1038,7 +1057,9 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Shipping &amp; Handling</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(shippingCents)}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          shippingCents
+        )}</td>
       </tr>`
       : "";
 
@@ -1047,7 +1068,9 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">Online Processing Fee</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(processingFeeCents)}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
+          processingFeeCents
+        )}</td>
       </tr>`
       : "";
 
@@ -1056,7 +1079,9 @@ function renderOrderEmailHTML(order) {
       ? `
       <tr>
         <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid #eee">International Card Processing Fee (3%)</td>
-        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(intlFeeCents)}</td>
+        <td style="text-align:right;padding:8px;border-top:1px solid #eee">${money(
+          intlFeeCents
+        )}</td>
       </tr>`
       : "";
 
@@ -1085,14 +1110,18 @@ function renderOrderEmailHTML(order) {
       <tfoot>
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid:#eee">Subtotal</td>
-          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(itemsSubtotalCents)}</td>
+          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
+            itemsSubtotalCents
+          )}</td>
         </tr>
         ${shippingRow}
         ${processingRow}
         ${intlRow}
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(totalCents)}</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(
+            totalCents
+          )}</td>
         </tr>
       </tfoot>
     </table>
@@ -1355,7 +1384,10 @@ async function sendReceiptXlsxBackup(order) {
     ],
   };
 
-  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipt:xlsx-backup:${orderId}`);
+  const retry = await sendWithRetry(
+    () => resend.emails.send(payload),
+    `receipt:xlsx-backup:${orderId}`
+  );
 
   if (retry.ok) {
     const sendResult = retry.result;
@@ -1463,7 +1495,10 @@ async function sendOrderReceipts(order, { adminEmail } = {}) {
 // Attendee roster collector (used by reports)
 // ---------------------------------------------------------------------------
 
-function collectAttendeesFromOrders(orders, { includeAddress = false, categories = [], startMs, endMs } = {}) {
+function collectAttendeesFromOrders(
+  orders,
+  { includeAddress = false, categories = [], startMs, endMs } = {}
+) {
   const cats = (categories || []).map((c) => String(c || "").toLowerCase()).filter(Boolean);
 
   const allRows = [];
@@ -1861,7 +1896,12 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
     rows.push(...buildReceiptXlsxRows(o));
   }
 
-  const xlsxBuf = await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, "Receipts");
+  const xlsxBuf = await objectsToXlsxBuffer(
+    RECEIPT_XLSX_HEADERS,
+    rows,
+    RECEIPT_XLSX_HEADER_LABELS,
+    "Receipts"
+  );
   zip.file(`receipts-${wantMode}-${nowMonth}.xlsx`, Buffer.from(xlsxBuf));
 
   const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
@@ -1879,8 +1919,13 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
     attachments: [{ filename: `receipts-${wantMode}-${nowMonth}.zip`, content: zipB64 }],
   };
 
-  const retry = await sendWithRetry(() => resend.emails.send(payload), `receipts-zip-monthly:${wantMode}:${nowMonth}`);
-  return retry.ok ? { ok: true, month: nowMonth } : { ok: false, error: retry.error?.message || String(retry.error) };
+  const retry = await sendWithRetry(
+    () => resend.emails.send(payload),
+    `receipts-zip-monthly:${wantMode}:${nowMonth}`
+  );
+  return retry.ok
+    ? { ok: true, month: nowMonth }
+    : { ok: false, error: retry.error?.message || String(retry.error) };
 }
 
 async function emailFinalReceiptsZip({ mode = "test" } = {}) {
@@ -1902,7 +1947,12 @@ async function emailFinalReceiptsZip({ mode = "test" } = {}) {
     rows.push(...buildReceiptXlsxRows(o));
   }
 
-  const xlsxBuf = await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, RECEIPT_XLSX_HEADER_LABELS, "Receipts");
+  const xlsxBuf = await objectsToXlsxBuffer(
+    RECEIPT_XLSX_HEADERS,
+    rows,
+    RECEIPT_XLSX_HEADER_LABELS,
+    "Receipts"
+  );
   zip.file(`receipts-${wantMode}-ALL.xlsx`, Buffer.from(xlsxBuf));
 
   const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
