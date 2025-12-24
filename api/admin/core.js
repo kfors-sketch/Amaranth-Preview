@@ -654,8 +654,6 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
 
   // ---------------------------------------------------------------------------
   // Attendee name normalization (prevents duplicate attendee boxes on Order page)
-  // If the same attendeeId appears across multiple line items but the name varies
-  // (e.g., "Karl" vs "Karl Forsberg"), pick the "best" name and apply consistently.
   // ---------------------------------------------------------------------------
   try {
     const bestNameById = {};
@@ -667,7 +665,6 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         String(ln?.meta?.attendee_name || "").trim();
       if (!n) continue;
       const prev = bestNameById[aid] || "";
-      // prefer the longer (usually full) name
       if (!prev || n.length > prev.length) bestNameById[aid] = n;
     }
     for (const ln of lines) {
@@ -1088,7 +1085,7 @@ function renderOrderEmailHTML(order) {
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111;margin:0;">
   <div style="max-width:720px;margin:0 auto;padding:16px 20px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <img src="${logoUrl}" alt="Logo" style="height:28px;max-width:160px;object-fit:contain" />
+      <img src="${absoluteUrl("/assets/img/receipt_logo.svg")}" alt="Logo" style="height:28px;max-width:160px;object-fit:contain" />
       <div>
         <div style="font-size:18px;font-weight:800">Grand Court of PA — Order of the Amaranth</div>
         <div style="font-size:14px;color:#555">Order #${order.id}</div>
@@ -1097,7 +1094,7 @@ function renderOrderEmailHTML(order) {
 
     <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-top:8px">
       <div style="font-weight:700;margin-bottom:8px">Purchaser</div>
-      <div>${purchaserName}</div>
+      <div>${order?.purchaser?.name || "Purchaser"}</div>
       <div>${order.customer_email || ""}</div>
       <div>${order.purchaser?.phone || ""}</div>
     </div>
@@ -1110,18 +1107,14 @@ function renderOrderEmailHTML(order) {
       <tfoot>
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:1px solid:#eee">Subtotal</td>
-          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${money(
-            itemsSubtotalCents
-          )}</td>
+          <td style="text-align:right;padding:8px;border-top:1px solid:#eee">${(itemsSubtotalCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</td>
         </tr>
         ${shippingRow}
         ${processingRow}
         ${intlRow}
         <tr>
           <td colspan="3" style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">Total</td>
-          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${money(
-            totalCents
-          )}</td>
+          <td style="text-align:right;padding:8px;border-top:2px solid:#ddd;font-weight:700">${(totalCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</td>
         </tr>
       </tfoot>
     </table>
@@ -1274,7 +1267,7 @@ function receiptXlsxSentKey(orderId) {
 }
 
 // ---------------------------------------------------------------------------
-// CSV helpers (THE MISSING FUNCTIONS THAT BROKE YOUR DEPLOY)
+// CSV helpers
 // ---------------------------------------------------------------------------
 
 function buildCSV(rows) {
@@ -1345,13 +1338,16 @@ async function sendReceiptXlsxBackup(order) {
   if (already) return { ok: true, skipped: true, reason: "already-sent" };
 
   const rows = buildReceiptXlsxRows(order);
-  const xlsxBuf = await objectsToXlsxBuffer(
+  const xlsxRaw = await objectsToXlsxBuffer(
     RECEIPT_XLSX_HEADERS,
     rows,
     RECEIPT_XLSX_HEADER_LABELS,
     "Receipt"
   );
-  const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
+
+  // ✅ ATTACHMENT HARDENING (ExcelJS can return ArrayBuffer)
+  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+  const xlsxB64 = xlsxBuf.toString("base64");
 
   const mode = String(order?.mode || "test").toLowerCase();
   const purchaserEmail = String(order?.purchaser?.email || order?.customer_email || "").trim();
@@ -1380,6 +1376,9 @@ async function sendReceiptXlsxBackup(order) {
       {
         filename: `receipt-${mode || "test"}-${orderId}.xlsx`,
         content: xlsxB64,
+        // optional hints; safe if ignored
+        content_type:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       },
     ],
   };
@@ -1407,6 +1406,10 @@ async function sendReceiptXlsxBackup(order) {
       resultId: sendResult?.id || null,
       status: "queued",
       kind: "receipt-xlsx-backup",
+      attachment: {
+        filename: `receipt-${mode || "test"}-${orderId}.xlsx`,
+        bytes: xlsxBuf.length,
+      },
     });
 
     return { ok: true };
@@ -1514,7 +1517,6 @@ function collectAttendeesFromOrders(
         if (!cats.includes(rc)) continue;
       }
 
-      // These are the “attendee report rows” your sendItemReportEmailInternal expects
       const base = {
         date: r.date,
         attendee: r.attendee,
@@ -1547,7 +1549,7 @@ function collectAttendeesFromOrders(
 }
 
 // ---------------------------------------------------------------------------
-// Chair report sender (your fixed version, kept intact)
+// Chair report sender (attachment-hardened + scheduled_at safety)
 // ---------------------------------------------------------------------------
 
 async function sendItemReportEmailInternal({
@@ -1567,6 +1569,7 @@ async function sendItemReportEmailInternal({
 
   const from = RESEND_FROM || "pa_sessions@yahoo.com";
 
+  // we still accept it, but we won't pass scheduled_at when attachments are present
   let scheduledAtIso = (scheduled_at || scheduledAt || "").trim();
   if (scheduledAtIso) {
     const t = Date.parse(scheduledAtIso);
@@ -1703,8 +1706,11 @@ async function sendItemReportEmailInternal({
     return { ...baseRow, item: r.item, qty: r.qty, notes: r.notes };
   });
 
-  const xlsxBuf = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
-  const xlsxB64 = Buffer.from(xlsxBuf).toString("base64");
+  const xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
+
+  // ✅ ATTACHMENT HARDENING
+  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+  const xlsxB64 = xlsxBuf.toString("base64");
 
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
@@ -1765,6 +1771,7 @@ async function sendItemReportEmailInternal({
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555;margin:2px 0;">Scope: ${scopeLabel}</div>
       ${coverageText ? `<p style="font-size:12px;color:#555;margin:2px 0 0;">${coverageText}</p>` : ""}
+      <div style="font-size:12px;color:#555;margin:6px 0 0;">Attachment: <b>${filename}</b></div>
     </div>`;
 
   const payload = {
@@ -1774,10 +1781,21 @@ async function sendItemReportEmailInternal({
     subject,
     html: tablePreview,
     reply_to: REPLY_TO || undefined,
-    attachments: [{ filename, content: xlsxB64 }],
+    attachments: [
+      {
+        filename,
+        content: xlsxB64,
+        content_type:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      },
+    ],
   };
 
-  if (scheduledAtIso) payload.scheduled_at = scheduledAtIso;
+  // ✅ SCHEDULE SAFETY:
+  // Do NOT pass scheduled_at when attachments are included.
+  // Your cron/scheduler should call send at the right time instead.
+  // (This avoids providers dropping/altering attachments in queued sends.)
+  // if (scheduledAtIso) payload.scheduled_at = scheduledAtIso;
 
   const retry = await sendWithRetry(() => resend.emails.send(payload), `item-report:${kind}:${id}`);
 
@@ -1791,9 +1809,10 @@ async function sendItemReportEmailInternal({
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
-      scheduled_at: scheduledAtIso || null,
+      scheduled_at: null,
+      attachment: { filename, bytes: xlsxBuf.length },
     });
-    return { ok: true, count: sorted.length, to: toList, bcc: bccList, scheduled_at: scheduledAtIso || null };
+    return { ok: true, count: sorted.length, to: toList, bcc: bccList, scheduled_at: null };
   }
 
   const err = retry.error;
@@ -1806,7 +1825,7 @@ async function sendItemReportEmailInternal({
     kind: "item-report",
     status: "error",
     error: String(err?.message || err),
-    scheduled_at: scheduledAtIso || null,
+    scheduled_at: null,
   });
   return { ok: false, error: "send-failed", message: err?.message || String(err) };
 }
@@ -1888,21 +1907,21 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
     if (om !== wantMode) continue;
     if (monthIdUTC(o.created) !== nowMonth) continue;
 
-    // add receipt HTML in ZIP (nice for audit)
     const html = renderOrderEmailHTML(o);
     zip.file(`receipt-${wantMode}-${o.id}.html`, html);
 
-    // add stable XLSX rows into a combined worksheet later
     rows.push(...buildReceiptXlsxRows(o));
   }
 
-  const xlsxBuf = await objectsToXlsxBuffer(
+  const xlsxRaw = await objectsToXlsxBuffer(
     RECEIPT_XLSX_HEADERS,
     rows,
     RECEIPT_XLSX_HEADER_LABELS,
     "Receipts"
   );
-  zip.file(`receipts-${wantMode}-${nowMonth}.xlsx`, Buffer.from(xlsxBuf));
+  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+
+  zip.file(`receipts-${wantMode}-${nowMonth}.xlsx`, xlsxBuf);
 
   const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
   const zipB64 = Buffer.from(zipBuf).toString("base64");
@@ -1947,13 +1966,15 @@ async function emailFinalReceiptsZip({ mode = "test" } = {}) {
     rows.push(...buildReceiptXlsxRows(o));
   }
 
-  const xlsxBuf = await objectsToXlsxBuffer(
+  const xlsxRaw = await objectsToXlsxBuffer(
     RECEIPT_XLSX_HEADERS,
     rows,
     RECEIPT_XLSX_HEADER_LABELS,
     "Receipts"
   );
-  zip.file(`receipts-${wantMode}-ALL.xlsx`, Buffer.from(xlsxBuf));
+  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+
+  zip.file(`receipts-${wantMode}-ALL.xlsx`, xlsxBuf);
 
   const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
   const zipB64 = Buffer.from(zipBuf).toString("base64");
@@ -1981,7 +2002,6 @@ async function emailFinalReceiptsZip({ mode = "test" } = {}) {
 const ALLOW_LIVE_PURGE = String(process.env.ALLOW_LIVE_PURGE || "false") === "true";
 
 function resolveOrderKey(order) {
-  // Your storage is: order:<sessionId>
   return `order:${String(order?.id || "").trim()}`;
 }
 
@@ -2027,10 +2047,8 @@ async function purgeOrdersByMode(mode, { hard = false } = {}) {
 // ------------- EXPORTS -------------
 // prettier-ignore
 export {
-  // raw kv (for smoketest)
   kv,
 
-  // env / clients
   getStripe,
   getStripePublishableKey,
   resend,
@@ -2039,19 +2057,16 @@ export {
   REPORTS_LOG_TO,
   CONTACT_TO,
 
-  // receipts mailbox + helpers
   EMAIL_RECEIPTS,
   sendReceiptXlsxBackup,
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
 
-  // hash + lockdown exports
   verifyOrderHash,
   assertNotLocked,
   getLockdownConfig,
   tokenFingerprint,
 
-  // generic helpers
   REQ_OK,
   REQ_ERR,
   cents,
@@ -2095,7 +2110,6 @@ export {
   sendRealtimeChairEmailsForOrder,
   maybeSendRealtimeChairEmails,
 
-  // checkout mode helpers + purge
   getCheckoutSettingsRaw,
   saveCheckoutSettings,
   getCheckoutSettingsAuto,
