@@ -1577,7 +1577,7 @@ async function sendItemReportEmailInternal({
       console.warn("[sendItemReportEmailInternal] invalid scheduled time:", scheduledAtIso);
       scheduledAtIso = "";
     } else {
-      if (t <= Date.now() + 5000) scheduledAtIso = "";
+      if (t <= Date.now() + 5 * 60 * 1000) scheduledAtIso = "";
       else scheduledAtIso = new Date(t).toISOString();
     }
   }
