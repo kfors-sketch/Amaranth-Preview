@@ -3360,3 +3360,42 @@ export const config = {
   runtime: "nodejs",
   api: { bodyParser: false },
 };
+
+
+
+// ================= VISITS: TOP PAGES (ADMIN) =================
+if (type === "visits_pages") {
+  if (!(await requireAdminAuth(req, res))) return;
+
+  const mode = String(q.mode || "auto");
+  const days = Math.max(1, Math.min(365, parseInt(q.days || "30", 10) || 30));
+  const limit = Math.max(1, Math.min(200, parseInt(q.limit || "50", 10) || 50));
+
+  const effectiveMode =
+    mode === "all"
+      ? "all"
+      : mode === "auto"
+      ? await getEffectiveOrderChannel()
+      : mode;
+
+  const base = `visits:${effectiveMode}`;
+  const pages = (await kvSmembersSafe(`${base}:pages`)) || [];
+  const results = [];
+
+  for (const page of pages) {
+    let total = 0;
+    let unique = 0;
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      total += Number(await kvGetSafe(`${base}:day:${d}:path:${page}`)) || 0;
+      const uu = await kvSmembersSafe(`${base}:uniq:day:${d}:page:${page}`);
+      if (Array.isArray(uu)) unique += uu.length;
+    }
+
+    if (total > 0) results.push({ page, total, unique });
+  }
+
+  results.sort((a, b) => b.total - a.total);
+  return REQ_OK(res, { mode: effectiveMode, days, pages: results.slice(0, limit) });
+}
