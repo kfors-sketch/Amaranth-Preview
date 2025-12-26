@@ -266,6 +266,20 @@ if (addon && String(addon.id) === "corsage" && variant) {
       meta.notes = notes; // carry custom/notes text to reports
     }
 
+
+// Also store canonical note fields so receipts/order page always show them
+if (notes) {
+  // Love Gift message
+  if (addon && (String(addon.id) === "love-gift" || String(addon.id) === "love_gift" || String(addon.id) === "love gift")) {
+    meta.itemNote = notes;
+  }
+  // Corsage custom instructions
+  if (addon && String(addon.id) === "corsage") {
+    meta.itemNote = notes;     // primary
+    meta.corsageNote = notes;  // secondary (explicit)
+  }
+}
+
     // WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
     if (addon && String(addon.type) === "amount") {
       meta.wholeDollarsOnly = true;
