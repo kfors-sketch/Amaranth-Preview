@@ -800,7 +800,9 @@ function flattenOrderToRows(o) {
       notes:
         li.category === "banquet"
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
-          : li.meta?.itemNote || "",
+          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote]
+              .filter(Boolean)
+              .join("; "),
       _itemId: rawId,
       _itemBase: base,
       _itemKey: normalizeKey(rawId),
@@ -948,7 +950,9 @@ function renderOrderEmailHTML(order) {
         const isBanquet = cat === "banquet" || /banquet/i.test(li.itemName || "");
         const notes = isBanquet
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
-          : li.meta?.itemNote || "";
+          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote]
+              .filter(Boolean)
+              .join("; ");
         const notesRow = notes
           ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(
               /</g,
