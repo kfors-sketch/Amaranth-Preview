@@ -636,6 +636,8 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeEmail: meta.attendeeEmail || "",
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
+        corsageChoice: meta.corsageChoice || meta.corsage_choice || meta.corsageType || meta.corsage_type || meta.choice || meta.selection || meta.style || meta.color || "",
+        corsageNote: meta.corsageNote || meta.corsage_note || "",
         itemNote:
         (meta.itemNote ||
           meta.item_note ||
@@ -1226,7 +1228,7 @@ function buildReceiptXlsxRows(order) {
     const isBanquet = cat === "banquet" || /banquet/i.test(itemName);
     const notes = isBanquet
       ? [li?.meta?.attendeeNotes, li?.meta?.dietaryNote].filter(Boolean).join("; ")
-      : li?.meta?.itemNote || "";
+      : [li?.meta?.corsageChoice, li?.meta?.itemNote, li?.meta?.corsageNote].filter(Boolean).join("; ");
 
     rows.push({
       year,
