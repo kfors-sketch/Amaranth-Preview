@@ -127,6 +127,50 @@
     return line;
   }
 
+
+// === MERGE SIGNATURES ===
+// Some items must NOT merge just because itemId+price match.
+// Example: corsage variants (rose vs custom) and any custom note should stay separate.
+function _normMergeVal(v){
+  return String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function lineMetaSignature(line){
+  const itemId = _normMergeVal(line?.itemId);
+  const m = (line && line.meta) ? line.meta : {};
+
+  // Helper: pick first non-empty from a list
+  const pick = (...vals) => {
+    for (const v of vals){
+      const s = String(v || "").trim();
+      if (s) return s;
+    }
+    return "";
+  };
+
+  // Notes can come in under different keys depending on page/version
+  const note = pick(m.itemNote, m.corsageNote, m.note, m.notes, m.message);
+
+  // Corsage: include choice + note in merge signature
+  if (itemId === "corsage") {
+    const choice = pick(m.corsageChoice, m.corsageType, m.choice, m.selection, m.color);
+    return JSON.stringify({
+      choice: _normMergeVal(choice),
+      note: _normMergeVal(note),
+    });
+  }
+
+  // Love Gift: keep separate if message/note differs
+  if (itemId === "love-gift" || itemId === "love_gift" || itemId === "lovegift") {
+    return JSON.stringify({
+      note: _normMergeVal(note),
+    });
+  }
+
+  // Default: ignore meta for merge
+  return "";
+}
+
   // === STORAGE ===
   function load(){
     try {
@@ -226,11 +270,13 @@
     });
 
     // Merge only if same attendeeId + itemId + unitPrice + bundle-ness
+    // PLUS special meta signatures for items like corsages and love gifts (so custom variants don't collapse).
     const existing = state.lines.find(l =>
       l.attendeeId === line.attendeeId &&
       l.itemId     === line.itemId &&
       Number(l.unitPrice) === Number(line.unitPrice) &&
-      Boolean(l.meta && (l.meta.isBundle || l.meta.bundle || l.meta.bundleQty)) === Boolean(line.meta && (line.meta.isBundle || line.meta.bundle || line.meta.bundleQty))
+      Boolean(l.meta && (l.meta.isBundle || l.meta.bundle || l.meta.bundleQty)) === Boolean(line.meta && (line.meta.isBundle || line.meta.bundle || line.meta.bundleQty)) &&
+      lineMetaSignature(l) === lineMetaSignature(line)
     );
 
     if (existing){
