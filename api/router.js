@@ -2342,6 +2342,61 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                   if (!displayName.includes("$")) displayName = `${displayName} — $${amt}`;
                 }
               } catch {}
+              // ✅ Corsage variants: keep separate line items & show choice/note on Order page + receipts
+              // We DO NOT change itemId (so chair email routing still works), but we make the Stripe product
+              // name unique per variant so your UI can show "Rose Corsage" vs "Custom Corsage — note..."
+              try {
+                const id2 = String(l.itemId || "").trim().toLowerCase();
+                const name2 = String(displayName || "").toLowerCase();
+                const looksLikeCorsage =
+                  id2 === "corsage" ||
+                  id2 === "corsages" ||
+                  id2.includes("corsage") ||
+                  name2.includes("corsage");
+
+                if (looksLikeCorsage) {
+                  const choice =
+                    String(
+                      l?.meta?.corsageChoice ??
+                        l?.meta?.corsage_choice ??
+                        l?.meta?.corsageType ??
+                        l?.meta?.corsage_type ??
+                        l?.meta?.choice ??
+                        l?.meta?.selection ??
+                        l?.meta?.style ??
+                        l?.meta?.color ??
+                        ""
+                    ).trim();
+
+                  const noteRaw =
+                    String(
+                      l?.meta?.itemNote ||
+                        l?.meta?.item_note ||
+                        l?.meta?.notes ||
+                        l?.meta?.note ||
+                        l?.meta?.message ||
+                        l?.itemNote ||
+                        l?.item_note ||
+                        l?.notes ||
+                        l?.note ||
+                        l?.message ||
+                        ""
+                    ).trim();
+
+                  if (choice) {
+                    const lowerChoice = choice.toLowerCase();
+                    // Avoid double-appending
+                    if (!name2.includes(lowerChoice)) displayName = `${displayName} (${choice})`;
+                  }
+
+                  // If it's custom, or they typed a note, include it in the displayed name (trimmed)
+                  if (noteRaw) {
+                    const shortNote = noteRaw.length > 90 ? noteRaw.slice(0, 87) + "…" : noteRaw;
+                    if (!String(displayName).includes(shortNote)) displayName = `${displayName} — ${shortNote}`;
+                  }
+                }
+              } catch {}
+
 
               return {
                 quantity,
@@ -2373,6 +2428,29 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                           l.message ||
                           "")
                         ,
+                      corsageChoice:
+                        (l.meta?.corsageChoice ||
+                          l.meta?.corsage_choice ||
+                          l.meta?.corsageType ||
+                          l.meta?.corsage_type ||
+                          l.meta?.choice ||
+                          l.meta?.selection ||
+                          l.meta?.style ||
+                          l.meta?.color ||
+                          ""),
+                      corsageNote:
+                        (l.meta?.itemNote ||
+                          l.meta?.item_note ||
+                          l.meta?.notes ||
+                          l.meta?.note ||
+                          l.meta?.message ||
+                          l.itemNote ||
+                          l.item_note ||
+                          l.notes ||
+                          l.note ||
+                          l.message ||
+                          ""),
+
                       attendeeAddr1: l.meta?.attendeeAddr1 || "",
                       attendeeAddr2: l.meta?.attendeeAddr2 || "",
                       attendeeCity: l.meta?.attendeeCity || "",
