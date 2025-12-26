@@ -239,13 +239,17 @@
           const banquetNotes = isBanquet ? lnMeta || lnAtt : "";
 
           const itemNote =
-            !isBanquet &&
-            l.meta &&
-            (l.meta.note || l.meta.notes || l.meta.message)
-              ? String(l.meta.note || l.meta.notes || l.meta.message)
-              : "";
-
-          const detail = banquetNotes
+  !isBanquet && l.meta
+    ? String(
+        l.meta.itemNote ||
+        l.meta.corsageNote ||
+        l.meta.note ||
+        l.meta.notes ||
+        l.meta.message ||
+        ""
+      )
+    : "";
+const detail = banquetNotes
             ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(
                 /</g,
                 "&lt;"
@@ -262,9 +266,28 @@
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
 
+          // Display enhancements for Corsages (and other variant add-ons)
+          const _esc = (s) => String(s || "").replace(/</g, "&lt;");
+          const corsageChoice = String(
+            l?.meta?.corsageChoice ||
+              l?.meta?.corsageType ||
+              l?.meta?.choice ||
+              l?.meta?.selection ||
+              l?.meta?.color ||
+              ""
+          ).trim();
+
+          // Show corsage choice in the item name so it's clear what was selected
+          // (and so identical corsages can be recognized as truly identical).
+          const itemLabel =
+            String(l.itemName || "") +
+            (String(l.itemId || "").toLowerCase() === "corsage" && corsageChoice
+              ? ` (${_esc(corsageChoice)})`
+              : "");
+
           return `
             <tr>
-              <td>${l.itemName || ""}${detail}</td>
+              <td>${itemLabel}${detail}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>
