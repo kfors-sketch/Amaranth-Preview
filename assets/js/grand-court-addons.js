@@ -255,6 +255,13 @@ if (typeof window !== "undefined") {
       meta.variantLabel = variant.label || "";
     }
 
+
+// ✅ Corsage option normalization (so order page + receipts show which option)
+if (addon && String(addon.id) === "corsage" && variant) {
+  meta.corsageChoice = variant.label || "";
+  meta.corsageIsCustom = /custom/i.test(String(variant.label || ""));
+}
+
     if (notes) {
       meta.notes = notes; // carry custom/notes text to reports
     }
