@@ -636,7 +636,14 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeEmail: meta.attendeeEmail || "",
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
-        itemNote: meta.itemNote || "",
+        itemNote:
+        (meta.itemNote ||
+          meta.item_note ||
+          meta.notes ||
+          meta.note ||
+          meta.message ||
+          "")
+        ,
         attendeeAddr1: meta.attendeeAddr1 || "",
         attendeeAddr2: meta.attendeeAddr2 || "",
         attendeeCity: meta.attendeeCity || "",
@@ -801,8 +808,9 @@ function flattenOrderToRows(o) {
         li.category === "banquet"
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote]
-              .filter(Boolean)
-              .join("; "),
+          .filter(Boolean)
+          .join("; ")
+          ,
       _itemId: rawId,
       _itemBase: base,
       _itemKey: normalizeKey(rawId),
