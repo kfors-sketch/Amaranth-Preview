@@ -2323,13 +2323,33 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                 : toCentsAuto(l.unitPrice || 0);
               const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
 
+              // ✅ Love Gift / variable donation: include per-person amount in the item name
+              // so chair/realtime emails that only show itemName still include the dollar amount.
+              let displayName = String(l.itemName || "Item");
+              try {
+                const id = String(l.itemId || "").trim().toLowerCase();
+                const t = String(l.itemType || "").trim().toLowerCase();
+                const looksLikeLoveGift =
+                  id === "love_gift" ||
+                  id === "lovegift" ||
+                  id.includes("love_gift") ||
+                  id.includes("lovegift") ||
+                  (t === "addon" && displayName.toLowerCase().includes("love gift")) ||
+                  displayName.toLowerCase().includes("love gift");
+                if (looksLikeLoveGift && Number.isFinite(unit_amount)) {
+                  const amt = (Number(unit_amount) / 100).toFixed(2);
+                  // Avoid double-appending if already present
+                  if (!displayName.includes("$")) displayName = `${displayName} — $${amt}`;
+                }
+              } catch {}
+
               return {
                 quantity,
                 price_data: {
                   currency: "usd",
                   unit_amount,
                   product_data: {
-                    name: String(l.itemName || "Item"),
+                    name: displayName,
                     metadata: {
                       itemId: l.itemId || "",
                       itemType: l.itemType || "",
@@ -2350,6 +2370,7 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                       priceMode: priceMode || "",
                       bundleQty: isBundle ? String(l.bundleQty || "") : "",
                       bundleTotalCents: isBundle ? String(unit_amount) : "",
+                      loveGiftAmountCents: String(unit_amount),
                     },
                   },
                 },
