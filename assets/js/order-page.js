@@ -134,6 +134,42 @@
     return _norm(a?.name) === _norm(b?.name) && _addressKey(a) === _addressKey(b);
   }
 
+
+// === Item detail helpers (corsage / love gift notes & choice) ===
+function resolveItemNote(meta){
+  const m = meta || {};
+  return String(
+    m.itemNote ||
+    m.corsageNote ||
+    m.note ||
+    m.notes ||
+    m.message ||
+    ""
+  ).trim();
+}
+
+function resolveCorsageChoice(meta){
+  const m = meta || {};
+  return String(
+    m.corsageChoice ||
+    m.corsageType ||
+    m.choice ||
+    m.selection ||
+    m.option ||
+    m.variant ||
+    m.color ||
+    m.style ||
+    m.kind ||
+    ""
+  ).trim();
+}
+
+function isCorsageCustom(meta){
+  const c = resolveCorsageChoice(meta).toLowerCase();
+  return !!(meta && meta.corsageIsCustom) || c.includes("custom") || c === "c" || c === "other" || c === "special";
+}
+// ================================================================
+
   // ===== shared attendee storage key (same as other pages) =====
   const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
 
@@ -238,18 +274,9 @@
           const lnAtt = attObj && attObj.notes ? String(attObj.notes) : "";
           const banquetNotes = isBanquet ? lnMeta || lnAtt : "";
 
-          const itemNote =
-  !isBanquet && l.meta
-    ? String(
-        l.meta.itemNote ||
-        l.meta.corsageNote ||
-        l.meta.note ||
-        l.meta.notes ||
-        l.meta.message ||
-        ""
-      )
-    : "";
-const detail = banquetNotes
+                    const itemNote = !isBanquet ? resolveItemNote(l.meta) : "";
+
+          const detail = banquetNotes
             ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(
                 /</g,
                 "&lt;"
@@ -261,33 +288,21 @@ const detail = banquetNotes
               )}</div>`
             : "";
 
+          const corsageChoice = (String(l.itemId||"").toLowerCase() === "corsage") ? resolveCorsageChoice(l.meta) : "";
+          const corsageLabel = (String(l.itemId||"").toLowerCase() === "corsage")
+            ? (isCorsageCustom(l.meta) ? "Custom" : (corsageChoice ? corsageChoice : ""))
+            : "";
+          const corsageSuffix = (String(l.itemId||"").toLowerCase() === "corsage")
+            ? (corsageLabel ? ` (${corsageLabel.replace(/</g,"&lt;")})` : "")
+            : "";
           const price = normalizePrice(l.unitPrice);
           const qty = Number(l.qty || 0);
           const lineTotal = price * qty;
           personSubtotal += lineTotal;
 
-          // Display enhancements for Corsages (and other variant add-ons)
-          const _esc = (s) => String(s || "").replace(/</g, "&lt;");
-          const corsageChoice = String(
-            l?.meta?.corsageChoice ||
-              l?.meta?.corsageType ||
-              l?.meta?.choice ||
-              l?.meta?.selection ||
-              l?.meta?.color ||
-              ""
-          ).trim();
-
-          // Show corsage choice in the item name so it's clear what was selected
-          // (and so identical corsages can be recognized as truly identical).
-          const itemLabel =
-            String(l.itemName || "") +
-            (String(l.itemId || "").toLowerCase() === "corsage" && corsageChoice
-              ? ` (${_esc(corsageChoice)})`
-              : "");
-
           return `
             <tr>
-              <td>${itemLabel}${detail}</td>
+              <td>${(l.itemName || "") + (corsageSuffix || "")}${detail}</td>
               <td class="ta-center">${qty}</td>
               <td class="ta-right">${money(price)}</td>
               <td class="ta-right">${money(lineTotal)}</td>

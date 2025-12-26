@@ -128,48 +128,83 @@
   }
 
 
-// === MERGE SIGNATURES ===
-// Some items must NOT merge just because itemId+price match.
-// Example: corsage variants (rose vs custom) and any custom note should stay separate.
-function _normMergeVal(v){
-  return String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+// === NOTE/CHOICE NORMALIZATION (for correct line separation + display) ===
+function _normStr(v){
+  return String(v == null ? "" : v).trim();
+}
+function _normLower(v){
+  return _normStr(v).toLowerCase();
+}
+// For corsage & love gift lines, we preserve distinctions in meta so they don't merge.
+function normalizeLineMeta(line){
+  line.meta = line.meta || {};
+  const m = line.meta;
+
+  const id = _normLower(line.itemId || line.id || "");
+
+  // ---- Corsage: capture selected option + note ----
+  if (id === "corsage") {
+    // Try many possible keys from UI pages
+    const choice =
+      m.corsageChoice ??
+      m.corsageType ??
+      m.choice ??
+      m.selection ??
+      m.option ??
+      m.variant ??
+      m.color ??
+      m.style ??
+      m.kind ??
+      "";
+
+    const note =
+      m.itemNote ??
+      m.corsageNote ??
+      m.note ??
+      m.notes ??
+      m.message ??
+      "";
+
+    // Store canonical keys
+    m.corsageChoice = _normStr(choice);
+    m.itemNote = _normStr(note);
+
+    // Helpful flag for display
+    const c = _normLower(m.corsageChoice);
+    m.corsageIsCustom = c.includes("custom") || c === "c" || c === "other" || c === "special";
+  }
+
+  // ---- Love Gift: capture message/note ----
+  if (id === "love-gift" || id === "love_gift" || id === "love gift") {
+    const note =
+      m.itemNote ??
+      m.note ??
+      m.notes ??
+      m.message ??
+      "";
+    m.itemNote = _normStr(note);
+  }
+
+  return line;
 }
 
 function lineMetaSignature(line){
-  const itemId = _normMergeVal(line?.itemId);
   const m = (line && line.meta) ? line.meta : {};
-
-  // Helper: pick first non-empty from a list
-  const pick = (...vals) => {
-    for (const v of vals){
-      const s = String(v || "").trim();
-      if (s) return s;
-    }
-    return "";
-  };
-
-  // Notes can come in under different keys depending on page/version
-  const note = pick(m.itemNote, m.corsageNote, m.note, m.notes, m.message);
-
-  // Corsage: include choice + note in merge signature
-  if (itemId === "corsage") {
-    const choice = pick(m.corsageChoice, m.corsageType, m.choice, m.selection, m.color);
+  const id = _normLower(line?.itemId || line?.id || "");
+  if (id === "corsage") {
     return JSON.stringify({
-      choice: _normMergeVal(choice),
-      note: _normMergeVal(note),
+      choice: _normStr(m.corsageChoice),
+      note: _normStr(m.itemNote)
     });
   }
-
-  // Love Gift: keep separate if message/note differs
-  if (itemId === "love-gift" || itemId === "love_gift" || itemId === "lovegift") {
+  if (id === "love-gift" || id === "love_gift" || id === "love gift") {
     return JSON.stringify({
-      note: _normMergeVal(note),
+      note: _normStr(m.itemNote)
     });
   }
-
-  // Default: ignore meta for merge
   return "";
 }
+// =======================================================================
 
   // === STORAGE ===
   function load(){
@@ -269,8 +304,10 @@ function lineMetaSignature(line){
       meta
     });
 
+    // Normalize meta so corsage/love-gift lines remain distinct
+    normalizeLineMeta(line);
+
     // Merge only if same attendeeId + itemId + unitPrice + bundle-ness
-    // PLUS special meta signatures for items like corsages and love gifts (so custom variants don't collapse).
     const existing = state.lines.find(l =>
       l.attendeeId === line.attendeeId &&
       l.itemId     === line.itemId &&
