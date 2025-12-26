@@ -2360,7 +2360,19 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                       attendeeEmail: l.meta?.attendeeEmail || "",
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
-                      itemNote: l.meta?.itemNote || "",
+                      itemNote:
+                        (l.meta?.itemNote ||
+                          l.meta?.item_note ||
+                          l.meta?.notes ||
+                          l.meta?.note ||
+                          l.meta?.message ||
+                          l.itemNote ||
+                          l.item_note ||
+                          l.notes ||
+                          l.note ||
+                          l.message ||
+                          "")
+                        ,
                       attendeeAddr1: l.meta?.attendeeAddr1 || "",
                       attendeeAddr2: l.meta?.attendeeAddr2 || "",
                       attendeeCity: l.meta?.attendeeCity || "",
