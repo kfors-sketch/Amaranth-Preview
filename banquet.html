@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Banquets and related items for registration.">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v13"><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=banquets-v14"><!-- bump -->
   <title>Banquets</title>
 </head>
 
@@ -24,7 +24,7 @@
         <span class="nav-current">Banquets</span>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
-        
+
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
         <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
 
@@ -50,6 +50,14 @@
           <input name="email" type="email" placeholder="Email *" required>
           <input name="phone" type="tel" placeholder="Phone *" required>
         </div>
+
+        <!-- NEW: Court fields -->
+        <div class="grid-3">
+          <input name="courtName" placeholder="Court Name">
+          <input name="courtNumber" placeholder="Court #">
+          <span></span>
+        </div>
+
         <div class="grid-3">
           <!-- Title required -->
           <input name="title" placeholder="Title *" required>
@@ -197,22 +205,38 @@
     }
     // ---------------------------------------------------------------
 
+    function escHtml(s){
+      return String(s ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#39;");
+    }
+
     function renderAttendees(){
       const st = Cart.get();
       list.innerHTML = (st.attendees||[]).map(a=>{
         const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
         const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
-        const phone = a?.phone ? ` • ${a.phone}` : '';
+        const phone = a?.phone ? ` • ${escHtml(a.phone)}` : '';
+
+        const courtBits = [];
+        if (a?.courtName) courtBits.push(escHtml(a.courtName));
+        if (a?.courtNumber) courtBits.push('#' + escHtml(a.courtNumber));
+        const courtLine = courtBits.length ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Court: ${courtBits.join(' ')}</div>` : '';
+
         return `
           <div class="att-card">
             <div>
-              <strong>${a.name||''}</strong>
-              <small>${a.email||''}</small>
-              <em>${a.title||''}</em>
+              <strong>${escHtml(a.name||'')}</strong>
+              <small>${escHtml(a.email||'')}</small>
+              <em>${escHtml(a.title||'')}</em>
               <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div>
-              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
+              ${courtLine}
+              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${escHtml(a.notes)}</div>` : ''}
             </div>
-            <button data-del="${a.id}">Remove</button>
+            <button data-del="${escHtml(a.id)}">Remove</button>
           </div>
         `;
       }).join('');
@@ -239,6 +263,11 @@
       const phone  = (fd.get('phone')||'').trim();
       const title  = (fd.get('title')||'').trim();
       const notes  = (fd.get('notes')||'').trim();
+
+      // NEW: Court fields
+      const courtName   = (fd.get('courtName')||'').trim();
+      const courtNumber = (fd.get('courtNumber')||'').trim();
+
       const address1 = (fd.get('addr1')||'').trim();
       const address2 = (fd.get('addr2')||'').trim();
       const city     = (fd.get('city')||'').trim();
@@ -277,8 +306,10 @@
 
       Cart.addAttendee({
         name, email, phone, title, notes,
+        courtName, courtNumber,               // NEW
         address1, address2, city, state, postal, country
       });
+
       form.reset();
       form.querySelector('input[name="country"]').value = 'US';
 
@@ -287,6 +318,7 @@
       // sync new list out to shared storage
       syncAttendeesToStorageFromCart();
     };
+
     renderAttendees();
     repopulateAllAttendeeSelects();
 
@@ -413,7 +445,10 @@
             attendeeCity:   att?.city     || "",
             attendeeState:  att?.state    || "",
             attendeePostal: att?.postal   || "",
-            attendeeCountry:att?.country  || "US"
+            attendeeCountry:att?.country  || "US",
+            // NEW: court fields
+            attendeeCourtName:  att?.courtName || "",
+            attendeeCourtNumber:att?.courtNumber || ""
           }
         });
 
@@ -565,7 +600,6 @@
     }
   })();
   </script>
-
 
 <script>
 (async function(){
