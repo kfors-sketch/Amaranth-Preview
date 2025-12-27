@@ -276,7 +276,13 @@ function isCorsageCustom(meta){
 
                     const itemNote = !isBanquet ? resolveItemNote(l.meta) : "";
 
-          const detail = banquetNotes
+          const isPreReg = /pre\s*reg/i.test(String(l.itemName||"")) || /pre[\s_-]*reg/i.test(String(l.itemId||""));
+          const memberLabelForLine = (attObj?.memberType === "voting") ? "Voting" : ((attObj?.memberType === "non_voting") ? "Non-Voting" : "");
+          const memberLine = (isPreReg && memberLabelForLine)
+            ? `<div class="tiny" style="opacity:.85;">Member: ${memberLabelForLine}</div>`
+            : "";
+
+          const detail = memberLine + (banquetNotes
             ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(
                 /</g,
                 "&lt;"
@@ -286,7 +292,7 @@ function isCorsageCustom(meta){
                 /</g,
                 "&lt;"
               )}</div>`
-            : "";
+            : "");
 
           const corsageChoice = (String(l.itemId||"").toLowerCase() === "corsage") ? resolveCorsageChoice(l.meta) : "";
           const corsageLabel = (String(l.itemId||"").toLowerCase() === "corsage")
