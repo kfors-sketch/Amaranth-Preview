@@ -1664,6 +1664,7 @@ async function sendItemReportEmailInternal({
 
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
+  const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base) || /(corsage|boutonniere)/.test(base);
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1729,12 +1730,35 @@ async function sendItemReportEmailInternal({
       notes: "Notes",
     };
   }
+  if (isLoveGiftBase) {
+    EMAIL_COLUMNS = (EMAIL_COLUMNS || []).flatMap((c) =>
+      c === "item" ? ["item_name", "item_price"] : [c]
+    );
+    const lbl = { ...EMAIL_HEADER_LABELS };
+    delete lbl.item;
+    lbl.item_name = "Item";
+    lbl.item_price = "Price";
+    EMAIL_HEADER_LABELS = lbl;
+  }
+
 
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
 
   const numbered = sorted.map((r) => {
     const hasAttendee = String(r.attendee || "").trim().length > 0;
+
+    const splitItemAndPrice = (val) => {
+      const s = String(val || "").trim();
+      // Match a trailing price like "$25" or "$25.00" (optionally preceded by dash/colon)
+      const m = s.match(/^(.*?)(?:\s*[-–—:]\s*)?\$\s*([0-9]{1,6}(?:\.[0-9]{1,2})?)\s*$/);
+      if (!m) return { item_name: s, item_price: "" };
+      const name = String(m[1] || "").replace(/[-–—:\s]+$/g, "").trim();
+      return { item_name: name || s, item_price: m[2] || "" };
+    };
+
+    const ip = isLoveGiftBase ? splitItemAndPrice(r.item) : null;
+
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
@@ -1742,6 +1766,10 @@ async function sendItemReportEmailInternal({
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
     };
+
+    const itemFields = isLoveGiftBase
+      ? { item_name: ip.item_name, item_price: ip.item_price }
+      : { item: r.item };
 
     if (includeAddressForThisItem) {
       return {
@@ -1753,13 +1781,13 @@ async function sendItemReportEmailInternal({
         attendee_state: r.attendee_state,
         attendee_postal: r.attendee_postal,
         attendee_country: r.attendee_country,
-        item: r.item,
+        ...itemFields,
         qty: r.qty,
         notes: r.notes,
       };
     }
 
-    return { ...baseRow, item: r.item, qty: r.qty, notes: r.notes };
+    return { ...baseRow, ...itemFields, qty: r.qty, notes: r.notes };
   });
 
   const xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report", { spacerRows: true, autoFit: true });
