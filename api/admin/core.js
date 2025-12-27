@@ -1666,6 +1666,7 @@ async function sendItemReportEmailInternal({
   const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
   const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base) || /(corsage|boutonniere)/.test(base);
   const isBanquetKind = String(kind || "").toLowerCase() === "banquet";
+  const isPreRegBase = base === "pre-reg";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1748,6 +1749,18 @@ async function sendItemReportEmailInternal({
     EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, meal_type: "Meal Type" };
   }
 
+  if (isPreRegBase) {
+    // Ensure Pre-Registration chair spreadsheets clearly indicate Voting vs Non-Voting
+    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
+    if (!cols.includes("voting_status")) {
+      const at = cols.indexOf("attendee_title");
+      const insAt = at >= 0 ? at + 1 : 0;
+      cols.splice(insAt, 0, "voting_status");
+      EMAIL_COLUMNS = cols;
+    }
+    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, voting_status: "Voting Status" };
+  }
+
 
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
@@ -1781,6 +1794,17 @@ async function sendItemReportEmailInternal({
 
     const bm = isBanquetKind ? splitMealType(r.item) : null;
 
+    const deriveVotingStatus = (row) => {
+      // No defaults: only return a value if it is explicitly present in stored text.
+      const blob = [row?.attendee_title, row?.item, row?.notes]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (/non\s*-?\s*voting/.test(blob) || /nonvoting/.test(blob)) return "Non-Voting";
+      if (/\bvoting\b/.test(blob)) return "Voting";
+      return "";
+    };
+
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
@@ -1788,6 +1812,11 @@ async function sendItemReportEmailInternal({
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
     };
+
+
+    if (isPreRegBase) {
+      baseRow.voting_status = deriveVotingStatus(r);
+    }
 
     const itemFields = isLoveGiftBase
       ? { item_name: ip.item_name, item_price: ip.item_price }
