@@ -2881,10 +2881,22 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
 
         const wrappedSendItemReport = async (opts) => {
           const kind = String(opts?.kind || "").toLowerCase();
-          let offsetMinutes = 0;
 
-          if (kind === "addon") offsetMinutes = 5;
-          else if (kind === "catalog") offsetMinutes = 10;
+          // 5-minute phase gaps by category (banquet → add-on → catalog → other)
+          // We schedule via Resend `scheduled_at` (when enabled) so the cron run
+          // can finish quickly, while emails are spaced out.
+          const OFFSETS_MIN = {
+            banquet: 0,
+            addon: 5,
+            "add-on": 5,
+            catalog: 10,
+            supplies: 15,
+            other: 20,
+          };
+
+          // Unknown kinds fall into "other"
+          const offsetMinutes =
+            typeof OFFSETS_MIN[kind] === "number" ? OFFSETS_MIN[kind] : OFFSETS_MIN.other;
 
           let scheduledAt;
           if (offsetMinutes > 0) {
