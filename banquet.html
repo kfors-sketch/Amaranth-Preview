@@ -24,7 +24,7 @@
         <span class="nav-current">Banquets</span>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
         <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
-
+        
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
         <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
 
@@ -45,19 +45,11 @@
     <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(229,231,235,0.45);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;">
       <h2>Attendees</h2>
       <form id="attForm" class="att-form">
-        <div class="grid-3">
-          <input name="name" placeholder="Name *" required>
-          <input name="email" type="email" placeholder="Email *" required>
-          <input name="phone" type="tel" placeholder="Phone *" required>
-        </div>
-
-        <!-- NEW: Court fields -->
-        <div class="grid-3">
-          <input name="courtName" placeholder="Court Name">
-          <input name="courtNumber" placeholder="Court #">
-          <span></span>
-        </div>
-
+        <div\ class="grid\-3">\
+\ \ \ \ \ \ \ \ \ \ <input\ name="name"\ placeholder="Name\ \*"\ required>\
+\ \ \ \ \ \ \ \ \ \ <input\ name="email"\ type="email"\ placeholder="Email\ \*"\ required>\
+\ \ \ \ \ \ \ \ \ \ <input\ name="phone"\ type="tel"\ placeholder="Phone\ \*"\ required>\
+\ \ \ \ \ \ \ \ </div>
         <div class="grid-3">
           <!-- Title required -->
           <input name="title" placeholder="Title *" required>
@@ -205,38 +197,32 @@
     }
     // ---------------------------------------------------------------
 
-    function escHtml(s){
-      return String(s ?? "")
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#39;");
-    }
-
     function renderAttendees(){
       const st = Cart.get();
       list.innerHTML = (st.attendees||[]).map(a=>{
         const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
         const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
-        const phone = a?.phone ? ` • ${escHtml(a.phone)}` : '';
-
+        const phone = a?.phone ? ` • ${a.phone}` : '';
+        
         const courtBits = [];
         if (a?.courtName) courtBits.push(escHtml(a.courtName));
         if (a?.courtNumber) courtBits.push('#' + escHtml(a.courtNumber));
         const courtLine = courtBits.length ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Court: ${courtBits.join(' ')}</div>` : '';
 
-        return `
+        const memberLabel = (a?.memberType === 'voting') ? 'Voting' : ((a?.memberType === 'non_voting') ? 'Non-Voting' : '');
+        const memberLine = memberLabel ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Member: ${memberLabel}</div>` : '';
+return `
           <div class="att-card">
             <div>
-              <strong>${escHtml(a.name||'')}</strong>
-              <small>${escHtml(a.email||'')}</small>
-              <em>${escHtml(a.title||'')}</em>
+              <strong>${a.name||''}</strong>
+              <small>${a.email||''}</small>
+              <em>${a.title||''}</em>
               <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div>
               ${courtLine}
-              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${escHtml(a.notes)}</div>` : ''}
+              ${memberLine}
+              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
             </div>
-            <button data-del="${escHtml(a.id)}">Remove</button>
+            <button data-del="${a.id}">Remove</button>
           </div>
         `;
       }).join('');
@@ -263,12 +249,11 @@
       const phone  = (fd.get('phone')||'').trim();
       const title  = (fd.get('title')||'').trim();
       const notes  = (fd.get('notes')||'').trim();
-
-      // NEW: Court fields
+      
       const courtName   = (fd.get('courtName')||'').trim();
       const courtNumber = (fd.get('courtNumber')||'').trim();
-
-      const address1 = (fd.get('addr1')||'').trim();
+      const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
+const address1 = (fd.get('addr1')||'').trim();
       const address2 = (fd.get('addr2')||'').trim();
       const city     = (fd.get('city')||'').trim();
       const state    = (fd.get('state')||'').trim();
@@ -280,7 +265,8 @@
       if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
       if (!phone) missing.push('Phone');
       if (!title) missing.push('Title');
-      if (!address1) missing.push('Address line 1');
+            if (!memberType) missing.push('Membership (Voting / Non-Voting)');
+if (!address1) missing.push('Address line 1');
       if (!city) missing.push('City');
       if (!state) missing.push('State/Province');
       if (!postal) missing.push('Postal code');
@@ -306,10 +292,11 @@
 
       Cart.addAttendee({
         name, email, phone, title, notes,
-        courtName, courtNumber,               // NEW
+        memberType,
+        courtNumber,
+        courtName,
         address1, address2, city, state, postal, country
       });
-
       form.reset();
       form.querySelector('input[name="country"]').value = 'US';
 
@@ -318,7 +305,6 @@
       // sync new list out to shared storage
       syncAttendeesToStorageFromCart();
     };
-
     renderAttendees();
     repopulateAllAttendeeSelects();
 
@@ -445,10 +431,7 @@
             attendeeCity:   att?.city     || "",
             attendeeState:  att?.state    || "",
             attendeePostal: att?.postal   || "",
-            attendeeCountry:att?.country  || "US",
-            // NEW: court fields
-            attendeeCourtName:  att?.courtName || "",
-            attendeeCourtNumber:att?.courtNumber || ""
+            attendeeCountry:att?.country  || "US"
           }
         });
 
@@ -600,6 +583,7 @@
     }
   })();
   </script>
+
 
 <script>
 (async function(){
