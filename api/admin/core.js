@@ -1310,14 +1310,29 @@ function buildCSVSelected(rows, headers) {
 // XLSX helper: objects → XLSX buffer
 // ---------------------------------------------------------------------------
 
-async function objectsToXlsxBuffer(columns, rows, headerLabels = {}, sheetName = "Sheet1") {
+async function objectsToXlsxBuffer(
+  columns,
+  rows,
+  headerLabels = {},
+  sheetName = "Sheet1",
+  options = {}
+) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(sheetName);
+
+  const {
+    spacerRows = false, // Step 1: add a blank spacer row after each data row
+    autoFit = true,     // Step 3: expand columns to the longest value
+    minColWidth = 10,
+    maxColWidth = 60,
+    padding = 2,
+  } = options || {};
 
   const cols = (columns || []).map((key) => ({
     header: headerLabels[key] || key,
     key,
-    width: Math.min(60, Math.max(10, String(headerLabels[key] || key).length + 2)),
+    // initial width; may be overridden by autoFit below
+    width: Math.min(maxColWidth, Math.max(minColWidth, String(headerLabels[key] || key).length + padding)),
   }));
 
   ws.columns = cols;
@@ -1326,6 +1341,7 @@ async function objectsToXlsxBuffer(columns, rows, headerLabels = {}, sheetName =
     const obj = {};
     for (const c of columns || []) obj[c] = r?.[c] ?? "";
     ws.addRow(obj);
+    if (spacerRows) ws.addRow({});
   }
 
   ws.getRow(1).font = { bold: true };
@@ -1333,6 +1349,32 @@ async function objectsToXlsxBuffer(columns, rows, headerLabels = {}, sheetName =
     from: { row: 1, column: 1 },
     to: { row: 1, column: Math.max(1, cols.length) },
   };
+
+  if (autoFit) {
+    ws.columns.forEach((col) => {
+      let longest = 0;
+
+      col.eachCell({ includeEmpty: true }, (cell) => {
+        const v = cell?.value;
+        let s = "";
+
+        if (v == null) s = "";
+        else if (typeof v === "string") s = v;
+        else if (typeof v === "number") s = String(v);
+        else if (typeof v === "boolean") s = v ? "TRUE" : "FALSE";
+        else if (typeof v === "object") {
+          if (v.richText) s = v.richText.map((x) => x.text).join("");
+          else if (v.text != null) s = String(v.text);
+          else if (v.formula) s = String(v.result ?? v.formula);
+          else s = String(v);
+        } else s = String(v);
+
+        if (s.length > longest) longest = s.length;
+      });
+
+      col.width = Math.min(maxColWidth, Math.max(minColWidth, longest + padding));
+    });
+  }
 
   const buf = await wb.xlsx.writeBuffer();
   return buf;
@@ -1720,7 +1762,7 @@ async function sendItemReportEmailInternal({
     return { ...baseRow, item: r.item, qty: r.qty, notes: r.notes };
   });
 
-  const xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report");
+  const xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report", { spacerRows: true, autoFit: true });
 
   // ✅ ATTACHMENT HARDENING
   const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
