@@ -1665,6 +1665,7 @@ async function sendItemReportEmailInternal({
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
   const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base) || /(corsage|boutonniere)/.test(base);
+  const isBanquetKind = String(kind || "").toLowerCase() === "banquet";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1742,6 +1743,12 @@ async function sendItemReportEmailInternal({
   }
 
 
+  if (isBanquetKind) {
+    EMAIL_COLUMNS = (EMAIL_COLUMNS || []).flatMap((c) => (c === "item" ? ["item", "meal_type"] : [c]));
+    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, meal_type: "Meal Type" };
+  }
+
+
   const sorted = sortByDateAsc(filtered, "date");
   let counter = 1;
 
@@ -1759,6 +1766,21 @@ async function sendItemReportEmailInternal({
 
     const ip = isLoveGiftBase ? splitItemAndPrice(r.item) : null;
 
+    const splitMealType = (val) => {
+      const s = String(val || "").trim();
+      const m = s.match(/^(.*)\(([^)]+)\)\s*$/);
+      if (!m) return { item: s, meal_type: "" };
+      const baseName = String(m[1] || "").trim();
+      const inside = String(m[2] || "").trim();
+      let meal = "";
+      if (/chicken/i.test(inside)) meal = "Chicken";
+      else if (/beef/i.test(inside)) meal = "Beef";
+      else meal = inside;
+      return { item: baseName || s, meal_type: meal };
+    };
+
+    const bm = isBanquetKind ? splitMealType(r.item) : null;
+
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
@@ -1769,7 +1791,9 @@ async function sendItemReportEmailInternal({
 
     const itemFields = isLoveGiftBase
       ? { item_name: ip.item_name, item_price: ip.item_price }
-      : { item: r.item };
+      : isBanquetKind
+        ? { item: bm.item, meal_type: bm.meal_type }
+        : { item: r.item };
 
     if (includeAddressForThisItem) {
       return {
