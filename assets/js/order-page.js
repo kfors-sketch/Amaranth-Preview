@@ -326,7 +326,10 @@ function isCorsageCustom(meta){
             </div>
             ${displayMeta || ""}
 
-            ${
+            
+            ${a?.courtName || a?.courtNumber ? `<div class="tiny">Court: ${(a?.courtName||"")}${a?.courtNumber ? " #" + a.courtNumber : ""}</div>` : ""}
+            ${a?.memberType ? `<div class="tiny">Member: ${a.memberType === "voting" ? "Voting" : "Non-Voting"}</div>` : ""}
+${
               showEdit
                 ? `
             <div class="edit-panel" id="${editPanelId}">
@@ -336,7 +339,24 @@ function isCorsageCustom(meta){
                 <label>Phone*<input type="tel" class="ed-phone" placeholder="Phone *" required></label>
                 <label>Title*<input type="text" class="ed-title" placeholder="Title *" required></label>
 
-                <!-- Mailing address (required to be considered 'attached') -->
+                
+                <!-- NEW: Court fields -->
+                <label>Court Name<input type="text" class="ed-court-name" placeholder="Court Name"></label>
+                <label>Court #<input type="text" class="ed-court-number" placeholder="Court #"></label>
+
+                <!-- NEW: Membership -->
+                <div class="ed-member" style="display:flex;flex-direction:column;gap:6px;flex:1 1 100%;">
+                  <span class="label" style="font-weight:600;font-size:12px;opacity:.9;">Membership *</span>
+                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+                    <label style="display:flex;gap:6px;align-items:center;">
+                      <input type="radio" name="ed-memberType" value="voting"> Voting
+                    </label>
+                    <label style="display:flex;gap:6px;align-items:center;">
+                      <input type="radio" name="ed-memberType" value="non_voting"> Non-Voting
+                    </label>
+                  </div>
+                </div>
+<!-- Mailing address (required to be considered 'attached') -->
                 <label>Address line 1*<input type="text" class="ed-addr1" placeholder="Address line 1 *" required></label>
                 <label>Address line 2<input type="text" class="ed-addr2" placeholder="Address line 2"></label>
                 <label>City*<input type="text" class="ed-city" placeholder="City *" required></label>
@@ -456,7 +476,12 @@ function isCorsageCustom(meta){
         }
 
         panel.querySelector(".ed-title").value = a?.title || "";
-        panel.querySelector(".ed-addr1").value = a?.address1 || "";
+        
+        panel.querySelector(".ed-court-name").value = a?.courtName || "";
+        panel.querySelector(".ed-court-number").value = a?.courtNumber || "";
+        const mt = a?.memberType || "";
+        panel.querySelectorAll('input[name="ed-memberType"]').forEach(r => r.checked = (r.value === mt));
+panel.querySelector(".ed-addr1").value = a?.address1 || "";
         panel.querySelector(".ed-addr2").value = a?.address2 || "";
         panel.querySelector(".ed-city").value = a?.city || "";
         panel.querySelector(".ed-state").value = a?.state || "";
@@ -500,7 +525,12 @@ function isCorsageCustom(meta){
         const email = panel.querySelector(".ed-email").value.trim();
         const phone = panel.querySelector(".ed-phone").value.trim();
         const title = panel.querySelector(".ed-title").value.trim();
-        const addr1 = panel.querySelector(".ed-addr1").value.trim();
+        
+        const courtName = panel.querySelector(".ed-court-name").value.trim();
+        const courtNumber = panel.querySelector(".ed-court-number").value.trim();
+        const memberTypeEl = panel.querySelector('input[name="ed-memberType"]:checked');
+        const memberType = memberTypeEl ? memberTypeEl.value : "";
+const addr1 = panel.querySelector(".ed-addr1").value.trim();
         const addr2 = panel.querySelector(".ed-addr2").value.trim();
         const city = panel.querySelector(".ed-city").value.trim();
         const state = panel.querySelector(".ed-state").value.trim();
@@ -517,7 +547,8 @@ function isCorsageCustom(meta){
         if (!email || !looksLikeEmail(email)) missing.push("Valid Email");
         if (!phone) missing.push("Phone");
         if (!title) missing.push("Title");
-        if (!addr1) missing.push("Address line 1");
+                if (!memberType) missing.push("Membership (Voting / Non-Voting)");
+if (!addr1) missing.push("Address line 1");
         if (!city) missing.push("City");
         if (!state) missing.push("State/Province");
         if (!postal) missing.push("Postal code");
@@ -556,19 +587,7 @@ function isCorsageCustom(meta){
         // =======================================================================
 
         // Save attendee (Cart must persist these fields)
-        Cart.updateAttendee(aid, {
-          name,
-          email,
-          phone,
-          title,
-          address1: addr1,
-          address2: addr2,
-          city,
-          state,
-          postal,
-          country,
-          notes,
-        });
+        Cart.updateAttendee(aid, { name, email, phone, title, courtName, courtNumber, memberType, address1: addr1, address2: addr2, city, state, postal, country, notes });
 
         // Keep shared attendees mirror in sync
         syncAttendeesToStorageFromCart();
@@ -713,6 +732,9 @@ function isCorsageCustom(meta){
         if (!meta.attendeePostal) meta.attendeePostal = att.postal || "";
         if (!meta.attendeeCountry)
           meta.attendeeCountry = att.country || "US";
+        meta.attendeeCourtName = att.courtName || "";
+        meta.attendeeCourtNumber = att.courtNumber || "";
+        meta.attendeeMemberType = att.memberType || "";
       }
 
       // Make sure banquet notes follow our rule
