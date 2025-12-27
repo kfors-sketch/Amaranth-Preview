@@ -1591,7 +1591,7 @@ async function sendItemReportEmailInternal({
       console.warn("[sendItemReportEmailInternal] invalid scheduled time:", scheduledAtIso);
       scheduledAtIso = "";
     } else {
-      if (t <= Date.now() + 5 * 60 * 1000) scheduledAtIso = "";
+      if (t <= Date.now() + 30 * 1000) scheduledAtIso = "";
       else scheduledAtIso = new Date(t).toISOString();
     }
   }
@@ -1806,10 +1806,16 @@ async function sendItemReportEmailInternal({
   };
 
   // ✅ SCHEDULE SAFETY:
-  // Do NOT pass scheduled_at when attachments are included.
-  // Your cron/scheduler should call send at the right time instead.
-  // (This avoids providers dropping/altering attachments in queued sends.)
-  // if (scheduledAtIso) payload.scheduled_at = scheduledAtIso;
+// Default behavior keeps scheduled sends OFF when attachments are present.
+// (Some providers may alter/drop attachments on delayed/queued sends.)
+//
+// If you explicitly want phased sends (banquets → add-ons → catalog) without
+// keeping the cron function open, set:
+//   REPORTS_ALLOW_SCHEDULED_AT=1
+// Then we will pass `scheduled_at` to Resend when `scheduledAtIso` is valid.
+if (scheduledAtIso && String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "") === "1") {
+  payload.scheduled_at = scheduledAtIso;
+}
 
   const retry = await sendWithRetry(() => resend.emails.send(payload), `item-report:${kind}:${id}`);
 
@@ -1823,7 +1829,7 @@ async function sendItemReportEmailInternal({
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
-      scheduled_at: null,
+      scheduled_at: payload.scheduled_at || null,
       attachment: { filename, bytes: xlsxBuf.length },
     });
     return { ok: true, count: sorted.length, to: toList, bcc: bccList, scheduled_at: null };
@@ -1839,7 +1845,7 @@ async function sendItemReportEmailInternal({
     kind: "item-report",
     status: "error",
     error: String(err?.message || err),
-    scheduled_at: null,
+    scheduled_at: payload.scheduled_at || null,
   });
   return { ok: false, error: "send-failed", message: err?.message || String(err) };
 }
