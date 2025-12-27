@@ -1663,7 +1663,7 @@ async function sendItemReportEmailInternal({
   }
 
   const base = baseKey(id);
-  const includeAddressForThisItem = base === "pre-reg" || base === "directory";
+  const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
