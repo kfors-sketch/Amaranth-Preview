@@ -965,13 +965,23 @@ function renderOrderEmailHTML(order) {
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
         if (itemIdLower === "corsage") {
-          const choice = String(li.meta?.corsageChoice || "").trim();
-          const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(choice);
-          const choiceLabel = isCustom ? "Custom" : (choice || "");
-          const wear = String(li.meta?.corsageWear || "").toLowerCase();
+          const rawChoice = String(li.meta?.corsageChoice || li.meta?.corsage_choice || "").trim();
+          const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(rawChoice);
+          const choiceLabel = isCustom ? "Custom" : (rawChoice || "");
+          const wear = String(li.meta?.corsageWear || li.meta?.corsage_wear || "").toLowerCase();
           const wearLabel = wear === "wrist" ? "Wrist" : (wear === "pin" ? "Pin-on" : "");
-          if (choiceLabel) itemLabel += ` (${choiceLabel.replace(/</g,"&lt;")})`;
-          if (wearLabel) itemLabel += ` • Wear: ${wearLabel}`;
+
+          const baseLower = itemLabel.toLowerCase();
+
+          // Only append choice if it's not already present in the existing itemName
+          if (choiceLabel && !baseLower.includes(choiceLabel.toLowerCase())) {
+            itemLabel += ` (${choiceLabel.replace(/</g,"&lt;")})`;
+          }
+
+          // Append wear style if present (also avoid duplicates)
+          if (wearLabel && !baseLower.includes("wear:")) {
+            itemLabel += ` • Wear: ${wearLabel}`;
+          }
         }
 
         const notes = isBanquet
