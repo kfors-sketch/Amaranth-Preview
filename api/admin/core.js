@@ -1888,6 +1888,43 @@ async function sendItemReportEmailInternal({
 
   if (!toList.length && !bccList.length) return { ok: false, error: "no-recipient" };
 
+  // ---------------------------------------------------------------------------
+  // ✅ CATEGORY SPACING (single cron, no sleeps)
+  // Goal: reduce back-to-back deliveries to Yahoo by scheduling sends in the future.
+  //
+  // Behavior:
+  // - Only active when REPORTS_ALLOW_SCHEDULED_AT=1 (explicit opt-in).
+  // - If caller already provided scheduledAt/scheduled_at, we respect it.
+  // - Otherwise, we auto-schedule:
+  //     banquet: 0 min
+  //     addon:   +5 min
+  //     catalog: +10 min
+  //     other:   +10 min
+  // - Additionally, we add a small deterministic per-item spread (0–90s) so multiple
+  //   add-ons don't land in the exact same second (helps Yahoo).
+  // - We only apply the delay when a Yahoo address is present in To/BCC.
+  // ---------------------------------------------------------------------------
+  const allowScheduled = String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "") === "1";
+  const allRcpt = [...toList, ...bccList];
+  const hasYahoo = allRcpt.some((e) => /@yahoo\.com$/i.test(String(e || "").trim()));
+
+  if (allowScheduled && hasYahoo && !scheduledAtIso) {
+    const baseDelayMin =
+      kind === "banquet" ? 0 : kind === "addon" ? 5 : kind === "catalog" ? 10 : 10;
+
+    // deterministic 0–90s spread by (kind:id) hash
+    let spreadSec = 0;
+    try {
+      const h = crypto.createHash("sha256").update(`${kind}:${id}`, "utf8").digest("hex");
+      spreadSec = parseInt(h.slice(0, 8), 16) % 91; // 0..90
+    } catch {}
+
+    const ms = Date.now() + baseDelayMin * 60_000 + spreadSec * 1000;
+
+    // If baseDelayMin=0 (banquets) we still keep them immediate (no spread).
+    if (baseDelayMin > 0) scheduledAtIso = new Date(ms).toISOString();
+  }
+
   const prettyKind = kind === "other" ? "catalog" : kind;
 
   const scopeLabel =
