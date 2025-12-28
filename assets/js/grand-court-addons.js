@@ -213,7 +213,6 @@ if (typeof window !== "undefined") {
     }
 
     
-
     // ✅ Corsage wear style (required)
     if (addon && String(addon.id) === "corsage") {
       const w = String(wear || "").trim().toLowerCase();
@@ -274,14 +273,14 @@ if (addon && String(addon.id) === "corsage" && variant) {
 
     
 
-// ✅ Corsage wear style
-if (addon && String(addon.id) === "corsage") {
-  const w = String(wear || "").trim().toLowerCase();
-  if (w) {
-    meta.corsageWear = w;
-    meta.corsage_wear = w; // alternate key for compatibility
-  }
-}
+    // ✅ Corsage wear style
+    if (addon && String(addon.id) === \"corsage\") {
+      const w = String(wear || \"\").trim().toLowerCase();
+      if (w) {
+        meta.corsageWear = w;
+        meta.corsage_wear = w;
+      }
+    }
 if (notes) {
       meta.notes = notes; // carry custom/notes text to reports
     }
@@ -348,11 +347,7 @@ if (notes) {
     const row = document.createElement("div");
     row.className = "row";
 
-    
-
-    // ✅ Corsage: Wear Style (Wrist / Pin-on)
-    let wearSelect = null;
-// --- Attendee select (shared with Banquets) ---
+    // --- Attendee select (shared with Banquets) ---
     const attendeeWrap = document.createElement("label");
     const attendeeLabel = document.createElement("span");
     attendeeLabel.textContent = "Attendee for this add-on";
@@ -367,7 +362,8 @@ if (notes) {
     let variantSelect = null;
     let notesInput = null;
 
-    if (addon.type === "amount") {
+        let wearSelect = null;
+if (addon.type === "amount") {
       const amtWrap = document.createElement("label");
       const amtLabel = document.createElement("span");
 
@@ -578,14 +574,15 @@ amtWrap.appendChild(amtLabel);
       }
 
       const ok = addAddonToCart(addon, {
-qty,
+        qty,
         amount,
         attendee,
         variant,
         notes,
-        wear: wearSelect ? (wearSelect.value || "") : "",
+              wear: wearSelect ? (wearSelect.value || \"\") : \"\",
       });
-if (ok && ok.ok) {
+
+      if (ok && ok.ok) {
         const onePer = !!ok.onePerAttendee;
 
         // Success toast/popup (same vibe as banquets)
