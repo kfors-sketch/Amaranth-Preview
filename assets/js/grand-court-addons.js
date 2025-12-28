@@ -275,8 +275,8 @@ if (addon && String(addon.id) === "corsage" && variant) {
     
 
 // ✅ Corsage wear style
-if (addon && String(addon.id) === \"corsage\") {
-  const w = String(wear || \"\").trim().toLowerCase();
+if (addon && String(addon.id) === "corsage") {
+  const w = String(wear || "").trim().toLowerCase();
   if (w) {
     meta.corsageWear = w;
     meta.corsage_wear = w; // alternate key for compatibility
