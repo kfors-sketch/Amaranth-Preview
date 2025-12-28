@@ -637,6 +637,7 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
         corsageChoice: meta.corsageChoice || meta.corsage_choice || meta.corsageType || meta.corsage_type || meta.choice || meta.selection || meta.style || meta.color || "",
+        corsageWear: meta.corsageWear || meta.corsage_wear || meta.wear || meta.wearStyle || "",
         corsageNote: meta.corsageNote || meta.corsage_note || "",
         itemNote:
         (meta.itemNote ||
@@ -800,6 +801,7 @@ function flattenOrderToRows(o) {
       category: li.category || "other",
       item: li.itemName || "",
       item_id: rawId,
+      corsage_wear: /(corsage|boutonniere)/.test(base) ? (li.meta?.corsageWear || li.meta?.corsage_wear || "") : "",
       qty: li.qty || 1,
       price: (li.unitPrice || 0) / 100,
       gross: (li.gross || 0) / 100,
@@ -1665,6 +1667,7 @@ async function sendItemReportEmailInternal({
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
   const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base) || /(corsage|boutonniere)/.test(base);
+  const isCorsageBase = /(corsage|boutonniere)/.test(base);
   const isBanquetKind = String(kind || "").toLowerCase() === "banquet";
   const isPreRegBase = base === "pre-reg";
 
@@ -1741,6 +1744,16 @@ async function sendItemReportEmailInternal({
     lbl.item_name = "Item";
     lbl.item_price = "Price";
     EMAIL_HEADER_LABELS = lbl;
+  }
+
+  if (isCorsageBase) {
+    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
+    // Put "Corsage Wear" right after item_name/item_price if present, otherwise after item
+    const after = cols.includes("item_price") ? cols.indexOf("item_price") + 1 : (cols.includes("item_name") ? cols.indexOf("item_name") + 1 : (cols.includes("item") ? cols.indexOf("item") + 1 : cols.length));
+    if (!cols.includes("corsage_wear")) cols.splice(after, 0, "corsage_wear");
+    EMAIL_COLUMNS = cols;
+    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, corsage_wear: "Corsage Wear" };
+    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, corsage_wear: "Wear Style" };
   }
 
 
