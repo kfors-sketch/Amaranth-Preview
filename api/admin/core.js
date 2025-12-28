@@ -1776,7 +1776,6 @@ async function sendItemReportEmailInternal({
     const after = cols.includes("item_price") ? cols.indexOf("item_price") + 1 : (cols.includes("item_name") ? cols.indexOf("item_name") + 1 : (cols.includes("item") ? cols.indexOf("item") + 1 : cols.length));
     if (!cols.includes("corsage_wear")) cols.splice(after, 0, "corsage_wear");
     EMAIL_COLUMNS = cols;
-    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, corsage_wear: "Corsage Wear" };
     EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, corsage_wear: "Wear Style" };
   }
 
