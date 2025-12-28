@@ -279,19 +279,38 @@ if (addon && String(addon.id) === "corsage") {
 
 
 // Also store canonical note fields so receipts/order page always show them
-if (notes) {
-  // Love Gift message
-  if (addon && (String(addon.id) === "love-gift" || String(addon.id) === "love_gift" || String(addon.id) === "love gift")) {
+// NOTE: For corsages, we also include Wear Style in itemNote so the receipt email
+// (which currently shows Notes from itemNote) will always include Wrist/Pin-on.
+{
+  const isLoveGift = addon && (String(addon.id) === "love-gift" || String(addon.id) === "love_gift" || String(addon.id) === "love gift");
+  const isCorsage = addon && String(addon.id) === "corsage";
+
+  if (isLoveGift && notes) {
     meta.itemNote = notes;
   }
-  // Corsage custom instructions
-  if (addon && String(addon.id) === "corsage") {
-    meta.itemNote = notes;     // primary
-    meta.corsageNote = notes;  // secondary (explicit)
+
+  if (isCorsage) {
+    const w = String(wear || "").toLowerCase();
+    const wLabel = w === "wrist" ? "Wrist" : (w === "pin" ? "Pin-on" : "");
+    if (w) meta.corsageWear = w; // persist (even if router strips unknown keys later)
+
+    // Keep corsageNote as the raw custom instructions (if any)
+    if (notes) meta.corsageNote = notes;
+
+    // itemNote is what receipts + order page already display; prepend Wear Style.
+    if (wLabel) {
+      meta.itemNote = `Wear: ${wLabel}` + (notes ? ` — ${notes}` : "");
+    } else if (notes) {
+      meta.itemNote = notes;
+    }
+  } else if (notes) {
+    // Default: carry notes through for other add-ons
+    meta.itemNote = meta.itemNote || notes;
   }
 }
 
-    // WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
+
+// WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
     if (addon && String(addon.type) === "amount") {
       meta.wholeDollarsOnly = true;
       // amount in this file is expressed in dollars (integer)
@@ -587,11 +606,6 @@ amtWrap.appendChild(amtLabel);
         attendee,
         variant,
         notes,
-        // ✅ Corsage wear style (wrist vs pin-on)
-        wear:
-          addon && String(addon.id) === "corsage"
-            ? String(wearSelect && wearSelect.value ? wearSelect.value : "")
-            : "",
       });
 
       if (ok && ok.ok) {

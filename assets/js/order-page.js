@@ -138,7 +138,7 @@
 // === Item detail helpers (corsage / love gift notes & choice) ===
 function resolveItemNote(meta){
   const m = meta || {};
-  return String(
+  let s = String(
     m.itemNote ||
     m.corsageNote ||
     m.note ||
@@ -146,6 +146,21 @@ function resolveItemNote(meta){
     m.message ||
     ""
   ).trim();
+
+  // If corsage wear style was embedded into itemNote for receipt compatibility,
+  // strip it for on-screen "Note:" display (wear is shown separately).
+  const hasCorsageWear = !!String(m.corsageWear || m.corsage_wear || "").trim();
+  if (hasCorsageWear && /^wear:\s*/i.test(s)) {
+    // "Wear: Wrist — note..." OR "Wear: Pin-on"
+    const parts = s.split("—");
+    if (parts.length >= 2) {
+      s = parts.slice(1).join("—").trim();
+    } else {
+      s = "";
+    }
+  }
+
+  return s;
 }
 
 function resolveCorsageChoice(meta){
