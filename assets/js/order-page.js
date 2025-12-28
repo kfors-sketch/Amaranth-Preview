@@ -347,8 +347,8 @@ ${
 
                 
                 <!-- NEW: Court fields -->
-                <label>Court Name<input type="text" class="ed-court-name" placeholder="Court Name"></label>
-                <label>Court #<input type="text" class="ed-court-number" placeholder="Court #"></label>
+                <label>Court Name<input type="text" class="ed-court-name" placeholder="Court Name *" required></label>
+                <label>Court #<input type="text" class="ed-court-number" placeholder="Court # *" required></label>
 
                 <!-- NEW: Membership -->
                 <div class="ed-member" style="display:flex;flex-direction:column;gap:6px;flex:1 1 100%;">
@@ -534,7 +534,12 @@ panel.querySelector(".ed-addr1").value = a?.address1 || "";
         
         const courtName = panel.querySelector(".ed-court-name").value.trim();
         const courtNumber = panel.querySelector(".ed-court-number").value.trim();
-        const memberTypeEl = panel.querySelector('input[name="ed-memberType"]:checked');
+        
+        if (!courtName || !courtNumber) {
+          alert('Court Name and Court # are required.');
+          return;
+        }
+const memberTypeEl = panel.querySelector('input[name="ed-memberType"]:checked');
         const memberType = memberTypeEl ? memberTypeEl.value : "";
 const addr1 = panel.querySelector(".ed-addr1").value.trim();
         const addr2 = panel.querySelector(".ed-addr2").value.trim();
