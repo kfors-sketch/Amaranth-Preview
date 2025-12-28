@@ -361,8 +361,7 @@ if (notes) {
     let amountInput = null;
     let variantSelect = null;
     let notesInput = null;
-
-        let wearSelect = null;
+    let wearSelect = null;
 if (addon.type === "amount") {
       const amtWrap = document.createElement("label");
       const amtLabel = document.createElement("span");
@@ -437,8 +436,25 @@ amtWrap.appendChild(amtLabel);
 
       row.appendChild(varWrap);
       row.appendChild(qtyWrap);
+
+      // ✅ Corsage: Wear Style (Wrist / Pin-on)
+      if (addon && String(addon.id) === "corsage") {
+        const wearWrap = document.createElement("label");
+        const wearLabel = document.createElement("span");
+        wearLabel.textContent = "Wear Style *";
+        wearSelect = document.createElement("select");
+        wearSelect.innerHTML = `
+          <option value="">Select wear style…</option>
+          <option value="wrist">Wrist</option>
+          <option value="pin">Pin-on</option>
+        `;
+        wearWrap.appendChild(wearLabel);
+        wearWrap.appendChild(wearSelect);
+        row.appendChild(wearWrap);
+      }
+
       row.appendChild(notesWrap);
-    } else if (addon.type === "qty") {
+} else if (addon.type === "qty") {
       const qtyWrap = document.createElement("label");
       const qtyLabel = document.createElement("span");
       qtyLabel.textContent = `Quantity (${money(addon.price)} each)`;
