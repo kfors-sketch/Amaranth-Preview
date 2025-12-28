@@ -51,8 +51,8 @@
         
         <!-- NEW: Court fields -->
         <div class="grid-3">
-          <input name="courtName" placeholder="Court Name">
-          <input name="courtNumber" placeholder="Court #">
+          <input name="courtName" placeholder="Court Name *" required>
+          <input name="courtNumber" placeholder="Court # *" required>
           <span></span>
         </div>
 
@@ -187,6 +187,12 @@
   <script>
   function looksLikeEmail(s){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim()); }
 
+  function escHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+    }[ch]));
+  }
+
   // === Duplicate detection helpers (shared) ===
   function _norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
   function _addressKey(a){
@@ -306,7 +312,12 @@ return `
 
         const courtName   = (fd.get('courtName')||'').trim();
         const courtNumber = (fd.get('courtNumber')||'').trim();
-        const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
+        
+      if (!courtName || !courtNumber) {
+        alert('Court Name and Court # are required.');
+        return;
+      }
+const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
 
 
         const address1 = (fd.get('addr1')||'').trim();
