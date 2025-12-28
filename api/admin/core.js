@@ -977,12 +977,7 @@ function renderOrderEmailHTML(order) {
           if (choiceLabel && !baseLower.includes(choiceLabel.toLowerCase())) {
             itemLabel += ` (${choiceLabel.replace(/</g,"&lt;")})`;
           }
-
-          // Append wear style if present (also avoid duplicates)
-          if (wearLabel && !baseLower.includes("wear:")) {
-            itemLabel += ` • Wear: ${wearLabel}`;
-          }
-        }
+}
 
         const notes = isBanquet
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
