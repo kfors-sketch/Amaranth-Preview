@@ -164,6 +164,20 @@ function resolveCorsageChoice(meta){
   ).trim();
 }
 
+function resolveCorsageWear(meta){
+  const m = meta || {};
+  const w = String(
+    m.corsageWear ||
+    m.corsage_wear ||
+    m.wear ||
+    m.wearStyle ||
+    ""
+  ).trim().toLowerCase();
+  if (w === "wrist") return "Wrist";
+  if (w === "pin" || w === "pin-on" || w === "pinon") return "Pin-on";
+  return "";
+}
+
 function isCorsageCustom(meta){
   const c = resolveCorsageChoice(meta).toLowerCase();
   return !!(meta && meta.corsageIsCustom) || c.includes("custom") || c === "c" || c === "other" || c === "special";
@@ -298,8 +312,9 @@ function isCorsageCustom(meta){
           const corsageLabel = (String(l.itemId||"").toLowerCase() === "corsage")
             ? (isCorsageCustom(l.meta) ? "Custom" : (corsageChoice ? corsageChoice : ""))
             : "";
+          const corsageWear = (String(l.itemId||"").toLowerCase() === "corsage") ? resolveCorsageWear(l.meta) : "";
           const corsageSuffix = (String(l.itemId||"").toLowerCase() === "corsage")
-            ? (corsageLabel ? ` (${corsageLabel.replace(/</g,"&lt;")})` : "")
+            ? (corsageLabel || corsageWear ? ` (${[corsageLabel, corsageWear].filter(Boolean).map(s=>String(s).replace(/</g,"&lt;")).join(" • ")})` : "")
             : "";
           const price = normalizePrice(l.unitPrice);
           const qty = Number(l.qty || 0);

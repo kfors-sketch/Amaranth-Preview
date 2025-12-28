@@ -198,7 +198,7 @@ if (typeof window !== "undefined") {
       return { ok: false, error: "cart_unavailable" };
     }
 
-    const { qty, amount, attendee, variant, notes } = options || {};
+    const { qty, amount, attendee, variant, notes, wear } = options || {};
 
     const attendeeId = attendee && attendee.id ? String(attendee.id) : "";
     const onePerAttendee =
@@ -261,6 +261,17 @@ if (addon && String(addon.id) === "corsage" && variant) {
   meta.corsageChoice = variant.label || "";
   meta.corsageIsCustom = /custom/i.test(String(variant.label || ""));
 }
+
+// ✅ Corsage wear style (wrist vs pin-on)
+if (addon && String(addon.id) === "corsage") {
+  const w = String(wear || "").toLowerCase().trim();
+  if (!w) {
+    alert("Please choose Wrist or Pin-on for the corsage.");
+    return { ok: false, error: "missing_wear" };
+  }
+  meta.corsageWear = w; // "wrist" | "pin"
+}
+
 
     if (notes) {
       meta.notes = notes; // carry custom/notes text to reports
@@ -342,6 +353,7 @@ if (notes) {
     let amountInput = null;
     let variantSelect = null;
     let notesInput = null;
+    let wearSelect = null;
 
     if (addon.type === "amount") {
       const amtWrap = document.createElement("label");
@@ -404,6 +416,22 @@ amtWrap.appendChild(amtLabel);
       qtyInput.value = "1";
       qtyWrap.appendChild(qtyLabel);
       qtyWrap.appendChild(qtyInput);
+
+      // Corsage: Wrist vs Pin-on selector
+      if (addon && String(addon.id) === "corsage") {
+        const wearWrap = document.createElement("label");
+        const wearLabel = document.createElement("span");
+        wearLabel.textContent = "Wear Style *";
+        wearSelect = document.createElement("select");
+        wearSelect.innerHTML = `
+          <option value="">Select wear style…</option>
+          <option value="wrist">Wrist</option>
+          <option value="pin">Pin-on</option>
+        `;
+        wearWrap.appendChild(wearLabel);
+        wearWrap.appendChild(wearSelect);
+        row.appendChild(wearWrap);
+      }
 
       const notesWrap = document.createElement("label");
       const notesLabel = document.createElement("span");
