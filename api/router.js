@@ -2368,6 +2368,27 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                         ""
                     ).trim();
 
+                  const wearRaw =
+                    String(
+                      l?.meta?.corsageWear ??
+                        l?.meta?.corsage_wear ??
+                        l?.meta?.wear ??
+                        l?.meta?.wearStyle ??
+                        l?.meta?.wear_style ??
+                        l?.meta?.attachment ??
+                        ""
+                    ).trim();
+                  const wearLower = wearRaw.toLowerCase();
+                  const wearLabel =
+                    wearLower === "wrist" || wearLower === "w"
+                      ? "Wrist"
+                      : wearLower === "pin" ||
+                        wearLower === "pin-on" ||
+                        wearLower === "pin on" ||
+                        wearLower === "p"
+                      ? "Pin-on"
+                      : wearRaw;
+
                   const noteRaw =
                     String(
                       l?.meta?.itemNote ||
@@ -2389,7 +2410,21 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     if (!name2.includes(lowerChoice)) displayName = `${displayName} (${choice})`;
                   }
 
-                  // If it's custom, or they typed a note, include it in the displayed name (trimmed)
+                  
+                  if (wearLabel) {
+                    const wl = String(wearLabel).toLowerCase();
+                    // Avoid double-appending
+                    if (!String(displayName).toLowerCase().includes(wl)) {
+                      // If we already added choice as "(...)", prefer "(Choice, Wear)"
+                      const m = String(displayName).match(/^(.*)\(([^)]*)\)\s*$/);
+                      if (m && m[2] && !m[2].toLowerCase().includes(wl)) {
+                        displayName = `${m[1]}(${m[2]}, ${wearLabel})`;
+                      } else {
+                        displayName = `${displayName} (${wearLabel})`;
+                      }
+                    }
+                  }
+// If it's custom, or they typed a note, include it in the displayed name (trimmed)
                   if (noteRaw) {
                     const shortNote = noteRaw.length > 90 ? noteRaw.slice(0, 87) + "…" : noteRaw;
                     if (!String(displayName).includes(shortNote)) displayName = `${displayName} — ${shortNote}`;
@@ -2438,7 +2473,15 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                           l.meta?.style ||
                           l.meta?.color ||
                           ""),
-                      corsageNote:
+                                            corsageWear:
+                        (l.meta?.corsageWear ||
+                          l.meta?.corsage_wear ||
+                          l.meta?.wear ||
+                          l.meta?.wearStyle ||
+                          l.meta?.wear_style ||
+                          l.meta?.attachment ||
+                          ""),
+corsageNote:
                         (l.meta?.itemNote ||
                           l.meta?.item_note ||
                           l.meta?.notes ||
