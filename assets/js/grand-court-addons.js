@@ -587,6 +587,11 @@ amtWrap.appendChild(amtLabel);
         attendee,
         variant,
         notes,
+        // ✅ Corsage wear style (wrist vs pin-on)
+        wear:
+          addon && String(addon.id) === "corsage"
+            ? String(wearSelect && wearSelect.value ? wearSelect.value : "")
+            : "",
       });
 
       if (ok && ok.ok) {
