@@ -960,6 +960,20 @@ function renderOrderEmailHTML(order) {
       .map((li) => {
         const cat = String(li.category || "").toLowerCase();
         const isBanquet = cat === "banquet" || /banquet/i.test(li.itemName || "");
+        const itemIdLower = String(li.itemId || "").toLowerCase();
+
+        // Corsage: append choice + wear style directly on the line item label
+        let itemLabel = li.itemName || "";
+        if (itemIdLower === "corsage") {
+          const choice = String(li.meta?.corsageChoice || "").trim();
+          const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(choice);
+          const choiceLabel = isCustom ? "Custom" : (choice || "");
+          const wear = String(li.meta?.corsageWear || "").toLowerCase();
+          const wearLabel = wear === "wrist" ? "Wrist" : (wear === "pin" ? "Pin-on" : "");
+          if (choiceLabel) itemLabel += ` (${choiceLabel.replace(/</g,"&lt;")})`;
+          if (wearLabel) itemLabel += ` • Wear: ${wearLabel}`;
+        }
+
         const notes = isBanquet
           ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
           : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote]
@@ -975,7 +989,7 @@ function renderOrderEmailHTML(order) {
         return `
         <tr>
           <td style="padding:8px;border-bottom:1px solid #eee">
-            ${li.itemName || ""}${notesRow}
+            ${itemLabel}${notesRow}
           </td>
           <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${Number(
             li.qty || 1
