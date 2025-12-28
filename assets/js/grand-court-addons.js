@@ -212,7 +212,17 @@ if (typeof window !== "undefined") {
       return { ok: false, error: "invalid_amount" };
     }
 
-    // ✅ Prevent accidental duplicates for single-per-attendee add-ons
+    
+
+    // ✅ Corsage wear style (required)
+    if (addon && String(addon.id) === "corsage") {
+      const w = String(wear || "").trim().toLowerCase();
+      if (!w || (w !== "wrist" && w !== "pin")) {
+        alert("Please choose Wrist or Pin-on for the corsage.");
+        return { ok: false, error: "missing_wear" };
+      }
+    }
+// ✅ Prevent accidental duplicates for single-per-attendee add-ons
     try {
       if (onePerAttendee && attendeeId && typeof Cart.get === "function") {
         const state = Cart.get() || {};
@@ -262,55 +272,35 @@ if (addon && String(addon.id) === "corsage" && variant) {
   meta.corsageIsCustom = /custom/i.test(String(variant.label || ""));
 }
 
-// ✅ Corsage wear style (wrist vs pin-on)
-if (addon && String(addon.id) === "corsage") {
-  const w = String(wear || "").toLowerCase().trim();
-  if (!w) {
-    alert("Please choose Wrist or Pin-on for the corsage.");
-    return { ok: false, error: "missing_wear" };
+    
+
+// ✅ Corsage wear style
+if (addon && String(addon.id) === \"corsage\") {
+  const w = String(wear || \"\").trim().toLowerCase();
+  if (w) {
+    meta.corsageWear = w;
+    meta.corsage_wear = w; // alternate key for compatibility
   }
-  meta.corsageWear = w; // "wrist" | "pin"
 }
-
-
-    if (notes) {
+if (notes) {
       meta.notes = notes; // carry custom/notes text to reports
     }
 
 
 // Also store canonical note fields so receipts/order page always show them
-// NOTE: For corsages, we also include Wear Style in itemNote so the receipt email
-// (which currently shows Notes from itemNote) will always include Wrist/Pin-on.
-{
-  const isLoveGift = addon && (String(addon.id) === "love-gift" || String(addon.id) === "love_gift" || String(addon.id) === "love gift");
-  const isCorsage = addon && String(addon.id) === "corsage";
-
-  if (isLoveGift && notes) {
+if (notes) {
+  // Love Gift message
+  if (addon && (String(addon.id) === "love-gift" || String(addon.id) === "love_gift" || String(addon.id) === "love gift")) {
     meta.itemNote = notes;
   }
-
-  if (isCorsage) {
-    const w = String(wear || "").toLowerCase();
-    const wLabel = w === "wrist" ? "Wrist" : (w === "pin" ? "Pin-on" : "");
-    if (w) meta.corsageWear = w; // persist (even if router strips unknown keys later)
-
-    // Keep corsageNote as the raw custom instructions (if any)
-    if (notes) meta.corsageNote = notes;
-
-    // itemNote is what receipts + order page already display; prepend Wear Style.
-    if (wLabel) {
-      meta.itemNote = `Wear: ${wLabel}` + (notes ? ` — ${notes}` : "");
-    } else if (notes) {
-      meta.itemNote = notes;
-    }
-  } else if (notes) {
-    // Default: carry notes through for other add-ons
-    meta.itemNote = meta.itemNote || notes;
+  // Corsage custom instructions
+  if (addon && String(addon.id) === "corsage") {
+    meta.itemNote = notes;     // primary
+    meta.corsageNote = notes;  // secondary (explicit)
   }
 }
 
-
-// WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
+    // WHOLE DOLLARS ONLY marker for amount-type add-ons (e.g., Love Gift)
     if (addon && String(addon.type) === "amount") {
       meta.wholeDollarsOnly = true;
       // amount in this file is expressed in dollars (integer)
@@ -358,7 +348,11 @@ if (addon && String(addon.id) === "corsage") {
     const row = document.createElement("div");
     row.className = "row";
 
-    // --- Attendee select (shared with Banquets) ---
+    
+
+    // ✅ Corsage: Wear Style (Wrist / Pin-on)
+    let wearSelect = null;
+// --- Attendee select (shared with Banquets) ---
     const attendeeWrap = document.createElement("label");
     const attendeeLabel = document.createElement("span");
     attendeeLabel.textContent = "Attendee for this add-on";
@@ -372,7 +366,6 @@ if (addon && String(addon.id) === "corsage") {
     let amountInput = null;
     let variantSelect = null;
     let notesInput = null;
-    let wearSelect = null;
 
     if (addon.type === "amount") {
       const amtWrap = document.createElement("label");
@@ -435,22 +428,6 @@ amtWrap.appendChild(amtLabel);
       qtyInput.value = "1";
       qtyWrap.appendChild(qtyLabel);
       qtyWrap.appendChild(qtyInput);
-
-      // Corsage: Wrist vs Pin-on selector
-      if (addon && String(addon.id) === "corsage") {
-        const wearWrap = document.createElement("label");
-        const wearLabel = document.createElement("span");
-        wearLabel.textContent = "Wear Style *";
-        wearSelect = document.createElement("select");
-        wearSelect.innerHTML = `
-          <option value="">Select wear style…</option>
-          <option value="wrist">Wrist</option>
-          <option value="pin">Pin-on</option>
-        `;
-        wearWrap.appendChild(wearLabel);
-        wearWrap.appendChild(wearSelect);
-        row.appendChild(wearWrap);
-      }
 
       const notesWrap = document.createElement("label");
       const notesLabel = document.createElement("span");
@@ -601,14 +578,14 @@ amtWrap.appendChild(amtLabel);
       }
 
       const ok = addAddonToCart(addon, {
-        qty,
+qty,
         amount,
         attendee,
         variant,
         notes,
+        wear: wearSelect ? (wearSelect.value || "") : "",
       });
-
-      if (ok && ok.ok) {
+if (ok && ok.ok) {
         const onePer = !!ok.onePerAttendee;
 
         // Success toast/popup (same vibe as banquets)
