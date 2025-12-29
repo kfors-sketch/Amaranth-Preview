@@ -6,6 +6,48 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
 // ============================================================================
+// REPORT EMAIL STAGGERING (scheduled_at)
+// ============================================================================
+// We keep this intentionally tiny and low-risk.
+// When enabled (REPORTS_ALLOW_SCHEDULED_AT=1) AND a Yahoo recipient is present,
+// we schedule chair report emails 1 minute apart *within a single invocation*.
+//
+// Why module state?
+// - Vercel runs the report sender in one function invocation; the reports are
+//   generated/sent sequentially.
+// - We only need a simple counter to offset scheduled_at times without adding
+//   sleeps or new KV writes.
+// - If a new invocation happens (or the process is recycled), this naturally
+//   resets.
+let _REPORT_STAGGER = {
+  baseMs: 0,
+  idx: 0,
+  lastTouchedMs: 0,
+};
+
+function nextReportScheduledAtIso({ allow, hasYahoo, explicitIso }) {
+  if (!allow || !hasYahoo) return "";
+  if (explicitIso) return explicitIso; // caller already set it
+
+  const now = Date.now();
+  // Reset the counter if we haven't used it recently (new cron/manual run).
+  if (!_REPORT_STAGGER.baseMs || now - (_REPORT_STAGGER.lastTouchedMs || 0) > 5 * 60_000) {
+    _REPORT_STAGGER.baseMs = now;
+    _REPORT_STAGGER.idx = 0;
+  }
+  _REPORT_STAGGER.lastTouchedMs = now;
+
+  // First email goes immediately; subsequent emails are scheduled 1 minute apart.
+  const idx = _REPORT_STAGGER.idx++;
+  if (idx <= 0) return "";
+
+  // Schedule safely in the future. Resend requires scheduled_at > ~now+30s.
+  const t = _REPORT_STAGGER.baseMs + idx * 60_000;
+  if (t <= now + 30_000) return "";
+  return new Date(t).toISOString();
+}
+
+// ============================================================================
 // STRIPE MODE-AWARE KEY SELECTION
 // ============================================================================
 
@@ -1920,40 +1962,20 @@ async function sendItemReportEmailInternal({
   if (!toList.length && !bccList.length) return { ok: false, error: "no-recipient" };
 
   // ---------------------------------------------------------------------------
-  // ✅ CATEGORY SPACING (single cron, no sleeps)
-  // Goal: reduce back-to-back deliveries to Yahoo by scheduling sends in the future.
+  // ✅ STAGGER REPORT EMAILS (single cron, no sleeps)
   //
-  // Behavior:
-  // - Only active when REPORTS_ALLOW_SCHEDULED_AT=1 (explicit opt-in).
-  // - If caller already provided scheduledAt/scheduled_at, we respect it.
-  // - Otherwise, we auto-schedule:
-  //     banquet: 0 min
-  //     addon:   +5 min
-  //     catalog: +10 min
-  //     other:   +10 min
-  // - Additionally, we add a small deterministic per-item spread (0–90s) so multiple
-  //   add-ons don't land in the exact same second (helps Yahoo).
-  // - We only apply the delay when a Yahoo address is present in To/BCC.
+  // Minimal change approach: if scheduling is enabled and a Yahoo recipient is
+  // present, schedule *subsequent* report emails 1 minute apart. The first email
+  // is immediate.
+  //
+  // Default: ON (to prevent burst delivery). Disable via: REPORTS_ALLOW_SCHEDULED_AT=0
   // ---------------------------------------------------------------------------
-  const allowScheduled = String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "") === "1";
+  const allowScheduled = String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "1") === "1";
   const allRcpt = [...toList, ...bccList];
   const hasYahoo = allRcpt.some((e) => /@yahoo\.com$/i.test(String(e || "").trim()));
 
-  if (allowScheduled && hasYahoo && !scheduledAtIso) {
-    const baseDelayMin =
-      kind === "banquet" ? 0 : kind === "addon" ? 5 : kind === "catalog" ? 10 : 10;
-
-    // deterministic 0–90s spread by (kind:id) hash
-    let spreadSec = 0;
-    try {
-      const h = crypto.createHash("sha256").update(`${kind}:${id}`, "utf8").digest("hex");
-      spreadSec = parseInt(h.slice(0, 8), 16) % 91; // 0..90
-    } catch {}
-
-    const ms = Date.now() + baseDelayMin * 60_000 + spreadSec * 1000;
-
-    // If baseDelayMin=0 (banquets) we still keep them immediate (no spread).
-    if (baseDelayMin > 0) scheduledAtIso = new Date(ms).toISOString();
+  if (!scheduledAtIso) {
+    scheduledAtIso = nextReportScheduledAtIso({ allow: allowScheduled, hasYahoo, explicitIso: scheduledAtIso });
   }
 
   const prettyKind = kind === "other" ? "catalog" : kind;
@@ -1997,14 +2019,15 @@ async function sendItemReportEmailInternal({
   };
 
   // ✅ SCHEDULE SAFETY:
-// Default behavior keeps scheduled sends OFF when attachments are present.
-// (Some providers may alter/drop attachments on delayed/queued sends.)
+// Note: these emails include XLSX attachments. Resend supports scheduled
+// delivery with attachments, but if you ever want to force immediate sends,
+// disable scheduling (below).
 //
-// If you explicitly want phased sends (banquets → add-ons → catalog) without
-// keeping the cron function open, set:
-//   REPORTS_ALLOW_SCHEDULED_AT=1
-// Then we will pass `scheduled_at` to Resend when `scheduledAtIso` is valid.
-if (scheduledAtIso && String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "") === "1") {
+// Scheduled sends are ON by default to prevent burst delivery.
+// To disable scheduling entirely, set:
+//   REPORTS_ALLOW_SCHEDULED_AT=0
+// When enabled, we pass `scheduled_at` to Resend when `scheduledAtIso` is valid.
+if (scheduledAtIso && allowScheduled) {
   payload.scheduled_at = scheduledAtIso;
 }
 
@@ -2023,7 +2046,13 @@ if (scheduledAtIso && String(process.env.REPORTS_ALLOW_SCHEDULED_AT || "") === "
       scheduled_at: payload.scheduled_at || null,
       attachment: { filename, bytes: xlsxBuf.length },
     });
-    return { ok: true, count: sorted.length, to: toList, bcc: bccList, scheduled_at: null };
+    return {
+      ok: true,
+      count: sorted.length,
+      to: toList,
+      bcc: bccList,
+      scheduled_at: payload.scheduled_at || null,
+    };
   }
 
   const err = retry.error;
