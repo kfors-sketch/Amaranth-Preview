@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grand Court Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v11">
+  <link rel="stylesheet" href="assets/css/styles.css?v=addons-v11"><!-- bumped -->
   <title>Grand Court Add-Ons</title>
 </head>
 
 <body data-page="addons">
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
+  <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="home.html">
@@ -22,6 +23,13 @@
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
         <span class="nav-current">Grand Court Add-Ons</span>
+        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        
+        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+
         <a href="order.html">Order</a>
         <a href="contact.html">Contact</a>
       </nav>
@@ -31,35 +39,524 @@
   <main class="container mt-lg">
     <h1 class="page-title" style="text-align:center;font-weight:800;">Grand Court Add-Ons</h1>
 
-    <section class="card" style="margin-top:16px;">
-      <h3>Before You Begin</h3>
-      <p>Please <strong>add all attendees first</strong> before selecting items.</p>
-      <p>
-        Many banquets and add-ons are <strong>assigned to a specific attendee</strong>.
-        Be sure to select the correct attendee when making each selection.
-        Some items may be limited to <strong>one per person</strong>,
-        while others allow <strong>multiple quantities</strong>.
-      </p>
-      <p>
-        Each attendee includes a <strong>Dietary Notes</strong> field.
-        Use this space to list allergies, dietary restrictions, or special requests
-        (for example: vegetarian, gluten-free, no nuts).
-        These notes are reviewed by the appropriate chairperson.
-      </p>
-      <p>
-        If the same item is needed for more than one person,
-        please select it <strong>separately for each attendee</strong>.
-      </p>
+    <!-- Attendees (shared with Banquets/Order via Cart) -->
+    <section class="card" style="background:rgba(255,255,255,0.40);backdrop-filter:saturate(120%) blur(2px);-webkit-backdrop-filter:saturate(120%) blur(2px);">
+      <h2>Attendees</h2>
+      <form id="attForm" class="att-form" autocomplete="off">
+        <div class="grid-3">
+          <input name="name"  placeholder="Name *" required>
+          <input name="email" type="email" placeholder="Email *" required>
+          <input name="phone" type="tel" inputmode="tel" placeholder="Phone *" required>
+        </div>
+        
+        <!-- NEW: Court fields -->
+        <div class="grid-3">
+          <input name="courtName" placeholder="Court Name *" required>
+          <input name="courtNumber" placeholder="Court # *" required>
+          <span></span>
+        </div>
+
+        <!-- NEW: Membership (Voting / Non-Voting) -->
+        <div class="grid-3">
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <span class="label" style="font-weight:600;font-size:12px;opacity:.9;">Membership *</span>
+            <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+              <label style="display:flex;gap:6px;align-items:center;">
+                <input type="radio" name="memberType" value="voting" required>
+                Voting
+              </label>
+              <label style="display:flex;gap:6px;align-items:center;">
+                <input type="radio" name="memberType" value="non_voting" required>
+                Non-Voting
+              </label>
+            </div>
+          </div>
+          <span></span>
+          <span></span>
+        </div>
+<div class="grid-3">
+          <!-- Title required -->
+          <input name="title" placeholder="Title *" required>
+          <input name="notes" placeholder="Notes (e.g., dietary)">
+          <input name="addr1" placeholder="Address line 1 *" required>
+        </div>
+        <div class="grid-3">
+          <input name="addr2" placeholder="Address line 2">
+          <input name="city" placeholder="City *" required>
+          <input name="state" placeholder="State/Province *" required>
+        </div>
+        <div class="grid-3">
+          <input name="postal" placeholder="Postal code *" required>
+          <input name="country" placeholder="Country *" value="US" required>
+          <span></span>
+        </div>
+        <button type="submit">Add attendee</button>
+      </form>
+      <div id="attendees"></div>
     </section>
 
-    <section class="card">
-      <h2>Attendees</h2>
-      <!-- attendee form and logic unchanged -->
-    </section>
+    <!-- Add-ons grid -->
+    <section class="grid-2 mt-lg" id="addonsGrid"></section>
   </main>
 
   <footer class="site-footer">
     <div class="container tiny">© 2025</div>
   </footer>
+
+  <style>
+    .att-form input{margin:4px;padding:6px}
+    .att-card{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.78);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:8px;margin:6px 0}
+    .addon .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+    .addon label{display:flex;flex-direction:column;gap:6px}
+    .addon input,.addon select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
+    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  </style>
+
+  <!-- Core site scripts (order matters) -->
+  <script src="assets/js/site-settings.js"></script>
+  <script src="assets/js/items.js"></script>
+  <script src="assets/js/banquets.js"></script>
+  <script src="assets/js/cart.js"></script>
+  <script src="assets/js/data-store.js"></script>
+  <script src="assets/js/site-boot.js"></script>
+  <script src="assets/js/grand-court-addons.js"></script>
+
+  <!-- =========================================================
+       SORT ORDER SUPPORT (public add-ons)
+       - Builds GRAND_COURT_ADDONS_SORTED = visible-now + sorted
+       - grand-court-addons.js should prefer this array if present
+       ========================================================= -->
+  <script>
+  (function(){
+    function isVisibleNow(item, nowMs){
+      if (!item || item.active === false) return false;
+      const s = item.publishStart ? Date.parse(item.publishStart) : NaN;
+      const e = item.publishEnd   ? Date.parse(item.publishEnd)   : NaN;
+      if (!isNaN(s) && nowMs < s) return false;
+      if (!isNaN(e) && nowMs > e) return false;
+      return true;
+    }
+
+    function sortBySortOrder(a,b){
+      const ao = Number(a?.sortOrder ?? 1000);
+      const bo = Number(b?.sortOrder ?? 1000);
+      if (ao !== bo) return ao - bo;
+      return String(a?.name||'').localeCompare(String(b?.name||''));
+    }
+
+    try{
+      const now = Date.now();
+      const src = Array.isArray(window.GRAND_COURT_ADDONS) ? window.GRAND_COURT_ADDONS : [];
+      window.GRAND_COURT_ADDONS_SORTED = src
+        .slice()
+        .filter(x => isVisibleNow(x, now))
+        .sort(sortBySortOrder);
+    }catch(e){
+      window.GRAND_COURT_ADDONS_SORTED = [];
+    }
+  })();
+  </script>
+
+  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
+  <script>
+    function formatPhoneLive(inputEl){
+      if (!inputEl) return;
+      const raw = (inputEl.value || '').trim();
+      if (raw.startsWith('+')) return; // preserve international numbers
+
+      const helpers = (window.Cart && Cart.phoneHelpers) || null;
+      if (helpers) {
+        const d = helpers.digitsOnly(raw).slice(0, 10);
+        inputEl.value = helpers.formatUS(d);
+        return;
+      }
+
+      // Fallback if Cart.phoneHelpers is not defined
+      const d = String(raw).replace(/\D+/g, '').slice(0, 10);
+      if (d.length <= 3) {
+        inputEl.value = d;
+      } else if (d.length <= 6) {
+        inputEl.value = d.slice(0, 3) + '-' + d.slice(3);
+      } else {
+        inputEl.value = d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6, 10);
+      }
+    }
+  </script>
+
+  <!-- Page logic: attendees list, validation, dedupe, live phone dashes -->
+  <script>
+  function looksLikeEmail(s){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s||'').trim()); }
+
+  function escHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+    }[ch]));
+  }
+
+  // === Duplicate detection helpers (shared) ===
+  function _norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+  function _addressKey(a){
+    return [
+      _norm(a?.address1),
+      _norm(a?.address2),
+      _norm(a?.city),
+      _norm(a?.state),
+      _norm(a?.postal),
+      _norm(a?.country || 'US')
+    ].join('|');
+  }
+  function _sameNameAndAddress(a, b){
+    return _norm(a?.name) === _norm(b?.name) &&
+           _addressKey(a)  === _addressKey(b);
+  }
+
+  // ===== Shared attendee storage (same key as order/banquets) =====
+  const ATTENDEE_STORAGE_KEY = "amaranth_attendees_v1";
+
+  function saveAttendeesToStorage(list){
+    try {
+      const arr = Array.isArray(list) ? list : [];
+      localStorage.setItem(ATTENDEE_STORAGE_KEY, JSON.stringify(arr));
+    } catch(e){
+      console.error("Failed to save attendees to shared storage", e);
+    }
+  }
+
+  function syncAttendeesToStorageFromCart(){
+    try {
+      if (!window.Cart || typeof Cart.get !== "function") return;
+      const st = Cart.get() || {};
+      const attendees = Array.isArray(st.attendees) ? st.attendees : [];
+      saveAttendeesToStorage(attendees);
+    } catch(e){
+      console.error("Failed to sync attendees from Cart to storage", e);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    const attForm = document.getElementById('attForm');
+    const list = document.getElementById('attendees');
+
+    // Ensure Cart is loaded (shared cart for all pages)
+    if (window.Cart && typeof Cart.load === 'function') {
+      try { Cart.load(); } catch(e){}
+    }
+
+    // Initial mirror to shared storage
+    syncAttendeesToStorageFromCart();
+
+    // Phone live formatting (+international untouched)
+    const phoneField = attForm?.querySelector('input[name="phone"]');
+    if (phoneField){
+      phoneField.addEventListener('input', ()=>formatPhoneLive(phoneField));
+      phoneField.addEventListener('blur',  ()=>formatPhoneLive(phoneField));
+    }
+
+    function renderAttendees(){
+      const st = Cart.get();
+      list.innerHTML = (st.attendees||[]).map(a=>{
+        const hasAddr = !!(a?.address1 && a?.city && a?.state && a?.postal && a?.country);
+        const addrLine = hasAddr ? 'Mailing address: attached' : 'Mailing address: missing';
+        const phone = a?.phone ? ` • ${a.phone}` : '';
+        
+
+        const courtBits = [];
+        if (a?.courtName) courtBits.push(String(a.courtName).replace(/</g,'&lt;'));
+        if (a?.courtNumber) courtBits.push('#' + String(a.courtNumber).replace(/</g,'&lt;'));
+        const courtLine = courtBits.length
+          ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Court: ${courtBits.join(' ')}</div>`
+          : '';
+
+        const memberLabel = (a?.memberType === 'voting') ? 'Voting' : ((a?.memberType === 'non_voting') ? 'Non-Voting' : '');
+        const memberLine = memberLabel
+          ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Member: ${memberLabel}</div>`
+          : '';
+return `
+          <div class="att-card">
+            <div>
+              <strong>${a.name||''}</strong>
+              <small>${a.email||''}</small>
+              <em>${a.title||''}</em>
+              <div class="tiny" style="opacity:.9;margin-top:2px;">${addrLine}${phone}</div>
+              ${courtLine}
+              ${memberLine}
+              ${a.notes ? `<div class="tiny" style="opacity:.8;margin-top:2px;">Notes: ${String(a.notes).replace(/</g,'&lt;')}</div>` : ''}
+            </div>
+            <button data-del="${a.id}">Remove</button>
+          </div>
+        `;
+      }).join('');
+      list.querySelectorAll('button[data-del]').forEach(btn=>{
+        btn.onclick = ()=>{
+          Cart.removeAttendee(btn.dataset.del);
+          renderAttendees();
+          // keep shared storage in sync after removal
+          syncAttendeesToStorageFromCart();
+        };
+      });
+
+      // Mirror current attendees to shared storage on every render
+      syncAttendeesToStorageFromCart();
+    }
+
+    if (attForm){
+      attForm.onsubmit = (e)=>{
+        e.preventDefault();
+        const fd = new FormData(attForm);
+
+        const name   = (fd.get('name')||'').trim();
+        const email  = (fd.get('email')||'').trim();
+        const phone  = (fd.get('phone')||'').trim();
+        const title  = (fd.get('title')||'').trim(); // required
+        const notes  = (fd.get('notes')||'').trim();
+
+        const courtName   = (fd.get('courtName')||'').trim();
+        const courtNumber = (fd.get('courtNumber')||'').trim();
+        
+      if (!courtName || !courtNumber) {
+        alert('Court Name and Court # are required.');
+        return;
+      }
+const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
+
+
+        const address1 = (fd.get('addr1')||'').trim();
+        const address2 = (fd.get('addr2')||'').trim();
+        const city     = (fd.get('city')||'').trim();
+        const state    = (fd.get('state')||'').trim();
+        const postal   = (fd.get('postal')||'').trim();
+        const country  = (fd.get('country')||'US').trim() || 'US';
+
+        const missing = [];
+        if (!name) missing.push('Name');
+        if (!email || !looksLikeEmail(email)) missing.push('Valid Email');
+        if (!phone) missing.push('Phone');
+        if (!title) missing.push('Title');
+        if (!memberType) missing.push('Membership (Voting / Non-Voting)');
+        if (!address1) missing.push('Address line 1');
+        if (!city) missing.push('City');
+        if (!state) missing.push('State/Province');
+        if (!postal) missing.push('Postal code');
+        if (!country) missing.push('Country');
+        if (missing.length){
+          alert('Please complete the following fields:\n• ' + missing.join('\n• '));
+          return;
+        }
+
+        // ===== Duplicate prevention =====
+        const st = Cart.get() || { attendees: [] };
+        const incoming = { name, address1, address2, city, state, postal, country };
+
+        // A) Same name + email
+        const existsNameEmail = (st.attendees||[]).some(a =>
+          _norm(a.name)  === _norm(name) &&
+          _norm(a.email) === _norm(email)
+        );
+
+        // B) Same name + full mailing address
+        const existsNameAddress = (st.attendees||[]).some(a => _sameNameAndAddress(a, incoming));
+
+        if (existsNameEmail || existsNameAddress){
+          alert('That attendee already exists (same name with same email or address).');
+          return;
+        }
+        // =================================
+
+        Cart.addAttendee({
+          name, email, phone, title, notes,
+          courtName, courtNumber, memberType,
+          address1, address2, city, state, postal, country
+        });
+        attForm.reset();
+        attForm.querySelector('input[name="country"]').value = 'US';
+        renderAttendees();
+        // sync new list out to shared storage
+        syncAttendeesToStorageFromCart();
+      };
+    }
+
+    renderAttendees();
+
+    // ===== KEEP IN SYNC WITH OTHER PAGES =====
+    function resyncFromStorage(){
+      try { Cart.load(); } catch(e){}
+      try {
+        renderAttendees();
+        syncAttendeesToStorageFromCart();
+      } catch(e){}
+    }
+
+    // When cart changes anywhere in this tab
+    window.addEventListener('cart:updated', () => {
+      try {
+        renderAttendees();
+        syncAttendeesToStorageFromCart();
+      } catch(e){}
+    });
+
+    // When tab regains focus / becomes visible
+    window.addEventListener('focus', resyncFromStorage);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resyncFromStorage();
+    });
+
+    // Cross-tab/localStorage sync
+    window.addEventListener('storage', (ev) => {
+      try {
+        if (!ev.key || ev.key === Cart.LS_KEY) {
+          resyncFromStorage();
+        }
+      } catch(e){}
+    });
+  });
+  </script>
+
+  <!-- Strip attendeeNotes from Add-Ons (unchanged behavior) -->
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    if (document.body?.dataset?.page === 'addons' && window.Cart && typeof Cart.addLine === 'function'){
+      const _add = Cart.addLine.bind(Cart);
+      let __lastAddonAlertAt = 0;
+      Cart.addLine = function(line){
+        try{
+          const copy = JSON.parse(JSON.stringify(line || {}));
+          if (copy?.meta && Object.prototype.hasOwnProperty.call(copy.meta,'attendeeNotes')){
+            delete copy.meta.attendeeNotes;
+          }
+          const out = _add(copy);
+
+          // ✅ Match Banquets UX: ping + confirmation popup (addons page only)
+          try {
+            const isAddon = String(copy?.itemType || '') === 'addon';
+            const now = Date.now();
+            if (isAddon && (now - __lastAddonAlertAt) > 250) {
+              __lastAddonAlertAt = now;
+              try { localStorage.setItem('amaranth_cart_ping', String(now)); } catch(e) {}
+            }
+          } catch(e) {}
+
+          return out;
+        }catch(e){
+          const out = _add(line);
+
+          // best-effort UX even on fallback path
+          try {
+            const isAddon = String(line?.itemType || '') === 'addon';
+            const now = Date.now();
+            if (isAddon && (now - __lastAddonAlertAt) > 250) {
+              __lastAddonAlertAt = now;
+              try { localStorage.setItem('amaranth_cart_ping', String(now)); } catch(e) {}
+            }
+          } catch(e) {}
+
+          return out;
+        }
+      };
+    }
+  });
+  </script>
+
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
+  (async function(){
+    const link = document.querySelector('[data-catalog-link]');
+    if (!link) return;
+
+    async function fetchJson(url){
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch(e){ return null; }
+    }
+
+    let items = [];
+    let j = await fetchJson('/api/router?type=products');
+    if (Array.isArray(j?.products)) items = j.products;
+
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (!i || i.active === false) return false;
+      const s = i.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i.publishEnd   ? Date.parse(i.publishEnd) : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
+
+    if (!hasVisible) link.style.display = 'none';
+  })();
+  </script>
+
+  <!-- Maintenance check -->
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/router?type=settings');
+      const data = await resp.json();
+
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
+    }
+  })();
+  </script>
+
+
+<script>
+(async function(){
+  async function hasActive(cat){
+    try{
+      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
+      if (!r.ok) return true;
+      const j = await r.json();
+      return !!(j && j.hasActive);
+    }catch(e){
+      // fail open: show links if API fails
+      return true;
+    }
+  }
+  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
+  for (const a of links){
+    const cat = a.getAttribute("data-cat") || "";
+    const ok = await hasActive(cat);
+    if (!ok) a.style.display = "none";
+  }
+})();
+</script>
+  <script src="/assets/js/visits.js?v=visits-v1"></script>
+
+  <!-- Visitor tracking -->
+  <script>
+  (function () {
+    try {
+      const path = location.pathname;
+      if (
+        path.startsWith('/admin') ||
+        path.includes('debug') ||
+        path.startsWith('/api') ||
+        path.startsWith('/assets')
+      ) return;
+
+      fetch(`/api/router?type=track_visit&path=${encodeURIComponent(path)}`, {
+        method: 'GET',
+        keepalive: true
+      });
+    } catch (e) {}
+  })();
+  </script>
+
 </body>
 </html>
