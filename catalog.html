@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Charity – fundraising items and donations." />
+  <meta name="description" content="Product Catalog – merchandise and extras." />
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/styles.css?v=shop-v5" />
-  <title>Charity</title>
+  <title>Product Catalog</title>
 </head>
 
 <body class="shop" data-page="shop">
@@ -23,30 +23,29 @@
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="product-catalog.html">Product Catalog</a>
-        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
-        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
-
-        <span class="nav-current">Charity</span>
+        <span class="nav-current">Product Catalog</span>
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
-      </nav>
+      
+        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+</nav>
     </div>
   </header>
 
   <main class="container mt-lg">
-    <h1>Charity</h1>
+    <h1>Shop</h1>
 
 <section class="card page-instructions" style="margin-top:16px;">
   <h3>Before You Begin</h3>
-  <p>Charity donations are optional and are tied to the <strong>purchaser</strong>, not to attendees.</p>
-  <p>Add your donation to the cart, then complete purchaser information on the <strong>Order</strong> page.</p>
+  <p>Items on this page are <strong>year-round purchases</strong> and are tied to the <strong>purchaser</strong> (the person checking out), not to attendees.</p>
+  <p>Add items and quantities to your cart. Purchaser information is completed on the <strong>Order</strong> page.</p>
 </section>
 
 
     <!-- Empty-state (hidden until needed) -->
     <div id="emptyCatalog" class="card" style="display:none;max-width:780px;margin:0 auto 16px;">
-      <h2 style="margin:.25rem 0 .5rem;">No charity items available right now</h2>
+      <h2 style="margin:.25rem 0 .5rem;">No items available right now</h2>
       <p class="muted" style="margin:0">
         Please check back soon. Items appear here only when they are published and active.
       </p>
@@ -74,14 +73,13 @@
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="product-catalog.html">Product Catalog</a>
-        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
-        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
-
-        <span class="nav-current">Charity</span>
+        <span class="nav-current">Product Catalog</span>
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
-      </nav>
+      
+        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+</nav>
     </div>
 
     <div class="container tiny">© 2025</div>
@@ -448,15 +446,15 @@
       });
     }
 
-    // Load charity from server first, then fall back to charity.js
+    // Load products from server first, then fall back to items.js
     async function loadAndRender(){
       let rawItems = [];
       try {
-        const resp = await fetch('/api/router?type=charity', { cache: 'no-store' });
+        const resp = await fetch('/api/router?type=products', { cache: 'no-store' });
         if (resp.ok){
           const data = await resp.json();
-          if (Array.isArray(data.charity) && data.charity.length){
-            rawItems = data.charity;
+          if (Array.isArray(data.products) && data.products.length){
+            rawItems = data.products;
           }
         }
       } catch (e){
@@ -464,7 +462,9 @@
       }
 
       if (!rawItems.length){
-        rawItems = (window.CHARITY_ITEMS || []);
+        rawItems =
+          (window.DataStore && DataStore.getItems && DataStore.getItems()) ||
+          (window.CATALOG_ITEMS || []);
       }
 
       // NEW: apply visibility filter + sortOrder sort (then name)
@@ -650,20 +650,12 @@
     }
     .lightbox-prev { left: 8px; }
     .lightbox-next { right: 8px; }
-  /* Charity grid: compact, image-optional */
-.items-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.item-card{border:1px solid #e5e7eb;border-radius:14px;background:#fff;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.item-card h3{margin:0 0 6px;font-size:15px;line-height:1.2}
-.item-card .price{font-weight:700}
-.item-card .meta{font-size:12px;color:#555;margin-top:6px}
-.item-card .btn{margin-top:10px}
-@media (min-width:1100px){ .items-grid{grid-template-columns:repeat(4,minmax(220px,1fr));} }
-</style>
+  </style>
 
   <!-- Core site scripts (order matters) -->
   <script src="assets/js/site-settings.js"></script>
   <!-- cache-bust items.js so phones/Edge don’t use stale list -->
-  <script src="assets/js/charity.js?v=nov-06-2025"></script>
+  <script src="assets/js/items.js?v=nov-06-2025"></script>
   <script src="assets/js/banquets.js"></script>
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>

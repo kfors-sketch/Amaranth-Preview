@@ -6,7 +6,7 @@
   <meta name="description" content="Order page for checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/css/styles.css?v=order-v8" />
-  <title>Order</title>
+  <title>Cart</title>
   <style>
     /* Page-specific polish for inline edit positioning */
     .att-block { margin-bottom:16px }
@@ -128,7 +128,7 @@
         <a href="/banquet.html">Banquets</a>
         <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
         <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
-        <span class="nav-current">Order</span>
+        <span class="nav-current">Cart</span>
         <a href="/contact.html">Contact</a>
       
         
@@ -141,7 +141,14 @@
   </header>
 
   <main class="container mt-lg">
-    <h1>Order</h1>
+    <h1>Cart</h1>
+
+<section class="card page-instructions" style="margin-top:16px;">
+  <h3>Before You Checkout</h3>
+  <p><strong>Year-round items</strong> (Product Catalog, Supplies, Charity) use the <strong>purchaser information</strong> entered on this page.</p>
+  <p><strong>Annual Session items</strong> (Banquets and Grand Court Add-Ons) are tied to <strong>attendees</strong>. Review attendee assignments and dietary notes carefully.</p>
+</section>
+
 
     <!-- Purchaser -->
     <section class="card">
@@ -213,6 +220,24 @@
   </main>
 
   <footer class="site-footer">
+    
+    <div class="container">
+      <nav class="site-nav nav footer-nav">
+        <a href="/home.html">Home</a>
+        <a href="/banquet.html">Banquets</a>
+        <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
+        <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <span class="nav-current">Cart</span>
+        <a href="/contact.html">Contact</a>
+      
+        
+        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+</nav>
+    </div>
+
     <div class="container tiny">© 2025</div>
   </footer>
 
