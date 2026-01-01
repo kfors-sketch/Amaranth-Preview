@@ -834,6 +834,8 @@ function flattenOrderToRows(o) {
       attendee_title: li.meta?.attendeeTitle || "",
       attendee_email: li.meta?.attendeeEmail || "",
       attendee_phone: li.meta?.attendeePhone || "",
+      court: li.meta?.attendeeCourt || li.meta?.court || li.meta?.courtName || li.meta?.court_name || li.meta?.attendeeCourtName || "",
+      court_number: li.meta?.attendeeCourtNumber || li.meta?.courtNumber || li.meta?.court_no || li.meta?.courtNo || li.meta?.courtNum || "",
       attendee_addr1: li.meta?.attendeeAddr1 || "",
       attendee_addr2: li.meta?.attendeeAddr2 || "",
       attendee_city: li.meta?.attendeeCity || "",
@@ -877,6 +879,8 @@ function flattenOrderToRows(o) {
       attendee_title: "",
       attendee_email: "",
       attendee_phone: "",
+      court: "",
+      court_number: "",
       attendee_addr1: "",
       attendee_addr2: "",
       attendee_city: "",
@@ -1642,6 +1646,8 @@ function collectAttendeesFromOrders(
         attendee_title: r.attendee_title,
         attendee_phone: r.attendee_phone,
         attendee_email: r.attendee_email,
+        court: r.court,
+        court_number: r.court_number,
         item: r.item,
         item_id: r.item_id,
         qty: r.qty,
@@ -1731,6 +1737,8 @@ async function sendItemReportEmailInternal({
   const isCorsageBase = /(corsage|boutonniere)/.test(base);
   const isBanquetKind = String(kind || "").toLowerCase() === "banquet";
   const isPreRegBase = base === "pre-reg";
+  const isDirectoryBase = base === "directory";
+  const isProceedingsBase = base === "proceedings";
 
   const rosterAll = collectAttendeesFromOrders(orders, {
     includeAddress: includeAddressForThisItem,
@@ -1805,6 +1813,48 @@ async function sendItemReportEmailInternal({
     lbl.item_name = "Item";
     lbl.item_price = "Price";
     EMAIL_HEADER_LABELS = lbl;
+  }
+
+  // Banquets: include Court and Court #
+  if (isBanquetKind) {
+    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
+    const insertAfterKey = "attendee_phone";
+    const afterIdx = cols.indexOf(insertAfterKey);
+    const want = ["court", "court_number"];
+    // Insert in a stable spot near attendee info
+    for (let i = want.length - 1; i >= 0; i--) {
+      const key = want[i];
+      if (cols.includes(key)) continue;
+      if (afterIdx >= 0) cols.splice(afterIdx + 1, 0, key);
+      else cols.push(key);
+    }
+    EMAIL_COLUMNS = cols;
+    EMAIL_HEADER_LABELS = {
+      ...EMAIL_HEADER_LABELS,
+      court: "Court",
+      court_number: "Court #",
+    };
+  }
+
+  // Pre-Registration / Printed Directory / Proceedings: include Court and Court #
+  // (These are attendee-based but are not "banquet" kind, so they need their own injection.)
+  if (isPreRegBase || isDirectoryBase || isProceedingsBase) {
+    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
+    const insertAfterKey = "attendee_phone";
+    const afterIdx = cols.indexOf(insertAfterKey);
+    const want = ["court", "court_number"];
+    for (let i = want.length - 1; i >= 0; i--) {
+      const key = want[i];
+      if (cols.includes(key)) continue;
+      if (afterIdx >= 0) cols.splice(afterIdx + 1, 0, key);
+      else cols.push(key);
+    }
+    EMAIL_COLUMNS = cols;
+    EMAIL_HEADER_LABELS = {
+      ...EMAIL_HEADER_LABELS,
+      court: "Court",
+      court_number: "Court #",
+    };
   }
 
   if (isCorsageBase) {
@@ -1916,10 +1966,44 @@ async function sendItemReportEmailInternal({
     return { ...baseRow, ...itemFields, qty: r.qty, notes: r.notes };
   });
 
-  const xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report", { spacerRows: true, autoFit: true });
+    // ✅ XLSX ATTACHMENT (always attach for chair reports)
+  let xlsxRaw = null;
+  try {
+    xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report", { spacerRows: true, autoFit: true });
+  } catch (e) {
+    console.error("chair-report-xlsx-build-failed", { kind, id, label, scope }, e);
+    xlsxRaw = null;
+  }
 
-  // ✅ ATTACHMENT HARDENING
-  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+  let xlsxBuf = null;
+  try {
+    if (xlsxRaw != null) xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+  } catch (e) {
+    console.error("chair-report-xlsx-buffer-failed", { kind, id, label, scope }, e);
+    xlsxBuf = null;
+  }
+
+  // If XLSX generation failed (or produced an empty buffer), generate a tiny fallback workbook
+  if (!xlsxBuf || xlsxBuf.length === 0) {
+    try {
+      const fallbackRows = [{
+        message: "No orders found for this reporting window.",
+      }];
+      const fallbackRaw = await objectsToXlsxBuffer(
+        ["message"],
+        fallbackRows,
+        { message: "Message" },
+        "Item Report",
+        { autoFit: true }
+      );
+      xlsxBuf = Buffer.isBuffer(fallbackRaw) ? fallbackRaw : Buffer.from(fallbackRaw);
+    } catch (e2) {
+      console.error("chair-report-xlsx-fallback-failed", { kind, id, label, scope }, e2);
+      // Last resort: attach a small non-empty buffer so the email still has an attachment
+      xlsxBuf = Buffer.from("Chair report XLSX generation failed.");
+    }
+  }
+
   const xlsxB64 = xlsxBuf.toString("base64");
 
   const today = new Date();
