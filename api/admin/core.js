@@ -2112,6 +2112,9 @@ async function sendItemReportEmailInternal({
 //   REPORTS_ALLOW_SCHEDULED_AT=0
 // When enabled, we pass `scheduled_at` to Resend when `scheduledAtIso` is valid.
 if (scheduledAtIso && allowScheduled) {
+  // Resend SDK expects `scheduledAt` (camelCase). We also set `scheduled_at`
+  // for backward-compat / log readability, but `scheduledAt` is the one that matters.
+  payload.scheduledAt = scheduledAtIso;
   payload.scheduled_at = scheduledAtIso;
 }
 
@@ -2127,7 +2130,7 @@ if (scheduledAtIso && allowScheduled) {
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
-      scheduled_at: payload.scheduled_at || null,
+      scheduled_at: (payload.scheduledAt || (payload.scheduledAt || (payload.scheduledAt || payload.scheduled_at || null))),
       attachment: { filename, bytes: xlsxBuf.length },
     });
     return {
@@ -2135,7 +2138,7 @@ if (scheduledAtIso && allowScheduled) {
       count: sorted.length,
       to: toList,
       bcc: bccList,
-      scheduled_at: payload.scheduled_at || null,
+      scheduled_at: (payload.scheduledAt || (payload.scheduledAt || (payload.scheduledAt || payload.scheduled_at || null))),
     };
   }
 
@@ -2149,7 +2152,7 @@ if (scheduledAtIso && allowScheduled) {
     kind: "item-report",
     status: "error",
     error: String(err?.message || err),
-    scheduled_at: payload.scheduled_at || null,
+    scheduled_at: (payload.scheduledAt || (payload.scheduledAt || (payload.scheduledAt || payload.scheduled_at || null))),
   });
   return { ok: false, error: "send-failed", message: err?.message || String(err) };
 }
