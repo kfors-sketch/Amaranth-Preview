@@ -2333,12 +2333,15 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
 
-const attendeesRaw = Array.isArray(body.attendees) ? body.attendees : [];
-const attendeeById = new Map();
-for (const a of attendeesRaw) {
-  const id = String(a?.id || a?.attendeeId || a?.attendee_id || a?.key || "").trim();
-  if (id) attendeeById.set(id, a);
-}
+            // Build attendee lookup so we can stamp Voting/Non-Voting onto Stripe-visible
+            // Pre-Registration line items (the order page already shows this, but Stripe
+            // only receives what we include in line_items).
+            const attendeesRaw = Array.isArray(body.attendees) ? body.attendees : [];
+            const attendeeById = new Map();
+            for (const a of attendeesRaw) {
+              const aid = String(a?.id || a?.attendeeId || a?.key || "").trim();
+              if (aid) attendeeById.set(aid, a);
+            }
 
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
@@ -2369,66 +2372,6 @@ for (const a of attendeesRaw) {
                   if (!displayName.includes("$")) displayName = `${displayName} — $${amt}`;
                 }
               } catch {}
-// ✅ Pre-Registration: include Voting / Non-Voting in Stripe-visible name
-let votingLabel = "";
-try {
-  const id = String(l.itemId || "").trim().toLowerCase();
-  const nm = String(displayName || "").trim().toLowerCase();
-  const isPreReg =
-    (id.includes("pre") && id.includes("reg")) ||
-    nm === "pre-registration" ||
-    nm.includes("pre-registration") ||
-    nm.includes("pre registration");
-
-  if (isPreReg) {
-    const meta = (l && typeof l.meta === "object" && l.meta) ? l.meta : {};
-    let votingRaw =
-      meta.voting_status ??
-      meta.votingStatus ??
-      meta.voting ??
-      meta.isVoting ??
-      l.voting_status ??
-      l.votingStatus ??
-      l.voting ??
-      l.isVoting ??
-      "";
-
-    // Fallback: look up attendee record by attendeeId
-    const aid = String(l.attendeeId || l.attendee_id || meta.attendeeId || meta.attendee_id || "").trim();
-    if (!String(votingRaw || "").trim() && aid) {
-      const a = attendeeById.get(aid);
-      if (a) {
-        votingRaw =
-          a.voting_status ??
-          a.votingStatus ??
-          a.voting ??
-          a.isVoting ??
-          "";
-      }
-    }
-
-    // Last resort: parse any existing attendee title/notes text (what the order page already shows)
-    if (!String(votingRaw || "").trim()) {
-      const t = String(meta.attendeeTitle || meta.attendee_title || "").toLowerCase();
-      const n = String(meta.attendeeNotes || meta.attendee_notes || "").toLowerCase();
-      const s = `${t} ${n} ${nm}`;
-      if (s.includes("non-voting") || s.includes("non voting") || s.includes("nonvoting")) votingRaw = "non-voting";
-      else if (s.includes("voting")) votingRaw = "voting";
-    }
-
-    const v = String(votingRaw || "").trim().toLowerCase();
-    if (v === "voting" || v === "yes" || v === "true" || v === "1") votingLabel = "Voting";
-    else if (v === "non-voting" || v === "nonvoting" || v === "non voting" || v === "no" || v === "false" || v === "0") votingLabel = "Non-Voting";
-
-    if (votingLabel) {
-      const dl = displayName.toLowerCase();
-      if (!dl.includes("(voting") && !dl.includes("(non-voting") && !dl.includes("(non voting")) {
-        displayName = `${displayName} (${votingLabel})`;
-      }
-    }
-  }
-} catch {}
-
               // ✅ Corsage variants: keep separate line items & show choice/note on Order page + receipts
               // We DO NOT change itemId (so chair email routing still works), but we make the Stripe product
               // name unique per variant so your UI can show "Rose Corsage" vs "Custom Corsage — note..."
@@ -2529,7 +2472,7 @@ try {
                     l?.meta?.voting_boolean ??
                     null;
 
-                  const votingRaw =
+                  let votingRaw =
                     l?.meta?.votingStatus ??
                     l?.meta?.voting_status ??
                     l?.meta?.voting ??
@@ -2538,6 +2481,25 @@ try {
                     l?.meta?.votingFlag ??
                     l?.meta?.voting_flag ??
                     "";
+
+// Fallback: Voting/Non-Voting often lives on the attendee record (order page uses it),
+// not on the line meta. If we have an attendeeId, look it up from body.attendees.
+                  if (!String(votingRaw || "").trim()) {
+                    const aid = String(l?.attendeeId || "").trim();
+                    const a = aid ? attendeeById.get(aid) : null;
+                    if (a) {
+                      votingRaw =
+                        a?.votingStatus ??
+                        a?.voting_status ??
+                        a?.voting ??
+                        a?.votingType ??
+                        a?.voting_type ??
+                        a?.isVoting ??
+                        a?.votingBool ??
+                        a?.voting_boolean ??
+                        "";
+                    }
+                  }
 
                   let votingLabel = "";
                   if (votingBool === true) votingLabel = "Voting";
