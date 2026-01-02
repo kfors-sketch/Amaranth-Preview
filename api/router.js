@@ -2470,6 +2470,12 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     l?.meta?.voting_type ??
                     l?.meta?.votingFlag ??
                     l?.meta?.voting_flag ??
+                    // fallback: some pages store it as a "title" instead of a voting field
+                    l?.meta?.attendeeTitle ??
+                    l?.attendeeTitle ??
+                    l?.attendee?.title ??
+                    l?.attendee?.memberType ??
+                    l?.attendee?.member_type ??
                     "";
 
                   let votingLabel = "";
@@ -2485,27 +2491,7 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     }
                   }
 
-                  
-                  // Fallback: your UI shows "Member: Voting" on the order page, but that value may
-                  // live in attendeeTitle/Notes (not in voting_* fields). Parse it so Stripe sees it.
-                  if (!votingLabel) {
-                    const hint =
-                      String(l?.attendeeTitle || "") +
-                      " " +
-                      String(l?.attendeeNotes || "") +
-                      " " +
-                      String(l?.meta?.attendeeTitle || "") +
-                      " " +
-                      String(l?.meta?.attendeeNotes || "") +
-                      " " +
-                      String(l?.meta?.memberType || "") +
-                      " " +
-                      String(l?.meta?.membershipType || "");
-                    const hl = hint.toLowerCase();
-                    if (/non\s*-?\s*voting/.test(hl) || /nonvoting/.test(hl) || /\bnv\b/.test(hl)) votingLabel = "Non-Voting";
-                    else if (/\bvoting\b/.test(hl) || /\bv\b/.test(hl)) votingLabel = "Voting";
-                  }
-const isPreReg =
+                  const isPreReg =
                     (id2.includes("pre") && (id2.includes("reg") || id2.includes("registration"))) ||
                     name2.includes("pre-registration") ||
                     name2.includes("pre registration") ||
