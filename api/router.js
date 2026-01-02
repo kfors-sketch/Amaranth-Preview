@@ -2333,16 +2333,6 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
 
-            // Build attendee lookup so we can stamp Voting/Non-Voting onto Stripe-visible
-            // Pre-Registration line items (the order page already shows this, but Stripe
-            // only receives what we include in line_items).
-            const attendeesRaw = Array.isArray(body.attendees) ? body.attendees : [];
-            const attendeeById = new Map();
-            for (const a of attendeesRaw) {
-              const aid = String(a?.id || a?.attendeeId || a?.key || "").trim();
-              if (aid) attendeeById.set(aid, a);
-            }
-
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
               const isBundle =
@@ -2472,7 +2462,7 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     l?.meta?.voting_boolean ??
                     null;
 
-                  let votingRaw =
+                  const votingRaw =
                     l?.meta?.votingStatus ??
                     l?.meta?.voting_status ??
                     l?.meta?.voting ??
@@ -2481,25 +2471,6 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     l?.meta?.votingFlag ??
                     l?.meta?.voting_flag ??
                     "";
-
-// Fallback: Voting/Non-Voting often lives on the attendee record (order page uses it),
-// not on the line meta. If we have an attendeeId, look it up from body.attendees.
-                  if (!String(votingRaw || "").trim()) {
-                    const aid = String(l?.attendeeId || "").trim();
-                    const a = aid ? attendeeById.get(aid) : null;
-                    if (a) {
-                      votingRaw =
-                        a?.votingStatus ??
-                        a?.voting_status ??
-                        a?.voting ??
-                        a?.votingType ??
-                        a?.voting_type ??
-                        a?.isVoting ??
-                        a?.votingBool ??
-                        a?.voting_boolean ??
-                        "";
-                    }
-                  }
 
                   let votingLabel = "";
                   if (votingBool === true) votingLabel = "Voting";
@@ -2514,7 +2485,27 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     }
                   }
 
-                  const isPreReg =
+                  
+                  // Fallback: your UI shows "Member: Voting" on the order page, but that value may
+                  // live in attendeeTitle/Notes (not in voting_* fields). Parse it so Stripe sees it.
+                  if (!votingLabel) {
+                    const hint =
+                      String(l?.attendeeTitle || "") +
+                      " " +
+                      String(l?.attendeeNotes || "") +
+                      " " +
+                      String(l?.meta?.attendeeTitle || "") +
+                      " " +
+                      String(l?.meta?.attendeeNotes || "") +
+                      " " +
+                      String(l?.meta?.memberType || "") +
+                      " " +
+                      String(l?.meta?.membershipType || "");
+                    const hl = hint.toLowerCase();
+                    if (/non\s*-?\s*voting/.test(hl) || /nonvoting/.test(hl) || /\bnv\b/.test(hl)) votingLabel = "Non-Voting";
+                    else if (/\bvoting\b/.test(hl) || /\bv\b/.test(hl)) votingLabel = "Voting";
+                  }
+const isPreReg =
                     (id2.includes("pre") && (id2.includes("reg") || id2.includes("registration"))) ||
                     name2.includes("pre-registration") ||
                     name2.includes("pre registration") ||
