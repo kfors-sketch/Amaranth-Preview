@@ -1,7 +1,7 @@
 // assets/js/cart.js
 (function(){
   // bump key to force a clean read of the new structure while still migrating if found
-  const LS_KEY = "cart_v2";
+  const LS_KEY = "cart_v3";
 
   const state = {
     attendees: [],
@@ -11,7 +11,56 @@
 
   function uid(prefix="id"){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
 
-  // ===========================================================================
+  
+// ---- Pre-Registration: ensure Voting / Non-Voting is persisted on the LINE (for Stripe + receipts) ----
+function ensurePreRegVotingOnLine(line, attendees){
+  try{
+    const id = _normLower(line?.itemId || line?.id || "");
+    const isPreReg = id.includes("pre") && id.includes("reg");
+    if (!isPreReg) return line;
+
+    const m = line.meta = line.meta || {};
+
+    // Find attendee record (voting usually lives there)
+    const aid = String(line.attendeeId || "").trim();
+    const att = aid && Array.isArray(attendees) ? attendees.find(a => String(a?.id || a?.attendeeId || "").trim() === aid) : null;
+
+    const votingRaw =
+      m.votingStatus ?? m.voting_status ?? m.voting ?? m.isVoting ??
+      att?.votingStatus ?? att?.voting_status ?? att?.voting ?? att?.isVoting ??
+      "";
+
+    const v = String(votingRaw || "").trim().toLowerCase();
+    const label =
+      (v === "voting" || v === "yes" || v === "true" || v === "1") ? "Voting" :
+      (v === "non-voting" || v === "nonvoting" || v === "no" || v === "false" || v === "0") ? "Non-Voting" :
+      "";
+
+    if (!label) return line;
+
+    // 1) Make sure the Stripe-visible name can carry it if desired
+    if (line.itemName && !/\((Voting|Non-Voting)\)/i.test(line.itemName)){
+      line.itemName = `${line.itemName} (${label})`;
+    }
+
+    // 2) Make sure the receipt "Notes:" line can show it (renderOrderEmailHTML prints itemNote/attendeeNotes)
+    const noteText = `Member: ${label}`;
+    if (!m.itemNote) m.itemNote = noteText;
+    if (!m.attendeeNotes) m.attendeeNotes = noteText;
+
+    // Extra aliases in case other code paths look for these
+    if (!m.notes) m.notes = noteText;
+    if (!m.note) m.note = noteText;
+
+    // Canonical key too
+    m.votingStatus = label;
+
+    return line;
+  } catch {
+    return line;
+  }
+}
+// ===========================================================================
   // API ERROR HELPERS (so UI never shows "[object Object]")
   // ===========================================================================
   function safeStringify(v){
@@ -241,6 +290,8 @@ function lineMetaSignature(line){
       l.qty = Number(l.qty || 0);
       l.meta = l.meta || {};
       normalizeBundle(l);
+      normalizeLineMeta(l);
+      ensurePreRegVotingOnLine(l, data.attendees);
     });
 
     // Normalize any stored attendee phone numbers as well
@@ -351,6 +402,9 @@ try {
 
     // Normalize meta so corsage/love-gift lines remain distinct
     normalizeLineMeta(line);
+
+    // Ensure Pre-Registration voting status is stored on the line for receipts/Stripe
+    ensurePreRegVotingOnLine(line, state.attendees);
 
     // Merge only if same attendeeId + itemId + unitPrice + bundle-ness
     const existing = state.lines.find(l =>
