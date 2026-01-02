@@ -1018,18 +1018,39 @@ function renderOrderEmailHTML(order) {
 
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
-        // Pre-Registration: append Voting / Non-Voting to label
-        const baseItem = String(li.itemId || "").toLowerCase().split(":")[0];
-        if (baseItem === "pre-reg") {
-          const voting =
-            li.meta?.voting_status ||
-            li.meta?.voting ||
-            li.meta?.isVoting;
+        // Pre-Registration: append Voting / Non-Voting to label + notes (receipt-safe)
+        const itemNameLower = String(li.itemName || "").toLowerCase();
+        const isPreReg =
+          (itemIdLower.includes("pre") && (itemIdLower.includes("reg") || itemIdLower.includes("registration"))) ||
+          itemNameLower.includes("pre-registration") ||
+          itemNameLower.includes("pre registration") ||
+          itemNameLower.includes("pre reg") ||
+          itemNameLower.includes("prereg");
 
-          if (voting === true || voting === "voting") {
-            itemLabel += " (Voting)";
-          } else if (voting === false || voting === "non-voting") {
-            itemLabel += " (Non-Voting)";
+        let preRegVotingLabel = "";
+        if (isPreReg) {
+          const blob = [
+            li.meta?.voting_status,
+            li.meta?.votingStatus,
+            li.meta?.voting,
+            li.meta?.isVoting,
+            li.meta?.attendeeTitle,
+            li.meta?.attendeeNotes,
+            li.meta?.itemNote,
+            itemLabel,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          if (/non\s*-?\s*voting/.test(blob) || /nonvoting/.test(blob)) preRegVotingLabel = "Non-Voting";
+          else if (/\bvoting\b/.test(blob)) preRegVotingLabel = "Voting";
+
+          if (preRegVotingLabel) {
+            const il = String(itemLabel || "").toLowerCase();
+            if (!il.includes("non-voting") && !il.includes("nonvoting") && !il.includes("voting")) {
+              itemLabel += ` (${preRegVotingLabel})`;
+            }
           }
         }
 
@@ -1048,15 +1069,14 @@ function renderOrderEmailHTML(order) {
           }
 }
 
-        const isPreRegLine = /pre[- ]?registration/i.test(String(li.itemName || "")) || /pre[-_]?reg/i.test(String(li.itemId || ""));
-        const votingNote =
-          isPreRegLine && li.meta?.attendeeTitle && /(non[- ]?voting|voting)/i.test(String(li.meta.attendeeTitle))
-            ? String(li.meta.attendeeTitle)
-            : "";
-        const notesParts = isBanquet
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote, votingNote]
-          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote, votingNote];
-        const notes = Array.from(new Set(notesParts.filter(Boolean).map((s) => String(s).trim()))).join("; ");
+        const preRegNotes =
+          isPreReg && preRegVotingLabel ? `Member: ${preRegVotingLabel}` : "";
+
+        const notes = isBanquet
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
+          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote, preRegNotes]
+              .filter(Boolean)
+              .join("; ");
         const notesRow = notes
           ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(
               /</g,
