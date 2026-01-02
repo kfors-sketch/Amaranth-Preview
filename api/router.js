@@ -2450,56 +2450,60 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     if (!String(displayName).includes(shortNote)) displayName = `${displayName} — ${shortNote}`;
                   }
                 }
-              } catch {}
-
-
               
-// ✅ Pre-Registration voting status: pass to Stripe + show on Stripe receipt/line items
-let votingStatus = "";
-try {
-  const blob = [
-    l?.meta?.votingStatus,
-    l?.meta?.voting_status,
-    l?.meta?.voting,
-    l?.meta?.attendeeVoting,
-    l?.meta?.attendee_voting,
-    l?.meta?.attendeeTitle,
-    l?.itemName,
-    l?.meta?.attendeeNotes,
-    l?.meta?.dietaryNote,
-    l?.meta?.itemNote,
-    l?.meta?.item_note,
-    l?.meta?.notes,
-    l?.meta?.note,
-    l?.meta?.message,
-    l?.itemNote,
-    l?.notes,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+                // Pre-Registration: include Voting / Non-Voting in the item name so it shows up in
+                // - Stripe customer email receipts
+                // - Our emailed receipt / success.html receipt
+                // - Chair spreadsheets (deriveVotingStatus reads stored text)
+                try {
+                  const votingBool =
+                    l?.meta?.isVoting ??
+                    l?.meta?.votingBool ??
+                    l?.meta?.voting_boolean ??
+                    null;
 
-  if (/non\s*-?\s*voting/.test(blob) || /nonvoting/.test(blob)) votingStatus = "Non-Voting";
-  else if (/\bvoting\b/.test(blob)) votingStatus = "Voting";
+                  const votingRaw =
+                    l?.meta?.votingStatus ??
+                    l?.meta?.voting_status ??
+                    l?.meta?.voting ??
+                    l?.meta?.votingType ??
+                    l?.meta?.voting_type ??
+                    l?.meta?.votingFlag ??
+                    l?.meta?.voting_flag ??
+                    "";
+
+                  let votingLabel = "";
+                  if (votingBool === true) votingLabel = "Voting";
+                  else if (votingBool === false) votingLabel = "Non-Voting";
+                  else {
+                    const vr = String(votingRaw ?? "").trim().toLowerCase();
+                    if (vr) {
+                      if (/non\s*-?\s*voting/.test(vr) || /nonvoting/.test(vr) || vr === "nv") votingLabel = "Non-Voting";
+                      else if (/\bvoting\b/.test(vr) || vr === "v") votingLabel = "Voting";
+                      else if (["1", "true", "t", "yes", "y"].includes(vr)) votingLabel = "Voting";
+                      else if (["0", "false", "f", "no", "n"].includes(vr)) votingLabel = "Non-Voting";
+                    }
+                  }
+
+                  const isPreReg =
+                    (id2.includes("pre") && (id2.includes("reg") || id2.includes("registration"))) ||
+                    name2.includes("pre-registration") ||
+                    name2.includes("pre registration") ||
+                    name2.includes("pre reg") ||
+                    name2.includes("prereg");
+
+                  if (isPreReg && votingLabel) {
+                    const dl = String(displayName || "").toLowerCase();
+                    // Avoid double-appending
+                    if (!dl.includes("non-voting") && !dl.includes("nonvoting") && !dl.includes("voting")) {
+                      displayName = `${displayName} (${votingLabel})`;
+                    }
+                  }
+                } catch {}
 } catch {}
 
-try {
-  const id3 = String(l.itemId || "").trim().toLowerCase();
-  const name3 = String(displayName || "").toLowerCase();
-  const looksLikePreReg =
-    id3.includes("pre") && id3.includes("reg") ||
-    name3.includes("pre-registration") ||
-    name3.includes("pre registration") ||
-    id3 === "prereg" ||
-    id3 === "pre_reg" ||
-    id3 === "pre-registration";
 
-  if (looksLikePreReg && votingStatus) {
-    const tag = votingStatus.toLowerCase();
-    if (!name3.includes(tag)) displayName = `${displayName} (${votingStatus})`;
-  }
-} catch {}
-return {
+              return {
                 quantity,
                 price_data: {
                   currency: "usd",
@@ -2512,11 +2516,32 @@ return {
                       attendeeId: l.attendeeId || "",
                       attendeeName: l.meta?.attendeeName || "",
                       attendeeTitle: l.meta?.attendeeTitle || "",
-                      voting_status: votingStatus,
                       attendeePhone: l.meta?.attendeePhone || "",
                       attendeeEmail: l.meta?.attendeeEmail || "",
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
+                      votingStatus:
+                        (l.meta?.votingStatus ||
+                          l.meta?.voting_status ||
+                          l.meta?.voting ||
+                          l.meta?.votingType ||
+                          l.meta?.voting_type ||
+                          ""),
+                      voting_status:
+                        (l.meta?.votingStatus ||
+                          l.meta?.voting_status ||
+                          l.meta?.voting ||
+                          l.meta?.votingType ||
+                          l.meta?.voting_type ||
+                          ""),
+                      isVoting:
+                        String(
+                          l.meta?.isVoting ??
+                            l.meta?.votingBool ??
+                            l.meta?.voting_boolean ??
+                            ""
+                        ),
+
                       itemNote:
                         (l.meta?.itemNote ||
                           l.meta?.item_note ||
