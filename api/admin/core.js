@@ -1018,6 +1018,21 @@ function renderOrderEmailHTML(order) {
 
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
+        // Pre-Registration: append Voting / Non-Voting to label
+        const baseItem = String(li.itemId || "").toLowerCase().split(":")[0];
+        if (baseItem === "pre-reg") {
+          const voting =
+            li.meta?.voting_status ||
+            li.meta?.voting ||
+            li.meta?.isVoting;
+
+          if (voting === true || voting === "voting") {
+            itemLabel += " (Voting)";
+          } else if (voting === false || voting === "non-voting") {
+            itemLabel += " (Non-Voting)";
+          }
+        }
+
         if (itemIdLower === "corsage") {
           const rawChoice = String(li.meta?.corsageChoice || li.meta?.corsage_choice || "").trim();
           const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(rawChoice);
@@ -1033,65 +1048,15 @@ function renderOrderEmailHTML(order) {
           }
 }
 
-        const isPreReg =
-          (itemIdLower.includes("pre") && (itemIdLower.includes("reg") || itemIdLower.includes("registration"))) ||
-          /\bpre\s*-?registration\b/i.test(itemLabel) ||
-          /\bpre\s*reg\b/i.test(itemLabel) ||
-          /\bprereg\b/i.test(itemLabel);
-
-        const deriveVotingLabel = () => {
-          // Prefer explicit structured values first
-          const vb = li.meta?.isVoting ?? li.meta?.votingBool ?? li.meta?.voting_boolean ?? null;
-          if (vb === true || vb === "true" || vb === 1 || vb === "1") return "Voting";
-          if (vb === false || vb === "false" || vb === 0 || vb === "0") return "Non-Voting";
-
-          const raw = String(
-            li.meta?.votingStatus ??
-              li.meta?.voting_status ??
-              li.meta?.voting ??
-              li.meta?.votingType ??
-              li.meta?.voting_type ??
-              ""
-          )
-            .trim()
-            .toLowerCase();
-
-          if (raw) {
-            if (/non\s*-?\s*voting/.test(raw) || /nonvoting/.test(raw) || raw === "nv") return "Non-Voting";
-            if (/\bvoting\b/.test(raw) || raw === "v") return "Voting";
-            if (["1", "true", "t", "yes", "y"].includes(raw)) return "Voting";
-            if (["0", "false", "f", "no", "n"].includes(raw)) return "Non-Voting";
-          }
-
-          // Fallback: sometimes the UI stores "Member: Voting" in attendeeTitle/notes strings
-          const blob = [
-            li.meta?.attendeeTitle,
-            li.meta?.attendeeNotes,
-            li.meta?.itemNote,
-            itemLabel,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-
-          if (/non\s*-?\s*voting/.test(blob) || /nonvoting/.test(blob)) return "Non-Voting";
-          if (/\bvoting\b/.test(blob)) return "Voting";
-          return "";
-        };
-
-        const votingLabel = isPreReg ? deriveVotingLabel() : "";
-
-        const baseNotes = isBanquet
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
-          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote];
-
-        // For Pre-Registration, make Voting/Non-Voting appear like Notes even if it wasn't stored as itemNote
-        if (isPreReg && votingLabel) {
-          const existing = baseNotes.filter(Boolean).join(" ").toLowerCase();
-          if (!existing.includes("voting")) baseNotes.push(`Member: ${votingLabel}`);
-        }
-
-        const notes = baseNotes.filter(Boolean).join("; ");
+        const isPreRegLine = /pre[- ]?registration/i.test(String(li.itemName || "")) || /pre[-_]?reg/i.test(String(li.itemId || ""));
+        const votingNote =
+          isPreRegLine && li.meta?.attendeeTitle && /(non[- ]?voting|voting)/i.test(String(li.meta.attendeeTitle))
+            ? String(li.meta.attendeeTitle)
+            : "";
+        const notesParts = isBanquet
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote, votingNote]
+          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote, votingNote];
+        const notes = Array.from(new Set(notesParts.filter(Boolean).map((s) => String(s).trim()))).join("; ");
         const notesRow = notes
           ? `<div style="font-size:12px;color:#444;margin-top:2px">Notes: ${String(notes).replace(
               /</g,
