@@ -1478,7 +1478,6 @@ async function sendReceiptXlsxBackup(order) {
 
   // ✅ ATTACHMENT HARDENING (ExcelJS can return ArrayBuffer)
   const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
-  const xlsxB64 = xlsxBuf.toString("base64");
 
   const mode = String(order?.mode || "test").toLowerCase();
   const purchaserEmail = String(order?.purchaser?.email || order?.customer_email || "").trim();
@@ -1506,7 +1505,7 @@ async function sendReceiptXlsxBackup(order) {
     attachments: [
       {
         filename: `receipt-${mode || "test"}-${orderId}.xlsx`,
-        content: xlsxB64,
+        content: xlsxBuf,
         // optional hints; safe if ignored
         content_type:
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1975,50 +1974,36 @@ async function sendItemReportEmailInternal({
   });
 
     // ✅ XLSX ATTACHMENT (always attach for chair reports)
-  let xlsxRaw = null;
-  try {
-    xlsxRaw = await objectsToXlsxBuffer(EMAIL_COLUMNS, numbered, EMAIL_HEADER_LABELS, "Item Report", { spacerRows: true, autoFit: true });
-  } catch (e) {
-    console.error("chair-report-xlsx-build-failed", { kind, id, label, scope }, e);
-    xlsxRaw = null;
-  }
-
+  // FIX: Always generate a valid workbook. If there are no rows, Excel will still contain the header row.
   let xlsxBuf = null;
   try {
-    if (xlsxRaw != null) xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+    const xlsxRaw = await objectsToXlsxBuffer(
+      EMAIL_COLUMNS,
+      numbered, // may be []
+      EMAIL_HEADER_LABELS,
+      "Report",
+      { spacerRows: true, autoFit: true }
+    );
+    xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
   } catch (e) {
-    console.error("chair-report-xlsx-buffer-failed", { kind, id, label, scope }, e);
+    console.error("chair-report-xlsx-build-failed", { kind, id, label, scope }, e);
     xlsxBuf = null;
   }
 
-  // If XLSX generation failed (or produced an empty buffer), generate a tiny fallback workbook
+  // SAFETY: ensure we always have a non-empty XLSX buffer (at minimum, headers)
   if (!xlsxBuf || xlsxBuf.length === 0) {
-    try {
-      const fallbackRows = [{
-        message: "No orders found for this reporting window.",
-      }];
-      const fallbackRaw = await objectsToXlsxBuffer(
-        ["message"],
-        fallbackRows,
-        { message: "Message" },
-        "Item Report",
-        { autoFit: true }
-      );
-      xlsxBuf = Buffer.isBuffer(fallbackRaw) ? fallbackRaw : Buffer.from(fallbackRaw);
-    } catch (e2) {
-      console.error("chair-report-xlsx-fallback-failed", { kind, id, label, scope }, e2);
-      // Last resort: attach a small non-empty buffer so the email still has an attachment
-      xlsxBuf = Buffer.from("Chair report XLSX generation failed.");
-    }
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Report");
+    const headerRow = (EMAIL_COLUMNS || []).map((c) => (EMAIL_HEADER_LABELS && EMAIL_HEADER_LABELS[c]) || c);
+    sheet.addRow(headerRow);
+    xlsxBuf = Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
-  const xlsxB64 = xlsxBuf.toString("base64");
-
-  const today = new Date();
+const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
   const baseNameRaw = label || id || "report";
   const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-  const filename = `${baseName || "report"}_${dateStr}.xlsx`;
+  const filename = `Report_${id || "item"}_${scope || "current"}.xlsx`;
 
   const toListPref = await getChairEmailsForItemId(id);
   const { effective } = await getEffectiveSettings();
@@ -2103,7 +2088,7 @@ async function sendItemReportEmailInternal({
     attachments: [
       {
         filename,
-        content: xlsxB64,
+        content: xlsxBuf,
         content_type:
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       },
