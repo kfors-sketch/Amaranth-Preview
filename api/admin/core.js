@@ -1018,6 +1018,21 @@ function renderOrderEmailHTML(order) {
 
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
+        // Pre-Registration: append Voting / Non-Voting to label
+        const baseItem = String(li.itemId || "").toLowerCase().split(":")[0];
+        if (baseItem === "pre-reg") {
+          const voting =
+            li.meta?.voting_status ||
+            li.meta?.voting ||
+            li.meta?.isVoting;
+
+          if (voting === true || voting === "voting") {
+            itemLabel += " (Voting)";
+          } else if (voting === false || voting === "non-voting") {
+            itemLabel += " (Non-Voting)";
+          }
+        }
+
         if (itemIdLower === "corsage") {
           const rawChoice = String(li.meta?.corsageChoice || li.meta?.corsage_choice || "").trim();
           const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(rawChoice);
