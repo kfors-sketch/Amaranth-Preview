@@ -2333,6 +2333,13 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
 
+const attendeesRaw = Array.isArray(body.attendees) ? body.attendees : [];
+const attendeeById = new Map();
+for (const a of attendeesRaw) {
+  const id = String(a?.id || a?.attendeeId || a?.attendee_id || a?.key || "").trim();
+  if (id) attendeeById.set(id, a);
+}
+
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
               const isBundle =
@@ -2362,6 +2369,66 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                   if (!displayName.includes("$")) displayName = `${displayName} — $${amt}`;
                 }
               } catch {}
+// ✅ Pre-Registration: include Voting / Non-Voting in Stripe-visible name
+let votingLabel = "";
+try {
+  const id = String(l.itemId || "").trim().toLowerCase();
+  const nm = String(displayName || "").trim().toLowerCase();
+  const isPreReg =
+    (id.includes("pre") && id.includes("reg")) ||
+    nm === "pre-registration" ||
+    nm.includes("pre-registration") ||
+    nm.includes("pre registration");
+
+  if (isPreReg) {
+    const meta = (l && typeof l.meta === "object" && l.meta) ? l.meta : {};
+    let votingRaw =
+      meta.voting_status ??
+      meta.votingStatus ??
+      meta.voting ??
+      meta.isVoting ??
+      l.voting_status ??
+      l.votingStatus ??
+      l.voting ??
+      l.isVoting ??
+      "";
+
+    // Fallback: look up attendee record by attendeeId
+    const aid = String(l.attendeeId || l.attendee_id || meta.attendeeId || meta.attendee_id || "").trim();
+    if (!String(votingRaw || "").trim() && aid) {
+      const a = attendeeById.get(aid);
+      if (a) {
+        votingRaw =
+          a.voting_status ??
+          a.votingStatus ??
+          a.voting ??
+          a.isVoting ??
+          "";
+      }
+    }
+
+    // Last resort: parse any existing attendee title/notes text (what the order page already shows)
+    if (!String(votingRaw || "").trim()) {
+      const t = String(meta.attendeeTitle || meta.attendee_title || "").toLowerCase();
+      const n = String(meta.attendeeNotes || meta.attendee_notes || "").toLowerCase();
+      const s = `${t} ${n} ${nm}`;
+      if (s.includes("non-voting") || s.includes("non voting") || s.includes("nonvoting")) votingRaw = "non-voting";
+      else if (s.includes("voting")) votingRaw = "voting";
+    }
+
+    const v = String(votingRaw || "").trim().toLowerCase();
+    if (v === "voting" || v === "yes" || v === "true" || v === "1") votingLabel = "Voting";
+    else if (v === "non-voting" || v === "nonvoting" || v === "non voting" || v === "no" || v === "false" || v === "0") votingLabel = "Non-Voting";
+
+    if (votingLabel) {
+      const dl = displayName.toLowerCase();
+      if (!dl.includes("(voting") && !dl.includes("(non-voting") && !dl.includes("(non voting")) {
+        displayName = `${displayName} (${votingLabel})`;
+      }
+    }
+  }
+} catch {}
+
               // ✅ Corsage variants: keep separate line items & show choice/note on Order page + receipts
               // We DO NOT change itemId (so chair email routing still works), but we make the Stripe product
               // name unique per variant so your UI can show "Rose Corsage" vs "Custom Corsage — note..."
@@ -2491,52 +2558,6 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     name2.includes("pre registration") ||
                     name2.includes("pre reg") ||
                     name2.includes("prereg");
-
-
-
-                  // Fallback: pull voting from attendee record (order page already has it)
-                  if (isPreReg && !votingLabel && l?.attendeeId && Array.isArray(body?.attendees)) {
-                    const aid = String(l.attendeeId || "").trim();
-                    if (aid) {
-                      const a = body.attendees.find(
-                        (x) => String(x?.id || x?.attendeeId || "").trim() === aid
-                      );
-                      if (a) {
-                        const ar =
-                          a?.votingStatus ??
-                          a?.voting_status ??
-                          a?.voting ??
-                          a?.isVoting ??
-                          a?.votingBool ??
-                          a?.voting_boolean ??
-                          a?.votingFlag ??
-                          a?.voting_flag ??
-                          "";
-                        const vr2 = String(ar ?? "").trim().toLowerCase();
-                        if (vr2) {
-                          if (/non\s*-?\s*voting/.test(vr2) || /nonvoting/.test(vr2) || vr2 === "nv" || ["0","false","f","no","n"].includes(vr2)) {
-                            votingLabel = "Non-Voting";
-                          } else if (/\bvoting\b/.test(vr2) || vr2 === "v" || ["1","true","t","yes","y"].includes(vr2)) {
-                            votingLabel = "Voting";
-                          }
-                        }
-                      }
-                    }
-                  }
-
-// Fallback: if the Order page already embedded "Voting"/"Non-Voting" in attendeeTitle/notes,
-// reuse that for Stripe-visible names (Stripe does not display metadata on receipts).
-if (isPreReg && !votingLabel) {
-  const fromTitle = String(l?.meta?.attendeeTitle || "").toLowerCase();
-  const fromNotes = String(l?.meta?.attendeeNotes || l?.meta?.attendeeNote || "").toLowerCase();
-  const fromName  = String(displayName || "").toLowerCase();
-  const blob = `${fromTitle} ${fromNotes} ${fromName}`.trim();
-  if (blob) {
-    if (blob.includes("non-voting") || blob.includes("nonvoting") || blob.includes("non voting") || /nv/.test(blob)) votingLabel = "Non-Voting";
-    else if (blob.includes("voting") || /v/.test(blob)) votingLabel = "Voting";
-  }
-}
-
 
                   if (isPreReg && votingLabel) {
                     const dl = String(displayName || "").toLowerCase();
