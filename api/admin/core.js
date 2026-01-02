@@ -686,6 +686,28 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeEmail: meta.attendeeEmail || "",
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
+        voting_status:
+          (meta.votingStatus ||
+            meta.voting_status ||
+            meta.voting ||
+            meta.votingType ||
+            meta.voting_type ||
+            ""),
+        votingStatus:
+          (meta.votingStatus ||
+            meta.voting_status ||
+            meta.voting ||
+            meta.votingType ||
+            meta.voting_type ||
+            ""),
+        isVoting:
+          String(
+            meta.isVoting ??
+              meta.votingBool ??
+              meta.voting_boolean ??
+              ""
+          ),
+
         corsageChoice: meta.corsageChoice || meta.corsage_choice || meta.corsageType || meta.corsage_type || meta.choice || meta.selection || meta.style || meta.color || "",
         corsageWear: meta.corsageWear || meta.corsage_wear || meta.wear || meta.wearStyle || "",
         corsageNote: meta.corsageNote || meta.corsage_note || "",
