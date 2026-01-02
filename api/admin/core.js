@@ -557,12 +557,20 @@ function applyItemFilters(rows, { category, item_id, item }) {
 
 // --- Mail visibility helpers ---
 const MAIL_LOG_KEY = "mail:lastlog";
+const MAIL_LOG_LIST_KEY = "mail:logs";
+
 async function recordMailLog(payload) {
+  // Keep the single last-log (quick debug)
   try {
     await kv.set(MAIL_LOG_KEY, payload, { ex: 3600 });
   } catch {}
-}
 
+  // Also keep a rolling recent history for admin debug2 (debug_mail_recent)
+  try {
+    await kv.lpush(MAIL_LOG_LIST_KEY, payload);
+    await kv.ltrim(MAIL_LOG_LIST_KEY, 0, 199); // keep last 200
+  } catch {}
+}
 // --- Coverage text helper for chair reports ---
 function formatCoverageRange({ startMs, endMs, rows }) {
   const fmt = (ms) =>
