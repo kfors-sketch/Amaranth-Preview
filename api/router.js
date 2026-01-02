@@ -910,6 +910,26 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, ...out });
       }
 
+      if (type === "debug_mail_recent") {
+        // Admin-only: list recent mail logs (requires recordMailLog to push into mail:logs)
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const limitRaw = url.searchParams.get("limit") || "20";
+        let limit = Number(limitRaw);
+        if (!Number.isFinite(limit)) limit = 20;
+        limit = Math.max(1, Math.min(200, Math.floor(limit)));
+
+        let logs = [];
+        try {
+          logs = await kv.lrange("mail:logs", 0, limit - 1);
+        } catch (e) {
+          return errResponse(res, 500, "debug-mail-recent-failed", req, e);
+        }
+
+        return REQ_OK(res, { requestId, ok: true, limit, logs });
+      }
+
+
       if (type === "debug_token") {
         const out = await handleTokenTest(req);
         return REQ_OK(res, { requestId, ...out });
