@@ -2332,21 +2332,13 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
             const lines = body.lines;
             const fees = body.fees || { pct: 0, flat: 0 };
             const purchaser = body.purchaser || {};
-
-            // Optional: attendee list (used to derive Voting/Non-Voting for Pre-Registration)
-            const _attendees = Array.isArray(body.attendees)
-              ? body.attendees
-              : (Array.isArray(body.attendeeList)
-                ? body.attendeeList
-                : (Array.isArray(body.attendee_list) ? body.attendee_list : []));
-            const _attendeeById = Object.create(null);
-            try {
-              for (const a of _attendees) {
-                const aid = String(a?.id || a?.attendeeId || a?.attendee_id || "").trim();
-                if (!aid) continue;
-                _attendeeById[aid] = a;
-              }
-            } catch {}
+            // Build a quick attendee lookup so we can enrich line items (ex: Pre-Reg voting/non-voting)
+            const attendeesList = Array.isArray(body.attendees) ? body.attendees : [];
+            const attendeeById = new Map();
+            for (const a of attendeesList) {
+              const aid = String(a?.id || a?.attendeeId || a?.attendee_id || "").trim();
+              if (aid) attendeeById.set(aid, a);
+            }
 
 
             const line_items = lines.map((l) => {
@@ -2472,8 +2464,56 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                 // - Our emailed receipt / success.html receipt
                 // - Chair spreadsheets (deriveVotingStatus reads stored text)
                 try {
-                  const id2 = String(l.itemId || "").toLowerCase();
-                  const name2 = String(l.itemName || "").toLowerCase();
+                  // Voting / Non-Voting can come either from the line meta (ideal)
+                  // OR from the selected attendee record (fallback).
+                  const meta = (l && typeof l === "object" ? l.meta : null) || {};
+
+                  const lineAttId = String(
+                    l?.attendeeId ||
+                      l?.attendee_id ||
+                      l?.attendee ||
+                      l?.personId ||
+                      l?.person_id ||
+                      ""
+                  ).trim();
+
+                  const att = lineAttId ? attendeeById.get(lineAttId) : null;
+
+                  const votingBool =
+                    meta?.isVoting ??
+                    meta?.votingBool ??
+                    meta?.voting_boolean ??
+                    att?.isVoting ??
+                    att?.votingBool ??
+                    att?.voting_boolean ??
+                    null;
+
+                  const votingRaw =
+                    meta?.votingStatus ??
+                    meta?.voting_status ??
+                    meta?.voting ??
+                    meta?.votingType ??
+                    meta?.voting_type ??
+                    att?.votingStatus ??
+                    att?.voting_status ??
+                    att?.voting ??
+                    att?.votingType ??
+                    att?.voting_type ??
+                    "";
+
+                  let votingLabel = "";
+                  if (votingBool === true) votingLabel = "Voting";
+                  else if (votingBool === false) votingLabel = "Non-Voting";
+                  else {
+                    const vr = String(votingRaw ?? "").trim().toLowerCase();
+                    if (vr) {
+                      if (/non\s*-?\s*voting/.test(vr) || /nonvoting/.test(vr) || vr === "nv")
+                        votingLabel = "Non-Voting";
+                      else if (/\bvoting\b/.test(vr) || vr === "v") votingLabel = "Voting";
+                      else if (["1", "true", "t", "yes", "y"].includes(vr)) votingLabel = "Voting";
+                      else if (["0", "false", "f", "no", "n"].includes(vr)) votingLabel = "Non-Voting";
+                    }
+                  }
 
                   const isPreReg =
                     (id2.includes("pre") && (id2.includes("reg") || id2.includes("registration"))) ||
@@ -2482,64 +2522,22 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     name2.includes("pre reg") ||
                     name2.includes("prereg");
 
-                  if (isPreReg) {
-                    // Pull voting from the cart line *or* from the matching attendee record (if provided)
-                    const a = _attendeeById[String(l.attendeeId || "").trim()] || null;
-
-                    const votingBool =
-                      (l?.meta?.isVoting ??
-                        l?.meta?.votingBool ??
-                        l?.meta?.voting_boolean ??
-                        a?.isVoting ??
-                        a?.votingBool ??
-                        a?.voting_boolean ??
-                        a?.voting ??
-                        a?.voting_flag ??
-                        null);
-
-                    const votingRaw =
-                      (l?.meta?.votingStatus ??
-                        l?.meta?.voting_status ??
-                        l?.meta?.voting ??
-                        l?.meta?.votingType ??
-                        l?.meta?.voting_type ??
-                        l?.meta?.votingFlag ??
-                        l?.meta?.voting_flag ??
-                        a?.votingStatus ??
-                        a?.voting_status ??
-                        a?.votingType ??
-                        a?.voting_type ??
-                        a?.votingFlag ??
-                        a?.voting_flag ??
-                        "");
-
-                    let votingLabel = "";
-                    if (votingBool === true) votingLabel = "Voting";
-                    else if (votingBool === false) votingLabel = "Non-Voting";
-                    else {
-                      const vr = String(votingRaw ?? "").trim().toLowerCase();
-                      if (vr) {
-                        if (/non\s*-?\s*voting/.test(vr) || /nonvoting/.test(vr) || vr === "nv") votingLabel = "Non-Voting";
-                        else if (/\bvoting\b/.test(vr) || vr === "v") votingLabel = "Voting";
-                        else if (["1", "true", "t", "yes", "y"].includes(vr)) votingLabel = "Voting";
-                        else if (["0", "false", "f", "no", "n"].includes(vr)) votingLabel = "Non-Voting";
-                      }
+                  if (isPreReg && votingLabel) {
+                    const dl = String(displayName || "").toLowerCase();
+                    // Avoid double-appending
+                    if (
+                      !dl.includes("non-voting") &&
+                      !dl.includes("nonvoting") &&
+                      !dl.includes("(voting") &&
+                      !dl.includes(" voting")
+                    ) {
+                      displayName = `${displayName} (${votingLabel})`;
                     }
+                  }
 
-                    if (votingLabel) {
-                      // Persist on the line meta so it also propagates into Stripe product metadata
-                      l.meta = l.meta && typeof l.meta === "object" ? l.meta : {};
-                      if (!l.meta.votingStatus) l.meta.votingStatus = votingLabel;
-                      if (!l.meta.voting_status) l.meta.voting_status = votingLabel;
-                      if (l.meta.isVoting == null) l.meta.isVoting = votingLabel === "Voting";
-                      if (l.meta.votingBool == null) l.meta.votingBool = l.meta.isVoting;
-
-                      const dl = String(displayName || "").toLowerCase();
-                      // Avoid double-appending
-                      if (!dl.includes("non-voting") && !dl.includes("nonvoting") && !dl.includes("voting")) {
-                        displayName = `${displayName} (${votingLabel})`;
-                      }
-                    }
+                  // Also stamp metadata so our own receipt renderer can show it even if the name is edited later.
+                  if (votingLabel) {
+                    l.meta = { ...(meta || {}), votingStatus: votingLabel, voting_status: votingLabel, isVoting: votingLabel === "Voting" };
                   }
                 } catch {}
 } catch {}
