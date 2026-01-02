@@ -676,12 +676,14 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
       attendeeId: meta.attendeeId || meta.attendee_id || "",
       attendeeName: meta.attendeeName || meta.attendee_name || "",
       attendeeTitle: meta.attendeeTitle || meta.attendee_title || "",
+      voting_status: meta.voting_status || meta.votingStatus || meta.attendee_voting || meta.attendeeVoting || \"\",
       attendeePhone: meta.attendeePhone || meta.attendee_phone || "",
       attendeeEmail: meta.attendeeEmail || meta.attendee_email || "",
       itemId: meta.itemId || meta.item_id || "",
       meta: {
         attendeeName: meta.attendeeName || "",
         attendeeTitle: meta.attendeeTitle || "",
+        voting_status: meta.voting_status || meta.votingStatus || "",
         attendeePhone: meta.attendeePhone || "",
         attendeeEmail: meta.attendeeEmail || "",
         attendeeNotes: meta.attendeeNotes || "",
@@ -860,13 +862,26 @@ function flattenOrderToRows(o) {
       fees: 0,
       net: (net || 0) / 100,
       status: o.status || "paid",
-      notes:
-        li.category === "banquet"
-          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote].filter(Boolean).join("; ")
-          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote]
-          .filter(Boolean)
-          .join("; ")
-          ,
+      notes: (() => {
+        const isBanquet = li.category === "banquet";
+        const baseParts = isBanquet
+          ? [li.meta?.attendeeNotes, li.meta?.dietaryNote]
+          : [li.meta?.itemNote, li.meta?.attendeeNotes, li.meta?.dietaryNote];
+
+        // Pre-Registration: include Voting / Non-Voting on receipts
+        try {
+          const voting = String(li.meta?.voting_status || li.meta?.votingStatus || "").trim();
+          const blob = `${rawId} ${li.itemName || ""}`.toLowerCase();
+          const isPreReg =
+            /pre\s*-?\s*reg/.test(blob) ||
+            blob.includes("pre-registration") ||
+            blob.includes("pre registration") ||
+            blob.includes("prereg");
+          if (isPreReg && voting) baseParts.push(`Voting Status: ${voting}`);
+        } catch {}
+
+        return baseParts.filter(Boolean).join("; ");
+      })(),
       _itemId: rawId,
       _itemBase: base,
       _itemKey: normalizeKey(rawId),
@@ -1018,21 +1033,6 @@ function renderOrderEmailHTML(order) {
 
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
-        // Pre-Registration: append Voting / Non-Voting to label
-        const baseItem = String(li.itemId || "").toLowerCase().split(":")[0];
-        if (baseItem === "pre-reg") {
-          const voting =
-            li.meta?.voting_status ||
-            li.meta?.voting ||
-            li.meta?.isVoting;
-
-          if (voting === true || voting === "voting") {
-            itemLabel += " (Voting)";
-          } else if (voting === false || voting === "non-voting") {
-            itemLabel += " (Non-Voting)";
-          }
-        }
-
         if (itemIdLower === "corsage") {
           const rawChoice = String(li.meta?.corsageChoice || li.meta?.corsage_choice || "").trim();
           const isCustom = !!li.meta?.corsageIsCustom || /custom/i.test(rawChoice);
