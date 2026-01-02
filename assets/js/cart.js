@@ -295,23 +295,50 @@ function lineMetaSignature(line){
   // === LINES ===
   // Add a line in dollars. If it's a bundle, we force qty=1 and keep bundle price.
   function addLine({ attendeeId, itemType, itemId, itemName, qty, unitPrice, meta = {} }){
-    // ---- Pre-Registration: bake Voting / Non-Voting into itemName (Stripe-safe) ----
-    try {
-      const id = String(itemId || "").toLowerCase();
-      const isPreReg = id.includes("pre") && id.includes("reg");
+    // ---- Pre-Registration: bake Voting / Non-Voting into itemName + Notes (Stripe/receipt-safe) ----
+try {
+  const id = String(itemId || "").toLowerCase();
+  const isPreReg = id.includes("pre") && id.includes("reg");
 
-      if (isPreReg && attendeeId) {
-        const att = state.attendees.find(a => a.id === attendeeId);
-        if (att) {
-          const v = String(att.voting || att.votingStatus || att.isVoting || "").toLowerCase();
-          if (v === "voting" || v === "yes" || v === "true") {
-            itemName = `${itemName} (Voting)`;
-          } else if (v === "non-voting" || v === "nonvoting" || v === "no" || v === "false") {
-            itemName = `${itemName} (Non-Voting)`;
-          }
+  if (isPreReg && attendeeId) {
+    const att = state.attendees.find(a => a.id === attendeeId);
+    if (att) {
+      const vRaw = (att.voting ?? att.votingStatus ?? att.isVoting ?? "");
+      const v = String(vRaw).toLowerCase();
+
+      let label = "";
+      if (v === "voting" || v === "yes" || v === "true" || v === "1") label = "Voting";
+      else if (v === "non-voting" || v === "nonvoting" || v === "no" || v === "false" || v === "0") label = "Non-Voting";
+
+      if (label) {
+        // 1) Stripe-visible name (Stripe shows name; receipts often mirror name)
+        if (!/\(voting\)|\(non-voting\)/i.test(itemName)) {
+          itemName = `${itemName} (${label})`;
         }
+
+        // 2) Receipt-visible "Notes:" line (some receipts only print notes fields)
+        const noteLine = `Member: ${label}`;
+
+        // Normalize into multiple common keys to maximize compatibility with existing receipt code:
+        // - itemNote / notes / note are used across the site for "Notes:" rendering
+        // - attendeeNotes is also commonly printed for attendee-tied items
+        meta = meta || {};
+        const existing =
+          String(meta.itemNote || meta.notes || meta.note || meta.attendeeNotes || "").trim();
+
+        // If there's already a note, append; otherwise set
+        const combined = existing
+          ? (existing.includes(noteLine) ? existing : `${existing} | ${noteLine}`)
+          : noteLine;
+
+        meta.itemNote = combined;
+        meta.notes = combined;
+        meta.note = combined;
+        meta.attendeeNotes = combined;
       }
-    } catch {}
+    }
+  }
+} catch {}
 
     const price = Number(unitPrice || 0);
     const line  = normalizeBundle({
