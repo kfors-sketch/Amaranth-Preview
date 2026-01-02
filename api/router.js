@@ -2492,6 +2492,38 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     name2.includes("pre reg") ||
                     name2.includes("prereg");
 
+
+
+                  // Fallback: pull voting from attendee record (order page already has it)
+                  if (isPreReg && !votingLabel && l?.attendeeId && Array.isArray(body?.attendees)) {
+                    const aid = String(l.attendeeId || "").trim();
+                    if (aid) {
+                      const a = body.attendees.find(
+                        (x) => String(x?.id || x?.attendeeId || "").trim() === aid
+                      );
+                      if (a) {
+                        const ar =
+                          a?.votingStatus ??
+                          a?.voting_status ??
+                          a?.voting ??
+                          a?.isVoting ??
+                          a?.votingBool ??
+                          a?.voting_boolean ??
+                          a?.votingFlag ??
+                          a?.voting_flag ??
+                          "";
+                        const vr2 = String(ar ?? "").trim().toLowerCase();
+                        if (vr2) {
+                          if (/non\s*-?\s*voting/.test(vr2) || /nonvoting/.test(vr2) || vr2 === "nv" || ["0","false","f","no","n"].includes(vr2)) {
+                            votingLabel = "Non-Voting";
+                          } else if (/\bvoting\b/.test(vr2) || vr2 === "v" || ["1","true","t","yes","y"].includes(vr2)) {
+                            votingLabel = "Voting";
+                          }
+                        }
+                      }
+                    }
+                  }
+
 // Fallback: if the Order page already embedded "Voting"/"Non-Voting" in attendeeTitle/notes,
 // reuse that for Stripe-visible names (Stripe does not display metadata on receipts).
 if (isPreReg && !votingLabel) {
