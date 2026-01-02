@@ -259,6 +259,43 @@ if (typeof window !== "undefined") {
       meta.attendeeCountry = attendee.country || "";
     }
 
+// ✅ Pre-Registration: carry Voting / Non-Voting into receipt "Notes:" (like banquet notes)
+// Stripe/receipt do NOT automatically show attendee voting unless we store it on the line meta.
+if (addon && (String(addon.id) === "pre-reg" || String(addon.id) === "pre_registration" || /pre\s*registration/i.test(String(addon.name || "")))) {
+  // try multiple attendee fields (different pages may store it differently)
+  const raw =
+    attendee.votingStatus ??
+    attendee.voting_status ??
+    attendee.voting ??
+    attendee.isVoting ??
+    attendee.is_voting ??
+    attendee.memberType ??
+    attendee.membershipType ??
+    "";
+
+  let label = "";
+  const v = String(raw || "").trim().toLowerCase();
+  if (v === "voting" || v === "yes" || v === "true" || v === "1") label = "Voting";
+  else if (v === "non-voting" || v === "nonvoting" || v === "no" || v === "false" || v === "0") label = "Non-Voting";
+
+  // fallback: some UIs embed it in the title string
+  if (!label) {
+    const titleText = String(attendee.title || "").toLowerCase();
+    if (titleText.includes("non-voting") || titleText.includes("nonvoting")) label = "Non-Voting";
+    else if (titleText.includes("voting")) label = "Voting";
+  }
+
+  if (label) {
+    // Make receipts show it exactly like banquet notes
+    meta.itemNote = meta.itemNote || `Member: ${label}`;
+    meta.attendeeNotes = meta.attendeeNotes || meta.itemNote;
+    meta.notes = meta.notes || meta.itemNote;
+    // Also helpful for downstream parsing
+    meta.votingStatus = meta.votingStatus || label;
+    meta.isVoting = meta.isVoting || (label === "Voting" ? "true" : "false");
+  }
+}
+
     if (variant) {
       meta.variantId = variant.id || "";
       meta.variantLabel = variant.label || "";
