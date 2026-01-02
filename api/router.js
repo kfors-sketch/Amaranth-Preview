@@ -2470,12 +2470,6 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     l?.meta?.voting_type ??
                     l?.meta?.votingFlag ??
                     l?.meta?.voting_flag ??
-                    // fallback: some pages store it as a "title" instead of a voting field
-                    l?.meta?.attendeeTitle ??
-                    l?.attendeeTitle ??
-                    l?.attendee?.title ??
-                    l?.attendee?.memberType ??
-                    l?.attendee?.member_type ??
                     "";
 
                   let votingLabel = "";
@@ -2498,12 +2492,37 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
                     name2.includes("pre reg") ||
                     name2.includes("prereg");
 
+// Fallback: if the Order page already embedded "Voting"/"Non-Voting" in attendeeTitle/notes,
+// reuse that for Stripe-visible names (Stripe does not display metadata on receipts).
+if (isPreReg && !votingLabel) {
+  const fromTitle = String(l?.meta?.attendeeTitle || "").toLowerCase();
+  const fromNotes = String(l?.meta?.attendeeNotes || l?.meta?.attendeeNote || "").toLowerCase();
+  const fromName  = String(displayName || "").toLowerCase();
+  const blob = `${fromTitle} ${fromNotes} ${fromName}`.trim();
+  if (blob) {
+    if (blob.includes("non-voting") || blob.includes("nonvoting") || blob.includes("non voting") || /nv/.test(blob)) votingLabel = "Non-Voting";
+    else if (blob.includes("voting") || /v/.test(blob)) votingLabel = "Voting";
+  }
+}
+
+
                   if (isPreReg && votingLabel) {
                     const dl = String(displayName || "").toLowerCase();
                     // Avoid double-appending
                     if (!dl.includes("non-voting") && !dl.includes("nonvoting") && !dl.includes("voting")) {
                       displayName = `${displayName} (${votingLabel})`;
                     }
+
+                    // Also ensure it shows up like banquet notes in our receipt:
+                    // put it into itemNote if no other notes exist.
+                    try {
+                      l.meta = l.meta || {};
+                      const hasNotes =
+                        !!(l.meta.itemNote || l.meta.item_note || l.meta.attendeeNotes || l.meta.dietaryNote);
+                      if (!hasNotes) {
+                        l.meta.itemNote = `Member: ${votingLabel}`;
+                      }
+                    } catch {}
                   }
                 } catch {}
 } catch {}
