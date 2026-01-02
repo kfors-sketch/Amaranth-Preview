@@ -295,6 +295,24 @@ function lineMetaSignature(line){
   // === LINES ===
   // Add a line in dollars. If it's a bundle, we force qty=1 and keep bundle price.
   function addLine({ attendeeId, itemType, itemId, itemName, qty, unitPrice, meta = {} }){
+    // ---- Pre-Registration: bake Voting / Non-Voting into itemName (Stripe-safe) ----
+    try {
+      const id = String(itemId || "").toLowerCase();
+      const isPreReg = id.includes("pre") && id.includes("reg");
+
+      if (isPreReg && attendeeId) {
+        const att = state.attendees.find(a => a.id === attendeeId);
+        if (att) {
+          const v = String(att.voting || att.votingStatus || att.isVoting || "").toLowerCase();
+          if (v === "voting" || v === "yes" || v === "true") {
+            itemName = `${itemName} (Voting)`;
+          } else if (v === "non-voting" || v === "nonvoting" || v === "no" || v === "false") {
+            itemName = `${itemName} (Non-Voting)`;
+          }
+        }
+      }
+    } catch {}
+
     const price = Number(unitPrice || 0);
     const line  = normalizeBundle({
       id: uid("ln"),
