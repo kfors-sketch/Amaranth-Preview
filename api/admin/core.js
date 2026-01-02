@@ -686,28 +686,6 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeEmail: meta.attendeeEmail || "",
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
-        voting_status:
-          (meta.votingStatus ||
-            meta.voting_status ||
-            meta.voting ||
-            meta.votingType ||
-            meta.voting_type ||
-            ""),
-        votingStatus:
-          (meta.votingStatus ||
-            meta.voting_status ||
-            meta.voting ||
-            meta.votingType ||
-            meta.voting_type ||
-            ""),
-        isVoting:
-          String(
-            meta.isVoting ??
-              meta.votingBool ??
-              meta.voting_boolean ??
-              ""
-          ),
-
         corsageChoice: meta.corsageChoice || meta.corsage_choice || meta.corsageType || meta.corsage_type || meta.choice || meta.selection || meta.style || meta.color || "",
         corsageWear: meta.corsageWear || meta.corsage_wear || meta.wear || meta.wearStyle || "",
         corsageNote: meta.corsageNote || meta.corsage_note || "",
@@ -1041,18 +1019,38 @@ function renderOrderEmailHTML(order) {
         // Corsage: append choice + wear style directly on the line item label
         let itemLabel = li.itemName || "";
         // Pre-Registration: append Voting / Non-Voting to label
+        // (Stripe + receipts only show what we put in the line item label, so be liberal in detection.)
         const baseItem = String(li.itemId || "").toLowerCase().split(":")[0];
-        if (baseItem === "pre-reg") {
-          const voting =
-            li.meta?.voting_status ||
-            li.meta?.voting ||
-            li.meta?.isVoting;
+        const labelLower = String(itemLabel || "").toLowerCase();
 
-          if (voting === true || voting === "voting") {
-            itemLabel += " (Voting)";
-          } else if (voting === false || voting === "non-voting") {
-            itemLabel += " (Non-Voting)";
+        const looksLikePreReg =
+          baseItem === "pre-reg" ||
+          baseItem === "prereg" ||
+          baseItem === "pre_registration" ||
+          baseItem === "pre-registration" ||
+          (baseItem.includes("pre") && (baseItem.includes("reg") || baseItem.includes("registration"))) ||
+          labelLower.includes("pre-registration") ||
+          labelLower.includes("pre registration") ||
+          labelLower.includes("pre reg") ||
+          labelLower.includes("prereg");
+
+        if (looksLikePreReg) {
+          // If the label already contains voting text (because we appended it at checkout time),
+          // do nothing.
+          if (!labelLower.includes("non-voting") && !labelLower.includes("nonvoting") && !labelLower.includes("(voting") && !labelLower.includes(" voting")) {
+            const voting =
+              li.meta?.voting_status ||
+              li.meta?.votingStatus ||
+              li.meta?.voting ||
+              li.meta?.isVoting;
+
+            if (voting === true || String(voting).toLowerCase() === "voting") {
+              itemLabel += " (Voting)";
+            } else if (voting === false || String(voting).toLowerCase() === "non-voting" || String(voting).toLowerCase() === "nonvoting") {
+              itemLabel += " (Non-Voting)";
+            }
           }
+        }
         }
 
         if (itemIdLower === "corsage") {
