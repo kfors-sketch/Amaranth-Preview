@@ -1553,49 +1553,37 @@ export default async function handler(req, res) {
         }
 
         const sorted = sortByDateAsc(rows, "date");
-        const headers = Object.keys(
-          sorted[0] || {
-            id: "",
-            date: "",
-            purchaser: "",
-            attendee: "",
-            category: "",
-            item: "",
-            item_id: "",
-            qty: 0,
-            price: 0,
-            gross: 0,
-            fees: 0,
-            net: 0,
-            status: "",
-            notes: "",
-            _itemId: "",
-            _itemBase: "",
-            _itemKey: "",
-            _pi: "",
-            _charge: "",
-            _session: "",
-            mode: "",
-          }
-        );
 
-        // ExcelJS can throw if any cell value is a BigInt or a plain object.
-// Normalize all values to primitives for safer downloads.
-const safeRows = sorted.map((r) => {
-  const o = {};
-  for (const h of headers) {
-    let v = r?.[h];
-    if (v === null || v === undefined) v = "";
-    else if (typeof v === "bigint") v = v.toString();
-    else if (typeof v === "object") {
-      try { v = JSON.stringify(v); } catch { v = String(v); }
-    }
-    o[h] = v;
-  }
-  return o;
-});
+        // ExcelJS can throw on completely empty datasets. Ensure we always emit a valid
+        // workbook (at minimum: headers + a single blank row) so "Download (.xlsx)" never 500s.
+        const _fallbackRow = {
+          id: "",
+          date: "",
+          purchaser: "",
+          attendee: "",
+          category: "",
+          item: "",
+          item_id: "",
+          qty: 0,
+          price: 0,
+          gross: 0,
+          fees: 0,
+          net: 0,
+          status: "",
+          notes: "",
+          _itemId: "",
+          _itemBase: "",
+          _itemKey: "",
+          _pi: "",
+          _charge: "",
+          _session: "",
+          mode: "",
+        };
 
-const buf = await objectsToXlsxBuffer(headers, safeRows, null, "Orders");
+        const headers = Object.keys(sorted[0] || _fallbackRow);
+        const safeRows = sorted.length ? sorted : [_fallbackRow];
+
+        const buf = await objectsToXlsxBuffer(headers, safeRows, null, "Orders");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
