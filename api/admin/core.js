@@ -1797,7 +1797,7 @@ async function sendItemReportEmailInternal({
 
   const base = baseKey(id);
   const includeAddressForThisItem = base === "pre-reg" || base === "directory" || base === "proceedings";
-  const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base) || /(corsage|boutonniere)/.test(base);
+  const isLoveGiftBase = /(^|[-_])(love|gift|lovegift|love-gift)s?($|[-_])/.test(base);
   const isCorsageBase = /(corsage|boutonniere)/.test(base);
   const isBanquetKind = String(kind || "").toLowerCase() === "banquet";
   const isPreRegBase = base === "pre-reg";
@@ -1920,17 +1920,7 @@ async function sendItemReportEmailInternal({
       court_number: "Court #",
     };
   }
-
-  if (isCorsageBase) {
-    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
-    // Put "Corsage Wear" right after item_name/item_price if present, otherwise after item
-    const after = cols.includes("item_price") ? cols.indexOf("item_price") + 1 : (cols.includes("item_name") ? cols.indexOf("item_name") + 1 : (cols.includes("item") ? cols.indexOf("item") + 1 : cols.length));
-    if (!cols.includes("corsage_wear")) cols.splice(after, 0, "corsage_wear");
-    EMAIL_COLUMNS = cols;
-    EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, corsage_wear: "Wear Style" };
-  }
-
-
+  // Corsage/Boutonniere: Wear Style is included in the Item text, so we do NOT add a separate column.
   if (isBanquetKind) {
     EMAIL_COLUMNS = (EMAIL_COLUMNS || []).flatMap((c) => (c === "item" ? ["item", "meal_type"] : [c]));
     EMAIL_HEADER_LABELS = { ...EMAIL_HEADER_LABELS, meal_type: "Meal Type" };
