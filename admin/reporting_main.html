@@ -727,13 +727,37 @@
       if(!opt)return alert('Choose item');
       const id=opt.value;
       const label=opt.dataset.label;
-      const extra = new URLSearchParams({
+
+      const scopeMode=$('#scopeMode').value;
+      const params=new URLSearchParams({
         category:kind,
         item_id:id,
         item:label
-      }).toString();
-      await downloadServerCsv(extra);
+      });
+
+      // Match the same “scope” options used for emailing:
+      // - full: all time (no date filter)
+      // - current-month: from the 1st of the current month through today
+      // - custom: user-selected start/end
+      if(scopeMode==='current-month'){
+        const now=new Date();
+        const y=now.getFullYear();
+        const m=String(now.getMonth()+1).padStart(2,'0');
+        const start=`${y}-${m}-01`;
+        const end=now.toISOString().split('T')[0];
+        params.set('start',start);
+        params.set('end',end);
+      }else if(scopeMode==='custom'){
+        const s=$('#scopeStart').value;
+        const e=$('#scopeEnd').value;
+        if(!s||!e)return alert('Both dates required');
+        params.set('start',s);
+        params.set('end',e);
+      }
+
+      await downloadServerCsv('?'+params.toString());
     });
+
 
     document.getElementById('btnActEmail').addEventListener('click',async()=>{
       const kind=$('#actCategory').value;
