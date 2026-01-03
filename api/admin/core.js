@@ -686,12 +686,20 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeEmail: meta.attendeeEmail || "",
         attendeeCourt:
           meta.attendeeCourt ||
+          meta.attendeeCourtName ||
+          meta.attendee_court ||
+          meta.attendee_court_name ||
           meta.court ||
           meta.courtName ||
           meta.court_name ||
           "",
         attendeeCourtNumber:
           meta.attendeeCourtNumber ||
+          meta.attendeeCourtNo ||
+          meta.attendeeCourtNum ||
+          meta.attendee_court_number ||
+          meta.attendee_court_no ||
+          meta.attendee_court_num ||
           meta.courtNumber ||
           meta.court_no ||
           meta.courtNo ||
@@ -855,8 +863,8 @@ function flattenOrderToRows(o) {
       attendee_title: li.meta?.attendeeTitle || "",
       attendee_email: li.meta?.attendeeEmail || "",
       attendee_phone: li.meta?.attendeePhone || "",
-      court: li.meta?.attendeeCourt || li.meta?.court || li.meta?.courtName || li.meta?.court_name || li.meta?.attendeeCourtName || "",
-      court_number: li.meta?.attendeeCourtNumber || li.meta?.courtNumber || li.meta?.court_no || li.meta?.courtNo || li.meta?.courtNum || "",
+            court: li.meta?.attendeeCourt || li.meta?.attendeeCourtName || li.meta?.attendee_court || li.meta?.attendee_court_name || li.meta?.court || li.meta?.courtName || li.meta?.court_name || li.meta?.attendeeCourtName || "",
+            court_number: li.meta?.attendeeCourtNumber || li.meta?.attendeeCourtNo || li.meta?.attendeeCourtNum || li.meta?.attendee_court_number || li.meta?.attendee_court_no || li.meta?.attendee_court_num || li.meta?.courtNumber || li.meta?.court_no || li.meta?.courtNo || li.meta?.courtNum || "",
       attendee_addr1: li.meta?.attendeeAddr1 || "",
       attendee_addr2: li.meta?.attendeeAddr2 || "",
       attendee_city: li.meta?.attendeeCity || "",
