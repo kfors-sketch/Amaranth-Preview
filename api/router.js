@@ -1459,12 +1459,21 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, rows });
       }
 
-      if (type === "orders_csv") {
+            if (type === "orders_csv") {
+        // Download-safe XLSX export (null-safe + empty-safe)
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
+
         for (const sid of ids) {
           const o = await kvGetSafe(`order:${sid}`, null);
-          if (o) all.push(...flattenOrderToRows(o));
+          if (!o) continue;
+
+          const rows = flattenOrderToRows(o) || [];
+          if (Array.isArray(rows)) {
+            for (const r of rows) {
+              if (r && typeof r === "object") all.push(r);
+            }
+          }
         }
 
         const daysParam = url.searchParams.get("days");
@@ -1489,8 +1498,7 @@ export default async function handler(req, res) {
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
-            startMs =
-              endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
@@ -1498,6 +1506,7 @@ export default async function handler(req, res) {
         }
 
         let rows = all;
+
         if (!isNaN(startMs) || !isNaN(endMs)) {
           rows = filterRowsByWindow(rows, {
             startMs: isNaN(startMs) ? undefined : startMs,
@@ -1505,16 +1514,16 @@ export default async function handler(req, res) {
           });
         }
 
-        const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-        if (q) {
+        const qSearch = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (qSearch) {
           rows = rows.filter(
             (r) =>
-              String(r.purchaser || "").toLowerCase().includes(q) ||
-              String(r.attendee || "").toLowerCase().includes(q) ||
-              String(r.item || "").toLowerCase().includes(q) ||
-              String(r.category || "").toLowerCase().includes(q) ||
-              String(r.status || "").toLowerCase().includes(q) ||
-              String(r.notes || "").toLowerCase().includes(q)
+              String(r.purchaser || "").toLowerCase().includes(qSearch) ||
+              String(r.attendee || "").toLowerCase().includes(qSearch) ||
+              String(r.item || "").toLowerCase().includes(qSearch) ||
+              String(r.category || "").toLowerCase().includes(qSearch) ||
+              String(r.status || "").toLowerCase().includes(qSearch) ||
+              String(r.notes || "").toLowerCase().includes(qSearch)
           );
         }
 
@@ -1523,16 +1532,16 @@ export default async function handler(req, res) {
         const itemParam = (url.searchParams.get("item") || "").toLowerCase();
 
         if (catParam) {
-          rows = rows.filter(
-            (r) => String(r.category || "").toLowerCase() === catParam
-          );
+          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
         }
 
         if (itemIdParam) {
           const wantRaw = itemIdParam;
           const wantBase = baseKey(wantRaw);
           const wantNorm = normalizeKey(wantRaw);
+
           rows = rows.filter((r) => {
+            if (!r || typeof r !== "object") return false;
             const raw = String(r._itemId || r.item_id || "").toLowerCase();
             const rawNorm = normalizeKey(raw);
             const keyBase = baseKey(raw);
@@ -1547,19 +1556,29 @@ export default async function handler(req, res) {
           });
         } else if (itemParam) {
           const want = itemParam;
-          rows = rows.filter((r) =>
-            String(r.item || "").toLowerCase().includes(want)
-          );
+          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
         }
 
-        // Remove null/undefined rows (safety: ExcelJS/objectsToXlsxBuffer expects objects)
-        rows = rows.filter((r) => r && typeof r === "object");
+        // --- XLSX safety: remove nulls + coerce cell values to primitives ---
+        const safeRows = (Array.isArray(rows) ? rows : [])
+          .filter((r) => r && typeof r === "object")
+          .map((r) => {
+            const out = {};
+            for (const [k, v] of Object.entries(r)) {
+              if (v === null || v === undefined) out[k] = "";
+              else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out[k] = v;
+              else if (typeof v === "bigint") out[k] = v.toString();
+              else if (v instanceof Date) out[k] = v.toISOString();
+              else {
+                try { out[k] = JSON.stringify(v); } catch { out[k] = String(v); }
+              }
+            }
+            return out;
+          });
 
-        const sorted = sortByDateAsc(rows, "date").filter(
-          (r) => r && typeof r === "object"
-        );
+        const sorted = sortByDateAsc(safeRows, "date");
 
-        const fallbackRow = {
+        const fallback = {
           id: "",
           date: "",
           purchaser: "",
@@ -1583,43 +1602,30 @@ export default async function handler(req, res) {
           mode: "",
         };
 
-        const headers = Object.keys(sorted[0] || fallbackRow);
-
-        // Always give ExcelJS at least one row to write (headers-only can crash some builds)
-        const rowsForXlsx = (sorted.length ? sorted : [fallbackRow]).map((r) => {
-          const out = {};
-          for (const h of headers) {
-            const v = r ? r[h] : "";
-            if (v === null || v === undefined) out[h] = "";
-            else if (typeof v === "bigint") out[h] = v.toString();
-            else if (typeof v === "object") {
-              try {
-                out[h] = JSON.stringify(v);
-              } catch {
-                out[h] = String(v);
-              }
-            } else out[h] = v;
-          }
-          return out;
-        });
+        const useRows = sorted.length ? sorted : [fallback];
+        const headers = Object.keys(useRows[0] || fallback);
 
         let buf;
         try {
-          buf = await objectsToXlsxBuffer(headers, rowsForXlsx, null, "Orders");
+          buf = await objectsToXlsxBuffer(headers, useRows, null, "Orders");
         } catch (e) {
-          console.error("orders_csv: failed to build XLSX", e);
-          return errResponse(res, 500, "orders-csv-xlsx-failed", req, e, {
-            requestId,
-            count: sorted.length,
-          });
+          console.error("orders_csv: failed to build XLSX (safe)", e);
+          // Fallback: try with a single fallback row only
+          buf = await objectsToXlsxBuffer(Object.keys(fallback), [fallback], null, "Orders");
         }
+
+        const fileParts = [];
+        if (catParam) fileParts.push(catParam);
+        if (itemIdParam) fileParts.push(itemIdParam);
+        const fname = (fileParts.join("-") || "orders") + ".xlsx";
+
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
+        res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
         return res.status(200).send(buf);
-}
+      }
 
       if (type === "attendee_roster_csv") {
         const ids = await kvSmembersSafe("orders:index");
