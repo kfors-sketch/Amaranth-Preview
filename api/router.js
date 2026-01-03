@@ -142,7 +142,1227 @@ function errResponse(res, status, code, req, err, extra = {}) {
   });
 }
 
-// ===============================================================if (type === "orders_csv") {
+// ============================================================================
+// RAW BODY HELPERS (required for Stripe webhook signature verification)
+// ============================================================================
+async function readRawBody(req) {
+  if (req._rawBodyBuffer) return req._rawBodyBuffer;
+
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const buf = Buffer.concat(chunks);
+  req._rawBodyBuffer = buf;
+  return buf;
+}
+
+async function readJsonBody(req) {
+  const buf = await readRawBody(req);
+  const text = buf.toString("utf8") || "";
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid JSON body: ${e?.message || e}`);
+  }
+}
+
+// ---- Admin auth helper ----
+async function requireAdminAuth(req, res) {
+  const headers = req.headers || {};
+  const rawAuth = headers.authorization || headers.Authorization || "";
+
+  const auth = String(rawAuth || "");
+  const lower = auth.toLowerCase();
+  if (!lower.startsWith("bearer ")) {
+    REQ_ERR(res, 401, "unauthorized");
+    return false;
+  }
+
+  const token = auth.slice(7).trim();
+  if (!token) {
+    REQ_ERR(res, 401, "unauthorized");
+    return false;
+  }
+
+  const legacy = (process.env.REPORT_TOKEN || "").trim();
+  if (legacy && token === legacy) return true;
+
+  try {
+    const result = await verifyAdminToken(token);
+    if (result.ok) return true;
+  } catch (e) {
+    console.error("verifyAdminToken failed:", e?.message || e);
+  }
+
+  REQ_ERR(res, 401, "unauthorized");
+  return false;
+}
+
+function getUrl(req) {
+  const host = req?.headers?.host || req?.headers?.["host"] || "localhost";
+  return new URL(req.url, `http://${host}`);
+}
+
+// Pull order mode from Stripe session metadata (preferred), else fall back to current.
+async function resolveModeFromSession(sessionLike) {
+  try {
+    const md = sessionLike?.metadata || {};
+    const m =
+      String(md.order_channel || md.order_mode || "")
+        .trim()
+        .toLowerCase() || "";
+    if (m === "test" || m === "live_test" || m === "live") return m;
+  } catch {}
+  try {
+    const eff = await getEffectiveOrderChannel();
+    if (eff === "test" || eff === "live_test" || eff === "live") return eff;
+  } catch {}
+  return "test";
+}
+
+// Stripe session IDs include cs_test_ or cs_live_
+function inferStripeEnvFromCheckoutSessionId(id) {
+  const s = String(id || "").trim();
+  if (s.startsWith("cs_live_")) return "live";
+  if (s.startsWith("cs_test_")) return "test";
+  return "";
+}
+
+// ---------------- Catalog category helpers ----------------
+const CATALOG_CATEGORIES_KEY = "catalog:categories";
+
+// ---------------- Feature Flags ----------------
+const FEATURE_FLAGS_KEY = "feature_flags";
+
+const DEFAULT_FEATURE_FLAGS = {
+  supplies_live: false,
+  supplies_preview: false,
+  banquets_v2_preview: false,
+  catalog_v2_preview: false,
+};
+
+function coerceBool(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return !!v;
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+async function loadFeatureFlagsSafe() {
+  const raw = (await kvGetSafe(FEATURE_FLAGS_KEY, null)) || null;
+
+  const storedFlags =
+    raw && typeof raw === "object"
+      ? raw.flags && typeof raw.flags === "object"
+        ? raw.flags
+        : raw
+      : {};
+
+  const merged = { ...DEFAULT_FEATURE_FLAGS, ...(storedFlags || {}) };
+
+  const cleaned = {};
+  for (const k of Object.keys(DEFAULT_FEATURE_FLAGS))
+    cleaned[k] = coerceBool(merged[k]);
+
+  const updatedAt =
+    raw && typeof raw === "object" && typeof raw.updatedAt === "string"
+      ? raw.updatedAt
+      : "";
+
+  return { flags: cleaned, updatedAt };
+}
+
+function normalizeCat(catRaw) {
+  const cat = String(catRaw || "catalog").trim().toLowerCase();
+  const safe = cat.replace(/[^a-z0-9_-]/g, "");
+  return safe || "catalog";
+}
+
+function catalogItemsKeyForCat(catRaw) {
+  const cat = normalizeCat(catRaw);
+  if (!cat || cat === "catalog") return "products";
+  return `products:${cat}`;
+}
+
+async function getCatalogCategoriesSafe() {
+  const list = (await kvGetSafe(CATALOG_CATEGORIES_KEY, [])) || [];
+  const out = Array.isArray(list) ? list.slice() : [];
+
+  const ensure = (cat, title) => {
+    const c = String(cat || "").trim().toLowerCase();
+    if (!c) return;
+    const has = out.some(
+      (x) => String(x?.cat || "").trim().toLowerCase() === c
+    );
+    if (!has) out.push({ cat: c, title });
+  };
+
+  ensure("catalog", "Product Catalog");
+  ensure("supplies", "Supplies");
+  ensure("charity", "Charity");
+
+  out.sort((a, b) => {
+    const ac = String(a?.cat || "").toLowerCase();
+    const bc = String(b?.cat || "").toLowerCase();
+    if (ac === "catalog" && bc !== "catalog") return -1;
+    if (bc === "catalog" && ac !== "catalog") return 1;
+    return String(a?.title || ac).localeCompare(String(b?.title || bc));
+  });
+
+  return out;
+}
+
+// ============================================================================
+// ITEMCFG MERGE HELPERS (fixes “admin shows daily but scheduler sees monthly”)
+// - We must NEVER overwrite reportFrequency to "monthly" just because the field
+//   was missing in the save payload.
+// ============================================================================
+function splitEmails(v) {
+  return String(v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeChairEmails(raw, fallbackEmail) {
+  if (Array.isArray(raw))
+    return raw.map((s) => String(s).trim()).filter(Boolean);
+  const from = raw || fallbackEmail || "";
+  return splitEmails(from);
+}
+
+function pickNonEmptyString(a, b, fallback = "") {
+  const aa = String(a ?? "").trim();
+  if (aa) return aa;
+  const bb = String(b ?? "").trim();
+  if (bb) return bb;
+  return fallback;
+}
+
+function computeMergedFreq(incomingRaw, existingCfg, defaultFreq) {
+  const raw =
+    incomingRaw ??
+    existingCfg?.reportFrequency ??
+    existingCfg?.report_frequency ??
+    defaultFreq;
+
+  return normalizeReportFrequency(raw);
+}
+
+// ============================================================================
+// ✅ NEW: Immutable order hash + createdAt markers (tamper detection)
+// - Writes once per order ID:
+//     order:<id>:createdAt
+//     order:<id>:hash
+// - Never overwrites if already present.
+// ============================================================================
+function stableStringify(value) {
+  const seen = new WeakSet();
+
+  const walk = (v) => {
+    if (v === null || typeof v !== "object") return v;
+
+    if (seen.has(v)) return "[Circular]";
+    seen.add(v);
+
+    if (Array.isArray(v)) return v.map(walk);
+
+    const out = {};
+    const keys = Object.keys(v).sort();
+    for (const k of keys) out[k] = walk(v[k]);
+    return out;
+  };
+
+  return JSON.stringify(walk(value));
+}
+
+function normalizeOrderForHash(order) {
+  // Keep “what matters” for integrity. Exclude volatile/runtime markers.
+  const o = order && typeof order === "object" ? order : {};
+  const clone = { ...o };
+
+  // strip volatile fields if present
+  delete clone._raw;
+  delete clone._debug;
+  delete clone._requestId;
+  delete clone._email;
+  delete clone._emailStatus;
+  delete clone._emailsSentAt;
+  delete clone._postEmailsSentAt;
+  delete clone.post_emails_sent;
+  delete clone.admin_receipt_sent;
+
+  // If your order has internal timestamps that can change, exclude them:
+  // (We DO store createdAt separately as immutable KV marker.)
+  delete clone.updatedAt;
+  delete clone.lastUpdatedAt;
+
+  return clone;
+}
+
+function sha256Hex(s) {
+  return crypto.createHash("sha256").update(String(s), "utf8").digest("hex");
+}
+
+async function ensureOrderIntegrityMarkers(order, requestId) {
+  try {
+    const id = String(order?.id || "").trim();
+    if (!id) return;
+
+    const createdKey = `order:${id}:createdAt`;
+    const hashKey = `order:${id}:hash`;
+
+    // createdAt: write-once
+    const existingCreated = await kvGetSafe(createdKey, "");
+    if (!existingCreated) {
+      const createdAt =
+        String(order?.createdAt || order?.created_at || "").trim() ||
+        new Date().toISOString();
+      await kvSetSafe(createdKey, createdAt);
+    }
+
+    // hash: write-once
+    const existingHash = await kvGetSafe(hashKey, "");
+    if (!existingHash) {
+      const normalized = normalizeOrderForHash(order);
+      const payload = stableStringify(normalized);
+      const hash = sha256Hex(payload);
+      await kvSetSafe(hashKey, hash);
+    }
+  } catch (e) {
+    // Never block user for integrity marker issues — just log.
+    console.error("[order-hash] failed", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
+}
+
+// ============================================================================
+// ✅ NEW: Lockdown mode (blocks admin write actions during event week / emergencies)
+// - Source of truth:
+//   1) KV key: security:lockdown (object or boolean)
+//   2) Env: LOCKDOWN_ON (true/false)
+// - Bypass by IP list (env LOCKDOWN_BYPASS_IPS, comma-separated)
+// ============================================================================
+const LOCKDOWN_KEY = "security:lockdown";
+
+function splitCsv(v) {
+  return String(v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function getClientIp(req) {
+  return (
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-real-ip"] ||
+    req.socket?.remoteAddress ||
+    ""
+  );
+}
+
+function ipMatchesAllowlist(ip, allowlist) {
+  const raw = String(ip || "").trim();
+  if (!raw) return false;
+
+  // x-forwarded-for can contain "ip, ip, ip"
+  const first = raw.split(",")[0].trim();
+
+  for (const a of allowlist) {
+    const aa = String(a || "").trim();
+    if (!aa) continue;
+
+    // exact match
+    if (first === aa) return true;
+
+    // allow prefix match for IPv6 shorthand / internal ranges if user supplies like "192.168."
+    if (aa.endsWith("*")) {
+      const pref = aa.slice(0, -1);
+      if (first.startsWith(pref)) return true;
+    }
+  }
+  return false;
+}
+
+async function getLockdownStateSafe() {
+  // KV wins over env
+  const raw = await kvGetSafe(LOCKDOWN_KEY, null);
+
+  // allow either boolean or object
+  if (typeof raw === "boolean") {
+    return { on: raw, message: raw ? "Lockdown is enabled." : "", updatedAt: "" };
+  }
+
+  if (raw && typeof raw === "object") {
+    const on = coerceBool(raw.on ?? raw.enabled ?? raw.locked ?? false);
+    const message = String(raw.message || raw.note || "").trim();
+    const updatedAt = String(raw.updatedAt || "").trim();
+    return { on, message, updatedAt };
+  }
+
+  const envOn = coerceBool(process.env.LOCKDOWN_ON || "");
+  return {
+    on: envOn,
+    message: envOn ? "Lockdown is enabled (env)." : "",
+    updatedAt: "",
+  };
+}
+
+async function isLockdownBypassed(req) {
+  const allowIps = splitCsv(process.env.LOCKDOWN_BYPASS_IPS || "");
+  if (!allowIps.length) return false;
+  return ipMatchesAllowlist(getClientIp(req), allowIps);
+}
+
+function isWriteAction(action) {
+  // Anything that mutates settings/items/orders should be blocked in lockdown.
+  // (We keep a conservative list to prevent surprises.)
+  return [
+    "save_feature_flags",
+    "purge_orders",
+    "save_banquets",
+    "save_addons",
+    "save_products",
+    "save_catalog_items",
+    "save_settings",
+    "save_checkout_mode",
+    "clear_orders",
+    "create_refund",
+    "send_full_report",
+    "send_month_to_date",
+    "send_monthly_chair_reports",
+    "send_end_of_event_reports",
+    // You can decide whether to allow these during lockdown:
+    "send_item_report",
+    "register_item",
+  ].includes(String(action || ""));
+}
+
+async function enforceLockdownIfNeeded(req, res, action, requestId) {
+  const st = await getLockdownStateSafe();
+  if (!st.on) return true;
+
+  // bypass
+  if (await isLockdownBypassed(req)) return true;
+
+  // Only block write actions; allow read-only admin endpoints.
+  if (!isWriteAction(action)) return true;
+
+  return !REQ_ERR(res, 423, "lockdown", {
+    requestId,
+    message:
+      st.message ||
+      "Site is in lockdown mode. Admin write actions are temporarily disabled.",
+    updatedAt: st.updatedAt || "",
+    action,
+  });
+}
+
+// ============================================================================
+// ✅ NEW: Post-order email helper
+// - Ensures receipts (including admin copy) are sent immediately after finalize,
+//   across ALL finalize paths (manual finalize, finalize_checkout, webhook).
+// - Also sends realtime chair emails.
+// - Adds idempotency keys to avoid double-sends.
+// - Never throws to end-user on email failure.
+// ============================================================================
+function postEmailKey(orderId) {
+  return `order:${String(orderId || "").trim()}:post_emails_sent`;
+}
+
+function adminReceiptKey(orderId) {
+  return `order:${String(orderId || "").trim()}:admin_receipt_sent`;
+}
+
+async function getAdminReceiptRecipientsSafe() {
+  // Admin receipt copy should ONLY go to EMAIL_RECEIPTS.
+  // (Reports and other operational mail can still go to REPORTS_LOG_TO / REPORTS_BCC elsewhere.)
+  //
+  // Priority:
+  // 1) settings override: EMAIL_RECEIPTS (comma list)
+  // 2) env: EMAIL_RECEIPTS
+  try {
+    const { effective } = await getEffectiveSettings();
+    const pick = (effective?.EMAIL_RECEIPTS || "").trim();
+    const list = splitEmails(pick);
+    if (list.length) return list;
+  } catch {}
+
+  const pickEnv = (process.env.EMAIL_RECEIPTS || "").trim();
+  return splitEmails(pickEnv);
+}
+
+async function sendAdminReceiptCopyOnce(order, requestId) {
+  try {
+    if (!order?.id) return;
+    if (!resend) return; // no email system configured
+
+    // Idempotency: prevent duplicates if finalize paths overlap.
+    const already = await kvGetSafe(adminReceiptKey(order.id), "");
+    if (already) return;
+
+    const toList = await getAdminReceiptRecipientsSafe();
+    if (!toList.length) return;
+
+    // NOTE: sendOrderReceipts() may already include admin copy in your core.js.
+    // This helper is a "guarantee" path, but idempotent to prevent spam.
+    const html =
+      (await renderOrderEmailHTML(order, { includeAdminNote: true })) ||
+      `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
+        <h2>Order receipt</h2>
+        <p>orderId: ${String(order.id).replace(/</g, "&lt;")}</p>
+      </div>`;
+
+    const subject = `Admin copy — receipt — Order ${order.id}`;
+
+    const payload = {
+      from: RESEND_FROM || "onboarding@resend.dev",
+      to: toList,
+      subject,
+      html,
+      reply_to: REPLY_TO || undefined,
+    };
+
+    const retry = await sendWithRetry(
+      () => resend.emails.send(payload),
+      "admin-receipt"
+    );
+
+    if (retry.ok) {
+      const sendResult = retry.result;
+      await kvSetSafe(adminReceiptKey(order.id), new Date().toISOString());
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: payload.from,
+          to: toList,
+          subject,
+          resultId: sendResult?.id || null,
+          kind: "admin-receipt",
+          status: "queued",
+        });
+      } catch {}
+    } else {
+      const err = retry.error;
+      console.error("[admin-receipt] send failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: payload.from,
+          to: toList,
+          subject,
+          kind: "admin-receipt",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[admin-receipt] unexpected failure", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
+}
+
+async function sendPostOrderEmails(order, requestId) {
+  try {
+    if (!order?.id) return;
+
+    // Compatibility shim:
+    // Older code paths (including some versions of core.js) look for RECEIPTS_ADMIN_TO.
+    // Your project standard is EMAIL_RECEIPTS. Keep receipts routed correctly without
+    // impacting reports.
+    try {
+      const er = (process.env.EMAIL_RECEIPTS || "").trim();
+      if (!process.env.RECEIPTS_ADMIN_TO && er) process.env.RECEIPTS_ADMIN_TO = er;
+    } catch {}
+
+
+    // Idempotency to prevent double send when:
+    // - user hits finalize endpoint and Stripe webhook also comes in
+    // - page refresh retries finalize_checkout
+    const already = await kvGetSafe(postEmailKey(order.id), "");
+    if (already) return;
+
+    // Set the idempotency marker early to avoid race-double-sends.
+    await kvSetSafe(postEmailKey(order.id), new Date().toISOString());
+
+    // 1) Receipts (buyer + chairs + admin copy, if core.js supports it)
+    try {
+      await sendOrderReceipts(order);
+    } catch (err) {
+      console.error("[post-email] sendOrderReceipts failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: [],
+          subject: `receipts-failed order=${order?.id || ""}`,
+          kind: "receipts",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+
+    // 1b) ✅ GUARANTEE: Admin copy right after order (idempotent)
+    await sendAdminReceiptCopyOnce(order, requestId);
+
+    // 2) Realtime chair emails (your existing logic)
+    try {
+      await maybeSendRealtimeChairEmails(order);
+    } catch (err) {
+      console.error("[post-email] maybeSendRealtimeChairEmails failed", {
+        requestId,
+        orderId: order?.id || null,
+        message: err?.message || String(err),
+      });
+      try {
+        await recordMailLog({
+          ts: Date.now(),
+          from: RESEND_FROM || "onboarding@resend.dev",
+          to: [],
+          subject: `realtime-chair-failed order=${order?.id || ""}`,
+          kind: "realtime-chair",
+          status: "error",
+          error: String(err?.message || err),
+        });
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[post-email] unexpected failure", {
+      requestId,
+      orderId: order?.id || null,
+      message: e?.message || String(e),
+    });
+  }
+}
+
+
+// ============================================================================
+// ✅ VISITS COUNTER (KV ground truth)
+// - Public endpoint: POST /api/router?action=track_visit  (no auth)
+// - Optional GET:    /api/router?type=track_visit&path=/home.html (no auth)
+// - Stores totals + per-day + per-month + per-path, split by channel (test/live_test/live)
+// ============================================================================
+const VISITS_KEY_PREFIX = "visits";
+
+function ymdUtc(d = new Date()) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function ymUtc(d = new Date()) {
+  return d.toISOString().slice(0, 7); // YYYY-MM
+}
+
+function normalizeVisitPath(p) {
+  const raw = String(p || "").trim();
+  if (!raw) return "/";
+  // strip protocol/host if someone passed full URL
+  try {
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      const u = new URL(raw);
+      return normalizeVisitPath(u.pathname || "/");
+    }
+  } catch {}
+  const noQuery = raw.split("?")[0].split("#")[0].trim();
+  let out = noQuery.startsWith("/") ? noQuery : `/${noQuery}`;
+  // basic cleanup
+  out = out.replace(/\/{2,}/g, "/");
+  if (out.length > 256) out = out.slice(0, 256);
+  return out || "/";
+}
+
+function shouldCountVisit(pathname) {
+  const p = String(pathname || "").toLowerCase();
+  if (!p) return false;
+
+  // exclude API + admin + common debug pages
+  if (p.startsWith("/api/")) return false;
+  if (p.startsWith("/admin/")) return false;
+  if (p.includes("debug")) return false;
+
+  // exclude obvious assets
+  if (
+    p.startsWith("/assets/") ||
+    p.endsWith(".js") ||
+    p.endsWith(".css") ||
+    p.endsWith(".png") ||
+    p.endsWith(".jpg") ||
+    p.endsWith(".jpeg") ||
+    p.endsWith(".webp") ||
+    p.endsWith(".gif") ||
+    p.endsWith(".svg") ||
+    p.endsWith(".ico") ||
+    p.endsWith(".map")
+  ) return false;
+
+  return true;
+}
+
+async function kvIncrSafe(key, delta = 1) {
+  try {
+    if (kv && typeof kv.incrby === "function") {
+      return await kv.incrby(key, delta);
+    }
+    if (kv && typeof kv.incr === "function") {
+      if (delta === 1) return await kv.incr(key);
+      // fall back for non-1 deltas
+    }
+  } catch (e) {
+    // fall through
+  }
+
+  // fallback: get + set
+  const prev = Number(await kvGetSafe(key, 0)) || 0;
+  const next = prev + Number(delta || 0);
+  await kvSetSafe(key, next);
+  return next;
+}
+
+function visitsKey(mode, parts) {
+  const m = String(mode || "test").trim().toLowerCase() || "test";
+  return [VISITS_KEY_PREFIX, m, ...parts].join(":");
+}
+
+async function trackVisitInternal({ path, mode, now }) {
+  const pathname = normalizeVisitPath(path);
+  if (!shouldCountVisit(pathname)) return { ok: true, skipped: true, path: pathname };
+
+  const d = now || new Date();
+  const day = ymdUtc(d);
+  const month = ymUtc(d);
+
+  // totals
+  const kTotal = visitsKey(mode, ["total"]);
+  const kDayTotal = visitsKey(mode, ["day", day, "total"]);
+  const kMonthTotal = visitsKey(mode, ["month", month, "total"]);
+
+  // per-path
+  const safePathKey = encodeURIComponent(pathname);
+  const kDayPath = visitsKey(mode, ["day", day, "path", safePathKey]);
+  const kMonthPath = visitsKey(mode, ["month", month, "path", safePathKey]);
+
+  await Promise.all([
+    kvIncrSafe(kTotal, 1),
+    kvIncrSafe(kDayTotal, 1),
+    kvIncrSafe(kMonthTotal, 1),
+    kvSaddSafe(visitsKey(mode, ["pages"]), pathname),
+    kvIncrSafe(kDayPath, 1),
+    kvIncrSafe(kMonthPath, 1),
+  ]);
+
+  return { ok: true, path: pathname, day, month, mode };
+}
+
+// -------------- main handler --------------
+export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+
+  try {
+    const url = getUrl(req);
+    const q = Object.fromEntries(url.searchParams.entries());
+    const action = url.searchParams.get("action");
+    const type = url.searchParams.get("type");
+
+    // ---------- GET ----------
+    if (req.method === "GET") {
+      // ✅ Public: track a visit (no auth)
+      if (type === "track_visit") {
+        try {
+          const pathParam =
+            url.searchParams.get("path") ||
+            url.searchParams.get("p") ||
+            url.pathname ||
+            "/";
+          const mode = await getEffectiveOrderChannel().catch(() => "test");
+          const out = await trackVisitInternal({ path: pathParam, mode, now: new Date() });
+          // For GET beacon calls, 204 is fine, but we return JSON for easier debugging.
+          return REQ_OK(res, { requestId, ...out });
+        } catch (e) {
+          return errResponse(res, 500, "track-visit-failed", req, e);
+        }
+      }
+
+
+      if (type === "smoketest") {
+        const out = await handleSmoketest();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "lastmail") {
+        const out = await handleLastMail();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_mail_recent") {
+        // Admin-only: list recent mail logs (requires recordMailLog to push into mail:logs)
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const limitRaw = url.searchParams.get("limit") || "20";
+        let limit = Number(limitRaw);
+        if (!Number.isFinite(limit)) limit = 20;
+        limit = Math.max(1, Math.min(200, Math.floor(limit)));
+
+        let logs = [];
+        try {
+          logs = await kv.lrange("mail:logs", 0, limit - 1);
+        } catch (e) {
+          return errResponse(res, 500, "debug-mail-recent-failed", req, e);
+        }
+
+        return REQ_OK(res, { requestId, ok: true, limit, logs });
+      }
+
+
+      if (type === "debug_token") {
+        const out = await handleTokenTest(req);
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_stripe") {
+        const out = await handleStripeTest();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_resend") {
+        const out = await handleResendTest(req, url);
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_scheduler") {
+        const out = await handleSchedulerDiagnostic();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_orders_health") {
+        const out = await handleOrdersHealth();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_itemcfg_health") {
+        const out = await handleItemcfgHealth();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_scheduler_dry_run") {
+        const out = await handleSchedulerDryRun();
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_chair_preview") {
+        const id = url.searchParams.get("id") || "";
+        const scope = url.searchParams.get("scope") || "full";
+        const out = await handleChairPreview({ id, scope });
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_order_preview") {
+        const id = url.searchParams.get("id") || "";
+        const out = await handleOrderPreview(id);
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      if (type === "debug_webhook_preview") {
+        const sessionId =
+          url.searchParams.get("session_id") ||
+          url.searchParams.get("sessionId") ||
+          "";
+        const out = await handleWebhookPreview(sessionId);
+        return REQ_OK(res, { requestId, ...out });
+      }
+
+      // ✅ NEW: Lockdown status (admin-only; handy for quick checks)
+      if (type === "lockdown_status") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const st = await getLockdownStateSafe();
+        const bypass = await isLockdownBypassed(req);
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          lockdown: st,
+          bypass,
+          ip: String(getClientIp(req) || ""),
+        });
+      }
+
+      if (type === "year_index") {
+        const years = await listIndexedYears();
+
+        const slots = [];
+        const seen = new Set();
+
+        const addSlots = (list, category) => {
+          if (!Array.isArray(list)) return;
+          for (const item of list) {
+            const key = String(item?.id || item?.slotKey || item?.slot || "").trim();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+
+            const label = item?.name || item?.label || item?.slotLabel || key;
+            slots.push({ key, label, category });
+          }
+        };
+
+        const banquets = (await kvGetSafe("banquets", [])) || [];
+        const addons = (await kvGetSafe("addons", [])) || [];
+
+        addSlots(banquets, "banquet");
+        addSlots(addons, "addon");
+
+        const products = (await kvGetSafe("products", [])) || [];
+        addSlots(products, "catalog");
+
+        const cats = await getCatalogCategoriesSafe();
+        for (const c of cats) {
+          const cat = normalizeCat(c?.cat);
+          if (cat === "catalog") continue;
+          const key = catalogItemsKeyForCat(cat);
+          const list = (await kvGetSafe(key, [])) || [];
+          addSlots(list, `catalog:${cat}`);
+        }
+
+        return REQ_OK(res, { requestId, years, slots });
+      }
+
+      if (type === "years_index") {
+        const years = await listIndexedYears();
+        return REQ_OK(res, { requestId, years });
+      }
+
+      if (type === "year_summary") {
+        const yParam = url.searchParams.get("year");
+        const year = Number(yParam);
+        if (!Number.isFinite(year)) {
+          return REQ_ERR(res, 400, "invalid-year", { requestId, year: yParam });
+        }
+        const summary = await getYearSummary(year);
+        return REQ_OK(res, { requestId, ...summary });
+      }
+
+      if (type === "year_multi") {
+        let yearsParams = url.searchParams.getAll("year");
+        if (!yearsParams.length) {
+          const csv = url.searchParams.get("years") || "";
+          if (csv) {
+            yearsParams = csv
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        }
+
+        const years = yearsParams
+          .map((s) => Number(s))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+
+        if (!years.length) {
+          const allYears = await listIndexedYears();
+          return REQ_OK(res, { requestId, years: allYears, points: [], raw: [] });
+        }
+
+        const raw = await getMultiYearSummary(years);
+
+        const points = raw.map((r) => ({
+          year: r.year,
+          totalOrders: r.totalOrders || 0,
+          uniqueBuyers: r.uniqueBuyers || 0,
+          repeatBuyers: r.repeatBuyers || 0,
+          totalPeople: r.totalPeople || 0,
+          totalCents: r.totalCents || 0,
+        }));
+
+        return REQ_OK(res, { requestId, years, points, raw });
+      }
+
+      if (type === "catalog_categories") {
+        const categories = await getCatalogCategoriesSafe();
+        return REQ_OK(res, { requestId, categories });
+      }
+
+      if (type === "catalog_items") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+        return REQ_OK(res, { requestId, cat, items });
+      }
+
+      if (type === "catalog_has_active") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+        const hasActive =
+          Array.isArray(items) && items.some((it) => it && it.active);
+        return REQ_OK(res, { requestId, cat, hasActive });
+      }
+
+      if (type === "catalog_items_yoy") {
+        const cat = normalizeCat(url.searchParams.get("cat") || "catalog");
+
+        let yearsParams = url.searchParams.getAll("year");
+        if (!yearsParams.length) {
+          const csv = url.searchParams.get("years") || "";
+          if (csv)
+            yearsParams = csv
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+        }
+
+        const years = yearsParams
+          .map((s) => Number(s))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+
+        const useYears = years.length ? years : await listIndexedYears();
+
+        const key = catalogItemsKeyForCat(cat);
+        const items = (await kvGetSafe(key, [])) || [];
+
+        const byYear = {};
+        for (const y of useYears) byYear[String(y)] = items;
+
+        return REQ_OK(res, { requestId, cat, years: useYears, byYear });
+      }
+
+      if (type === "banquets")
+        return REQ_OK(res, {
+          requestId,
+          banquets: (await kvGetSafe("banquets")) || [],
+        });
+      if (type === "addons")
+        return REQ_OK(res, {
+          requestId,
+          addons: (await kvGetSafe("addons")) || [],
+        });
+      if (type === "products")
+        return REQ_OK(res, {
+          requestId,
+          products: (await kvGetSafe("products")) || [],
+        });
+
+      if (type === "settings") {
+        const { env, overrides, effective } = await getEffectiveSettings();
+        const lockdown = await getLockdownStateSafe().catch(() => ({
+          on: false,
+          message: "",
+          updatedAt: "",
+        }));
+        return REQ_OK(res, {
+          requestId,
+          env,
+          overrides,
+          effective,
+          MAINTENANCE_ON: effective.MAINTENANCE_ON,
+          MAINTENANCE_MESSAGE:
+            effective.MAINTENANCE_MESSAGE || env.MAINTENANCE_MESSAGE,
+          lockdown,
+        });
+      }
+
+      if (type === "feature_flags") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const { flags, updatedAt } = await loadFeatureFlagsSafe();
+        return REQ_OK(res, { requestId, flags, updatedAt });
+      }
+
+      // ✅ Receipts ZIP endpoints (admin-only)
+      if (type === "receipts_zip_month") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
+          const yearParam = url.searchParams.get("year");
+          const monthParam = url.searchParams.get("month");
+
+          const now = new Date();
+          const year = Number(yearParam ?? now.getUTCFullYear());
+          const month = Number(monthParam ?? (now.getUTCMonth() + 1)); // 1-12
+
+          const result = await emailMonthlyReceiptsZip({
+            to: to || undefined,
+            year,
+            month,
+            requestId,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-month-failed", req, e);
+        }
+      }
+
+      if (type === "receipts_zip_final") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
+          const yearParam = url.searchParams.get("year");
+
+          const now = new Date();
+          const year = Number(yearParam ?? now.getUTCFullYear());
+
+          const result = await emailFinalReceiptsZip({
+            to: to || undefined,
+            year,
+            requestId,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-final-failed", req, e);
+        }
+      }
+
+      // helper: sends the *previous* month ZIP (useful for cron)
+      if (type === "receipts_zip_month_auto") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional
+          const now = new Date();
+
+          // previous month in UTC
+          let y = now.getUTCFullYear();
+          let m = now.getUTCMonth() + 1; // 1-12 current
+          m -= 1;
+          if (m <= 0) {
+            m = 12;
+            y -= 1;
+          }
+
+          const result = await emailMonthlyReceiptsZip({
+            to: to || undefined,
+            year: y,
+            month: m,
+            requestId,
+            auto: true,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
+        }
+      }
+
+      if (type === "checkout_mode") {
+        const nowMs = Date.now();
+        const raw = await getCheckoutSettingsAuto(new Date(nowMs));
+        const effectiveChannel = await getEffectiveOrderChannel(new Date(nowMs));
+
+        const startMs = raw.liveStart ? Date.parse(raw.liveStart) : NaN;
+        const endMs = raw.liveEnd ? Date.parse(raw.liveEnd) : NaN;
+        const windowActive =
+          !isNaN(startMs) &&
+          nowMs >= startMs &&
+          (isNaN(endMs) || nowMs <= endMs);
+
+        return REQ_OK(res, {
+          requestId,
+          raw,
+          auto: { now: new Date(nowMs).toISOString(), windowActive },
+          effectiveChannel,
+        });
+      }
+
+      if (type === "stripe_pubkey" || type === "stripe_pk") {
+        const mode = await getEffectiveOrderChannel().catch(() => "test");
+        return REQ_OK(res, {
+          requestId,
+          publishableKey: getStripePublishableKey(mode),
+          mode,
+        });
+      }
+
+      if (type === "checkout_session") {
+        const id = String(url.searchParams.get("id") || "").trim();
+        if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
+
+        const inferred = inferStripeEnvFromCheckoutSessionId(id);
+
+        let primaryEnv = inferred;
+        if (!primaryEnv) {
+          const eff = await getEffectiveOrderChannel().catch(() => "test");
+          primaryEnv = eff === "live" || eff === "live_test" ? "live" : "test";
+        }
+        const fallbackEnv = primaryEnv === "live" ? "test" : "live";
+
+        const stripePrimary = await getStripe(primaryEnv);
+        const stripeFallback = await getStripe(fallbackEnv);
+
+        const tryRetrieve = async (stripeClient) => {
+          if (!stripeClient) return null;
+          return stripeClient.checkout.sessions.retrieve(id, {
+            expand: ["payment_intent"],
+          });
+        };
+
+        let s = null;
+        let usedEnv = primaryEnv;
+
+        try {
+          s = await tryRetrieve(stripePrimary);
+          usedEnv = primaryEnv;
+        } catch {}
+
+        if (!s) {
+          try {
+            s = await tryRetrieve(stripeFallback);
+            usedEnv = fallbackEnv;
+          } catch {}
+        }
+
+        if (!s)
+          return REQ_ERR(res, 404, "checkout-session-not-found", {
+            requestId,
+            id,
+          });
+
+        return REQ_OK(res, {
+          requestId,
+          env: usedEnv,
+          id: s.id,
+          amount_total: s.amount_total,
+          currency: s.currency,
+          customer_details: s.customer_details || {},
+          payment_intent:
+            typeof s.payment_intent === "string"
+              ? s.payment_intent
+              : s.payment_intent?.id,
+        });
+      }
+
+      // (orders + csv endpoints unchanged)
+      if (type === "orders") {
         const ids = await kvSmembersSafe("orders:index");
         const all = [];
         for (const sid of ids) {
@@ -235,16 +1455,130 @@ function errResponse(res, status, code, req, err, extra = {}) {
           );
         }
 
-        
-        // Build XLSX safely (no null rows; ExcelJS-friendly primitives)
-        rows = Array.isArray(rows) ? rows.filter((r) => r && typeof r === "object") : [];
+        rows = sortByDateAsc(rows, "date");
+        return REQ_OK(res, { requestId, rows });
+      }
 
-        const sortedRaw = sortByDateAsc(rows, "date");
-        const sorted = Array.isArray(sortedRaw)
-          ? sortedRaw.filter((r) => r && typeof r === "object")
-          : [];
+            if (type === "orders_csv") {
+        // Download-safe XLSX export (null-safe + empty-safe)
+        const ids = await kvSmembersSafe("orders:index");
+        const all = [];
 
-        const fallbackRow = {
+        for (const sid of ids) {
+          const o = await kvGetSafe(`order:${sid}`, null);
+          if (!o) continue;
+
+          const rows = flattenOrderToRows(o) || [];
+          if (Array.isArray(rows)) {
+            for (const r of rows) {
+              if (r && typeof r === "object") all.push(r);
+            }
+          }
+        }
+
+        const daysParam = url.searchParams.get("days");
+        const startParam = url.searchParams.get("start");
+        const endParam = url.searchParams.get("end");
+
+        const { effective } = await getEffectiveSettings();
+        const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
+        const cfgStart = effective.EVENT_START || "";
+        const cfgEnd = effective.EVENT_END || "";
+
+        let startMs = NaN;
+        let endMs = NaN;
+
+        if (daysParam) {
+          const n = Math.max(1, Number(daysParam) || 0);
+          endMs = Date.now() + 1;
+          startMs = endMs - n * 24 * 60 * 60 * 1000;
+        } else if (startParam || endParam) {
+          startMs = parseYMD(startParam);
+          endMs = parseYMD(endParam);
+        } else if (cfgStart || cfgEnd || cfgDays) {
+          if (cfgDays) {
+            endMs = Date.now() + 1;
+            startMs = endMs - Math.max(1, Number(cfgDays)) * 24 * 60 * 60 * 1000;
+          } else {
+            startMs = parseYMD(cfgStart);
+            endMs = parseYMD(cfgEnd);
+          }
+        }
+
+        let rows = all;
+
+        if (!isNaN(startMs) || !isNaN(endMs)) {
+          rows = filterRowsByWindow(rows, {
+            startMs: isNaN(startMs) ? undefined : startMs,
+            endMs: isNaN(endMs) ? undefined : endMs,
+          });
+        }
+
+        const qSearch = (url.searchParams.get("q") || "").trim().toLowerCase();
+        if (qSearch) {
+          rows = rows.filter(
+            (r) =>
+              String(r.purchaser || "").toLowerCase().includes(qSearch) ||
+              String(r.attendee || "").toLowerCase().includes(qSearch) ||
+              String(r.item || "").toLowerCase().includes(qSearch) ||
+              String(r.category || "").toLowerCase().includes(qSearch) ||
+              String(r.status || "").toLowerCase().includes(qSearch) ||
+              String(r.notes || "").toLowerCase().includes(qSearch)
+          );
+        }
+
+        const catParam = (url.searchParams.get("category") || "").toLowerCase();
+        const itemIdParam = (url.searchParams.get("item_id") || "").toLowerCase();
+        const itemParam = (url.searchParams.get("item") || "").toLowerCase();
+
+        if (catParam) {
+          rows = rows.filter((r) => String(r.category || "").toLowerCase() === catParam);
+        }
+
+        if (itemIdParam) {
+          const wantRaw = itemIdParam;
+          const wantBase = baseKey(wantRaw);
+          const wantNorm = normalizeKey(wantRaw);
+
+          rows = rows.filter((r) => {
+            if (!r || typeof r !== "object") return false;
+            const raw = String(r._itemId || r.item_id || "").toLowerCase();
+            const rawNorm = normalizeKey(raw);
+            const keyBase = baseKey(raw);
+            const rowBase = r._itemBase || keyBase;
+            return (
+              raw === wantRaw ||
+              rawNorm === wantNorm ||
+              keyBase === wantBase ||
+              rowBase === wantBase ||
+              String(r._itemKey || "").toLowerCase() === wantNorm
+            );
+          });
+        } else if (itemParam) {
+          const want = itemParam;
+          rows = rows.filter((r) => String(r.item || "").toLowerCase().includes(want));
+        }
+
+        // --- XLSX safety: remove nulls + coerce cell values to primitives ---
+        const safeRows = (Array.isArray(rows) ? rows : [])
+          .filter((r) => r && typeof r === "object")
+          .map((r) => {
+            const out = {};
+            for (const [k, v] of Object.entries(r)) {
+              if (v === null || v === undefined) out[k] = "";
+              else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out[k] = v;
+              else if (typeof v === "bigint") out[k] = v.toString();
+              else if (v instanceof Date) out[k] = v.toISOString();
+              else {
+                try { out[k] = JSON.stringify(v); } catch { out[k] = String(v); }
+              }
+            }
+            return out;
+          });
+
+        const sorted = sortByDateAsc(safeRows, "date");
+
+        const fallback = {
           id: "",
           date: "",
           purchaser: "",
@@ -268,30 +1602,28 @@ function errResponse(res, status, code, req, err, extra = {}) {
           mode: "",
         };
 
-        const safeVal = (v) => {
-          if (v === null || v === undefined) return "";
-          if (typeof v === "bigint") return v.toString();
-          if (Array.isArray(v)) return v.map((x) => (x == null ? "" : String(x))).join(", ");
-          if (typeof v === "object") {
-            try { return JSON.stringify(v); } catch { return String(v); }
-          }
-          return v;
-        };
+        const useRows = sorted.length ? sorted : [fallback];
+        const headers = Object.keys(useRows[0] || fallback);
 
-        const headers = Object.keys(sorted[0] || fallbackRow);
-        const rowsForXlsx = (sorted.length ? sorted : [fallbackRow]).map((r) => {
-          const out = {};
-          for (const h of headers) out[h] = safeVal(r && typeof r === "object" ? r[h] : "");
-          return out;
-        });
+        let buf;
+        try {
+          buf = await objectsToXlsxBuffer(headers, useRows, null, "Orders");
+        } catch (e) {
+          console.error("orders_csv: failed to build XLSX (safe)", e);
+          // Fallback: try with a single fallback row only
+          buf = await objectsToXlsxBuffer(Object.keys(fallback), [fallback], null, "Orders");
+        }
 
-        const buf = await objectsToXlsxBuffer(headers, rowsForXlsx, null, "Orders");
+        const fileParts = [];
+        if (catParam) fileParts.push(catParam);
+        if (itemIdParam) fileParts.push(itemIdParam);
+        const fname = (fileParts.join("-") || "orders") + ".xlsx";
 
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
-        res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
+        res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
         return res.status(200).send(buf);
       }
 
