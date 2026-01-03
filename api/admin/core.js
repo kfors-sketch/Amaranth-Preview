@@ -1552,6 +1552,11 @@ async function sendReceiptXlsxBackup(order) {
     ],
   };
 
+  const throttleMs = parseInt(process.env.REPORTS_THROTTLE_MS || "0", 10);
+  if (throttleMs > 0 && Number.isFinite(throttleMs)) {
+    await sleep(throttleMs);
+  }
+
   const retry = await sendWithRetry(
     () => resend.emails.send(payload),
     `receipt:xlsx-backup:${orderId}`
@@ -2135,15 +2140,14 @@ const today = new Date();
   };
 
   // ✅ SCHEDULE SAFETY:
-// Note: these emails include XLSX attachments. Resend supports scheduled
-// delivery with attachments, but if you ever want to force immediate sends,
-// disable scheduling (below).
+// These chair reports include XLSX attachments.
+// Although Resend supports scheduled delivery, scheduled sends combined with
+// attachments can lead to inconsistent behavior with some providers/clients.
+// So we ONLY schedule when there are NO attachments.
 //
-// Scheduled sends are ON by default to prevent burst delivery.
-// To disable scheduling entirely, set:
-//   REPORTS_ALLOW_SCHEDULED_AT=0
-// When enabled, we pass `scheduled_at` to Resend when `scheduledAtIso` is valid.
-if (scheduledAtIso && allowScheduled) {
+// To reduce burst delivery without scheduling, set:
+//   REPORTS_THROTTLE_MS=15000   (example: 15s between report emails)
+if (scheduledAtIso && allowScheduled && (!payload.attachments || payload.attachments.length === 0)) {
   // Resend SDK expects `scheduledAt` (camelCase). We also set `scheduled_at`
   // for backward-compat / log readability, but `scheduledAt` is the one that matters.
   payload.scheduledAt = scheduledAtIso;
