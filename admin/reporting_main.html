@@ -638,6 +638,14 @@
     });
 
     async function downloadServerCsv(qs){
+      // qs is typically returned like "?start=YYYY-MM-DD&end=YYYY-MM-DD&category=..."
+      // but this endpoint already has "?type=orders_csv" so we must join with "&".
+      if (typeof qs === 'string' && qs){
+        if (qs.startsWith('?')) qs = '&' + qs.slice(1);
+        else if (!qs.startsWith('&')) qs = '&' + qs;
+      } else {
+        qs = '';
+      }
       return downloadCsvFrom('/api/router?type=orders_csv'+qs,'amaranth-report');
     }
 
@@ -727,37 +735,13 @@
       if(!opt)return alert('Choose item');
       const id=opt.value;
       const label=opt.dataset.label;
-
-      const scopeMode=$('#scopeMode').value;
-      const params=new URLSearchParams({
+      const extra = new URLSearchParams({
         category:kind,
         item_id:id,
         item:label
-      });
-
-      // Match the same “scope” options used for emailing:
-      // - full: all time (no date filter)
-      // - current-month: from the 1st of the current month through today
-      // - custom: user-selected start/end
-      if(scopeMode==='current-month'){
-        const now=new Date();
-        const y=now.getFullYear();
-        const m=String(now.getMonth()+1).padStart(2,'0');
-        const start=`${y}-${m}-01`;
-        const end=now.toISOString().split('T')[0];
-        params.set('start',start);
-        params.set('end',end);
-      }else if(scopeMode==='custom'){
-        const s=$('#scopeStart').value;
-        const e=$('#scopeEnd').value;
-        if(!s||!e)return alert('Both dates required');
-        params.set('start',s);
-        params.set('end',e);
-      }
-
-      await downloadServerCsv('?'+params.toString());
+      }).toString();
+      await downloadServerCsv(extra);
     });
-
 
     document.getElementById('btnActEmail').addEventListener('click',async()=>{
       const kind=$('#actCategory').value;
