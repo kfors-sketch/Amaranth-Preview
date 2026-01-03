@@ -2,7 +2,7 @@
 import { kv } from "@vercel/kv";
 
 // FORCE RERUN FLAG (allows multiple test runs per day)
-const FORCE_RERUN = process.env.REPORTS_FORCE_RERUN === "1";
+const FORCE_RERUN = process.env.REPORTS_FORCE_RERUN === "0";
 /**
  * Goals of this edit:
  * 1) Align frequency naming with the rest of the codebase:
