@@ -2059,9 +2059,7 @@ const today = new Date();
       .filter(Boolean);
 
   const envFallback = safeSplit(
-    effective.REPORTS_CC ||
       effective.REPORTS_BCC ||
-      process.env.REPORTS_CC ||
       process.env.REPORTS_BCC ||
       ""
   );
@@ -2076,7 +2074,7 @@ const today = new Date();
   }
 
   const adminBccBase = safeSplit(
-    effective.REPORTS_BCC || effective.REPORTS_CC || process.env.REPORTS_BCC || process.env.REPORTS_CC || ""
+    effective.REPORTS_BCC || process.env.REPORTS_BCC || ""
   );
   const bccList = adminBccBase.filter((addr) => !toList.includes(addr));
 
