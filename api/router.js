@@ -1553,37 +1553,85 @@ export default async function handler(req, res) {
         }
 
         const sorted = sortByDateAsc(rows, "date");
+        const headers = Object.keys(
+          sorted[0] || {
+            id: "",
+            date: "",
+            purchaser: "",
+            attendee: "",
+            category: "",
+            item: "",
+            item_id: "",
+            qty: 0,
+            price: 0,
+            gross: 0,
+            fees: 0,
+            net: 0,
+            status: "",
+            notes: "",
+            _itemId: "",
+            _itemBase: "",
+            _itemKey: "",
+            _pi: "",
+            _charge: "",
+            _session: "",
+            mode: "",
+          }
+        );
 
-        // ExcelJS can throw on completely empty datasets. Ensure we always emit a valid
-        // workbook (at minimum: headers + a single blank row) so "Download (.xlsx)" never 500s.
-        const _fallbackRow = {
-          id: "",
-          date: "",
-          purchaser: "",
-          attendee: "",
-          category: "",
-          item: "",
-          item_id: "",
-          qty: 0,
-          price: 0,
-          gross: 0,
-          fees: 0,
-          net: 0,
-          status: "",
-          notes: "",
-          _itemId: "",
-          _itemBase: "",
-          _itemKey: "",
-          _pi: "",
-          _charge: "",
-          _session: "",
-          mode: "",
-        };
+        
 
-        const headers = Object.keys(sorted[0] || _fallbackRow);
-        const safeRows = sorted.length ? sorted : [_fallbackRow];
+// --- DOWNLOAD SAFETY GUARDS (admin downloads can filter to zero rows) ---
+const _fallbackRow = (sorted && sorted[0]) ? null : {
+  id: "",
+  date: "",
+  purchaser: "",
+  attendee: "",
+  category: "",
+  item: "",
+  item_id: "",
+  qty: 0,
+  price: 0,
+  gross: 0,
+  fees: 0,
+  net: 0,
+  status: "",
+  notes: "",
+  _itemId: "",
+  _itemBase: "",
+  _itemKey: "",
+  _pi: "",
+  _charge: "",
+  _session: "",
+  mode: "",
+};
 
-        const buf = await objectsToXlsxBuffer(headers, safeRows, null, "Orders");
+// ExcelJS can throw if we try to build a sheet from an empty dataset.
+// Always include at least one row (blank) so downloads never 500.
+const _rowsForXlsx = Array.isArray(sorted) && sorted.length ? sorted : [_fallbackRow];
+
+// ExcelJS also throws if any cell value is an object/array/bigint.
+// Sanitize values to primitives so admin downloads are robust.
+const _safeCell = (v) => {
+  if (v === null || v === undefined) return "";
+  const t = typeof v;
+  if (t === "string" || t === "number" || t === "boolean") return v;
+  if (t === "bigint") return v.toString();
+  try { return JSON.stringify(v); } catch { return String(v); }
+};
+const _safeRows = _rowsForXlsx.map((r) => {
+  const o = {};
+  for (const h of headers) o[h] = _safeCell(r ? r[h] : "");
+  return o;
+});
+
+let buf;
+try {
+  buf = await objectsToXlsxBuffer(headers, _safeRows, null, "Orders");
+} catch (e) {
+  console.error("orders_csv: failed to build XLSX", e);
+  return REQ_ERR(res, 500, "orders-csv-xlsx-failed", { requestId });
+}
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
