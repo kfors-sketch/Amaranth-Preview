@@ -1576,7 +1576,9 @@ export default async function handler(req, res) {
             return out;
           });
 
-        const sorted = sortByDateAsc(safeRows, "date");
+        const sorted = sortByDateAsc(safeRows, "date").filter(
+          (r) => r && typeof r === "object"
+        );
 
         const fallback = {
           id: "",
@@ -1607,11 +1609,13 @@ export default async function handler(req, res) {
 
         let buf;
         try {
-          buf = await objectsToXlsxBuffer(headers, useRows, null, "Orders");
+          // core.js objectsToXlsxBuffer may internally map over a "column specs" array and
+          // assume each entry is a non-null object (e.g., spec.id). Passing [] keeps it safe.
+          buf = await objectsToXlsxBuffer(headers, useRows, [], "Orders");
         } catch (e) {
           console.error("orders_csv: failed to build XLSX (safe)", e);
           // Fallback: try with a single fallback row only
-          buf = await objectsToXlsxBuffer(Object.keys(fallback), [fallback], null, "Orders");
+          buf = await objectsToXlsxBuffer(Object.keys(fallback), [fallback], [], "Orders");
         }
 
         const fileParts = [];
@@ -1661,7 +1665,9 @@ export default async function handler(req, res) {
           endMs: isNaN(endMs) ? undefined : endMs,
         });
 
-        const sorted = sortByDateAsc(roster, "date");
+        const sorted = sortByDateAsc(roster, "date").filter(
+          (r) => r && typeof r === "object"
+        );
         const headers = [
           "date",
           "purchaser",
@@ -1675,7 +1681,7 @@ export default async function handler(req, res) {
           "notes",
         ];
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Attendees");
+        const buf = await objectsToXlsxBuffer(headers, sorted, [], "Attendees");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1721,7 +1727,9 @@ export default async function handler(req, res) {
           endMs: isNaN(endMs) ? undefined : endMs,
         });
 
-        const sorted = sortByDateAsc(roster, "date");
+        const sorted = sortByDateAsc(roster, "date").filter(
+          (r) => r && typeof r === "object"
+        );
         const headers = [
           "attendee",
           "attendee_title",
@@ -1740,7 +1748,7 @@ export default async function handler(req, res) {
           "date",
         ];
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Directory");
+        const buf = await objectsToXlsxBuffer(headers, sorted, [], "Directory");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1805,7 +1813,9 @@ export default async function handler(req, res) {
           }
         }
 
-        const unique = sortByDateAsc(Array.from(map.values()), "date");
+        const unique = sortByDateAsc(Array.from(map.values()), "date").filter(
+          (r) => r && typeof r === "object"
+        );
 
         const headers = [
           "#",
@@ -1839,7 +1849,7 @@ export default async function handler(req, res) {
         const buf = await objectsToXlsxBuffer(
           headers,
           numbered,
-          null,
+          [],
           "Full Attendees"
         );
         res.setHeader(
