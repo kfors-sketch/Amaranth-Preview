@@ -684,6 +684,19 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
         attendeeTitle: meta.attendeeTitle || "",
         attendeePhone: meta.attendeePhone || "",
         attendeeEmail: meta.attendeeEmail || "",
+        attendeeCourt:
+          meta.attendeeCourt ||
+          meta.court ||
+          meta.courtName ||
+          meta.court_name ||
+          "",
+        attendeeCourtNumber:
+          meta.attendeeCourtNumber ||
+          meta.courtNumber ||
+          meta.court_no ||
+          meta.courtNo ||
+          meta.courtNum ||
+          "",
         attendeeNotes: meta.attendeeNotes || "",
         dietaryNote: meta.dietaryNote || "",
         corsageChoice: meta.corsageChoice || meta.corsage_choice || meta.corsageType || meta.corsage_type || meta.choice || meta.selection || meta.style || meta.color || "",
@@ -1855,7 +1868,7 @@ async function sendItemReportEmailInternal({
       notes: "Notes",
     };
   }
-  if (isLoveGiftBase) {
+  if (isLoveGiftBase && !isCorsageBase) {
     EMAIL_COLUMNS = (EMAIL_COLUMNS || []).flatMap((c) =>
       c === "item" ? ["item_name", "item_price"] : [c]
     );
