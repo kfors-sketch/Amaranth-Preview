@@ -3073,44 +3073,50 @@ corsageNote:
         });
 
         // ✅ Also send last-month receipts ZIP
+        // (Can be disabled for testing via DISABLE_RECEIPTS_ZIP_AUTO=1)
         let receiptsZip = { ok: false, skipped: true };
-        try {
-          const now = new Date();
+        const disableReceiptsZip = String(process.env.DISABLE_RECEIPTS_ZIP_AUTO || "0") === "1";
+        if (!disableReceiptsZip) {
+          try {
+            const now = new Date();
 
-          // previous month in UTC
-          let y = now.getUTCFullYear();
-          let m = now.getUTCMonth() + 1; // 1-12 current
-          m -= 1;
-          if (m <= 0) {
-            m = 12;
-            y -= 1;
+            // previous month in UTC
+            let y = now.getUTCFullYear();
+            let m = now.getUTCMonth() + 1; // 1-12 current
+            m -= 1;
+            if (m <= 0) {
+              m = 12;
+              y -= 1;
+            }
+
+            receiptsZip = await emailMonthlyReceiptsZip({
+              year: y,
+              month: m,
+              requestId,
+              auto: true,
+            });
+
+            if (receiptsZip && receiptsZip.ok) {
+              try {
+                await recordMailLog({
+                  ts: Date.now(),
+                  from: RESEND_FROM || "onboarding@resend.dev",
+                  to: receiptsZip.to ? [receiptsZip.to] : [],
+                  subject:
+                    receiptsZip.subject ||
+                    `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
+                  kind: "receipts-zip-month-auto",
+                  status: "queued",
+                  resultId: receiptsZip.resultId || receiptsZip.id || null,
+                });
+              } catch {}
+            }
+          } catch (e) {
+            console.error("receipts_zip_month_auto_failed", e?.message || e);
+            receiptsZip = { ok: false, error: String(e?.message || e) };
           }
-
-          receiptsZip = await emailMonthlyReceiptsZip({
-            year: y,
-            month: m,
-            requestId,
-            auto: true,
-          });
-
-          if (receiptsZip && receiptsZip.ok) {
-            try {
-              await recordMailLog({
-                ts: Date.now(),
-                from: RESEND_FROM || "onboarding@resend.dev",
-                to: receiptsZip.to ? [receiptsZip.to] : [],
-                subject:
-                  receiptsZip.subject ||
-                  `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
-                kind: "receipts-zip-month-auto",
-                status: "queued",
-                resultId: receiptsZip.resultId || receiptsZip.id || null,
-              });
-            } catch {}
-          }
-        } catch (e) {
-          console.error("receipts_zip_month_auto_failed", e?.message || e);
-          receiptsZip = { ok: false, error: String(e?.message || e) };
+        } else {
+          receiptsZip = { ok: false, skipped: true, disabled: true };
         }
 
         // Monthly log email to admins (REPORTS_LOG_TO)
