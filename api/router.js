@@ -1552,93 +1552,74 @@ export default async function handler(req, res) {
           );
         }
 
-        const sorted = sortByDateAsc(rows, "date");
-        const headers = Object.keys(
-          sorted[0] || {
-            id: "",
-            date: "",
-            purchaser: "",
-            attendee: "",
-            category: "",
-            item: "",
-            item_id: "",
-            qty: 0,
-            price: 0,
-            gross: 0,
-            fees: 0,
-            net: 0,
-            status: "",
-            notes: "",
-            _itemId: "",
-            _itemBase: "",
-            _itemKey: "",
-            _pi: "",
-            _charge: "",
-            _session: "",
-            mode: "",
-          }
+        // Remove null/undefined rows (safety: ExcelJS/objectsToXlsxBuffer expects objects)
+        rows = rows.filter((r) => r && typeof r === "object");
+
+        const sorted = sortByDateAsc(rows, "date").filter(
+          (r) => r && typeof r === "object"
         );
 
-        
+        const fallbackRow = {
+          id: "",
+          date: "",
+          purchaser: "",
+          attendee: "",
+          category: "",
+          item: "",
+          item_id: "",
+          qty: 0,
+          price: 0,
+          gross: 0,
+          fees: 0,
+          net: 0,
+          status: "",
+          notes: "",
+          _itemId: "",
+          _itemBase: "",
+          _itemKey: "",
+          _pi: "",
+          _charge: "",
+          _session: "",
+          mode: "",
+        };
 
-// --- DOWNLOAD SAFETY GUARDS (admin downloads can filter to zero rows) ---
-const _fallbackRow = (sorted && sorted[0]) ? null : {
-  id: "",
-  date: "",
-  purchaser: "",
-  attendee: "",
-  category: "",
-  item: "",
-  item_id: "",
-  qty: 0,
-  price: 0,
-  gross: 0,
-  fees: 0,
-  net: 0,
-  status: "",
-  notes: "",
-  _itemId: "",
-  _itemBase: "",
-  _itemKey: "",
-  _pi: "",
-  _charge: "",
-  _session: "",
-  mode: "",
-};
+        const headers = Object.keys(sorted[0] || fallbackRow);
 
-// ExcelJS can throw if we try to build a sheet from an empty dataset.
-// Always include at least one row (blank) so downloads never 500.
-const _rowsForXlsx = Array.isArray(sorted) && sorted.length ? sorted : [_fallbackRow];
+        // Always give ExcelJS at least one row to write (headers-only can crash some builds)
+        const rowsForXlsx = (sorted.length ? sorted : [fallbackRow]).map((r) => {
+          const out = {};
+          for (const h of headers) {
+            const v = r ? r[h] : "";
+            if (v === null || v === undefined) out[h] = "";
+            else if (typeof v === "bigint") out[h] = v.toString();
+            else if (typeof v === "object") {
+              try {
+                out[h] = JSON.stringify(v);
+              } catch {
+                out[h] = String(v);
+              }
+            } else out[h] = v;
+          }
+          return out;
+        });
 
-// ExcelJS also throws if any cell value is an object/array/bigint.
-// Sanitize values to primitives so admin downloads are robust.
-const _safeCell = (v) => {
-  if (v === null || v === undefined) return "";
-  const t = typeof v;
-  if (t === "string" || t === "number" || t === "boolean") return v;
-  if (t === "bigint") return v.toString();
-  try { return JSON.stringify(v); } catch { return String(v); }
-};
-const _safeRows = _rowsForXlsx.map((r) => {
-  const o = {};
-  for (const h of headers) o[h] = _safeCell(r ? r[h] : "");
-  return o;
-});
-
-let buf;
-try {
-  buf = await objectsToXlsxBuffer(headers, _safeRows, null, "Orders");
-} catch (e) {
-  console.error("orders_csv: failed to build XLSX", e);
-  return REQ_ERR(res, 500, "orders-csv-xlsx-failed", { requestId });
-}
+        let buf;
+        try {
+          buf = await objectsToXlsxBuffer(headers, rowsForXlsx, null, "Orders");
+        } catch (e) {
+          console.error("orders_csv: failed to build XLSX", e);
+          return errResponse(res, 500, "orders-csv-xlsx-failed", req, e, {
+            requestId,
+            count: sorted.length,
+          });
+        }
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
         res.setHeader("Content-Disposition", `attachment; filename="orders.xlsx"`);
         return res.status(200).send(buf);
-      }
+}
 
       if (type === "attendee_roster_csv") {
         const ids = await kvSmembersSafe("orders:index");
