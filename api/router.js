@@ -1579,7 +1579,23 @@ export default async function handler(req, res) {
           }
         );
 
-        const buf = await objectsToXlsxBuffer(headers, sorted, null, "Orders");
+        // ExcelJS can throw if any cell value is a BigInt or a plain object.
+// Normalize all values to primitives for safer downloads.
+const safeRows = sorted.map((r) => {
+  const o = {};
+  for (const h of headers) {
+    let v = r?.[h];
+    if (v === null || v === undefined) v = "";
+    else if (typeof v === "bigint") v = v.toString();
+    else if (typeof v === "object") {
+      try { v = JSON.stringify(v); } catch { v = String(v); }
+    }
+    o[h] = v;
+  }
+  return o;
+});
+
+const buf = await objectsToXlsxBuffer(headers, safeRows, null, "Orders");
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
