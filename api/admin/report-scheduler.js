@@ -1,6 +1,8 @@
 // /api/admin/report-scheduler.js
 import { kv } from "@vercel/kv";
 
+// FORCE RERUN FLAG (allows multiple test runs per day)
+const FORCE_RERUN = process.env.REPORTS_FORCE_RERUN === "1";
 /**
  * Goals of this edit:
  * 1) Align frequency naming with the rest of the codebase:
@@ -167,7 +169,7 @@ function computeDailyWindow(now, lastWindowEndMs, lastSentIso) {
   // If already sent today (UTC), do not send again.
   const lastSentDay = ymdUTCFromIso(lastSentIso);
   const todayDay = ymdUTCFromDate(now);
-  if (lastSentDay && lastSentDay === todayDay) {
+  if (!FORCE_RERUN && lastSentDay && lastSentDay === todayDay) {
     return { skip: true, reason: "Not due yet" };
   }
 
@@ -397,6 +399,15 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
       const lastSentKey = `itemcfg:${id}:last_sent_at`;
       const lastSentIso = await kvGetSafe(lastSentKey, "");
 
+      // If forcing rerun, ignore prior send markers/windows so items are considered due.
+      let _lastWindowEndMs = lastWindowEndMs;
+      let _lastSentIso = lastSentIso;
+      if (FORCE_RERUN) {
+        _lastWindowEndMs = null;
+        _lastSentIso = "";
+      }
+
+
       let startMs = null;
       let endMs = null;
       let windowLabel = "";
@@ -406,23 +417,34 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
         let result;
         switch (freq) {
           case "daily":
-            result = computeDailyWindow(now, lastWindowEndMs, lastSentIso);
+            result = computeDailyWindow(now, _lastWindowEndMs, _lastSentIso);
             break;
           case "weekly":
-            result = computeWeeklyWindow(now, lastWindowEndMs);
+            result = computeWeeklyWindow(now, _lastWindowEndMs);
             break;
           case "biweekly":
-            result = computeBiweeklyWindow(now, lastWindowEndMs);
+            result = computeBiweeklyWindow(now, _lastWindowEndMs);
             break;
           case "monthly":
           default:
-            result = computeMonthlyWindow(now, lastWindowEndMs);
+            result = computeMonthlyWindow(now, _lastWindowEndMs);
             break;
         }
 
         if (result.skip) {
-          skip = true;
-          skipReason = result.reason || "Not due yet";
+          if (FORCE_RERUN) {
+            // For testing: force a month-to-date window so we can re-send reports
+            // multiple times per day regardless of frequency cadence.
+            startMs = startOfCurrentMonthUTC(now);
+            endMs = nowMs;
+            windowLabel = "FORCE RERUN (month-to-date)";
+            periodId = computePeriodId("daily", now, startMs, endMs);
+            skip = false;
+            skipReason = "";
+          } else {
+            skip = true;
+            skipReason = result.reason || "Not due yet";
+          }
         } else {
           startMs = result.startMs;
           endMs = result.endMs;
@@ -459,9 +481,11 @@ export async function runScheduledChairReports({ now = new Date(), sendItemRepor
 
       if (result?.ok) {
         sent += 1;
-        // Persist window end + last sent time
-        await kvSetSafe(lastWindowEndKey, String(endMs));
-        await kvSetSafe(lastSentKey, now.toISOString());
+        if (!FORCE_RERUN) {
+          // Persist window end + last sent time
+          await kvSetSafe(lastWindowEndKey, String(endMs));
+          await kvSetSafe(lastSentKey, now.toISOString());
+        }
       } else {
         errors += 1;
       }
