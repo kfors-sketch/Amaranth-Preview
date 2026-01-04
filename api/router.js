@@ -2594,83 +2594,6 @@ if (isPreReg && !votingLabel) {
                       attendeeEmail: l.meta?.attendeeEmail || "",
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
-                      attendeeCourt:
-                        (l.meta?.court ||
-                          l.meta?.courtName ||
-                          l.meta?.attendeeCourt ||
-                          l.meta?.attendeeCourtName ||
-                          l.meta?.attendee_court ||
-                          l.meta?.attendee_court_name ||
-                          ""),
-                      attendeeCourtName:
-                        (l.meta?.court ||
-                          l.meta?.courtName ||
-                          l.meta?.attendeeCourt ||
-                          l.meta?.attendeeCourtName ||
-                          l.meta?.attendee_court ||
-                          l.meta?.attendee_court_name ||
-                          ""),
-                      attendeeCourtNumber:
-                        (l.meta?.courtNumber ||
-                          l.meta?.courtNo ||
-                          l.meta?.courtNum ||
-                          l.meta?.attendeeCourtNumber ||
-                          l.meta?.attendeeCourtNo ||
-                          l.meta?.attendeeCourtNum ||
-                          l.meta?.attendee_court_number ||
-                          l.meta?.attendee_court_no ||
-                          l.meta?.attendee_court_num ||
-                          ""),
-                      attendeeCourtNo:
-                        (l.meta?.courtNumber ||
-                          l.meta?.courtNo ||
-                          l.meta?.courtNum ||
-                          l.meta?.attendeeCourtNumber ||
-                          l.meta?.attendeeCourtNo ||
-                          l.meta?.attendeeCourtNum ||
-                          l.meta?.attendee_court_number ||
-                          l.meta?.attendee_court_no ||
-                          l.meta?.attendee_court_num ||
-                          ""),
-                      court:
-                        (l.meta?.court ||
-                          l.meta?.courtName ||
-                          l.meta?.attendeeCourt ||
-                          l.meta?.attendeeCourtName ||
-                          l.meta?.attendee_court ||
-                          l.meta?.attendee_court_name ||
-                          ""),
-                      courtName:
-                        (l.meta?.court ||
-                          l.meta?.courtName ||
-                          l.meta?.attendeeCourt ||
-                          l.meta?.attendeeCourtName ||
-                          l.meta?.attendee_court ||
-                          l.meta?.attendee_court_name ||
-                          ""),
-                      courtNumber:
-                        (l.meta?.courtNumber ||
-                          l.meta?.courtNo ||
-                          l.meta?.courtNum ||
-                          l.meta?.attendeeCourtNumber ||
-                          l.meta?.attendeeCourtNo ||
-                          l.meta?.attendeeCourtNum ||
-                          l.meta?.attendee_court_number ||
-                          l.meta?.attendee_court_no ||
-                          l.meta?.attendee_court_num ||
-                          ""),
-                      courtNo:
-                        (l.meta?.courtNumber ||
-                          l.meta?.courtNo ||
-                          l.meta?.courtNum ||
-                          l.meta?.attendeeCourtNumber ||
-                          l.meta?.attendeeCourtNo ||
-                          l.meta?.attendeeCourtNum ||
-                          l.meta?.attendee_court_number ||
-                          l.meta?.attendee_court_no ||
-                          l.meta?.attendee_court_num ||
-                          ""),
-
                       votingStatus:
                         (l.meta?.votingStatus ||
                           l.meta?.voting_status ||
@@ -3394,7 +3317,74 @@ corsageNote:
         });
       }
 
-      if (action === "send_end_of_event_reports") {
+      
+      if (action === "send_test_chair_reports") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const body = await readJsonBody(req);
+        const to = String(body?.to || "kfors@verizon.net").trim();
+        const frequency = String(body?.frequency || "monthly").trim().toLowerCase();
+        const scope = String(body?.scope || "current-month").trim();
+        const previewOnly = !!body?.previewOnly;
+
+        if (!to) return REQ_ERR(res, 400, "missing-test-email", { requestId });
+
+        const freqNorm = frequency === "all" ? "all" : normalizeReportFrequency(frequency);
+
+        const orders = await loadAllOrdersWithRetry();
+        const ids = await kvSmembersSafe("itemcfg:index");
+
+        let sent = 0,
+          skipped = 0,
+          errors = 0;
+
+        const results = [];
+
+        for (const itemId of ids) {
+          const cfg = await kvHgetallSafe(`itemcfg:${itemId}`);
+          const itemFreq = normalizeReportFrequency(cfg?.reportFrequency || cfg?.frequency || "monthly");
+
+          if (freqNorm !== "all" && itemFreq !== freqNorm) {
+            skipped++;
+            continue;
+          }
+
+          try {
+            const r = await sendItemReportEmailInternal({
+              kind: cfg?.kind || cfg?.type || "item",
+              id: itemId,
+              label: cfg?.label || cfg?.name || itemId,
+              scope,
+              toOverride: [to],
+              subjectPrefix: `[TEST ${freqNorm}] `,
+              previewOnly,
+            });
+
+            if (r?.ok) sent++;
+            else errors++;
+
+            results.push({ itemId, ok: !!r?.ok, preview: !!r?.preview, rowCount: r?.rowCount || 0, error: r?.error || null });
+          } catch (e) {
+            errors++;
+            results.push({ itemId, ok: false, error: e?.message || String(e) });
+          }
+        }
+
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          to,
+          frequency: freqNorm,
+          scope,
+          previewOnly,
+          sent,
+          skipped,
+          errors,
+          results,
+        });
+      }
+
+if (action === "send_end_of_event_reports") {
         const now = Date.now();
         const ids = await kvSmembersSafe("itemcfg:index");
         let sent = 0,
