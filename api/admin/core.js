@@ -1990,12 +1990,17 @@ async function sendItemReportEmailInternal({
       return "";
     };
 
+    const shouldIncludeCourt =
+      isBanquetKind || isPreRegBase || isDirectoryBase || isProceedingsBase;
+
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
       attendee: r.attendee,
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
+      court: shouldIncludeCourt ? (r.court || "") : "",
+      court_number: shouldIncludeCourt ? (r.court_number || "") : "",
     };
 
 
