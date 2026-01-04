@@ -664,7 +664,10 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
     const qty = Number(li.quantity || 1);
     const unit = cents(li.price?.unit_amount || 0);
     const total = unit * qty;
-    const meta = li.price?.product?.metadata || {};
+    const meta = {
+        ...(li.price?.product?.metadata || {}),
+        ...(li.metadata || {}),
+      };
     return {
       id: `${sid}:${li.id}`,
       itemName: name,
