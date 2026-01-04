@@ -2594,6 +2594,83 @@ if (isPreReg && !votingLabel) {
                       attendeeEmail: l.meta?.attendeeEmail || "",
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
+                      attendeeCourt:
+                        (l.meta?.court ||
+                          l.meta?.courtName ||
+                          l.meta?.attendeeCourt ||
+                          l.meta?.attendeeCourtName ||
+                          l.meta?.attendee_court ||
+                          l.meta?.attendee_court_name ||
+                          ""),
+                      attendeeCourtName:
+                        (l.meta?.court ||
+                          l.meta?.courtName ||
+                          l.meta?.attendeeCourt ||
+                          l.meta?.attendeeCourtName ||
+                          l.meta?.attendee_court ||
+                          l.meta?.attendee_court_name ||
+                          ""),
+                      attendeeCourtNumber:
+                        (l.meta?.courtNumber ||
+                          l.meta?.courtNo ||
+                          l.meta?.courtNum ||
+                          l.meta?.attendeeCourtNumber ||
+                          l.meta?.attendeeCourtNo ||
+                          l.meta?.attendeeCourtNum ||
+                          l.meta?.attendee_court_number ||
+                          l.meta?.attendee_court_no ||
+                          l.meta?.attendee_court_num ||
+                          ""),
+                      attendeeCourtNo:
+                        (l.meta?.courtNumber ||
+                          l.meta?.courtNo ||
+                          l.meta?.courtNum ||
+                          l.meta?.attendeeCourtNumber ||
+                          l.meta?.attendeeCourtNo ||
+                          l.meta?.attendeeCourtNum ||
+                          l.meta?.attendee_court_number ||
+                          l.meta?.attendee_court_no ||
+                          l.meta?.attendee_court_num ||
+                          ""),
+                      court:
+                        (l.meta?.court ||
+                          l.meta?.courtName ||
+                          l.meta?.attendeeCourt ||
+                          l.meta?.attendeeCourtName ||
+                          l.meta?.attendee_court ||
+                          l.meta?.attendee_court_name ||
+                          ""),
+                      courtName:
+                        (l.meta?.court ||
+                          l.meta?.courtName ||
+                          l.meta?.attendeeCourt ||
+                          l.meta?.attendeeCourtName ||
+                          l.meta?.attendee_court ||
+                          l.meta?.attendee_court_name ||
+                          ""),
+                      courtNumber:
+                        (l.meta?.courtNumber ||
+                          l.meta?.courtNo ||
+                          l.meta?.courtNum ||
+                          l.meta?.attendeeCourtNumber ||
+                          l.meta?.attendeeCourtNo ||
+                          l.meta?.attendeeCourtNum ||
+                          l.meta?.attendee_court_number ||
+                          l.meta?.attendee_court_no ||
+                          l.meta?.attendee_court_num ||
+                          ""),
+                      courtNo:
+                        (l.meta?.courtNumber ||
+                          l.meta?.courtNo ||
+                          l.meta?.courtNum ||
+                          l.meta?.attendeeCourtNumber ||
+                          l.meta?.attendeeCourtNo ||
+                          l.meta?.attendeeCourtNum ||
+                          l.meta?.attendee_court_number ||
+                          l.meta?.attendee_court_no ||
+                          l.meta?.attendee_court_num ||
+                          ""),
+
                       votingStatus:
                         (l.meta?.votingStatus ||
                           l.meta?.voting_status ||
