@@ -2380,7 +2380,35 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
           if (Array.isArray(body.lines) && body.lines.length) {
             const lines = body.lines;
             const fees = body.fees || { pct: 0, flat: 0 };
-            const purchaser = body.purchaser || {};
+            
+
+                        const purchaser = body.purchaser || {};
+
+            
+
+                        // Attendees are sent from the cart so we can enrich Stripe line-item metadata
+
+                        // (Court / Court # are stored on attendees, not always on line.meta.)
+
+                        const attendeesArr = Array.isArray(body.attendees)
+
+                          ? body.attendees
+
+                          : Array.isArray(body.cart && body.cart.attendees)
+
+                          ? body.cart.attendees
+
+                          : [];
+
+                        const attendeeById = Object.create(null);
+
+                        for (const a of attendeesArr) {
+
+                          const id = String(a && a.id ? a.id : "").trim();
+
+                          if (id) attendeeById[id] = a;
+
+                        }
 
             const line_items = lines.map((l) => {
               const priceMode = String(l.priceMode || "").toLowerCase();
@@ -2390,9 +2418,82 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
               const unit_amount = isBundle
                 ? cents(l.bundleTotalCents)
                 : toCentsAuto(l.unitPrice || 0);
-              const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
+              
 
-              // ✅ Love Gift / variable donation: include per-person amount in the item name
+                            const quantity = isBundle ? 1 : Math.max(1, Number(l.qty || 1));
+
+              
+
+                            const att = attendeeById[String(l.attendeeId || "").trim()] || {};
+
+                            const attCourt = String(
+
+                              l.meta?.attendeeCourt ??
+
+                                l.meta?.attendee_court ??
+
+                                l.meta?.attendeeCourtName ??
+
+                                l.meta?.attendee_court_name ??
+
+                                l.meta?.court ??
+
+                                l.meta?.courtName ??
+
+                                l.meta?.court_name ??
+
+                                att.court ??
+
+                                att.courtName ??
+
+                                att.court_name ??
+
+                                att.courtTitle ??
+
+                                att.court_title ??
+
+                                ""
+
+                            ).trim();
+
+                            const attCourtNumber = String(
+
+                              l.meta?.attendeeCourtNumber ??
+
+                                l.meta?.attendeeCourtNo ??
+
+                                l.meta?.attendeeCourtNum ??
+
+                                l.meta?.attendee_court_number ??
+
+                                l.meta?.attendee_court_no ??
+
+                                l.meta?.attendee_court_num ??
+
+                                l.meta?.courtNumber ??
+
+                                l.meta?.courtNo ??
+
+                                l.meta?.courtNum ??
+
+                                l.meta?.court_number ??
+
+                                l.meta?.court_no ??
+
+                                att.courtNumber ??
+
+                                att.courtNo ??
+
+                                att.courtNum ??
+
+                                att.court_number ??
+
+                                att.court_no ??
+
+                                ""
+
+                            ).trim();
+// ✅ Love Gift / variable donation: include per-person amount in the item name
               // so chair/realtime emails that only show itemName still include the dollar amount.
               let displayName = String(l.itemName || "Item");
               try {
@@ -2592,27 +2693,11 @@ if (isPreReg && !votingLabel) {
                       attendeeTitle: l.meta?.attendeeTitle || "",
                       attendeePhone: l.meta?.attendeePhone || "",
                       attendeeEmail: l.meta?.attendeeEmail || "",
-                      attendeeCourt:
-                        (l.meta?.attendeeCourt ||
-                          l.meta?.attendeeCourtName ||
-                          l.meta?.attendee_court ||
-                          l.meta?.attendee_court_name ||
-                          l.meta?.court ||
-                          l.meta?.courtName ||
-                          l.meta?.court_name ||
-                          ""),
-                      attendeeCourtNumber:
-                        (l.meta?.attendeeCourtNumber ||
-                          l.meta?.attendeeCourtNo ||
-                          l.meta?.attendeeCourtNum ||
-                          l.meta?.attendee_court_number ||
-                          l.meta?.attendee_court_no ||
-                          l.meta?.attendee_court_num ||
-                          l.meta?.courtNumber ||
-                          l.meta?.court_no ||
-                          l.meta?.courtNo ||
-                          l.meta?.courtNum ||
-                          ""),
+                      attendeeCourt: attCourt,
+                      attendeeCourtNumber: attCourtNumber,
+                      // Compatibility keys used by some report builders
+                      court: attCourt,
+                      court_number: attCourtNumber,
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
                       votingStatus:
