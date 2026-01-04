@@ -1559,7 +1559,7 @@ async function sendReceiptXlsxBackup(order) {
   const payload = {
     from,
     to: [EMAIL_RECEIPTS],
-    subject,
+    subject: emailSubject,
     html,
     reply_to: REPLY_TO || undefined,
     attachments: [
@@ -1760,6 +1760,10 @@ async function sendItemReportEmailInternal({
   endMs: explicitEndMs,
   scheduledAt,
   scheduled_at,
+  // test tools
+  toOverride,
+  subjectPrefix,
+  previewOnly,
 } = {}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
@@ -1990,17 +1994,12 @@ async function sendItemReportEmailInternal({
       return "";
     };
 
-    const shouldIncludeCourt =
-      isBanquetKind || isPreRegBase || isDirectoryBase || isProceedingsBase;
-
     const baseRow = {
       "#": hasAttendee ? counter++ : "",
       date: r.date,
       attendee: r.attendee,
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
-      court: shouldIncludeCourt ? (r.court || "") : "",
-      court_number: shouldIncludeCourt ? (r.court_number || "") : "",
     };
 
 
@@ -2081,7 +2080,9 @@ const today = new Date();
   );
 
   let toList = [];
-  if (toListPref.length && envFallback.length) {
+  if (Array.isArray(toOverride) && toOverride.length) {
+    toList = [...toOverride];
+  } else if (toListPref.length && envFallback.length) {
     toList = [...toListPref, ...envFallback.filter((addr) => !toListPref.includes(addr))];
   } else if (toListPref.length) {
     toList = [...toListPref];
@@ -2127,6 +2128,7 @@ const today = new Date();
   const coverageText = formatCoverageRange({ startMs, endMs, rows: sorted });
 
   const subject = `Report — ${prettyKind}: ${label || id}`;
+  const emailSubject = `${(subjectPrefix || "").toString()}${subject}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
       <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
@@ -2168,6 +2170,21 @@ if (scheduledAtIso && allowScheduled && (!payload.attachments || payload.attachm
   payload.scheduled_at = scheduledAtIso;
 }
 
+  if (previewOnly) {
+    return {
+      ok: true,
+      preview: true,
+      kind,
+      id,
+      scope,
+      to: toList,
+      bcc: bccList,
+      subject: emailSubject,
+      filename,
+      rowCount: Array.isArray(numbered) ? numbered.length : 0,
+    };
+  }
+
   const retry = await sendWithRetry(() => resend.emails.send(payload), `item-report:${kind}:${id}`);
 
   if (retry.ok) {
@@ -2176,7 +2193,7 @@ if (scheduledAtIso && allowScheduled && (!payload.attachments || payload.attachm
       ts: Date.now(),
       from: from,
       to: [...toList, ...bccList],
-      subject,
+      subject: emailSubject,
       resultId: sendResult?.id || null,
       kind: "item-report",
       status: "queued",
