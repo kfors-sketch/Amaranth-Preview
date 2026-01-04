@@ -1887,26 +1887,30 @@ async function sendItemReportEmailInternal({
     EMAIL_HEADER_LABELS = lbl;
   }
 
-  // Banquets: include Court and Court #
-  if (isBanquetKind) {
-    const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
-    const insertAfterKey = "attendee_phone";
-    const afterIdx = cols.indexOf(insertAfterKey);
-    const want = ["court", "court_number"];
-    // Insert in a stable spot near attendee info
-    for (let i = want.length - 1; i >= 0; i--) {
-      const key = want[i];
-      if (cols.includes(key)) continue;
-      if (afterIdx >= 0) cols.splice(afterIdx + 1, 0, key);
-      else cols.push(key);
-    }
-    EMAIL_COLUMNS = cols;
-    EMAIL_HEADER_LABELS = {
-      ...EMAIL_HEADER_LABELS,
-      court: "Court",
-      court_number: "Court #",
-    };
+  // Annual Session items: include Court and Court #
+if (isBanquetKind || isPreRegBase || isDirectoryBase || isProceedingsBase) {
+  const cols = Array.isArray(EMAIL_COLUMNS) ? [...EMAIL_COLUMNS] : [];
+  const insertAfterKey = "attendee_phone";
+  const afterIdx = cols.indexOf(insertAfterKey);
+
+  const want = ["court", "court_number"];
+
+  for (let i = want.length - 1; i >= 0; i--) {
+    const key = want[i];
+    if (cols.includes(key)) continue;
+    if (afterIdx >= 0) cols.splice(afterIdx + 1, 0, key);
+    else cols.push(key);
   }
+
+  EMAIL_COLUMNS = cols;
+
+  EMAIL_HEADER_LABELS = {
+    ...EMAIL_HEADER_LABELS,
+    court: "Court",
+    court_number: "Court #",
+  };
+}
+
 
   // Pre-Registration / Printed Directory / Proceedings: include Court and Court #
   // (These are attendee-based but are not "banquet" kind, so they need their own injection.)
