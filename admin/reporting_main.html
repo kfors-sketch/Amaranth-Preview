@@ -408,7 +408,60 @@
     </div>
   </div>
 
-  <script>
+  
+    <!-- TEST CHAIR REPORT EMAILS -->
+    <div class="card mb-12">
+      <div class="section-label">Testing</div>
+      <h3>Send Test Chair Report Emails</h3>
+      <p class="muted">
+        Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
+        This does <strong>not</strong> affect scheduled chair emails.
+      </p>
+
+      <div class="controls mt-4">
+        <div class="group" style="max-width:320px">
+          <label class="muted">Send to</label>
+          <input id="testReportTo" type="email" value="kfors@verizon.net" />
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Frequency</label>
+          <select id="testReportFreq">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Scope</label>
+          <select id="testReportScope">
+            <option value="current-month" selected>Current month</option>
+            <option value="full">Full history</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Preview only</label>
+          <div style="height:32px;display:flex;align-items:center;gap:8px;">
+            <input id="testPreviewOnly" type="checkbox" />
+            <span class="muted">No email</span>
+          </div>
+        </div>
+
+        <div class="group" style="max-width:200px">
+          <label class="muted">&nbsp;</label>
+          <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
+        </div>
+      </div>
+
+      <pre id="testReportOut" class="mt-8"
+           style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
+    </div>
+
+<script>
     const LS_KEY = 'amaranth-report-rows-v1';
     let rows = [];
 
@@ -879,7 +932,36 @@
       }
     });
 
-    (function init(){
+    
+    // Send test chair report emails immediately (does not affect scheduled sends)
+    $('#btnSendTestReports')?.addEventListener('click', async () => {
+      const out = $('#testReportOut');
+      if (out) out.textContent = 'Running test…';
+
+      try {
+        const payload = {
+          to: ($('#testReportTo')?.value || 'kfors@verizon.net').trim(),
+          frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
+          scope: ($('#testReportScope')?.value || 'current-month').trim(),
+          previewOnly: !!$('#testPreviewOnly')?.checked,
+        };
+
+        const r = await fetch('/api/router?action=send_test_chair_reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(payload),
+        });
+
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || ('HTTP ' + r.status));
+
+        if (out) out.textContent = JSON.stringify(j, null, 2);
+      } catch (e) {
+        if (out) out.textContent = 'ERROR: ' + (e?.message || String(e));
+      }
+    });
+
+(function init(){
       rows=loadFromLocal();
       render();
       loadFromServer();
