@@ -656,16 +656,20 @@ if (!addr1) missing.push("Address line 1");
     const shipping = Number(t.shipping || 0);  // product Shipping & Handling
     const baseForFees = subtotal + shipping;   // what Stripe actually uses
 
-    // Compute processing fee using the SAME cents-logic as the backend
-    const pct = Number(t.pct || 0);
-    const flat = Number(t.flat || 0);
-    const baseCents = Math.round(baseForFees * 100);
-    const flatCents = Math.round(flat * 100);
-    const feeCents = Math.max(
-      0,
-      Math.round(baseCents * (pct / 100)) + flatCents
-    );
-    const fee = feeCents / 100;
+    // Compute processing fee so that, after Stripe takes (pct% + flat), you net the base.
+// This "gross-up" formula avoids you paying out-of-pocket due to percentage-on-total math.
+const pct = Number(t.pct || 0);
+const flat = Number(t.flat || 0);
+const baseCents = Math.round(baseForFees * 100);
+const rate = pct / 100;
+const flatCents = Math.round(flat * 100);
+
+let feeCents = 0;
+if (baseCents > 0 && (rate > 0 || flatCents > 0) && rate < 1) {
+  const grossCents = Math.ceil((baseCents + flatCents) / (1 - rate));
+  feeCents = Math.max(0, grossCents - baseCents);
+}
+const fee = feeCents / 100;
 
     // Purchaser country from the form (for intl preview)
     const pCountryEl = document.getElementById("p_country");
