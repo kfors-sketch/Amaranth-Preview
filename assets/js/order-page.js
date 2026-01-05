@@ -687,7 +687,8 @@ const fee = feeCents / 100;
     summaryBox.innerHTML = `
         <div><strong>Subtotal</strong>: ${money(subtotal)}</div>
         <div><strong>Shipping &amp; Handling</strong>: ${money(shipping)}</div>
-        <div>Processing fee (${t.pct}% + ${money(t.flat)}): ${money(fee)}</div>
+        <div>Processing fee (card processing): ${money(fee)}</div>
+
         ${
           intlFee > 0
             ? `<div>International card processing fee (3%): ${money(intlFee)}</div>`
