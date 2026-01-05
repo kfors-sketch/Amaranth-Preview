@@ -63,6 +63,8 @@ import {
   emailFinalReceiptsZip,
 } from "./admin/core.js";
 
+import { buildCheckoutDraft, saveCheckoutDraft, getCheckoutDraft, deleteCheckoutDraft } from "./data.js";
+
 import {
   isInternationalOrder,
   computeInternationalFeeCents,
@@ -2766,6 +2768,23 @@ if (feeAmount > 0) {
               },
             });
 
+try {
+  const draft = buildCheckoutDraft({
+    sessionId: session.id,
+    purchaser,
+    lines,
+    fees,
+    // optional extra context (safe)
+    orderChannel: (typeof orderChannel !== "undefined" ? orderChannel : undefined),              // if you have it
+    createdAt: Date.now(),
+  });
+  await saveCheckoutDraft(session.id, draft);
+} catch (e) {
+  console.error("[checkout_draft] save failed", e?.message || e);
+}
+
+
+
             return REQ_OK(res, {
               requestId,
               url: session.url,
@@ -2880,7 +2899,25 @@ if (feeAmount > 0) {
                 mode,
               });
 
-              // ✅ write-once createdAt + hash (tamper detection)
+              let draft = null;
+try {
+  draft = await getCheckoutDraft(session.id || session);
+} catch (e) {
+  console.error("[checkout_draft] load failed", e?.message || e);
+}
+
+if (draft) {
+  try {
+    order._checkoutDraft = draft;                 // keep under a safe namespace
+    order._checkoutDraftSavedAt = new Date().toISOString();
+    await kvSetSafe(`order:${order.id}`, order);  // persist the enrichment
+    await deleteCheckoutDraft(session.id || session);
+  } catch (e) {
+    console.error("[checkout_draft] attach failed", e?.message || e);
+  }
+}
+
+// ✅ write-once createdAt + hash (tamper detection)
               await ensureOrderIntegrityMarkers(order, requestId);
 
               // ✅ Centralized: immediate receipts + chair + admin copy (idempotent)
