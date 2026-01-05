@@ -53,36 +53,59 @@ function normalizeMeta(m) {
   };
 }
 
-function normalizeLine(l) {
-  const x = safeObj(l);
+function extractMealChoice(itemName) {
+  const s = String(itemName || "").trim();
+  // Common pattern: "Banquet Name (Meal Choice)"
+  // We only treat the LAST parenthetical group as a meal choice.
+  const m = s.match(/^(.*)\s\(([^()]{2,})\)\s*$/);
+  if (!m) return { baseName: s, mealChoice: "" };
+  return { baseName: m[1].trim(), mealChoice: m[2].trim() };
+}
 
-  const qty = Math.max(1, Number(x.qty || 1));
-  const unitCents = toCentsAuto(x.unitPrice || 0);
+function normalizeLine(l) {
+  const meta = (l && l.meta) || {};
+  const itemName = String(l?.itemName || l?.name || "").trim();
+  const { baseName, mealChoice } = extractMealChoice(itemName);
 
   return {
-    // Identity/routing
-    itemId: cleanStr(x.itemId),
-    itemType: cleanStr(x.itemType), // banquet/addon/catalog/fee/etc.
+    itemId: String(l?.itemId || "").trim(),
+    itemType: String(l?.itemType || "").trim(), // banquet | addon | catalog | supplies | charity | etc
+    itemName,
+    itemNameBase: baseName,
+    mealChoice: String(meta.mealChoice || meta.meal || meta.mealType || mealChoice || "").trim(),
 
-    // Presentation
-    itemName: cleanStr(x.itemName || "Item"),
+    qty: Number(l?.qty || 0) || 0,
+    unitPrice: l?.unitPrice ?? 0,
+    priceMode: String(l?.priceMode || "").trim(),
+    bundleQty: l?.bundleQty ?? null,
+    bundleTotalCents: l?.bundleTotalCents ?? null,
 
-    // Pricing
-    qty,
-    unitPriceCents: unitCents,
+    // Attendee assignment + meal/dietary context
+    attendeeId: String(l?.attendeeId || "").trim(),
+    attendeeName: String(meta.attendeeName || "").trim(),
+    attendeeTitle: String(meta.attendeeTitle || "").trim(),
+    attendeePhone: String(meta.attendeePhone || "").trim(),
+    attendeeEmail: String(meta.attendeeEmail || "").trim(),
+    attendeeNotes: String(meta.attendeeNotes || "").trim(),
+    dietaryNote: String(meta.dietaryNote || "").trim(),
 
-    // Assignment
-    attendeeId: cleanStr(x.attendeeId),
+    // Optional: court / court# often lives in notes today (keep raw notes too)
+    court: String(meta.court || "").trim(),
+    courtNumber: String(meta.courtNumber || meta.courtNo || meta.courtNum || "").trim(),
 
-    // Options/notes
-    meta: normalizeMeta(x.meta),
+    // Item-level note (e.g., corsage custom text)
+    itemNote: String(meta.itemNote || "").trim(),
 
-    // Bundle support (if you use it)
-    priceMode: cleanStr(x.priceMode).toLowerCase(),
-    bundleQty: x.bundleQty != null ? String(x.bundleQty) : "",
-    bundleTotalCents: x.bundleTotalCents != null ? String(toCentsAuto(x.bundleTotalCents)) : "",
+    // Address if present (some items use purchaser, but we preserve anything passed)
+    attendeeAddr1: String(meta.attendeeAddr1 || "").trim(),
+    attendeeAddr2: String(meta.attendeeAddr2 || "").trim(),
+    attendeeCity: String(meta.attendeeCity || "").trim(),
+    attendeeState: String(meta.attendeeState || "").trim(),
+    attendeePostal: String(meta.attendeePostal || "").trim(),
+    attendeeCountry: String(meta.attendeeCountry || "").trim(),
   };
 }
+
 
 /**
  * Build a canonical “draft” that represents what the buyer intended to purchase,
