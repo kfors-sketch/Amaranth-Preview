@@ -561,7 +561,11 @@
       for (const r of filtered){
         idx++;
         const status = (r.status||'').toLowerCase();
-        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
+        const amount = Number(
+  r.gross ??
+  (Number(r.price || 0) * Number(r.qty || 1)) ??
+  0
+);
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
