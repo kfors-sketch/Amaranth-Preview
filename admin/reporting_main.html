@@ -506,11 +506,20 @@
   // ----------------------------
   // Gross / Net helpers
   // Rules:
-  // - Net = chair payout (base item amount)
-  // - Gross = base item amount + allocated processing fee share for that order/session
+  // - Net = chairman payout (base item amount)
+  // - Gross = base item amount + allocated processing-fee share for that order/session
+  // Fee rows are displayed, but NOT included in Gross/Net totals (they would double count).
   // ----------------------------
   function orderKey(r){
-    return String(r._session || r.session_id || r.checkout_id || r.order_id || r.id || '');
+    // prefer checkout/session-like ids so fee rows and item rows group together
+    return String(
+      r._session ||
+      r.session_id ||
+      r.checkout_id ||
+      r.order_id ||
+      r.id ||
+      ''
+    );
   }
 
   function isProcessingFeeRow(r){
@@ -527,7 +536,14 @@
   }
 
   function feeAmount(r){
-    const v = Number(r.gross ?? r.price ?? 0);
+    // Prefer explicit fee/amount fields if present; fallback to price/gross
+    const v = Number(
+      r.fee ??
+      r.amount ??
+      r.gross ??
+      r.price ??
+      0
+    );
     return Number.isFinite(v) ? v : 0;
   }
 
@@ -574,6 +590,33 @@
       return true;
     });
 
+    // ✅ De-dupe "Online Processing Fee" duplicates (fee vs other) per order+amount+timestamp
+    (function dedupeFeeRows(){
+      const keep = new Map();
+      for (const r of filtered){
+        if (!isProcessingFeeRow(r)){
+          // keep non-fee rows always
+          keep.set(`ROW:${keep.size}`, r);
+          continue;
+        }
+        const key = orderKey(r);
+        const amt = feeAmount(r);
+        const when = String(r.date || r.created || r.created_at || '');
+        const k = `FEE:${key}:${amt.toFixed(2)}:${when}`;
+
+        const prev = keep.get(k);
+        if (!prev){
+          keep.set(k, r);
+          continue;
+        }
+        const prevCat = String(prev.category || prev.type || '').toLowerCase();
+        const nextCat = String(r.category || r.type || '').toLowerCase();
+        // prefer the "fee" category row if we have both
+        if (prevCat !== 'fee' && nextCat === 'fee') keep.set(k, r);
+      }
+      filtered = Array.from(keep.values());
+    })();
+
     filtered.sort((a,b)=>{
       const ta = Date.parse(a.date || a.created || a.created_at || '')||0;
       const tb = Date.parse(b.date || b.created || b.created_at || '')||0;
@@ -583,23 +626,11 @@
     // Build fee totals + base totals per order for allocation (within the current filtered set)
     const feeByOrder = {};
     const baseByOrder = {};
-    const hasFeeCatRow = {}; // used to avoid double counting "fee" vs "other" duplicates
-
     for (const r of filtered){
       const key = orderKey(r);
       if (!key) continue;
-
       if (isProcessingFeeRow(r)) {
-        const catLower = String(r.category || r.type || '').toLowerCase();
-        if (catLower === 'fee') {
-          hasFeeCatRow[key] = true;
-          feeByOrder[key] = (feeByOrder[key] || 0) + feeAmount(r);
-        } else {
-          // If a real fee-category row exists for this order, ignore this duplicate
-          if (!hasFeeCatRow[key]) {
-            feeByOrder[key] = (feeByOrder[key] || 0) + feeAmount(r);
-          }
-        }
+        feeByOrder[key] = (feeByOrder[key] || 0) + feeAmount(r);
       } else {
         baseByOrder[key] = (baseByOrder[key] || 0) + baseAmount(r);
       }
@@ -634,15 +665,13 @@
 
       const isFee = isProcessingFeeRow(r);
 
-      // Compute net/gross per your rule
-      const base = baseAmount(r); // chair payout
+      const base = baseAmount(r); // chairman payout basis
       let feeShare = 0;
 
       if (!isFee) {
         const key = orderKey(r);
         const feeTotal = key ? (feeByOrder[key] || 0) : 0;
         const baseTotal = key ? (baseByOrder[key] || 0) : 0;
-
         if (feeTotal > 0 && baseTotal > 0) {
           feeShare = (base / baseTotal) * feeTotal;
         }
@@ -651,16 +680,12 @@
       const net = round2(isFee ? 0 : base);
       const gross = round2(isFee ? feeAmount(r) : (base + feeShare));
 
-      // Totals in header:
-      // - Gross: what was charged for non-fee items INCLUDING allocated fee share
-      // - Net: chair payout for non-fee items
+      // Totals (overview + by category):
+      // - Only non-fee rows contribute to Gross/Net totals.
+      //   (Fee rows are shown, but NOT added, otherwise you'd count the fee twice.)
       if (!isFee) {
         totalGross += gross;
         totalNet += net;
-      }
-
-      // Totals by category (exclude fee rows from chair payout style totals)
-      if (!isFee) {
         byCat[catKey].gross += gross;
         byCat[catKey].net += net;
       }
@@ -716,12 +741,9 @@
         const ch = r.charge || r.charge_id || r._charge;
         if(!pi && !ch){ alert('No Stripe payment info.'); return; }
 
-        // Default refund amount:
-        // - For fee rows: refund the fee row amount
-        // - For item rows: refund the computed gross (what purchaser actually paid for that item)
-        const refundDefault = isFee ? gross : gross;
-
-        openRefundModal({payment_intent:pi,charge:ch,total:refundDefault});
+        // Default refund amount = shown row "what purchaser paid"
+        // (for item rows that's computed Gross; for fee rows it's fee amount)
+        openRefundModal({payment_intent:pi,charge:ch,total:gross});
       });
 
       tbody.appendChild(tr);
