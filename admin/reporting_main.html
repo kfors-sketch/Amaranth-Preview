@@ -378,8 +378,61 @@
         </div>
       </div>
     </div>
+
+    <!-- TEST CHAIR REPORT EMAILS -->
+    <div class="card mb-12 mt-12">
+      <div class="section-label">Testing</div>
+      <h3>Send Test Chair Report Emails</h3>
+      <p class="muted">
+        Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
+        This does <strong>not</strong> affect scheduled chair emails.
+      </p>
+
+      <div class="controls mt-4">
+        <div class="group" style="max-width:320px">
+          <label class="muted">Send to</label>
+          <input id="testReportTo" type="email" value="kfors@verizon.net" />
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Frequency</label>
+          <select id="testReportFreq">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Scope</label>
+          <select id="testReportScope">
+            <option value="current-month" selected>Current month</option>
+            <option value="full">Full history</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Preview only</label>
+          <div style="height:32px;display:flex;align-items:center;gap:8px;">
+            <input id="testPreviewOnly" type="checkbox" />
+            <span class="muted">No email</span>
+          </div>
+        </div>
+
+        <div class="group" style="max-width:200px">
+          <label class="muted">&nbsp;</label>
+          <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
+        </div>
+      </div>
+
+      <pre id="testReportOut" class="mt-8"
+           style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
+    </div>
   </div>
 
+  <!-- Refund Modal -->
   <div id="refundModal" aria-hidden="true">
     <div class="modal-inner">
       <h4>Issue Refund</h4>
@@ -401,58 +454,6 @@
         <button id="rfSubmit" class="btn sm">Refund</button>
       </div>
     </div>
-  </div>
-
-  <!-- TEST CHAIR REPORT EMAILS -->
-  <div class="card mb-12">
-    <div class="section-label">Testing</div>
-    <h3>Send Test Chair Report Emails</h3>
-    <p class="muted">
-      Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
-      This does <strong>not</strong> affect scheduled chair emails.
-    </p>
-
-    <div class="controls mt-4">
-      <div class="group" style="max-width:320px">
-        <label class="muted">Send to</label>
-        <input id="testReportTo" type="email" value="kfors@verizon.net" />
-      </div>
-
-      <div class="group" style="max-width:220px">
-        <label class="muted">Frequency</label>
-        <select id="testReportFreq">
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="biweekly">Biweekly</option>
-          <option value="monthly" selected>Monthly</option>
-          <option value="all">All</option>
-        </select>
-      </div>
-
-      <div class="group" style="max-width:220px">
-        <label class="muted">Scope</label>
-        <select id="testReportScope">
-          <option value="current-month" selected>Current month</option>
-          <option value="full">Full history</option>
-        </select>
-      </div>
-
-      <div class="group" style="max-width:220px">
-        <label class="muted">Preview only</label>
-        <div style="height:32px;display:flex;align-items:center;gap:8px;">
-          <input id="testPreviewOnly" type="checkbox" />
-          <span class="muted">No email</span>
-        </div>
-      </div>
-
-      <div class="group" style="max-width:200px">
-        <label class="muted">&nbsp;</label>
-        <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
-      </div>
-    </div>
-
-    <pre id="testReportOut" class="mt-8"
-         style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
   </div>
 
 <script>
@@ -480,11 +481,11 @@
 
   function buildServerQuery(extra){
     const params = new URLSearchParams();
-    const df = $('#dateFrom').value;
-    const dt = $('#dateTo').value;
-    const cat = $('#category').value;
-    const st  = $('#status').value;
-    const q   = $('#search').value.trim();
+    const df = $('#dateFrom')?.value;
+    const dt = $('#dateTo')?.value;
+    const cat = $('#category')?.value;
+    const st  = $('#status')?.value;
+    const q   = ($('#search')?.value || '').trim();
     if (df) params.set('from', df);
     if (dt) params.set('to', dt);
     if (cat) params.set('category', cat);
@@ -503,12 +504,14 @@
 
   function render(){
     const tbody = $('#tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
-    const df = $('#dateFrom').value;
-    const dt = $('#dateTo').value;
-    const cat = $('#category').value;
-    const st  = $('#status').value;
-    const q   = $('#search').value.trim().toLowerCase();
+
+    const df = $('#dateFrom')?.value;
+    const dt = $('#dateTo')?.value;
+    const cat = $('#category')?.value;
+    const st  = $('#status')?.value;
+    const q   = ($('#search')?.value || '').trim().toLowerCase();
 
     const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
     const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
@@ -531,7 +534,7 @@
           r.attendee_country, r.country,
           r.attendee_phone, r.phone,
           r.notes, r.memo,
-          r.metadata && JSON.stringify(r.metadata)
+          (r.metadata ? JSON.stringify(r.metadata) : '')
         ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -577,10 +580,9 @@
 
       const catKey = String(r.category||r.type||'other').toLowerCase();
       byCat[catKey] = byCat[catKey] || {total:0,count:0};
-
-      // Count always (so you can see fee rows), but ONLY add to chair totals if not a fee row
       byCat[catKey].count++;
 
+      // You said: pay chairs by GROSS. Also avoid fee rows inflating chair totals.
       if (String(r.category||'').toLowerCase() !== 'fee') {
         totalGross += isFinite(gross) ? gross : 0;
         byCat[catKey].total += isFinite(gross) ? gross : 0;
@@ -604,12 +606,12 @@
       const buyer = r.purchaser || r.name || r.buyer || r.customer_name || '—';
       const buyerEmail = r.attendee_email || r.email || '';
 
-      const item  = r.item||r.item_name||r.description||'—';
+      const item  = r.item || r.item_name || r.description || '—';
 
       const metaBits=[];
-      if(r.attendee_phone || r.phone) metaBits.push(`📞 ${r.attendee_phone || r.phone}`);
-      if(r.attendee_city || r.city || r.attendee_state || r.state) metaBits.push(`📍 ${[r.attendee_city||r.city, r.attendee_state||r.state].filter(Boolean).join(', ')}`);
-      if(r.order_id||r.id) metaBits.push(`ID: ${r.order_id||r.id}`);
+      if (r.attendee_phone || r.phone) metaBits.push(`📞 ${r.attendee_phone || r.phone}`);
+      if (r.attendee_city || r.city || r.attendee_state || r.state) metaBits.push(`📍 ${[r.attendee_city||r.city, r.attendee_state||r.state].filter(Boolean).join(', ')}`);
+      if (r.order_id || r.id) metaBits.push(`ID: ${r.order_id || r.id}`);
 
       const cells = [
         td(idx,'text-xs muted'),
@@ -634,39 +636,46 @@
         const pi = r.payment_intent || r.pi || r._pi;
         const ch = r.charge || r.charge_id || r._charge;
         if(!pi && !ch){ alert('No Stripe payment info.'); return; }
-        // refund amount defaults to NET (safer if fees exist); you can change to gross if you refund gross
+        // Refund defaults to NET (safer if processing fee exists). Change to gross if you truly refund gross.
         openRefundModal({payment_intent:pi,charge:ch,total:(isFinite(net)?net:0)});
       });
 
       tbody.appendChild(tr);
     }
 
-    if(filtered.length===0) $('#totalCount').textContent='0';
-    else if(shown>=filtered.length || !Number.isFinite(maxRows))
-      $('#totalCount').textContent=String(filtered.length);
-    else
-      $('#totalCount').textContent=`${shown} / ${filtered.length}`;
+    const totalCountEl = $('#totalCount');
+    if (totalCountEl){
+      if (filtered.length===0) totalCountEl.textContent='0';
+      else if (shown>=filtered.length || !Number.isFinite(maxRows))
+        totalCountEl.textContent=String(filtered.length);
+      else
+        totalCountEl.textContent=`${shown} / ${filtered.length}`;
+    }
 
-    $('#totalAmount').textContent='$'+totalGross.toFixed(2);
-    $('#paidCount').textContent = paid;
-    $('#pendingCount').textContent = pending;
-    $('#refundedCount').textContent = refunded;
+    const totalAmountEl = $('#totalAmount');
+    if (totalAmountEl) totalAmountEl.textContent='$'+totalGross.toFixed(2);
+
+    const paidEl = $('#paidCount'); if (paidEl) paidEl.textContent = paid;
+    const pendingEl = $('#pendingCount'); if (pendingEl) pendingEl.textContent = pending;
+    const refundedEl = $('#refundedCount'); if (refundedEl) refundedEl.textContent = refunded;
 
     const totalsDiv = $('#totalsByCategory');
-    totalsDiv.innerHTML='';
-    const cats = Object.entries(byCat);
-    if(!cats.length){
-      totalsDiv.textContent='No rows in current filter window.';
-    } else {
-      cats.forEach(([catKey,info])=>{
-        const line=document.createElement('div');
-        line.className='mb-4';
-        line.innerHTML=
-          `<span class="pill tag-muted">${catKey}</span>
-           <span class="text-xs muted">Count: ${info.count}</span>
-           <span class="text-xs muted"> • Gross Total: $${info.total.toFixed(2)}</span>`;
-        totalsDiv.appendChild(line);
-      });
+    if (totalsDiv){
+      totalsDiv.innerHTML='';
+      const cats = Object.entries(byCat);
+      if(!cats.length){
+        totalsDiv.textContent='No rows in current filter window.';
+      } else {
+        cats.forEach(([catKey,info])=>{
+          const line=document.createElement('div');
+          line.className='mb-4';
+          line.innerHTML=
+            `<span class="pill tag-muted">${catKey}</span>
+             <span class="text-xs muted">Count: ${info.count}</span>
+             <span class="text-xs muted"> • Gross Total: $${info.total.toFixed(2)}</span>`;
+          totalsDiv.appendChild(line);
+        });
+      }
     }
   }
 
@@ -685,7 +694,7 @@
     }
   }
 
-  document.getElementById('fileImport').addEventListener('change', async e=>{
+  document.getElementById('fileImport')?.addEventListener('change', async e=>{
     const file=e.target.files[0]; if(!file)return;
     const text=await file.text();
     let data=[];
@@ -699,12 +708,12 @@
     e.target.value='';
   });
 
-  document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
+  document.getElementById('btnExportCsv')?.addEventListener('click', async ()=>{
     const qs=buildServerQuery();
     await downloadServerCsv(qs);
   });
 
-  document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
+  document.getElementById('btnFullAttendeesCsv')?.addEventListener('click', async ()=>{
     const qs=buildServerQuery();
     await downloadServerCsv(qs);
   });
@@ -734,9 +743,9 @@
     }
   }
 
-  document.getElementById('btnPrint').addEventListener('click',()=>window.print());
+  document.getElementById('btnPrint')?.addEventListener('click',()=>window.print());
 
-  document.getElementById('btnClear').addEventListener('click',()=>{
+  document.getElementById('btnClear')?.addEventListener('click',()=>{
     if(prompt('Type CLEAR to remove only local rows')==='CLEAR'){
       localStorage.removeItem(LS_KEY);
       rows=[];
@@ -744,7 +753,7 @@
     }
   });
 
-  document.getElementById('btnSample').addEventListener('click',()=>{
+  document.getElementById('btnSample')?.addEventListener('click',()=>{
     rows=[]; // keeping sample off
     render();
   });
@@ -779,10 +788,11 @@
     return list;
   }
 
-  document.getElementById('actCategory').addEventListener('change',async()=>{
+  document.getElementById('actCategory')?.addEventListener('change',async()=>{
     const kind=$('#actCategory').value;
     const list=await fetchList(kind);
     const sel=$('#actChoice');
+    if (!sel) return;
     sel.innerHTML='<option value="" disabled selected>Choose…</option>';
     list.forEach(it=>{
       const opt=document.createElement('option');
@@ -793,14 +803,15 @@
     });
   });
 
-  $('#scopeMode').addEventListener('change',()=>{
-    $('#scopeRangeRow').style.display =
-      $('#scopeMode').value==='custom' ? 'flex' : 'none';
+  $('#scopeMode')?.addEventListener('change',()=>{
+    const row = $('#scopeRangeRow');
+    if (!row) return;
+    row.style.display = ($('#scopeMode').value==='custom') ? 'flex' : 'none';
   });
 
-  document.getElementById('btnActDownload').addEventListener('click',async()=>{
-    const kind=$('#actCategory').value;
-    const opt=$('#actChoice').selectedOptions[0];
+  document.getElementById('btnActDownload')?.addEventListener('click',async()=>{
+    const kind=$('#actCategory')?.value;
+    const opt=$('#actChoice')?.selectedOptions?.[0];
     if(!kind)return alert('Choose category');
     if(!opt)return alert('Choose item');
     const id=opt.value;
@@ -813,35 +824,36 @@
     await downloadServerCsv(extra);
   });
 
-  document.getElementById('btnActEmail').addEventListener('click',async()=>{
-    const kind=$('#actCategory').value;
-    const opt=$('#actChoice').selectedOptions[0];
+  document.getElementById('btnActEmail')?.addEventListener('click',async()=>{
+    const kind=$('#actCategory')?.value;
+    const opt=$('#actChoice')?.selectedOptions?.[0];
     if(!kind)return alert('Choose category');
     if(!opt)return alert('Choose item');
     const id=opt.value;
     const label=opt.dataset.label;
-    const scopeMode=$('#scopeMode').value;
+    const scopeMode=$('#scopeMode')?.value || 'full';
 
     const payload={kind,id,label,scope:scopeMode};
     if(scopeMode==='custom'){
-      const s=$('#scopeStart').value;
-      const e=$('#scopeEnd').value;
+      const s=$('#scopeStart')?.value;
+      const e=$('#scopeEnd')?.value;
       if(!s||!e)return alert('Both dates required');
       payload.startYMD=s; payload.endYMD=e;
     }
 
-    $('#sendMsg').textContent='Sending…';
+    const sendMsg = $('#sendMsg');
+    if (sendMsg) sendMsg.textContent='Sending…';
     try{
       const r=await fetch('/api/router?action=send_item_report',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers: getAuthHeaders(),            /* ✅ FIX: include Authorization token */
         body:JSON.stringify(payload)
       });
       const j=await r.json();
       if(!r.ok) throw new Error(j?.error||j?.message||'Failed');
-      $('#sendMsg').textContent=`Email queued. (${j.count||0} rows)`;
+      if (sendMsg) sendMsg.textContent=`Email queued. (${j.count||0} rows)`;
     }catch(e){
-      $('#sendMsg').textContent='Send failed: '+e.message;
+      if (sendMsg) sendMsg.textContent='Send failed: ' + (e?.message || String(e));
     }
   });
 
@@ -863,11 +875,11 @@
     currentRefundCtx=null;
   }
 
-  $('#rfType').addEventListener('change',()=>{
-    $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
+  $('#rfType')?.addEventListener('change',()=>{
+    $('#rfAmtWrap').style.display = ($('#rfType').value==='partial') ? 'block' : 'none';
   });
-  $('#rfCancel').addEventListener('click',closeRefundModal);
-  $('#rfSubmit').addEventListener('click',async()=>{
+  $('#rfCancel')?.addEventListener('click',closeRefundModal);
+  $('#rfSubmit')?.addEventListener('click',async()=>{
     if(!currentRefundCtx)return;
     const headers={'Content-Type':'application/json'};
     const token=localStorage.getItem('amaranth_report_token');
@@ -895,8 +907,8 @@
       closeRefundModal();
       loadFromServer();
     }catch(e){
-      alert('Refund failed: '+e.message;
-      );
+      /* ✅ FIX: broken alert syntax */
+      alert('Refund failed: ' + (e?.message || String(e)));
     }
   });
 
@@ -919,18 +931,18 @@
 
       const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
       $('#reportWeekday').value=weekday;
-      statusEl.textContent='';
-      helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+      if (statusEl) statusEl.textContent='';
+      if (helpEl) helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
     }catch{
-      statusEl.textContent='Could not load settings.';
-      helpEl.textContent='';
+      if (statusEl) statusEl.textContent='Could not load settings.';
+      if (helpEl) helpEl.textContent='';
     }
   }
 
-  $('#btnSaveReportSettings').addEventListener('click',async()=>{
+  $('#btnSaveReportSettings')?.addEventListener('click',async()=>{
     const weekday=$('#reportWeekday').value;
     const statusEl=$('#reportSettingsStatus');
-    statusEl.textContent='Saving…';
+    if (statusEl) statusEl.textContent='Saving…';
     try{
       const r=await fetch('/api/router?action=save_settings',{
         method:'POST',
@@ -942,14 +954,16 @@
       });
       const j=await r.json();
       if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
-      statusEl.textContent='Saved.';
-      $('#reportSettingsHelp').textContent=
+      if (statusEl) statusEl.textContent='Saved.';
+      const helpEl = $('#reportSettingsHelp');
+      if (helpEl) helpEl.textContent =
         `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
     }catch(e){
-      statusEl.textContent='Save failed: '+e.message;
+      if (statusEl) statusEl.textContent='Save failed: ' + (e?.message || String(e));
     }
   });
 
+  // Send test chair report emails immediately (does not affect scheduled sends)
   $('#btnSendTestReports')?.addEventListener('click', async () => {
     const out = $('#testReportOut');
     if (out) out.textContent = 'Running test…';
@@ -964,7 +978,7 @@
 
       const r = await fetch('/api/router?action=send_test_chair_reports', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        headers: { ...getAuthHeaders() },
         body: JSON.stringify(payload),
       });
 
@@ -985,6 +999,7 @@
   })();
 </script>
 
-<script src="/assets/js/admin-help.js"></script>
+  <!-- Shared help popup logic -->
+  <script src="/assets/js/admin-help.js"></script>
 </body>
 </html>
