@@ -210,6 +210,7 @@
               </div>
               <div class="mt-4 text-xs muted">
                 Total (Gross): <strong id="totalAmount">$0.00</strong><br/>
+                Total (Net): <strong id="totalNetAmount">$0.00</strong><br/>
                 Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
               </div>
             </div>
@@ -502,6 +503,38 @@
     return params.toString() ? '?' + params.toString() : '';
   }
 
+  // ----------------------------
+  // Gross / Net helpers
+  // Rules:
+  // - Net = chair payout (base item amount)
+  // - Gross = base item amount + allocated processing fee share for that order/session
+  // ----------------------------
+  function orderKey(r){
+    return String(r._session || r.session_id || r.checkout_id || r.order_id || r.id || '');
+  }
+
+  function isProcessingFeeRow(r){
+    const cat = String(r.category || r.type || '').toLowerCase();
+    const item = String(r.item || r.item_name || r.description || '').toLowerCase();
+    return cat === 'fee' || item.includes('online processing fee');
+  }
+
+  function baseAmount(r){
+    const qty = Number(r.qty || 1);
+    const price = Number(r.price || 0);
+    const base = price * qty;
+    return Number.isFinite(base) ? base : 0;
+  }
+
+  function feeAmount(r){
+    const v = Number(r.gross ?? r.price ?? 0);
+    return Number.isFinite(v) ? v : 0;
+  }
+
+  function round2(n){
+    return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+  }
+
   function render(){
     const tbody = $('#tbody');
     if (!tbody) return;
@@ -547,6 +580,31 @@
       return ta - tb;
     });
 
+    // Build fee totals + base totals per order for allocation (within the current filtered set)
+    const feeByOrder = {};
+    const baseByOrder = {};
+    const hasFeeCatRow = {}; // used to avoid double counting "fee" vs "other" duplicates
+
+    for (const r of filtered){
+      const key = orderKey(r);
+      if (!key) continue;
+
+      if (isProcessingFeeRow(r)) {
+        const catLower = String(r.category || r.type || '').toLowerCase();
+        if (catLower === 'fee') {
+          hasFeeCatRow[key] = true;
+          feeByOrder[key] = (feeByOrder[key] || 0) + feeAmount(r);
+        } else {
+          // If a real fee-category row exists for this order, ignore this duplicate
+          if (!hasFeeCatRow[key]) {
+            feeByOrder[key] = (feeByOrder[key] || 0) + feeAmount(r);
+          }
+        }
+      } else {
+        baseByOrder[key] = (baseByOrder[key] || 0) + baseAmount(r);
+      }
+    }
+
     let maxRows = Infinity;
     const limitEl = $('#rowsLimit');
     if (limitEl){
@@ -558,6 +616,7 @@
 
     let idx = 0, shown = 0;
     let totalGross = 0;
+    let totalNet = 0;
     let paid=0,pending=0,refunded=0;
     const byCat = {};
 
@@ -565,27 +624,45 @@
       idx++;
       const status = (r.status||'').toLowerCase();
 
-      const gross = Number(
-        r.gross ??
-        (Number(r.price || 0) * Number(r.qty || 1)) ??
-        0
-      );
-      const net = Number(
-        r.net ?? gross ?? 0
-      );
-
       if (status === 'paid') paid++;
       else if (status === 'pending') pending++;
       else if (status === 'refunded') refunded++;
 
       const catKey = String(r.category||r.type||'other').toLowerCase();
-      byCat[catKey] = byCat[catKey] || {total:0,count:0};
+      byCat[catKey] = byCat[catKey] || {gross:0, net:0, count:0};
       byCat[catKey].count++;
 
-      // You said: pay chairs by GROSS. Also avoid fee rows inflating chair totals.
-      if (String(r.category||'').toLowerCase() !== 'fee') {
-        totalGross += isFinite(gross) ? gross : 0;
-        byCat[catKey].total += isFinite(gross) ? gross : 0;
+      const isFee = isProcessingFeeRow(r);
+
+      // Compute net/gross per your rule
+      const base = baseAmount(r); // chair payout
+      let feeShare = 0;
+
+      if (!isFee) {
+        const key = orderKey(r);
+        const feeTotal = key ? (feeByOrder[key] || 0) : 0;
+        const baseTotal = key ? (baseByOrder[key] || 0) : 0;
+
+        if (feeTotal > 0 && baseTotal > 0) {
+          feeShare = (base / baseTotal) * feeTotal;
+        }
+      }
+
+      const net = round2(isFee ? 0 : base);
+      const gross = round2(isFee ? feeAmount(r) : (base + feeShare));
+
+      // Totals in header:
+      // - Gross: what was charged for non-fee items INCLUDING allocated fee share
+      // - Net: chair payout for non-fee items
+      if (!isFee) {
+        totalGross += gross;
+        totalNet += net;
+      }
+
+      // Totals by category (exclude fee rows from chair payout style totals)
+      if (!isFee) {
+        byCat[catKey].gross += gross;
+        byCat[catKey].net += net;
       }
 
       if (shown >= maxRows) continue;
@@ -624,8 +701,10 @@
               <span>${status||'unknown'}</span>
             </span>`),
         td(
-          `<div class="text-xs"><strong>Gross: $${(isFinite(gross)?gross:0).toFixed(2)}</strong></div>
-           <div class="text-xs muted">Net: $${(isFinite(net)?net:0).toFixed(2)}</div>`,
+          isFee
+            ? `<div class="text-xs"><strong>Fee: $${gross.toFixed(2)}</strong></div>`
+            : `<div class="text-xs"><strong>Gross: $${gross.toFixed(2)}</strong></div>
+               <div class="text-xs muted">Net: $${net.toFixed(2)}</div>`,
           'text-right'
         ),
         td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
@@ -636,8 +715,13 @@
         const pi = r.payment_intent || r.pi || r._pi;
         const ch = r.charge || r.charge_id || r._charge;
         if(!pi && !ch){ alert('No Stripe payment info.'); return; }
-        // Refund defaults to NET (safer if processing fee exists). Change to gross if you truly refund gross.
-        openRefundModal({payment_intent:pi,charge:ch,total:(isFinite(net)?net:0)});
+
+        // Default refund amount:
+        // - For fee rows: refund the fee row amount
+        // - For item rows: refund the computed gross (what purchaser actually paid for that item)
+        const refundDefault = isFee ? gross : gross;
+
+        openRefundModal({payment_intent:pi,charge:ch,total:refundDefault});
       });
 
       tbody.appendChild(tr);
@@ -653,7 +737,10 @@
     }
 
     const totalAmountEl = $('#totalAmount');
-    if (totalAmountEl) totalAmountEl.textContent='$'+totalGross.toFixed(2);
+    if (totalAmountEl) totalAmountEl.textContent='$'+round2(totalGross).toFixed(2);
+
+    const totalNetEl = $('#totalNetAmount');
+    if (totalNetEl) totalNetEl.textContent='$'+round2(totalNet).toFixed(2);
 
     const paidEl = $('#paidCount'); if (paidEl) paidEl.textContent = paid;
     const pendingEl = $('#pendingCount'); if (pendingEl) pendingEl.textContent = pending;
@@ -672,7 +759,8 @@
           line.innerHTML=
             `<span class="pill tag-muted">${catKey}</span>
              <span class="text-xs muted">Count: ${info.count}</span>
-             <span class="text-xs muted"> • Gross Total: $${info.total.toFixed(2)}</span>`;
+             <span class="text-xs muted"> • Gross: $${round2(info.gross).toFixed(2)}</span>
+             <span class="text-xs muted"> • Net: $${round2(info.net).toFixed(2)}</span>`;
           totalsDiv.appendChild(line);
         });
       }
@@ -846,7 +934,7 @@
     try{
       const r=await fetch('/api/router?action=send_item_report',{
         method:'POST',
-        headers: getAuthHeaders(),            /* ✅ FIX: include Authorization token */
+        headers: getAuthHeaders(),
         body:JSON.stringify(payload)
       });
       const j=await r.json();
@@ -907,7 +995,6 @@
       closeRefundModal();
       loadFromServer();
     }catch(e){
-      /* ✅ FIX: broken alert syntax */
       alert('Refund failed: ' + (e?.message || String(e)));
     }
   });
