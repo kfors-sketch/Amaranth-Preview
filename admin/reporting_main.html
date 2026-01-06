@@ -118,14 +118,12 @@
         <p class="muted">Download, email, and inspect registration data. Filters at the top affect most exports.</p>
       </div>
       <div class="heading-actions">
-        <!-- Match the two link-style buttons from admin/banquets.html -->
         <a href="index.html" class="btn secondary sm">← Admin Hub</a>
         <a href="banquets.html" class="btn secondary sm">Banquet Manager</a>
         <button id="btnPrint" class="btn secondary sm">Print</button>
       </div>
     </div>
 
-    <!-- Top filters + tools -->
     <div class="card mb-16">
       <div class="flex between mb-4">
         <div class="section-label">Filters &amp; tools</div>
@@ -211,7 +209,7 @@
                 </select>
               </div>
               <div class="mt-4 text-xs muted">
-                Total: <strong id="totalAmount">$0.00</strong><br/>
+                Total (Gross): <strong id="totalAmount">$0.00</strong><br/>
                 Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
               </div>
             </div>
@@ -258,7 +256,6 @@
           <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
         </div>
 
-        <!-- WEEKLY-ONLY AUTOMATION -->
         <div class="card mb-12">
           <div class="section-label">Automation</div>
           <h3>
@@ -301,7 +298,6 @@
           <p class="muted mt-4" id="reportSettingsHelp"></p>
         </div>
 
-        <!-- Item tools -->
         <div class="card mb-12">
           <div class="section-label">Per-item tools</div>
           <h3>
@@ -384,7 +380,6 @@
     </div>
   </div>
 
-  <!-- Refund Modal -->
   <div id="refundModal" aria-hidden="true">
     <div class="modal-inner">
       <h4>Issue Refund</h4>
@@ -408,571 +403,588 @@
     </div>
   </div>
 
-  
-    <!-- TEST CHAIR REPORT EMAILS -->
-    <div class="card mb-12">
-      <div class="section-label">Testing</div>
-      <h3>Send Test Chair Report Emails</h3>
-      <p class="muted">
-        Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
-        This does <strong>not</strong> affect scheduled chair emails.
-      </p>
+  <!-- TEST CHAIR REPORT EMAILS -->
+  <div class="card mb-12">
+    <div class="section-label">Testing</div>
+    <h3>Send Test Chair Report Emails</h3>
+    <p class="muted">
+      Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
+      This does <strong>not</strong> affect scheduled chair emails.
+    </p>
 
-      <div class="controls mt-4">
-        <div class="group" style="max-width:320px">
-          <label class="muted">Send to</label>
-          <input id="testReportTo" type="email" value="kfors@verizon.net" />
-        </div>
+    <div class="controls mt-4">
+      <div class="group" style="max-width:320px">
+        <label class="muted">Send to</label>
+        <input id="testReportTo" type="email" value="kfors@verizon.net" />
+      </div>
 
-        <div class="group" style="max-width:220px">
-          <label class="muted">Frequency</label>
-          <select id="testReportFreq">
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="biweekly">Biweekly</option>
-            <option value="monthly" selected>Monthly</option>
-            <option value="all">All</option>
-          </select>
-        </div>
+      <div class="group" style="max-width:220px">
+        <label class="muted">Frequency</label>
+        <select id="testReportFreq">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="biweekly">Biweekly</option>
+          <option value="monthly" selected>Monthly</option>
+          <option value="all">All</option>
+        </select>
+      </div>
 
-        <div class="group" style="max-width:220px">
-          <label class="muted">Scope</label>
-          <select id="testReportScope">
-            <option value="current-month" selected>Current month</option>
-            <option value="full">Full history</option>
-          </select>
-        </div>
+      <div class="group" style="max-width:220px">
+        <label class="muted">Scope</label>
+        <select id="testReportScope">
+          <option value="current-month" selected>Current month</option>
+          <option value="full">Full history</option>
+        </select>
+      </div>
 
-        <div class="group" style="max-width:220px">
-          <label class="muted">Preview only</label>
-          <div style="height:32px;display:flex;align-items:center;gap:8px;">
-            <input id="testPreviewOnly" type="checkbox" />
-            <span class="muted">No email</span>
-          </div>
-        </div>
-
-        <div class="group" style="max-width:200px">
-          <label class="muted">&nbsp;</label>
-          <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
+      <div class="group" style="max-width:220px">
+        <label class="muted">Preview only</label>
+        <div style="height:32px;display:flex;align-items:center;gap:8px;">
+          <input id="testPreviewOnly" type="checkbox" />
+          <span class="muted">No email</span>
         </div>
       </div>
 
-      <pre id="testReportOut" class="mt-8"
-           style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
+      <div class="group" style="max-width:200px">
+        <label class="muted">&nbsp;</label>
+        <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
+      </div>
     </div>
 
+    <pre id="testReportOut" class="mt-8"
+         style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
+  </div>
+
 <script>
-    const LS_KEY = 'amaranth-report-rows-v1';
-    let rows = [];
+  const LS_KEY = 'amaranth-report-rows-v1';
+  let rows = [];
 
-    function $(sel){ return document.querySelector(sel); }
+  function $(sel){ return document.querySelector(sel); }
 
-    function loadFromLocal(){
-      try{
-        const raw = localStorage.getItem(LS_KEY);
-        if(!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed)? parsed: [];
-      }catch(e){
-        console.warn('Failed to load local rows', e);
-        return [];
+  function loadFromLocal(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)? parsed: [];
+    }catch(e){
+      console.warn('Failed to load local rows', e);
+      return [];
+    }
+  }
+  function saveToLocal(data){
+    try{
+      localStorage.setItem(LS_KEY, JSON.stringify(data || []));
+    }catch(e){}
+  }
+
+  function buildServerQuery(extra){
+    const params = new URLSearchParams();
+    const df = $('#dateFrom').value;
+    const dt = $('#dateTo').value;
+    const cat = $('#category').value;
+    const st  = $('#status').value;
+    const q   = $('#search').value.trim();
+    if (df) params.set('from', df);
+    if (dt) params.set('to', dt);
+    if (cat) params.set('category', cat);
+    if (st) params.set('status', st);
+    if (q) params.set('search', q);
+    if (extra && typeof extra === 'object') {
+      for (const [k,v] of Object.entries(extra)){
+        if (v !== undefined && v !== '') params.set(k, v);
       }
     }
-    function saveToLocal(data){
-      try{
-        localStorage.setItem(LS_KEY, JSON.stringify(data || []));
-      }catch(e){}
+    if (typeof extra === 'string' && extra) {
+      return extra.startsWith('?') ? extra : ('?' + extra);
+    }
+    return params.toString() ? '?' + params.toString() : '';
+  }
+
+  function render(){
+    const tbody = $('#tbody');
+    tbody.innerHTML = '';
+    const df = $('#dateFrom').value;
+    const dt = $('#dateTo').value;
+    const cat = $('#category').value;
+    const st  = $('#status').value;
+    const q   = $('#search').value.trim().toLowerCase();
+
+    const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
+    const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
+
+    let filtered = rows.slice();
+    filtered = filtered.filter(r=>{
+      const t = Date.parse(r.date || r.created || r.created_at || '');
+      if (!isNaN(fromMs) && t < fromMs) return false;
+      if (!isNaN(toMs) && t > toMs) return false;
+      if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
+      if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
+      if (q){
+        const hay = [
+          r.purchaser, r.buyer, r.name, r.attendee,
+          r.attendee_email, r.email,
+          r.item, r.item_name, r.description,
+          r.attendee_city, r.city,
+          r.attendee_state, r.state,
+          r.attendee_postal, r.zip,
+          r.attendee_country, r.country,
+          r.attendee_phone, r.phone,
+          r.notes, r.memo,
+          r.metadata && JSON.stringify(r.metadata)
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a,b)=>{
+      const ta = Date.parse(a.date || a.created || a.created_at || '')||0;
+      const tb = Date.parse(b.date || b.created || b.created_at || '')||0;
+      return ta - tb;
+    });
+
+    let maxRows = Infinity;
+    const limitEl = $('#rowsLimit');
+    if (limitEl){
+      if (limitEl.value !== 'all'){
+        const n = parseInt(limitEl.value,10);
+        if (n > 0) maxRows = n;
+      }
     }
 
-    function buildServerQuery(extra){
-      const params = new URLSearchParams();
-      const df = $('#dateFrom').value;
-      const dt = $('#dateTo').value;
-      const cat = $('#category').value;
-      const st  = $('#status').value;
-      const q   = $('#search').value.trim();
-      if (df) params.set('from', df);
-      if (dt) params.set('to', dt);
-      if (cat) params.set('category', cat);
-      if (st) params.set('status', st);
-      if (q) params.set('search', q);
-      if (extra && typeof extra === 'object') {
-        for (const [k,v] of Object.entries(extra)){
-          if (v !== undefined && v !== '') params.set(k, v);
-        }
+    let idx = 0, shown = 0;
+    let totalGross = 0;
+    let paid=0,pending=0,refunded=0;
+    const byCat = {};
+
+    for (const r of filtered){
+      idx++;
+      const status = (r.status||'').toLowerCase();
+
+      const gross = Number(
+        r.gross ??
+        (Number(r.price || 0) * Number(r.qty || 1)) ??
+        0
+      );
+      const net = Number(
+        r.net ?? gross ?? 0
+      );
+
+      if (status === 'paid') paid++;
+      else if (status === 'pending') pending++;
+      else if (status === 'refunded') refunded++;
+
+      const catKey = String(r.category||r.type||'other').toLowerCase();
+      byCat[catKey] = byCat[catKey] || {total:0,count:0};
+
+      // Count always (so you can see fee rows), but ONLY add to chair totals if not a fee row
+      byCat[catKey].count++;
+
+      if (String(r.category||'').toLowerCase() !== 'fee') {
+        totalGross += isFinite(gross) ? gross : 0;
+        byCat[catKey].total += isFinite(gross) ? gross : 0;
       }
-      if (typeof extra === 'string' && extra) {
-        // allow passing pre-built query strings from per-item tools
-        return extra.startsWith('?') ? extra : ('?' + extra);
+
+      if (shown >= maxRows) continue;
+      shown++;
+
+      const tr = document.createElement('tr');
+
+      function td(text,cls){
+        const el=document.createElement('td');
+        if(cls)el.className=cls;
+        el.innerHTML=text;
+        return el;
       }
-      return params.toString() ? '?' + params.toString() : '';
-    }
 
-    function render(){
-      const tbody = $('#tbody');
-      tbody.innerHTML = '';
-      const df = $('#dateFrom').value;
-      const dt = $('#dateTo').value;
-      const cat = $('#category').value;
-      const st  = $('#status').value;
-      const q   = $('#search').value.trim().toLowerCase();
+      const t = Date.parse(r.date||r.created||r.created_at||'');
+      const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
 
-      const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
-      const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
+      const buyer = r.purchaser || r.name || r.buyer || r.customer_name || '—';
+      const buyerEmail = r.attendee_email || r.email || '';
 
-      let filtered = rows.slice();
-      filtered = filtered.filter(r=>{
-        const t = Date.parse(r.date || r.created || r.created_at || '');
-        if (!isNaN(fromMs) && t < fromMs) return false;
-        if (!isNaN(toMs) && t > toMs) return false;
-        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
-        if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
-        if (q){
-          const hay = [
-            r.name,r.buyer,r.email,r.item,r.item_name,
-            r.address,r.city,r.state,r.zip,r.country,
-            r.phone,r.notes,r.metadata && JSON.stringify(r.metadata)
-          ].join(' ').toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
+      const item  = r.item||r.item_name||r.description||'—';
+
+      const metaBits=[];
+      if(r.attendee_phone || r.phone) metaBits.push(`📞 ${r.attendee_phone || r.phone}`);
+      if(r.attendee_city || r.city || r.attendee_state || r.state) metaBits.push(`📍 ${[r.attendee_city||r.city, r.attendee_state||r.state].filter(Boolean).join(', ')}`);
+      if(r.order_id||r.id) metaBits.push(`ID: ${r.order_id||r.id}`);
+
+      const cells = [
+        td(idx,'text-xs muted'),
+        td(dateStr,'text-xs'),
+        td(`<div class="text-xs">${buyer}</div><div class="text-xs muted">${buyerEmail}</div>`),
+        td(`<div class="text-xs">${item}</div><div class="text-xs muted">${r.notes||r.memo||''}</div>`),
+        td(`<span class="badge-sm tag-muted">${r.category||r.type||'—'}</span>`),
+        td(`<span class="status-icon ${status}">
+              <span class="dot"></span>
+              <span>${status||'unknown'}</span>
+            </span>`),
+        td(
+          `<div class="text-xs"><strong>Gross: $${(isFinite(gross)?gross:0).toFixed(2)}</strong></div>
+           <div class="text-xs muted">Net: $${(isFinite(net)?net:0).toFixed(2)}</div>`,
+          'text-right'
+        ),
+        td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
+      ];
+      cells.forEach(c=>tr.appendChild(c));
+
+      tr.addEventListener('click',()=>{
+        const pi = r.payment_intent || r.pi || r._pi;
+        const ch = r.charge || r.charge_id || r._charge;
+        if(!pi && !ch){ alert('No Stripe payment info.'); return; }
+        // refund amount defaults to NET (safer if fees exist); you can change to gross if you refund gross
+        openRefundModal({payment_intent:pi,charge:ch,total:(isFinite(net)?net:0)});
       });
 
-      filtered.sort((a,b)=>{
-        const ta = Date.parse(a.date || a.created || a.created_at || '')||0;
-        const tb = Date.parse(b.date || b.created || b.created_at || '')||0;
-        return ta - tb;
+      tbody.appendChild(tr);
+    }
+
+    if(filtered.length===0) $('#totalCount').textContent='0';
+    else if(shown>=filtered.length || !Number.isFinite(maxRows))
+      $('#totalCount').textContent=String(filtered.length);
+    else
+      $('#totalCount').textContent=`${shown} / ${filtered.length}`;
+
+    $('#totalAmount').textContent='$'+totalGross.toFixed(2);
+    $('#paidCount').textContent = paid;
+    $('#pendingCount').textContent = pending;
+    $('#refundedCount').textContent = refunded;
+
+    const totalsDiv = $('#totalsByCategory');
+    totalsDiv.innerHTML='';
+    const cats = Object.entries(byCat);
+    if(!cats.length){
+      totalsDiv.textContent='No rows in current filter window.';
+    } else {
+      cats.forEach(([catKey,info])=>{
+        const line=document.createElement('div');
+        line.className='mb-4';
+        line.innerHTML=
+          `<span class="pill tag-muted">${catKey}</span>
+           <span class="text-xs muted">Count: ${info.count}</span>
+           <span class="text-xs muted"> • Gross Total: $${info.total.toFixed(2)}</span>`;
+        totalsDiv.appendChild(line);
       });
-
-      let maxRows = Infinity;
-      const limitEl = $('#rowsLimit');
-      if (limitEl){
-        if (limitEl.value !== 'all'){
-          const n = parseInt(limitEl.value,10);
-          if (n > 0) maxRows = n;
-        }
-      }
-
-      let idx = 0, shown = 0;
-      let total = 0;
-      let paid=0,pending=0,refunded=0;
-      const byCat = {};
-
-      for (const r of filtered){
-        idx++;
-        const status = (r.status||'').toLowerCase();
-        const amount = Number(
-  r.gross ??
-  (Number(r.price || 0) * Number(r.qty || 1)) ??
-  0
-);
-
-        if (status === 'paid') paid++;
-        else if (status === 'pending') pending++;
-        else if (status === 'refunded') refunded++;
-
-        total += isFinite(amount)?amount:0;
-
-        const catKey = String(r.category||r.type||'other').toLowerCase();
-        byCat[catKey] = byCat[catKey] || {total:0,count:0};
-        byCat[catKey].total += isFinite(amount)?amount:0;
-        byCat[catKey].count++;
-
-        if (shown >= maxRows) continue;
-        shown++;
-
-        const tr = document.createElement('tr');
-
-        function td(text,cls){
-          const el=document.createElement('td');
-          if(cls)el.className=cls;
-          el.innerHTML=text;
-          return el;
-        }
-
-        const t = Date.parse(r.date||r.created||r.created_at||'');
-        const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
-
-        const buyer = r.name||r.buyer||r.customer_name||'—';
-        const item  = r.item||r.item_name||r.description||'—';
-
-        const metaBits=[];
-        if(r.phone)metaBits.push(`📞 ${r.phone}`);
-        if(r.city||r.state)metaBits.push(`📍 ${[r.city,r.state].filter(Boolean).join(', ')}`);
-        if(r.order_id||r.id)metaBits.push(`ID: ${r.order_id||r.id}`);
-
-        const cells = [
-          td(idx,'text-xs muted'),
-          td(dateStr,'text-xs'),
-          td(`<div class="text-xs">${buyer}</div><div class="text-xs muted">${r.email||''}</div>`),
-          td(`<div class="text-xs">${item}</div><div class="text-xs muted">${r.notes||r.memo||''}</div>`),
-          td(`<span class="badge-sm tag-muted">${r.category||r.type||'—'}</span>`),
-          td(`<span class="status-icon ${status}">
-                <span class="dot"></span>
-                <span>${status||'unknown'}</span>
-              </span>`),
-          td(isFinite(amount)?'$'+amount.toFixed(2):'—','text-right text-xs'),
-          td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
-        ];
-        cells.forEach(c=>tr.appendChild(c));
-
-        tr.addEventListener('click',()=>{
-          const pi=r.payment_intent||r.pi;
-          const ch=r.charge||r.charge_id;
-          if(!pi&&!ch){alert('No Stripe payment info.');return;}
-          openRefundModal({payment_intent:pi,charge:ch,total:amount});
-        });
-
-        tbody.appendChild(tr);
-      }
-
-      if(filtered.length===0) $('#totalCount').textContent='0';
-      else if(shown>=filtered.length || !Number.isFinite(maxRows))
-        $('#totalCount').textContent=String(filtered.length);
-      else
-        $('#totalCount').textContent=`${shown} / ${filtered.length}`;
-
-      $('#totalAmount').textContent='$'+total.toFixed(2);
-      $('#paidCount').textContent = paid;
-      $('#pendingCount').textContent = pending;
-      $('#refundedCount').textContent = refunded;
-
-      const totalsDiv = $('#totalsByCategory');
-      totalsDiv.innerHTML='';
-      const cats = Object.entries(byCat);
-      if(!cats.length){
-        totalsDiv.textContent='No rows in current filter window.';
-      } else {
-        cats.forEach(([catKey,info])=>{
-          const line=document.createElement('div');
-          line.className='mb-4';
-          line.innerHTML=
-            `<span class="pill tag-muted">${catKey}</span>
-             <span class="text-xs muted">Count: ${info.count}</span>
-             <span class="text-xs muted"> • Total: $${info.total.toFixed(2)}</span>`;
-          totalsDiv.appendChild(line);
-        });
-      }
     }
+  }
 
-    async function loadFromServer(){
-      try{
-        const qs = buildServerQuery();
-        const r = await fetch('/api/router?type=orders'+qs,{cache:'no-store'});
-        const j = await r.json();
-        if(!r.ok) throw new Error(j?.error||'Fetch failed');
-        rows = Array.isArray(j.rows)?j.rows:[];
-        saveToLocal(rows);
-        render();
-      }catch(e){
-        rows = loadFromLocal();
-        render();
-      }
-    }
-
-    document.getElementById('fileImport').addEventListener('change', async e=>{
-      const file=e.target.files[0]; if(!file)return;
-      const text=await file.text();
-      let data=[];
-      try{
-        if(file.name.endsWith('.json') || text.trim().startsWith('['))
-          data=JSON.parse(text);
-      }catch(err){alert('Failed to parse');return;}
-      rows = Array.isArray(data)?data:[];
+  async function loadFromServer(){
+    try{
+      const qs = buildServerQuery();
+      const r = await fetch('/api/router?type=orders'+qs,{cache:'no-store'});
+      const j = await r.json();
+      if(!r.ok) throw new Error(j?.error||'Fetch failed');
+      rows = Array.isArray(j.rows)?j.rows:[];
       saveToLocal(rows);
       render();
-      e.target.value='';
-    });
-
-    document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
-      const qs=buildServerQuery();
-      await downloadServerCsv(qs);
-    });
-
-    document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
-      const qs=buildServerQuery();
-      await downloadServerCsv(qs);
-    });
-
-    async function downloadServerCsv(qs){
-      // qs is typically returned like "?start=YYYY-MM-DD&end=YYYY-MM-DD&category=..."
-      // but this endpoint already has "?type=orders_csv" so we must join with "&".
-      if (typeof qs === 'string' && qs){
-        if (qs.startsWith('?')) qs = '&' + qs.slice(1);
-        else if (!qs.startsWith('&')) qs = '&' + qs;
-      } else {
-        qs = '';
-      }
-      return downloadCsvFrom('/api/router?type=orders_csv'+qs,'amaranth-report');
-    }
-
-    async function downloadCsvFrom(url,namePrefix){
-      try{
-        const r=await fetch(url,{cache:'no-store'});
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        const blob=await r.blob();
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=`${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
-        document.body.appendChild(a); a.click(); a.remove();
-        return true;
-      }catch(e){
-        alert('Download failed');
-      }
-    }
-
-    document.getElementById('btnPrint').addEventListener('click',()=>window.print());
-
-    document.getElementById('btnClear').addEventListener('click',()=>{
-      if(prompt('Type CLEAR to remove only local rows')==='CLEAR'){
-        localStorage.removeItem(LS_KEY);
-        rows=[];
-        render();
-      }
-    });
-
-    document.getElementById('btnSample').addEventListener('click',()=>{
-      rows=[]; // keeping sample off
+    }catch(e){
+      rows = loadFromLocal();
       render();
-    });
-
-    ['dateFrom','dateTo','category','status','search','rowsLimit']
-      .forEach(id=>document.getElementById(id)?.addEventListener('input',render));
-
-    const caches={banquet:null,addon:null,other:null};
-
-    function normalizeList(kind,list){
-      return (list||[]).map(x=>({
-        id:String(x.id||x.itemId||x.slug||x.code||x.name||''),
-        name:String(x.name||x.title||x.label||x.slug||x.id||'(unnamed)'),
-        chairEmails:Array.isArray(x.chairEmails)?x.chairEmails
-          :String(x.chairEmails||x.chairs||'').split(',').map(s=>s.trim()).filter(Boolean)
-      }));
     }
+  }
 
-    async function fetchList(kind){
-      if(caches[kind]) return caches[kind];
-      const typeMap={banquet:'banquets',addon:'addons',other:'products'};
-      const listType=typeMap[kind];
-      let list=[];
-      try{
-        const r=await fetch(`/api/router?type=${listType}`,{cache:'no-store'});
-        if(r.ok){
-          const j=await r.json();
-          list=normalizeList(kind,j[listType]);
-        }
-      }catch{}
-      caches[kind]=list;
-      return list;
+  document.getElementById('fileImport').addEventListener('change', async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    const text=await file.text();
+    let data=[];
+    try{
+      if(file.name.endsWith('.json') || text.trim().startsWith('['))
+        data=JSON.parse(text);
+    }catch(err){alert('Failed to parse');return;}
+    rows = Array.isArray(data)?data:[];
+    saveToLocal(rows);
+    render();
+    e.target.value='';
+  });
+
+  document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
+    const qs=buildServerQuery();
+    await downloadServerCsv(qs);
+  });
+
+  document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
+    const qs=buildServerQuery();
+    await downloadServerCsv(qs);
+  });
+
+  async function downloadServerCsv(qs){
+    if (typeof qs === 'string' && qs){
+      if (qs.startsWith('?')) qs = '&' + qs.slice(1);
+      else if (!qs.startsWith('&')) qs = '&' + qs;
+    } else {
+      qs = '';
     }
+    return downloadCsvFrom('/api/router?type=orders_csv'+qs,'amaranth-report');
+  }
 
-    document.getElementById('actCategory').addEventListener('change',async()=>{
-      const kind=$('#actCategory').value;
-      const list=await fetchList(kind);
-      const sel=$('#actChoice');
-      sel.innerHTML='<option value="" disabled selected>Choose…</option>';
-      list.forEach(it=>{
-        const opt=document.createElement('option');
-        opt.value=it.id;
-        opt.dataset.label=it.name;
-        opt.textContent=it.name+(it.chairEmails.length?' — '+it.chairEmails.join(', '):'');
-        sel.appendChild(opt);
-      });
-    });
+  async function downloadCsvFrom(url,namePrefix){
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      return true;
+    }catch(e){
+      alert('Download failed');
+    }
+  }
 
-    $('#scopeMode').addEventListener('change',()=>{
-      $('#scopeRangeRow').style.display =
-        $('#scopeMode').value==='custom' ? 'flex' : 'none';
-    });
+  document.getElementById('btnPrint').addEventListener('click',()=>window.print());
 
-    document.getElementById('btnActDownload').addEventListener('click',async()=>{
-      const kind=$('#actCategory').value;
-      const opt=$('#actChoice').selectedOptions[0];
-      if(!kind)return alert('Choose category');
-      if(!opt)return alert('Choose item');
-      const id=opt.value;
-      const label=opt.dataset.label;
-      const extra = new URLSearchParams({
-        category:kind,
-        item_id:id,
-        item:label
-      }).toString();
-      await downloadServerCsv(extra);
-    });
+  document.getElementById('btnClear').addEventListener('click',()=>{
+    if(prompt('Type CLEAR to remove only local rows')==='CLEAR'){
+      localStorage.removeItem(LS_KEY);
+      rows=[];
+      render();
+    }
+  });
 
-    document.getElementById('btnActEmail').addEventListener('click',async()=>{
-      const kind=$('#actCategory').value;
-      const opt=$('#actChoice').selectedOptions[0];
-      if(!kind)return alert('Choose category');
-      if(!opt)return alert('Choose item');
-      const id=opt.value;
-      const label=opt.dataset.label;
-      const scopeMode=$('#scopeMode').value;
+  document.getElementById('btnSample').addEventListener('click',()=>{
+    rows=[]; // keeping sample off
+    render();
+  });
 
-      const payload={kind,id,label,scope:scopeMode};
-      if(scopeMode==='custom'){
-        const s=$('#scopeStart').value;
-        const e=$('#scopeEnd').value;
-        if(!s||!e)return alert('Both dates required');
-        payload.startYMD=s; payload.endYMD=e;
-      }
+  ['dateFrom','dateTo','category','status','search','rowsLimit']
+    .forEach(id=>document.getElementById(id)?.addEventListener('input',render));
 
-      $('#sendMsg').textContent='Sending…';
-      try{
-        const r=await fetch('/api/router?action=send_item_report',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(payload)
-        });
+  const caches={banquet:null,addon:null,other:null};
+
+  function normalizeList(kind,list){
+    return (list||[]).map(x=>({
+      id:String(x.id||x.itemId||x.slug||x.code||x.name||''),
+      name:String(x.name||x.title||x.label||x.slug||x.id||'(unnamed)'),
+      chairEmails:Array.isArray(x.chairEmails)?x.chairEmails
+        :String(x.chairEmails||x.chairs||'').split(',').map(s=>s.trim()).filter(Boolean)
+    }));
+  }
+
+  async function fetchList(kind){
+    if(caches[kind]) return caches[kind];
+    const typeMap={banquet:'banquets',addon:'addons',other:'products'};
+    const listType=typeMap[kind];
+    let list=[];
+    try{
+      const r=await fetch(`/api/router?type=${listType}`,{cache:'no-store'});
+      if(r.ok){
         const j=await r.json();
-        if(!r.ok) throw new Error(j?.error||j?.message||'Failed');
-        $('#sendMsg').textContent=`Email queued. (${j.count||0} rows)`;
-      }catch(e){
-        $('#sendMsg').textContent='Send failed: '+e.message;
+        list=normalizeList(kind,j[listType]);
       }
+    }catch{}
+    caches[kind]=list;
+    return list;
+  }
+
+  document.getElementById('actCategory').addEventListener('change',async()=>{
+    const kind=$('#actCategory').value;
+    const list=await fetchList(kind);
+    const sel=$('#actChoice');
+    sel.innerHTML='<option value="" disabled selected>Choose…</option>';
+    list.forEach(it=>{
+      const opt=document.createElement('option');
+      opt.value=it.id;
+      opt.dataset.label=it.name;
+      opt.textContent=it.name+(it.chairEmails.length?' — '+it.chairEmails.join(', '):'');
+      sel.appendChild(opt);
     });
+  });
 
-    let currentRefundCtx=null;
+  $('#scopeMode').addEventListener('change',()=>{
+    $('#scopeRangeRow').style.display =
+      $('#scopeMode').value==='custom' ? 'flex' : 'none';
+  });
 
-    function openRefundModal(ctx){
-      currentRefundCtx=ctx;
-      $('#rfType').value='full';
-      $('#rfAmount').value='';
-      $('#rfAmtWrap').style.display='none';
-      $('#rfInfo').textContent=`PI: ${ctx.payment_intent||'—'}  Charge: ${ctx.charge||'—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
-      $('#refundModal').style.display='flex';
-      $('#refundModal').setAttribute('aria-hidden','false');
+  document.getElementById('btnActDownload').addEventListener('click',async()=>{
+    const kind=$('#actCategory').value;
+    const opt=$('#actChoice').selectedOptions[0];
+    if(!kind)return alert('Choose category');
+    if(!opt)return alert('Choose item');
+    const id=opt.value;
+    const label=opt.dataset.label;
+    const extra = new URLSearchParams({
+      category:kind,
+      item_id:id,
+      item:label
+    }).toString();
+    await downloadServerCsv(extra);
+  });
+
+  document.getElementById('btnActEmail').addEventListener('click',async()=>{
+    const kind=$('#actCategory').value;
+    const opt=$('#actChoice').selectedOptions[0];
+    if(!kind)return alert('Choose category');
+    if(!opt)return alert('Choose item');
+    const id=opt.value;
+    const label=opt.dataset.label;
+    const scopeMode=$('#scopeMode').value;
+
+    const payload={kind,id,label,scope:scopeMode};
+    if(scopeMode==='custom'){
+      const s=$('#scopeStart').value;
+      const e=$('#scopeEnd').value;
+      if(!s||!e)return alert('Both dates required');
+      payload.startYMD=s; payload.endYMD=e;
     }
 
-    function closeRefundModal(){
-      $('#refundModal').style.display='none';
-      $('#refundModal').setAttribute('aria-hidden','true');
-      currentRefundCtx=null;
+    $('#sendMsg').textContent='Sending…';
+    try{
+      const r=await fetch('/api/router?action=send_item_report',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+      const j=await r.json();
+      if(!r.ok) throw new Error(j?.error||j?.message||'Failed');
+      $('#sendMsg').textContent=`Email queued. (${j.count||0} rows)`;
+    }catch(e){
+      $('#sendMsg').textContent='Send failed: '+e.message;
     }
+  });
 
-    $('#rfType').addEventListener('change',()=>{
-      $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
-    });
-    $('#rfCancel').addEventListener('click',closeRefundModal);
-    $('#rfSubmit').addEventListener('click',async()=>{
-      if(!currentRefundCtx)return;
-      const headers={'Content-Type':'application/json'};
-      const token=localStorage.getItem('amaranth_report_token');
-      if(token)headers.Authorization='Bearer '+token;
+  let currentRefundCtx=null;
 
-      let amount_cents;
-      if($('#rfType').value==='partial'){
-        const v=Number($('#rfAmount').value||0);
-        if(!isFinite(v)||v<=0)return alert('Enter amount');
-        amount_cents=Math.round(v*100);
-      }
-      const payload={
-        payment_intent:currentRefundCtx.payment_intent,
-        charge:currentRefundCtx.charge,
-        ...(amount_cents?{amount_cents}:{})
+  function openRefundModal(ctx){
+    currentRefundCtx=ctx;
+    $('#rfType').value='full';
+    $('#rfAmount').value='';
+    $('#rfAmtWrap').style.display='none';
+    $('#rfInfo').textContent=`PI: ${ctx.payment_intent||'—'}  Charge: ${ctx.charge||'—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+    $('#refundModal').style.display='flex';
+    $('#refundModal').setAttribute('aria-hidden','false');
+  }
+
+  function closeRefundModal(){
+    $('#refundModal').style.display='none';
+    $('#refundModal').setAttribute('aria-hidden','true');
+    currentRefundCtx=null;
+  }
+
+  $('#rfType').addEventListener('change',()=>{
+    $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
+  });
+  $('#rfCancel').addEventListener('click',closeRefundModal);
+  $('#rfSubmit').addEventListener('click',async()=>{
+    if(!currentRefundCtx)return;
+    const headers={'Content-Type':'application/json'};
+    const token=localStorage.getItem('amaranth_report_token');
+    if(token)headers.Authorization='Bearer '+token;
+
+    let amount_cents;
+    if($('#rfType').value==='partial'){
+      const v=Number($('#rfAmount').value||0);
+      if(!isFinite(v)||v<=0)return alert('Enter amount');
+      amount_cents=Math.round(v*100);
+    }
+    const payload={
+      payment_intent:currentRefundCtx.payment_intent,
+      charge:currentRefundCtx.charge,
+      ...(amount_cents?{amount_cents}:{})
+    };
+
+    try{
+      const r=await fetch('/api/router?action=create_refund',{
+        method:'POST',headers,body:JSON.stringify(payload)
+      });
+      const j=await r.json();
+      if(!r.ok) throw new Error(j?.error||'Failed');
+      alert('Refund created');
+      closeRefundModal();
+      loadFromServer();
+    }catch(e){
+      alert('Refund failed: '+e.message;
+      );
+    }
+  });
+
+  function getAuthHeaders(){
+    const token=localStorage.getItem('amaranth_report_token')||'';
+    const headers={'Content-Type':'application/json'};
+    if(token) headers.Authorization='Bearer '+token;
+    return headers;
+  }
+
+  async function loadReportSettings(){
+    const statusEl=$('#reportSettingsStatus');
+    const helpEl=$('#reportSettingsHelp');
+    try{
+      const r=await fetch('/api/router?action=get_settings',{
+        method:'POST',headers:getAuthHeaders(),body:JSON.stringify({})
+      });
+      const j=await r.json();
+      if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+
+      const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
+      $('#reportWeekday').value=weekday;
+      statusEl.textContent='';
+      helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+    }catch{
+      statusEl.textContent='Could not load settings.';
+      helpEl.textContent='';
+    }
+  }
+
+  $('#btnSaveReportSettings').addEventListener('click',async()=>{
+    const weekday=$('#reportWeekday').value;
+    const statusEl=$('#reportSettingsStatus');
+    statusEl.textContent='Saving…';
+    try{
+      const r=await fetch('/api/router?action=save_settings',{
+        method:'POST',
+        headers:getAuthHeaders(),
+        body:JSON.stringify({
+          REPORT_FREQUENCY:'weekly',
+          REPORT_WEEKDAY:weekday
+        })
+      });
+      const j=await r.json();
+      if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+      statusEl.textContent='Saved.';
+      $('#reportSettingsHelp').textContent=
+        `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+    }catch(e){
+      statusEl.textContent='Save failed: '+e.message;
+    }
+  });
+
+  $('#btnSendTestReports')?.addEventListener('click', async () => {
+    const out = $('#testReportOut');
+    if (out) out.textContent = 'Running test…';
+
+    try {
+      const payload = {
+        to: ($('#testReportTo')?.value || 'kfors@verizon.net').trim(),
+        frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
+        scope: ($('#testReportScope')?.value || 'current-month').trim(),
+        previewOnly: !!$('#testPreviewOnly')?.checked,
       };
 
-      try{
-        const r=await fetch('/api/router?action=create_refund',{
-          method:'POST',headers,body:JSON.stringify(payload)
-        });
-        const j=await r.json();
-        if(!r.ok) throw new Error(j?.error||'Failed');
-        alert('Refund created');
-        closeRefundModal();
-        loadFromServer();
-      }catch(e){
-        alert('Refund failed: '+e.message);
-      }
-    });
+      const r = await fetch('/api/router?action=send_test_chair_reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(payload),
+      });
 
-    function getAuthHeaders(){
-      const token=localStorage.getItem('amaranth_report_token')||'';
-      const headers={'Content-Type':'application/json'};
-      if(token) headers.Authorization='Bearer '+token;
-      return headers;
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || ('HTTP ' + r.status));
+
+      if (out) out.textContent = JSON.stringify(j, null, 2);
+    } catch (e) {
+      if (out) out.textContent = 'ERROR: ' + (e?.message || String(e));
     }
+  });
 
-    async function loadReportSettings(){
-      const statusEl=$('#reportSettingsStatus');
-      const helpEl=$('#reportSettingsHelp');
-      try{
-        const r=await fetch('/api/router?action=get_settings',{
-          method:'POST',headers:getAuthHeaders(),body:JSON.stringify({})
-        });
-        const j=await r.json();
-        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+  (function init(){
+    rows=loadFromLocal();
+    render();
+    loadFromServer();
+    loadReportSettings();
+  })();
+</script>
 
-        const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
-        $('#reportWeekday').value=weekday;
-        statusEl.textContent='';
-        helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
-      }catch{
-        statusEl.textContent='Could not load settings.';
-        helpEl.textContent='';
-      }
-    }
-
-    $('#btnSaveReportSettings').addEventListener('click',async()=>{
-      const weekday=$('#reportWeekday').value;
-      const statusEl=$('#reportSettingsStatus');
-      statusEl.textContent='Saving…';
-      try{
-        const r=await fetch('/api/router?action=save_settings',{
-          method:'POST',
-          headers:getAuthHeaders(),
-          body:JSON.stringify({
-            REPORT_FREQUENCY:'weekly',
-            REPORT_WEEKDAY:weekday
-          })
-        });
-        const j=await r.json();
-        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
-        statusEl.textContent='Saved.';
-        $('#reportSettingsHelp').textContent=
-          `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
-      }catch(e){
-        statusEl.textContent='Save failed: '+e.message;
-      }
-    });
-
-    
-    // Send test chair report emails immediately (does not affect scheduled sends)
-    $('#btnSendTestReports')?.addEventListener('click', async () => {
-      const out = $('#testReportOut');
-      if (out) out.textContent = 'Running test…';
-
-      try {
-        const payload = {
-          to: ($('#testReportTo')?.value || 'kfors@verizon.net').trim(),
-          frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
-          scope: ($('#testReportScope')?.value || 'current-month').trim(),
-          previewOnly: !!$('#testPreviewOnly')?.checked,
-        };
-
-        const r = await fetch('/api/router?action=send_test_chair_reports', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify(payload),
-        });
-
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || ('HTTP ' + r.status));
-
-        if (out) out.textContent = JSON.stringify(j, null, 2);
-      } catch (e) {
-        if (out) out.textContent = 'ERROR: ' + (e?.message || String(e));
-      }
-    });
-
-(function init(){
-      rows=loadFromLocal();
-      render();
-      loadFromServer();
-      loadReportSettings();
-    })();
-  </script>
-  <!-- Shared help popup logic -->
-  <script src="/assets/js/admin-help.js"></script>
+<script src="/assets/js/admin-help.js"></script>
 </body>
 </html>
