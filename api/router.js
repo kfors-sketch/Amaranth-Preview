@@ -63,8 +63,6 @@ import {
   emailFinalReceiptsZip,
 } from "./admin/core.js";
 
-import { buildCheckoutDraft, saveCheckoutDraft, getCheckoutDraft, deleteCheckoutDraft } from "./data.js";
-
 import {
   isInternationalOrder,
   computeInternationalFeeCents,
@@ -2689,30 +2687,23 @@ corsageNote:
               return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
             }, 0);
 
-            // Compute processing fee so that, after Stripe takes (pct% + flat), you net the base subtotal.
-// IMPORTANT: Stripe charges its % on the entire amount collected (including the fee line),
-// so we must "gross-up" instead of base*pct + flat.
-const rate = (pct / 100);
-const baseCentsForFee = subtotalCents; // subtotalCents already includes bundles/qty and should match your "base"
-let feeAmount = 0;
-if (baseCentsForFee > 0 && (rate > 0 || flatCents > 0) && rate < 1) {
-  const grossCents = Math.ceil((baseCentsForFee + flatCents) / (1 - rate));
-  feeAmount = Math.max(0, grossCents - baseCentsForFee);
-}
-
-if (feeAmount > 0) {
-  line_items.push({
-    quantity: 1,
-    price_data: {
-      currency: "usd",
-      unit_amount: feeAmount,
-      product_data: {
-        name: "Online Processing Fee",
-        metadata: { itemType: "fee", itemId: "processing-fee" },
-      },
-    },
-  });
-}
+            const feeAmount = Math.max(
+              0,
+              Math.round(subtotalCents * (pct / 100)) + flatCents
+            );
+            if (feeAmount > 0) {
+              line_items.push({
+                quantity: 1,
+                price_data: {
+                  currency: "usd",
+                  unit_amount: feeAmount,
+                  product_data: {
+                    name: "Online Processing Fee",
+                    metadata: { itemType: "fee", itemId: "processing-fee" },
+                  },
+                },
+              });
+            }
 
             const purchaserCountry = String(
               purchaser.country || purchaser.addressCountry || "US"
@@ -2767,23 +2758,6 @@ if (feeAmount > 0) {
                 cart_count: String(lines.length || 0),
               },
             });
-
-try {
-  const draft = buildCheckoutDraft({
-    sessionId: session.id,
-    purchaser,
-    lines,
-    fees,
-    // optional extra context (safe)
-    orderChannel: (typeof orderChannel !== "undefined" ? orderChannel : undefined),              // if you have it
-    createdAt: Date.now(),
-  });
-  await saveCheckoutDraft(session.id, draft);
-} catch (e) {
-  console.error("[checkout_draft] save failed", e?.message || e);
-}
-
-
 
             return REQ_OK(res, {
               requestId,
@@ -2899,25 +2873,7 @@ try {
                 mode,
               });
 
-              let draft = null;
-try {
-  draft = await getCheckoutDraft(session.id || session);
-} catch (e) {
-  console.error("[checkout_draft] load failed", e?.message || e);
-}
-
-if (draft) {
-  try {
-    order._checkoutDraft = draft;                 // keep under a safe namespace
-    order._checkoutDraftSavedAt = new Date().toISOString();
-    await kvSetSafe(`order:${order.id}`, order);  // persist the enrichment
-    await deleteCheckoutDraft(session.id || session);
-  } catch (e) {
-    console.error("[checkout_draft] attach failed", e?.message || e);
-  }
-}
-
-// ✅ write-once createdAt + hash (tamper detection)
+              // ✅ write-once createdAt + hash (tamper detection)
               await ensureOrderIntegrityMarkers(order, requestId);
 
               // ✅ Centralized: immediate receipts + chair + admin copy (idempotent)
