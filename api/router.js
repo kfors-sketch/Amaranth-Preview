@@ -2687,23 +2687,30 @@ corsageNote:
               return s + toCentsAuto(l.unitPrice || 0) * Number(l.qty || 0);
             }, 0);
 
-            const feeAmount = Math.max(
-              0,
-              Math.round(subtotalCents * (pct / 100)) + flatCents
-            );
-            if (feeAmount > 0) {
-              line_items.push({
-                quantity: 1,
-                price_data: {
-                  currency: "usd",
-                  unit_amount: feeAmount,
-                  product_data: {
-                    name: "Online Processing Fee",
-                    metadata: { itemType: "fee", itemId: "processing-fee" },
-                  },
-                },
-              });
-            }
+            // Compute processing fee so that, after Stripe takes (pct% + flat), you net the base subtotal.
+// IMPORTANT: Stripe charges its % on the entire amount collected (including the fee line),
+// so we must "gross-up" instead of base*pct + flat.
+const rate = (pct / 100);
+const baseCentsForFee = subtotalCents; // subtotalCents already includes bundles/qty and should match your "base"
+let feeAmount = 0;
+if (baseCentsForFee > 0 && (rate > 0 || flatCents > 0) && rate < 1) {
+  const grossCents = Math.ceil((baseCentsForFee + flatCents) / (1 - rate));
+  feeAmount = Math.max(0, grossCents - baseCentsForFee);
+}
+
+if (feeAmount > 0) {
+  line_items.push({
+    quantity: 1,
+    price_data: {
+      currency: "usd",
+      unit_amount: feeAmount,
+      product_data: {
+        name: "Online Processing Fee",
+        metadata: { itemType: "fee", itemId: "processing-fee" },
+      },
+    },
+  });
+}
 
             const purchaserCountry = String(
               purchaser.country || purchaser.addressCountry || "US"
