@@ -2549,8 +2549,8 @@ if (isPreReg && !votingLabel) {
   const fromName  = String(displayName || "").toLowerCase();
   const blob = `${fromTitle} ${fromNotes} ${fromName}`.trim();
   if (blob) {
-    if (blob.includes("non-voting") || blob.includes("nonvoting") || blob.includes("non voting") || /nv/.test(blob)) votingLabel = "Non-Voting";
-    else if (blob.includes("voting") || /v/.test(blob)) votingLabel = "Voting";
+    if (blob.includes("non-voting") || blob.includes("nonvoting") || blob.includes("non voting") || /\bnv\b/.test(blob)) votingLabel = "Non-Voting";
+    else if (blob.includes("voting") || /\bv\b/.test(blob)) votingLabel = "Voting";
   }
 }
 
@@ -2712,14 +2712,43 @@ if (feeAmount > 0) {
   });
 }
 
-            const purchaserCountry = String(
+/** ✅ COUNTRY CODE FIX (only change in this block)
+ * Normalizes common "United States" spellings to ISO-2 "US"
+ * so you don't accidentally add the international 3% fee.
+ */
+function normalizeCountryCode2(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "US";
+
+  const up = s.toUpperCase();
+
+  // already ISO-2
+  if (/^[A-Z]{2}$/.test(up)) return up;
+
+  // common US variants
+  if (
+    up === "UNITED STATES" ||
+    up === "UNITED STATES OF AMERICA" ||
+    up === "U.S." ||
+    up === "U.S.A." ||
+    up === "USA" ||
+    up === "AMERICA"
+  ) {
+    return "US";
+  }
+
+  // optional but safe
+  if (up === "CANADA") return "CA";
+
+  return up;
+}
+
+            const purchaserCountry = normalizeCountryCode2(
               purchaser.country || purchaser.addressCountry || "US"
-            )
-              .trim()
-              .toUpperCase();
-            const accountCountry = String(process.env.STRIPE_ACCOUNT_COUNTRY || "US")
-              .trim()
-              .toUpperCase();
+            );
+            const accountCountry = normalizeCountryCode2(
+              process.env.STRIPE_ACCOUNT_COUNTRY || "US"
+            );
 
             let intlFeeAmount = 0;
             if (isInternationalOrder(purchaserCountry, accountCountry)) {
@@ -2761,11 +2790,11 @@ if (feeAmount > 0) {
                 purchaser_city: purchaser.city || "",
                 purchaser_state: purchaser.state || "",
                 purchaser_postal: purchaser.postal || "",
-                purchaser_country: purchaser.country || "",
+                // ✅ store normalized code to keep reporting consistent
+                purchaser_country: purchaserCountry || "",
                 cart_count: String(lines.length || 0),
               },
             });
-
             return REQ_OK(res, {
               requestId,
               url: session.url,
