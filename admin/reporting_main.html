@@ -99,7 +99,27 @@
     #refundModal h4{margin:0 0 8px;font-size:16px}
     #refundModal p{margin:0 0 8px;font-size:13px}
     #refundModal .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-  </style>
+  
+    /* Two-column layout for the Test + Receipts ZIP cards */
+    .two-col-cards{
+      display:flex;
+      gap:16px;
+      flex-wrap:wrap;
+      align-items:stretch;
+      margin-top:16px;
+    }
+    .two-col-cards > .card,
+    .two-col-cards > section.card{
+      flex:1 1 420px;
+      max-width:calc(50% - 8px);
+    }
+    @media (max-width: 980px){
+      .two-col-cards > .card,
+      .two-col-cards > section.card{
+        max-width:100%;
+      }
+    }
+</style>
 </head>
 <body>
   <div class="container">
@@ -179,7 +199,86 @@
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
 
-    <div class="row">
+        <div class="row" style="margin-top:16px;">
+      <div class="col" style="flex: 1 1 480px; max-width: 560px;">
+        <div class="card mb-12">
+      <div class="section-label">Testing</div>
+      <h3>Send Test Chair Report Emails</h3>
+      <p class="muted">
+        Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
+        This does <strong>not</strong> affect scheduled chair emails.
+      </p>
+
+      <div class="controls mt-4">
+        <div class="group" style="max-width:320px">
+          <label class="muted">Send to</label>
+          <input id="testReportTo" type="email" value="kfors@verizon.net" />
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Frequency</label>
+          <select id="testReportFreq">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Scope</label>
+          <select id="testReportScope">
+            <option value="current-month" selected>Current month</option>
+            <option value="full">Full history</option>
+          </select>
+        </div>
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Preview only</label>
+          <div style="height:32px;display:flex;align-items:center;gap:8px;">
+            <input id="testPreviewOnly" type="checkbox" />
+            <span class="muted">No email</span>
+          </div>
+        </div>
+
+        <div class="group" style="max-width:200px">
+          <label class="muted">&nbsp;</label>
+          <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
+        </div>
+      </div>
+
+      <pre id="testReportOut" class="mt-8"
+           style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
+    </div>
+      </div>
+      <div class="col" style="flex: 1 1 480px; max-width: 560px;">
+        <section class="card" style="margin-top:16px;">
+  <h3>Receipts ZIP — Auto Send Options</h3>
+  <p class="muted" style="margin-top:6px;">
+    Uses the same <strong>Order Channel</strong> as Admin Settings (<code id="orderChannelLabel">…</code>) to decide whether it’s pulling from Stripe TEST vs LIVE.
+  </p>
+
+  <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin-top:10px;">
+    <label style="display:flex;gap:8px;align-items:center;">
+      <input type="checkbox" id="zipMonthly" />
+      <span>Monthly (previous month)</span>
+    </label>
+
+    <label style="display:flex;gap:8px;align-items:center;">
+      <input type="checkbox" id="zipWeekly" />
+      <span>Weekly (month-to-date)</span>
+    </label>
+
+    <button class="btn" id="btnSaveZipPrefs" style="margin-left:auto;">Save</button>
+  </div>
+
+  <div class="muted" id="zipPrefsStatus" style="margin-top:10px;"></div>
+</section>
+      </div>
+    </div>
+
+<div class="row">
       <div class="col">
         <div class="card">
           <div class="flex between mb-8">
@@ -410,58 +509,7 @@
 
   
     <!-- TEST CHAIR REPORT EMAILS -->
-    <div class="card mb-12">
-      <div class="section-label">Testing</div>
-      <h3>Send Test Chair Report Emails</h3>
-      <p class="muted">
-        Send the same chair report emails using <strong>live orders</strong>, but only to your test address.
-        This does <strong>not</strong> affect scheduled chair emails.
-      </p>
-
-      <div class="controls mt-4">
-        <div class="group" style="max-width:320px">
-          <label class="muted">Send to</label>
-          <input id="testReportTo" type="email" value="kfors@verizon.net" />
-        </div>
-
-        <div class="group" style="max-width:220px">
-          <label class="muted">Frequency</label>
-          <select id="testReportFreq">
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="biweekly">Biweekly</option>
-            <option value="monthly" selected>Monthly</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-
-        <div class="group" style="max-width:220px">
-          <label class="muted">Scope</label>
-          <select id="testReportScope">
-            <option value="current-month" selected>Current month</option>
-            <option value="full">Full history</option>
-          </select>
-        </div>
-
-        <div class="group" style="max-width:220px">
-          <label class="muted">Preview only</label>
-          <div style="height:32px;display:flex;align-items:center;gap:8px;">
-            <input id="testPreviewOnly" type="checkbox" />
-            <span class="muted">No email</span>
-          </div>
-        </div>
-
-        <div class="group" style="max-width:200px">
-          <label class="muted">&nbsp;</label>
-          <button id="btnSendTestReports" class="btn sm w-100">Run Test Now</button>
-        </div>
-      </div>
-
-      <pre id="testReportOut" class="mt-8"
-           style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;"></pre>
-    </div>
-
-<script>
+    <script>
     const LS_KEY = 'amaranth-report-rows-v1';
     let rows = [];
 
@@ -968,7 +1016,64 @@
       loadReportSettings();
     })();
   </script>
-  <!-- Shared help popup logic -->
-  <script src="/assets/js/admin-help.js"></script>
+  
+
+
+
+<!-- Shared help popup logic -->
+  <script src="/assets/js/admin-help.js">
+// ---------------- Receipts ZIP prefs ----------------
+async function loadOrderChannelLabel() {
+  try {
+    const r = await fetch("/api/router?type=settings", { headers: Admin.tokenHeader() });
+    const j = await r.json();
+    const ch = j?.json?.settings?.ORDER_CHANNEL || j?.settings?.ORDER_CHANNEL || j?.ORDER_CHANNEL;
+    const el = document.getElementById("orderChannelLabel");
+    if (el) el.textContent = ch || "unknown";
+  } catch {}
+}
+
+async function loadZipPrefs() {
+  const status = document.getElementById("zipPrefsStatus");
+  try {
+    const r = await fetch("/api/router?type=receipts_zip_prefs", { headers: Admin.tokenHeader() });
+    const j = await r.json();
+    const prefs = j?.json?.prefs || j?.prefs || {};
+    const monthly = !!prefs.monthly;
+    const weekly = !!prefs.weekly;
+    const mEl = document.getElementById("zipMonthly");
+    const wEl = document.getElementById("zipWeekly");
+    if (mEl) mEl.checked = monthly;
+    if (wEl) wEl.checked = weekly;
+    if (status) status.textContent = "Loaded.";
+  } catch (e) {
+    if (status) status.textContent = "Could not load (check admin token).";
+  }
+}
+
+async function saveZipPrefs() {
+  const status = document.getElementById("zipPrefsStatus");
+  const monthly = !!document.getElementById("zipMonthly")?.checked;
+  const weekly = !!document.getElementById("zipWeekly")?.checked;
+  try {
+    if (status) status.textContent = "Saving…";
+    const r = await fetch("/api/router?action=set_receipts_zip_prefs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...Admin.tokenHeader() },
+      body: JSON.stringify({ monthly, weekly })
+    });
+    const j = await r.json();
+    if (!j?.ok && !j?.json?.ok) throw new Error("save failed");
+    if (status) status.textContent = `Saved. Monthly=${monthly ? "on" : "off"}, Weekly=${weekly ? "on" : "off"}.`;
+  } catch (e) {
+    if (status) status.textContent = "Save failed (check admin token).";
+  }
+}
+
+document.getElementById("btnSaveZipPrefs")?.addEventListener("click", saveZipPrefs);
+loadOrderChannelLabel();
+loadZipPrefs();
+
+</script>
 </body>
 </html>
