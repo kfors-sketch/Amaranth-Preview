@@ -2379,91 +2379,6 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
   return { ok: false, error: retry.error?.message || String(retry.error) };
 }
 
-async function emailWeeklyReceiptsZip({ mode = "test" } = {}) {
-  if (!resend) return { ok: false, error: "resend-not-configured" };
-  if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
-
-  const orders = await loadAllOrdersWithRetry();
-  const wantMode = String(mode || "test").toLowerCase();
-
-  const { year, week } = isoWeekYearUTC(Date.now());
-  const weekKey = `${year}-W${String(week).padStart(2, "0")}`;
-
-  // ✅ LIVE/LIVE_TEST: only send once per week
-  // TEST: allowed to send repeatedly (useful while testing)
-  const enforceWeeklyOnce = wantMode === "live" || wantMode === "live_test";
-  const sentKey = `receipts_zip:sent:weekly:${weekKey}:${wantMode}`;
-  if (enforceWeeklyOnce) {
-    const already = await kvGetSafe(sentKey);
-    if (already) return { ok: true, skipped: true, reason: "already-sent", weekKey, wantMode };
-  }
-
-  // Trailing 7 days ending now (UTC)
-  const endMs = Date.now();
-  const startMs = endMs - 7 * 24 * 60 * 60 * 1000;
-
-  const filtered = (orders || [])
-    .filter((o) => (wantMode === "auto" ? true : o?.mode === wantMode))
-    .filter((o) => {
-      const t = o?.createdAt || o?.created_at || o?.created || o?.timestamp;
-      const ms = typeof t === "number" ? t : Date.parse(String(t || ""));
-      return Number.isFinite(ms) && ms >= startMs && ms < endMs;
-    });
-
-  if (!filtered.length) return { ok: true, skipped: true, reason: "no-orders", weekKey, wantMode, count: 0 };
-
-  // Build ZIP of receipt PDFs
-  const zip = new JSZip();
-  const folder = zip.folder(`receipts-weekly-${weekKey}`) || zip;
-
-  for (const o of filtered) {
-    try {
-      const buf = await buildReceiptPdfBuffer({ order: o });
-      const safeId = String(o?.id || o?.orderId || o?.sessionId || o?.stripeSessionId || "order").replace(/[^a-z0-9_-]/gi, "_");
-      folder.file(`${safeId}.pdf`, buf);
-    } catch (e) {
-      // skip bad order; continue
-    }
-  }
-
-  const zipB64 = await zip.generateAsync({ type: "base64" });
-
-  const subject = `Receipts ZIP — Weekly (${weekKey})`;
-  const filename = `receipts-weekly-${weekKey}.zip`;
-
-  await sendWithRetry(() =>
-    resend.emails.send({
-      from: RESEND_FROM,
-      to: EMAIL_RECEIPTS,
-      subject,
-      text: `Weekly receipts ZIP for ${weekKey} (${filtered.length} orders).`,
-      attachments: [{ filename, content: zipB64 }],
-    })
-  );
-
-  if (enforceWeeklyOnce) {
-    await kvSetSafe(sentKey, {
-      sentAt: new Date().toISOString(),
-      weekKey,
-      wantMode,
-      count: filtered.length,
-    });
-  }
-
-  return { ok: true, weekKey, wantMode, count: filtered.length, filename };
-}
-
-function isoWeekYearUTC(ms) {
-  const d = new Date(ms);
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const day = date.getUTCDay() || 7; // 1..7 (Mon..Sun)
-  date.setUTCDate(date.getUTCDate() + 4 - day); // nearest Thursday
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-  return { year: date.getUTCFullYear(), week };
-}
-
-
 async function emailFinalReceiptsZip({ mode = "test" } = {}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
@@ -2586,8 +2501,7 @@ export {
   EMAIL_RECEIPTS,
   sendReceiptXlsxBackup,
   emailMonthlyReceiptsZip,
-    emailWeeklyReceiptsZip,
-emailFinalReceiptsZip,
+  emailFinalReceiptsZip,
 
   verifyOrderHash,
   assertNotLocked,
