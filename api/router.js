@@ -221,42 +221,6 @@ async function resolveModeFromSession(sessionLike) {
   } catch {}
   return "test";
 }
-// ================= RECEIPTS ZIP PREFS (KV) =================
-// Stored separately from core settings to keep this change isolated.
-// Key format: reports:receipts_zip:prefs -> JSON { monthly: boolean, weekly: boolean }
-const RECEIPTS_ZIP_PREFS_KEY = "reports:receipts_zip:prefs";
-const RECEIPTS_ZIP_LAST_MONTH_KEY = "reports:receipts_zip:last_month_sent"; // "YYYY-MM"
-const RECEIPTS_ZIP_LAST_WEEK_KEY  = "reports:receipts_zip:last_week_sent";  // "YYYY-Www" (ISO week)
-
-async function getReceiptsZipPrefs() {
-  const raw = await kvGetSafe(RECEIPTS_ZIP_PREFS_KEY);
-  if (!raw) return { monthly: true, weekly: false }; // keep current behavior by default
-  try {
-    const obj = JSON.parse(raw);
-    return {
-      monthly: !!obj.monthly,
-      weekly: !!obj.weekly,
-    };
-  } catch {
-    return { monthly: true, weekly: false };
-  }
-}
-
-async function setReceiptsZipPrefs(prefs) {
-  const clean = { monthly: !!prefs.monthly, weekly: !!prefs.weekly };
-  await kvSetSafe(RECEIPTS_ZIP_PREFS_KEY, JSON.stringify(clean));
-  return clean;
-}
-
-// ISO week helper (Monday-based), returns { year, week }.
-function isoWeek(d) {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const day = date.getUTCDay() || 7; // 1..7
-  date.setUTCDate(date.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-  return { year: date.getUTCFullYear(), week: weekNo };
-}
 
 // Stripe session IDs include cs_test_ or cs_live_
 function inferStripeEnvFromCheckoutSessionId(id) {
@@ -1212,13 +1176,6 @@ export default async function handler(req, res) {
         });
       }
 
-      if (type === "receipts_zip_prefs") {
-        if (!(await requireAdminAuth(req, res, requestId))) return;
-        const prefs = await getReceiptsZipPrefs();
-        return REQ_OK(res, { requestId, prefs });
-      }
-
-
       if (type === "feature_flags") {
         if (!(await requireAdminAuth(req, res))) return;
 
@@ -1246,10 +1203,7 @@ export default async function handler(req, res) {
             requestId,
           });
 
-          if (result && result.ok) {
-            await kvSetSafe(RECEIPTS_ZIP_LAST_MONTH_KEY, monthId);
-            return REQ_OK(res, { requestId, ...result, monthId });
-          }
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
           return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
             requestId,
             ...(result || {}),
@@ -1292,12 +1246,6 @@ export default async function handler(req, res) {
         try {
           const to = String(url.searchParams.get("to") || "").trim(); // optional
           const now = new Date();
-          const prefs = await getReceiptsZipPrefs();
-          if (!prefs.monthly) {
-            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "monthly-disabled" });
-          }
-
-
 
           // previous month in UTC
           let y = now.getUTCFullYear();
@@ -1308,14 +1256,7 @@ export default async function handler(req, res) {
             y -= 1;
           }
 
-          const result
-          const monthId = `${y}-${String(m).padStart(2, "0")}`;
-          const lastMonth = await kvGetSafe(RECEIPTS_ZIP_LAST_MONTH_KEY);
-          if (lastMonth === monthId) {
-            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "already-sent", monthId });
-          }
-
- = await emailMonthlyReceiptsZip({
+          const result = await emailMonthlyReceiptsZip({
             to: to || undefined,
             year: y,
             month: m,
@@ -1328,45 +1269,7 @@ export default async function handler(req, res) {
             requestId,
             ...(result || {}),
           });
-        } cat
-
-      if (type === "receipts_zip_week_auto") {
-        if (!(await requireAdminAuth(req, res, requestId))) return;
-        try {
-          const prefs = await getReceiptsZipPrefs();
-          if (!prefs.weekly) {
-            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "weekly-disabled" });
-          }
-
-          const now = new Date();
-          const w = isoWeek(now);
-          const weekId = `${w.year}-W${String(w.week).padStart(2, "0")}`;
-          const lastWeek = await kvGetSafe(RECEIPTS_ZIP_LAST_WEEK_KEY);
-          if (lastWeek === weekId) {
-            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "already-sent", weekId });
-          }
-
-          // Weekly ZIP is "month-to-date" (current month) to avoid changing core zip builder.
-          const y = now.getUTCFullYear();
-          const m = now.getUTCMonth() + 1;
-
-          const result = await emailMonthlyReceiptsZip({
-            requestId,
-            year: y,
-            month: m,
-            to: env.RECEIPTS_ZIP_TO || REPORTS_LOG_TO,
-          });
-
-          if (result && result.ok) {
-            await kvSetSafe(RECEIPTS_ZIP_LAST_WEEK_KEY, weekId);
-            return REQ_OK(res, { requestId, ...result, weekId, year: y, month: m });
-          }
-          return REQ_ERR(res, 500, "receipts-zip-failed", { requestId, weekId, year: y, month: m, result });
         } catch (e) {
-          return errResponse(res, 500, "receipts-zip-week-auto-failed", req, e);
-        }
-      }
-ch (e) {
           return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
         }
       }
@@ -3906,17 +3809,6 @@ if (action === "send_end_of_event_reports") {
         return REQ_OK(res, { requestId, ok: true, overrides: allow });
       }
 
-      if (action === "set_receipts_zip_prefs") {
-        if (!(await requireAdminAuth(req, res, requestId))) return;
-        const body = await readBodyJson(req);
-        const prefs = await setReceiptsZipPrefs({
-          monthly: body?.monthly,
-          weekly: body?.weekly,
-        });
-        return REQ_OK(res, { requestId, prefs });
-      }
-
-
       if (action === "save_checkout_mode") {
         const { stripeMode, liveAuto, liveStart, liveEnd } = body || {};
 
@@ -3957,3 +3849,4 @@ export const config = {
   runtime: "nodejs",
   api: { bodyParser: false },
 };
+
