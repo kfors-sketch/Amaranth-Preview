@@ -221,6 +221,42 @@ async function resolveModeFromSession(sessionLike) {
   } catch {}
   return "test";
 }
+// ================= RECEIPTS ZIP PREFS (KV) =================
+// Stored separately from core settings to keep this change isolated.
+// Key format: reports:receipts_zip:prefs -> JSON { monthly: boolean, weekly: boolean }
+const RECEIPTS_ZIP_PREFS_KEY = "reports:receipts_zip:prefs";
+const RECEIPTS_ZIP_LAST_MONTH_KEY = "reports:receipts_zip:last_month_sent"; // "YYYY-MM"
+const RECEIPTS_ZIP_LAST_WEEK_KEY  = "reports:receipts_zip:last_week_sent";  // "YYYY-Www" (ISO week)
+
+async function getReceiptsZipPrefs() {
+  const raw = await kvGetSafe(RECEIPTS_ZIP_PREFS_KEY);
+  if (!raw) return { monthly: true, weekly: false }; // keep current behavior by default
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      monthly: !!obj.monthly,
+      weekly: !!obj.weekly,
+    };
+  } catch {
+    return { monthly: true, weekly: false };
+  }
+}
+
+async function setReceiptsZipPrefs(prefs) {
+  const clean = { monthly: !!prefs.monthly, weekly: !!prefs.weekly };
+  await kvSetSafe(RECEIPTS_ZIP_PREFS_KEY, JSON.stringify(clean));
+  return clean;
+}
+
+// ISO week helper (Monday-based), returns { year, week }.
+function isoWeek(d) {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay() || 7; // 1..7
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return { year: date.getUTCFullYear(), week: weekNo };
+}
 
 // Stripe session IDs include cs_test_ or cs_live_
 function inferStripeEnvFromCheckoutSessionId(id) {
@@ -274,85 +310,6 @@ async function loadFeatureFlagsSafe() {
 
   return { flags: cleaned, updatedAt };
 }
-
-
-// ================= REPORTS SETTINGS (KV OVERRIDES) =================
-const REPORTS_SETTINGS_KEY = "reports:settings";
-
-function normalizeOrderChannel(raw) {
-  const v = String(raw || "auto").trim().toLowerCase();
-  if (v === "test" || v === "live" || v === "live_test" || v === "auto") return v;
-  if (v === "livetest") return "live_test";
-  return "auto";
-}
-
-async function loadReportsSettingsSafe() {
-  const raw = (await kvGetSafe(REPORTS_SETTINGS_KEY, null)) || null;
-  const obj = raw && typeof raw === "object" ? raw : {};
-
-  const orderChannel = normalizeOrderChannel(obj.orderChannel || obj.order_channel);
-
-  const chairReportsEnabled =
-    obj.chairReportsEnabled === undefined ? true : coerceBool(obj.chairReportsEnabled);
-
-  const rz = obj.receiptsZip && typeof obj.receiptsZip === "object" ? obj.receiptsZip : {};
-
-  const envMonthly =
-    process.env.REPORTS_RECEIPTS_ZIP_ENABLED !== undefined
-      ? coerceBool(process.env.REPORTS_RECEIPTS_ZIP_ENABLED)
-      : true;
-
-  const monthlyEnabled =
-    rz.monthlyEnabled === undefined ? envMonthly : coerceBool(rz.monthlyEnabled);
-
-  const weeklyEnabled =
-    rz.weeklyEnabled === undefined ? false : coerceBool(rz.weeklyEnabled);
-
-  const updatedAt =
-    typeof obj.updatedAt === "string" ? obj.updatedAt : "";
-
-  return {
-    orderChannel,
-    chairReportsEnabled,
-    receiptsZip: { monthlyEnabled, weeklyEnabled },
-    updatedAt,
-  };
-}
-
-async function saveReportsSettingsSafe(patch) {
-  const prevRaw = (await kvGetSafe(REPORTS_SETTINGS_KEY, null)) || null;
-  const prev = prevRaw && typeof prevRaw === "object" ? prevRaw : {};
-
-  const next = { ...prev };
-
-  if (patch && typeof patch === "object") {
-    if (patch.orderChannel !== undefined || patch.order_channel !== undefined) {
-      next.orderChannel = normalizeOrderChannel(
-        patch.orderChannel !== undefined ? patch.orderChannel : patch.order_channel
-      );
-    }
-    if (patch.chairReportsEnabled !== undefined) {
-      next.chairReportsEnabled = coerceBool(patch.chairReportsEnabled);
-    }
-    if (patch.receiptsZip && typeof patch.receiptsZip === "object") {
-      const prevRz =
-        next.receiptsZip && typeof next.receiptsZip === "object" ? next.receiptsZip : {};
-      next.receiptsZip = {
-        ...prevRz,
-        ...(patch.receiptsZip || {}),
-      };
-      if (next.receiptsZip.monthlyEnabled !== undefined)
-        next.receiptsZip.monthlyEnabled = coerceBool(next.receiptsZip.monthlyEnabled);
-      if (next.receiptsZip.weeklyEnabled !== undefined)
-        next.receiptsZip.weeklyEnabled = coerceBool(next.receiptsZip.weeklyEnabled);
-    }
-  }
-
-  next.updatedAt = new Date().toISOString();
-  await kvSetSafe(REPORTS_SETTINGS_KEY, next);
-  return await loadReportsSettingsSafe();
-}
-
 
 function normalizeCat(catRaw) {
   const cat = String(catRaw || "catalog").trim().toLowerCase();
@@ -604,9 +561,6 @@ function isWriteAction(action) {
   // (We keep a conservative list to prevent surprises.)
   return [
     "save_feature_flags",
-    "reports_settings_set",
-    "send_weekly_receipts_zip",
-    "receipts_zip_week_auto",
     "purge_orders",
     "save_banquets",
     "save_addons",
@@ -1258,6 +1212,13 @@ export default async function handler(req, res) {
         });
       }
 
+      if (type === "receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res, requestId))) return;
+        const prefs = await getReceiptsZipPrefs();
+        return REQ_OK(res, { requestId, prefs });
+      }
+
+
       if (type === "feature_flags") {
         if (!(await requireAdminAuth(req, res))) return;
 
@@ -1265,21 +1226,9 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
-
-      if (type === "reports_settings") {
-        if (!(await requireAdminAuth(req, res))) return;
-        const settings = await loadReportsSettingsSafe();
-        return REQ_OK(res, { requestId, settings });
-      }
-
       // ✅ Receipts ZIP endpoints (admin-only)
       if (type === "receipts_zip_month") {
         if (!(await requireAdminAuth(req, res))) return;
-        const reportsSettings = await loadReportsSettingsSafe();
-        if (!reportsSettings.receiptsZip?.monthlyEnabled) {
-          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-monthly-disabled" });
-        }
-
 
         try {
           const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
@@ -1297,7 +1246,10 @@ export default async function handler(req, res) {
             requestId,
           });
 
-          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          if (result && result.ok) {
+            await kvSetSafe(RECEIPTS_ZIP_LAST_MONTH_KEY, monthId);
+            return REQ_OK(res, { requestId, ...result, monthId });
+          }
           return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
             requestId,
             ...(result || {}),
@@ -1305,21 +1257,6 @@ export default async function handler(req, res) {
         } catch (e) {
           return errResponse(res, 500, "receipts-zip-month-failed", req, e);
         }
-      }
-
-
-      if (type === "receipts_zip_week") {
-        if (!(await requireAdminAuth(req, res))) return;
-
-        const reportsSettings = await loadReportsSettingsSafe();
-        return REQ_OK(res, {
-          requestId,
-          ok: true,
-          weeklyEnabled: !!reportsSettings.receiptsZip?.weeklyEnabled,
-          monthlyEnabled: !!reportsSettings.receiptsZip?.monthlyEnabled,
-          note: "Weekly ZIP sends month-to-date receipts (duplicates each week).",
-          settings: reportsSettings,
-        });
       }
 
       if (type === "receipts_zip_final") {
@@ -1351,15 +1288,16 @@ export default async function handler(req, res) {
       // helper: sends the *previous* month ZIP (useful for cron)
       if (type === "receipts_zip_month_auto") {
         if (!(await requireAdminAuth(req, res))) return;
-        const reportsSettings = await loadReportsSettingsSafe();
-        if (!reportsSettings.receiptsZip?.monthlyEnabled) {
-          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-monthly-disabled" });
-        }
-
 
         try {
           const to = String(url.searchParams.get("to") || "").trim(); // optional
           const now = new Date();
+          const prefs = await getReceiptsZipPrefs();
+          if (!prefs.monthly) {
+            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "monthly-disabled" });
+          }
+
+
 
           // previous month in UTC
           let y = now.getUTCFullYear();
@@ -1370,7 +1308,14 @@ export default async function handler(req, res) {
             y -= 1;
           }
 
-          const result = await emailMonthlyReceiptsZip({
+          const result
+          const monthId = `${y}-${String(m).padStart(2, "0")}`;
+          const lastMonth = await kvGetSafe(RECEIPTS_ZIP_LAST_MONTH_KEY);
+          if (lastMonth === monthId) {
+            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "already-sent", monthId });
+          }
+
+ = await emailMonthlyReceiptsZip({
             to: to || undefined,
             year: y,
             month: m,
@@ -1383,44 +1328,46 @@ export default async function handler(req, res) {
             requestId,
             ...(result || {}),
           });
-        } catch (e) {
-          return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
-        }
-      }
+        } cat
 
-
-      // helper: sends the current month-to-date ZIP (useful for weekly cron; duplicates each week)
       if (type === "receipts_zip_week_auto") {
-        if (!(await requireAdminAuth(req, res))) return;
-
-        const reportsSettings = await loadReportsSettingsSafe();
-        if (!reportsSettings.receiptsZip?.weeklyEnabled) {
-          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-weekly-disabled" });
-        }
-
+        if (!(await requireAdminAuth(req, res, requestId))) return;
         try {
-          const to = String(url.searchParams.get("to") || "").trim(); // optional
-          const now = new Date();
+          const prefs = await getReceiptsZipPrefs();
+          if (!prefs.weekly) {
+            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "weekly-disabled" });
+          }
 
+          const now = new Date();
+          const w = isoWeek(now);
+          const weekId = `${w.year}-W${String(w.week).padStart(2, "0")}`;
+          const lastWeek = await kvGetSafe(RECEIPTS_ZIP_LAST_WEEK_KEY);
+          if (lastWeek === weekId) {
+            return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "already-sent", weekId });
+          }
+
+          // Weekly ZIP is "month-to-date" (current month) to avoid changing core zip builder.
           const y = now.getUTCFullYear();
           const m = now.getUTCMonth() + 1;
 
           const result = await emailMonthlyReceiptsZip({
-            to: to || undefined,
+            requestId,
             year: y,
             month: m,
-            requestId,
-            auto: true,
-            weekly: true,
+            to: env.RECEIPTS_ZIP_TO || REPORTS_LOG_TO,
           });
 
-          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
-          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
-            requestId,
-            ...(result || {}),
-          });
+          if (result && result.ok) {
+            await kvSetSafe(RECEIPTS_ZIP_LAST_WEEK_KEY, weekId);
+            return REQ_OK(res, { requestId, ...result, weekId, year: y, month: m });
+          }
+          return REQ_ERR(res, 500, "receipts-zip-failed", { requestId, weekId, year: y, month: m, result });
         } catch (e) {
-          return errResponse(res, 500, "receipts-zip-weekly-failed", req, e);
+          return errResponse(res, 500, "receipts-zip-week-auto-failed", req, e);
+        }
+      }
+ch (e) {
+          return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
         }
       }
 
@@ -3178,16 +3125,6 @@ function normalizeCountryCode2(raw) {
         return REQ_OK(res, { requestId, ok: true, ...payload });
       }
 
-    if (action === "reports_settings_set") {
-      if (!(await requireAdminAuth(req, res))) return;
-
-      const body = await readJsonBodySafe(req);
-      const settings = await saveReportsSettingsSafe(body || {});
-      return REQ_OK(res, { requestId, settings });
-    }
-
-
-
       if (action === "debug_schedule") {
         const id = String(body?.id || url.searchParams.get("id") || "").trim();
         if (!id) {
@@ -3516,11 +3453,6 @@ function normalizeCountryCode2(raw) {
       
       if (action === "send_test_chair_reports") {
         if (!(await requireAdminAuth(req, res))) return;
-      const reportsSettings = await loadReportsSettingsSafe();
-      if (!reportsSettings.chairReportsEnabled) {
-        return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "chair-reports-disabled" });
-      }
-
 
         const body = await readJsonBody(req);
         const to = String(body?.to || "kfors@verizon.net").trim();
@@ -3974,6 +3906,17 @@ if (action === "send_end_of_event_reports") {
         return REQ_OK(res, { requestId, ok: true, overrides: allow });
       }
 
+      if (action === "set_receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res, requestId))) return;
+        const body = await readBodyJson(req);
+        const prefs = await setReceiptsZipPrefs({
+          monthly: body?.monthly,
+          weekly: body?.weekly,
+        });
+        return REQ_OK(res, { requestId, prefs });
+      }
+
+
       if (action === "save_checkout_mode") {
         const { stripeMode, liveAuto, liveStart, liveEnd } = body || {};
 
@@ -4014,4 +3957,3 @@ export const config = {
   runtime: "nodejs",
   api: { bodyParser: false },
 };
-
