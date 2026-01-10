@@ -275,6 +275,85 @@ async function loadFeatureFlagsSafe() {
   return { flags: cleaned, updatedAt };
 }
 
+
+// ================= REPORTS SETTINGS (KV OVERRIDES) =================
+const REPORTS_SETTINGS_KEY = "reports:settings";
+
+function normalizeOrderChannel(raw) {
+  const v = String(raw || "auto").trim().toLowerCase();
+  if (v === "test" || v === "live" || v === "live_test" || v === "auto") return v;
+  if (v === "livetest") return "live_test";
+  return "auto";
+}
+
+async function loadReportsSettingsSafe() {
+  const raw = (await kvGetSafe(REPORTS_SETTINGS_KEY, null)) || null;
+  const obj = raw && typeof raw === "object" ? raw : {};
+
+  const orderChannel = normalizeOrderChannel(obj.orderChannel || obj.order_channel);
+
+  const chairReportsEnabled =
+    obj.chairReportsEnabled === undefined ? true : coerceBool(obj.chairReportsEnabled);
+
+  const rz = obj.receiptsZip && typeof obj.receiptsZip === "object" ? obj.receiptsZip : {};
+
+  const envMonthly =
+    process.env.REPORTS_RECEIPTS_ZIP_ENABLED !== undefined
+      ? coerceBool(process.env.REPORTS_RECEIPTS_ZIP_ENABLED)
+      : true;
+
+  const monthlyEnabled =
+    rz.monthlyEnabled === undefined ? envMonthly : coerceBool(rz.monthlyEnabled);
+
+  const weeklyEnabled =
+    rz.weeklyEnabled === undefined ? false : coerceBool(rz.weeklyEnabled);
+
+  const updatedAt =
+    typeof obj.updatedAt === "string" ? obj.updatedAt : "";
+
+  return {
+    orderChannel,
+    chairReportsEnabled,
+    receiptsZip: { monthlyEnabled, weeklyEnabled },
+    updatedAt,
+  };
+}
+
+async function saveReportsSettingsSafe(patch) {
+  const prevRaw = (await kvGetSafe(REPORTS_SETTINGS_KEY, null)) || null;
+  const prev = prevRaw && typeof prevRaw === "object" ? prevRaw : {};
+
+  const next = { ...prev };
+
+  if (patch && typeof patch === "object") {
+    if (patch.orderChannel !== undefined || patch.order_channel !== undefined) {
+      next.orderChannel = normalizeOrderChannel(
+        patch.orderChannel !== undefined ? patch.orderChannel : patch.order_channel
+      );
+    }
+    if (patch.chairReportsEnabled !== undefined) {
+      next.chairReportsEnabled = coerceBool(patch.chairReportsEnabled);
+    }
+    if (patch.receiptsZip && typeof patch.receiptsZip === "object") {
+      const prevRz =
+        next.receiptsZip && typeof next.receiptsZip === "object" ? next.receiptsZip : {};
+      next.receiptsZip = {
+        ...prevRz,
+        ...(patch.receiptsZip || {}),
+      };
+      if (next.receiptsZip.monthlyEnabled !== undefined)
+        next.receiptsZip.monthlyEnabled = coerceBool(next.receiptsZip.monthlyEnabled);
+      if (next.receiptsZip.weeklyEnabled !== undefined)
+        next.receiptsZip.weeklyEnabled = coerceBool(next.receiptsZip.weeklyEnabled);
+    }
+  }
+
+  next.updatedAt = new Date().toISOString();
+  await kvSetSafe(REPORTS_SETTINGS_KEY, next);
+  return await loadReportsSettingsSafe();
+}
+
+
 function normalizeCat(catRaw) {
   const cat = String(catRaw || "catalog").trim().toLowerCase();
   const safe = cat.replace(/[^a-z0-9_-]/g, "");
@@ -525,6 +604,9 @@ function isWriteAction(action) {
   // (We keep a conservative list to prevent surprises.)
   return [
     "save_feature_flags",
+    "reports_settings_set",
+    "send_weekly_receipts_zip",
+    "receipts_zip_week_auto",
     "purge_orders",
     "save_banquets",
     "save_addons",
@@ -1183,9 +1265,21 @@ export default async function handler(req, res) {
         return REQ_OK(res, { requestId, flags, updatedAt });
       }
 
+
+      if (type === "reports_settings") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const settings = await loadReportsSettingsSafe();
+        return REQ_OK(res, { requestId, settings });
+      }
+
       // ✅ Receipts ZIP endpoints (admin-only)
       if (type === "receipts_zip_month") {
         if (!(await requireAdminAuth(req, res))) return;
+        const reportsSettings = await loadReportsSettingsSafe();
+        if (!reportsSettings.receiptsZip?.monthlyEnabled) {
+          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-monthly-disabled" });
+        }
+
 
         try {
           const to = String(url.searchParams.get("to") || "").trim(); // optional; core.js may default
@@ -1211,6 +1305,21 @@ export default async function handler(req, res) {
         } catch (e) {
           return errResponse(res, 500, "receipts-zip-month-failed", req, e);
         }
+      }
+
+
+      if (type === "receipts_zip_week") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const reportsSettings = await loadReportsSettingsSafe();
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          weeklyEnabled: !!reportsSettings.receiptsZip?.weeklyEnabled,
+          monthlyEnabled: !!reportsSettings.receiptsZip?.monthlyEnabled,
+          note: "Weekly ZIP sends month-to-date receipts (duplicates each week).",
+          settings: reportsSettings,
+        });
       }
 
       if (type === "receipts_zip_final") {
@@ -1242,6 +1351,11 @@ export default async function handler(req, res) {
       // helper: sends the *previous* month ZIP (useful for cron)
       if (type === "receipts_zip_month_auto") {
         if (!(await requireAdminAuth(req, res))) return;
+        const reportsSettings = await loadReportsSettingsSafe();
+        if (!reportsSettings.receiptsZip?.monthlyEnabled) {
+          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-monthly-disabled" });
+        }
+
 
         try {
           const to = String(url.searchParams.get("to") || "").trim(); // optional
@@ -1271,6 +1385,42 @@ export default async function handler(req, res) {
           });
         } catch (e) {
           return errResponse(res, 500, "receipts-zip-auto-failed", req, e);
+        }
+      }
+
+
+      // helper: sends the current month-to-date ZIP (useful for weekly cron; duplicates each week)
+      if (type === "receipts_zip_week_auto") {
+        if (!(await requireAdminAuth(req, res))) return;
+
+        const reportsSettings = await loadReportsSettingsSafe();
+        if (!reportsSettings.receiptsZip?.weeklyEnabled) {
+          return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "receipts-zip-weekly-disabled" });
+        }
+
+        try {
+          const to = String(url.searchParams.get("to") || "").trim(); // optional
+          const now = new Date();
+
+          const y = now.getUTCFullYear();
+          const m = now.getUTCMonth() + 1;
+
+          const result = await emailMonthlyReceiptsZip({
+            to: to || undefined,
+            year: y,
+            month: m,
+            requestId,
+            auto: true,
+            weekly: true,
+          });
+
+          if (result && result.ok) return REQ_OK(res, { requestId, ...result });
+          return REQ_ERR(res, 500, (result && result.error) || "zip-send-failed", {
+            requestId,
+            ...(result || {}),
+          });
+        } catch (e) {
+          return errResponse(res, 500, "receipts-zip-weekly-failed", req, e);
         }
       }
 
@@ -3028,6 +3178,16 @@ function normalizeCountryCode2(raw) {
         return REQ_OK(res, { requestId, ok: true, ...payload });
       }
 
+    if (action === "reports_settings_set") {
+      if (!(await requireAdminAuth(req, res))) return;
+
+      const body = await readJsonBodySafe(req);
+      const settings = await saveReportsSettingsSafe(body || {});
+      return REQ_OK(res, { requestId, settings });
+    }
+
+
+
       if (action === "debug_schedule") {
         const id = String(body?.id || url.searchParams.get("id") || "").trim();
         if (!id) {
@@ -3356,6 +3516,11 @@ function normalizeCountryCode2(raw) {
       
       if (action === "send_test_chair_reports") {
         if (!(await requireAdminAuth(req, res))) return;
+      const reportsSettings = await loadReportsSettingsSafe();
+      if (!reportsSettings.chairReportsEnabled) {
+        return REQ_OK(res, { requestId, ok: true, skipped: true, reason: "chair-reports-disabled" });
+      }
+
 
         const body = await readJsonBody(req);
         const to = String(body?.to || "kfors@verizon.net").trim();
