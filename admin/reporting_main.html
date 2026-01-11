@@ -198,6 +198,9 @@
       </div>
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
+    </div>
+
+
 
         <div class="row" style="margin-top:16px;">
       <div class="col" style="flex: 1 1 480px; max-width: 560px;">
@@ -327,7 +330,6 @@
               </div>
         </div>
       </div>
-    </div>
 
 <!-- WEEKLY-ONLY AUTOMATION -->
         <div class="card mb-12">
@@ -686,6 +688,23 @@ function render(){
         $('#totalCount').textContent=`${shown} / ${filtered.length}`;
 
       // Gross/Net (per your rules: purchaser pays processing fees)
+      // Net (chair payout) = sum of non-fee items (excluding refunded)
+      // Gross = Net + fee rows (processing-fee + intl-fee), skipping the duplicate legacy "other" processing fee row
+      let netCents = 0;
+      let grossCents = 0;
+      for (const r of filtered){
+        if (isDuplicateOtherFee(r)) continue;
+        const cents = Math.round(amountFromRow(r) * 100);
+        const status = String(r.status || '').toLowerCase();
+        if (status === 'refunded') continue;
+        if (isFeeRow(r)) {
+          grossCents += cents;
+        } else {
+          netCents += cents;
+          grossCents += cents;
+        }
+      }
+
       const grossEl = $('#grossAmount');
       const netEl = $('#netAmount');
       if (grossEl) grossEl.textContent = '$' + (grossCents/100).toFixed(2);
