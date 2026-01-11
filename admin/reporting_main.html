@@ -749,9 +749,9 @@ function getOrderKey(r){
         const isFee = isFeeRow(r);
         const amt = getAmount(r);
 
+        // Fee rows: show amount under Net, and show Gross as —
         const netAmount = isFee ? amt : (Number.isFinite(r._net) ? r._net : amt);
         const feeAlloc = isFee ? 0 : (Number.isFinite(r._feeAlloc) ? r._feeAlloc : 0);
-        // For fee rows, we intentionally do not treat "gross" as meaningful (it would just equal the fee).
         const grossAmount = isFee ? NaN : (Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc));
 
         if (status === 'paid') paid++;
@@ -765,9 +765,11 @@ function getOrderKey(r){
           refundedAmt += n;
           // refunded items should not count toward totals
         }else{
-          gross += g;
-          netTotal += n;
-          feeTotal += f;
+          if (!isFee){
+            gross += g;
+            netTotal += n;
+            feeTotal += f;
+          }
         }
 
         const catKey = String(r.category||r.type||'other').toLowerCase();
