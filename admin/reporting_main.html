@@ -234,6 +234,17 @@
           </select>
         </div>
 
+
+        <div class="group" style="max-width:220px">
+          <label class="muted">Report Channel</label>
+          <select id="reportChannel">
+            <option value="auto" selected>Auto (use Order Channel)</option>
+            <option value="test">Test</option>
+            <option value="live_test">Live-Test</option>
+            <option value="live">Live</option>
+          </select>
+        </div>
+
         <div class="group" style="max-width:220px">
           <label class="muted">Preview only</label>
           <div style="height:32px;display:flex;align-items:center;gap:8px;">
@@ -256,7 +267,7 @@
         <section class="card" style="margin-top:16px;">
   <h3>Receipts ZIP — Auto Send Options</h3>
   <p class="muted" style="margin-top:6px;">
-    Uses the same <strong>Order Channel</strong> as Admin Settings (<code id="orderChannelLabel">…</code>) to decide whether it’s pulling from Stripe TEST vs LIVE.
+    Uses the selected <strong>Report Channel</strong> (below) or falls back to the <strong>Order Channel</strong> in Admin Settings (<code id="orderChannelLabel">…</code>) to decide whether it’s pulling from Stripe TEST vs LIVE.
   </p>
 
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin-top:10px;">
@@ -992,6 +1003,7 @@
           frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
           scope: ($('#testReportScope')?.value || 'current-month').trim(),
           previewOnly: !!$('#testPreviewOnly')?.checked,
+          channel: String(document.getElementById('reportChannel')?.value || 'auto'),
         };
 
         const r = await fetch('/api/router?action=send_test_chair_reports', {
@@ -1021,7 +1033,9 @@
 
 
 <!-- Shared help popup logic -->
-  <script src="/assets/js/admin-help.js">
+  <script src="/assets/js/admin.js"></script>
+  <script src="/assets/js/admin-help.js"></script>
+  <script>
 // ---------------- Receipts ZIP prefs ----------------
 async function loadOrderChannelLabel() {
   try {
