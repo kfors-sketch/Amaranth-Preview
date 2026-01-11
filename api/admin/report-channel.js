@@ -1,6 +1,26 @@
 // /api/admin/report-channel.js
 
-import { kvGetSafe, kvSetSafe } from "./core.js";
+import { kv } from "@vercel/kv";
+
+// Standalone KV helpers (do NOT import core.js here; keep this file isolated)
+async function kvGetSafe(key) {
+  try {
+    return await kv.get(key);
+  } catch (e) {
+    console.error("[report-channel] kv.get failed", { key, error: e?.message || String(e) });
+    return null;
+  }
+}
+
+async function kvSetSafe(key, value) {
+  try {
+    await kv.set(key, value);
+    return true;
+  } catch (e) {
+    console.error("[report-channel] kv.set failed", { key, error: e?.message || String(e) });
+    return false;
+  }
+}
 
 // One KV doc that controls BOTH report channel + receipt zip frequency.
 // Keep it simple and auditable.
@@ -24,12 +44,9 @@ export function normalizeChannel(input) {
 }
 
 export function normalizeZipPrefs(input) {
-  // Default: monthly ON, weekly OFF
-  const monthly =
-    input && typeof input.monthly === "boolean" ? input.monthly : true;
-  const weekly =
-    input && typeof input.weekly === "boolean" ? input.weekly : false;
-  return { monthly: !!monthly, weekly: !!weekly };
+  const monthly = !!(input && input.monthly);
+  const weekly = !!(input && input.weekly);
+  return { monthly, weekly };
 }
 
 export async function getReportingPrefs() {
