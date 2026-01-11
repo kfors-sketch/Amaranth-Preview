@@ -60,11 +60,8 @@ import {
 
   // ✅ Receipts ZIP helpers
   emailMonthlyReceiptsZip,
-  emailWeeklyReceiptsZip,
   emailFinalReceiptsZip,
 } from "./admin/core.js";
-
-import { getReportingPrefs, setReportingPrefs, resolveChannel, shouldSendReceiptZip } from "./admin/report-channel.js";
 
 import {
   isInternationalOrder,
@@ -80,15 +77,6 @@ import {
   getYearSummary,
   getMultiYearSummary,
 } from "./admin/yearly-reports.js";
-
-
-// i need a title hear like the other ones have( this is new for the chair emails and or the recepits zip)
-import {
-  getReportingPrefs,
-  setReportingPrefs,
-  resolveChannel,
-  shouldSendReceiptZip,
-} from "./admin/report-channel.js";
 
 // scheduler + debug helpers
 import {
@@ -255,17 +243,6 @@ const DEFAULT_FEATURE_FLAGS = {
   catalog_v2_preview: false,
 };
 
-
-async function getEffectiveReportMode() {
-  let prefs = { channel: "auto", receiptZip: { monthly: true, weekly: false } };
-  try {
-    prefs = await getReportingPrefs();
-  } catch {}
-  const isProd = String(process.env.VERCEL_ENV || process.env.NODE_ENV || "").toLowerCase() === "production";
-  const mode = resolveChannel({ requested: prefs?.channel, isProduction: isProd });
-  return { prefs, mode };
-}
-
 function coerceBool(v) {
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return !!v;
@@ -336,55 +313,6 @@ async function getCatalogCategoriesSafe() {
   });
 
   return out;
-}
-
-// ============================================================================
-// ✅ DATA LIST RESOLUTION (banquets / addons)
-// - Prevents "old banquets" / "missing addons" when the site is using v2 keys.
-// - We prefer the newest non-empty list among known keys, but keep legacy keys working.
-// ============================================================================
-async function loadBanquetsListSafe() {
-  const keys = ["banquets_v2", "banquets:2026", "banquets_live", "banquets"];
-  for (const k of keys) {
-    const v = await kvGetSafe(k, null);
-    if (Array.isArray(v) && v.length) return v;
-  }
-  const v = await kvGetSafe("banquets", []);
-  return Array.isArray(v) ? v : [];
-}
-
-async function loadAddonsListSafe() {
-  const keys = ["grand_court_addons", "addons_v2", "addons:2026", "addons_live", "addons"];
-  for (const k of keys) {
-    const v = await kvGetSafe(k, null);
-    if (Array.isArray(v) && v.length) return v;
-  }
-  const v = await kvGetSafe("addons", []);
-  return Array.isArray(v) ? v : [];
-}
-
-async function maybeWriteShadowListKeys({ kind, list }) {
-  // Write legacy keys AND any detected v2 keys so front-end pages stay consistent.
-  // This is best-effort and never throws.
-  try {
-    const { flags } = await loadFeatureFlagsSafe().catch(() => ({ flags: {} }));
-    const wantBanquetsV2 = !!flags?.banquets_v2_preview;
-    if (kind === "banquets") {
-      const hasV2 = Array.isArray(await kvGetSafe("banquets_v2", null));
-      if (wantBanquetsV2 || hasV2) await kvSetSafe("banquets_v2", list);
-      // Optional year key if you used it before
-      const hasYear = Array.isArray(await kvGetSafe("banquets:2026", null));
-      if (hasYear) await kvSetSafe("banquets:2026", list);
-    }
-    if (kind === "addons") {
-      const hasV2 = Array.isArray(await kvGetSafe("addons_v2", null));
-      const hasGca = Array.isArray(await kvGetSafe("grand_court_addons", null));
-      if (hasGca) await kvSetSafe("grand_court_addons", list);
-      if (hasV2) await kvSetSafe("addons_v2", list);
-      const hasYear = Array.isArray(await kvGetSafe("addons:2026", null));
-      if (hasYear) await kvSetSafe("addons:2026", list);
-    }
-  } catch {}
 }
 
 // ============================================================================
@@ -1091,8 +1019,8 @@ export default async function handler(req, res) {
           }
         };
 
-        const banquets = await loadBanquetsListSafe();
-        const addons = await loadAddonsListSafe();
+        const banquets = (await kvGetSafe("banquets", [])) || [];
+        const addons = (await kvGetSafe("addons", [])) || [];
 
         addSlots(banquets, "banquet");
         addSlots(addons, "addon");
@@ -1216,12 +1144,12 @@ export default async function handler(req, res) {
       if (type === "banquets")
         return REQ_OK(res, {
           requestId,
-          banquets: await loadBanquetsListSafe(),
+          banquets: (await kvGetSafe("banquets")) || [],
         });
       if (type === "addons")
         return REQ_OK(res, {
           requestId,
-          addons: await loadAddonsListSafe(),
+          addons: (await kvGetSafe("addons")) || [],
         });
       if (type === "products")
         return REQ_OK(res, {
@@ -1247,20 +1175,6 @@ export default async function handler(req, res) {
           lockdown,
         });
       }
-
-
-      if (type === "receipts_zip_prefs") {
-        if (!(await requireAdminAuth(req, res))) return;
-        const { prefs, mode } = await getEffectiveReportMode();
-        return REQ_OK(res, { requestId, ok: true, prefs: prefs?.receiptZip || { monthly: false, weekly: false }, channel: prefs?.channel || "auto", resolvedMode: mode });
-      }
-
-      if (type === "reporting_prefs") {
-        if (!(await requireAdminAuth(req, res))) return;
-        const { prefs, mode } = await getEffectiveReportMode();
-        return REQ_OK(res, { requestId, ok: true, prefs, resolvedMode: mode });
-      }
-
 
       if (type === "feature_flags") {
         if (!(await requireAdminAuth(req, res))) return;
@@ -3193,31 +3107,7 @@ function normalizeCountryCode2(raw) {
         }
       }
 
-      
-      if (action === "set_receipts_zip_prefs") {
-        if (!(await requireAdminAuth(req, res))) return;
-        const body = await readJsonBody(req);
-        const monthly = !!body?.monthly;
-        const weekly = !!body?.weekly;
-        const channel = body?.channel ? String(body.channel) : undefined;
-
-        const next = await setReportingPrefs({
-          receiptZip: { monthly, weekly },
-          ...(channel ? { channel } : {}),
-        });
-
-        return REQ_OK(res, { requestId, ok: true, prefs: next });
-      }
-
-      if (action === "set_reporting_channel") {
-        if (!(await requireAdminAuth(req, res))) return;
-        const body = await readJsonBody(req);
-        const channel = String(body?.channel || "").trim();
-        const next = await setReportingPrefs({ channel });
-        return REQ_OK(res, { requestId, ok: true, prefs: next });
-      }
-
-if (action === "send_monthly_chair_reports") {
+      if (action === "send_monthly_chair_reports") {
         await loadAllOrdersWithRetry();
 
         let schedulerMod;
@@ -3233,8 +3123,6 @@ if (action === "send_monthly_chair_reports") {
         }
 
         const baseNow = new Date();
-
-        const { prefs: reportingPrefs, mode: reportMode } = await getEffectiveReportMode();
 
         const wrappedSendItemReport = async (opts) => {
           const kind = String(opts?.kind || "").toLowerCase();
@@ -3261,7 +3149,7 @@ if (action === "send_monthly_chair_reports") {
             scheduledAt = new Date(ts).toISOString();
           }
 
-          return sendItemReportEmailInternal({ ...opts, scheduledAt, mode: reportMode });
+          return sendItemReportEmailInternal({ ...opts, scheduledAt });
         };
 
         const { sent, skipped, errors, itemsLog } = await runScheduledChairReports({
@@ -3271,7 +3159,7 @@ if (action === "send_monthly_chair_reports") {
 
         // ✅ Also send last-month receipts ZIP
         // (Can be disabled for testing via DISABLE_RECEIPTS_ZIP_AUTO=1)
-        let receiptsZip = { monthly: { ok: false, skipped: true }, weekly: { ok: false, skipped: true } };
+        let receiptsZip = { ok: false, skipped: true };
         const disableReceiptsZip = String(process.env.DISABLE_RECEIPTS_ZIP_AUTO || "0") === "1";
         if (!disableReceiptsZip) {
           try {
@@ -3286,41 +3174,31 @@ if (action === "send_monthly_chair_reports") {
               y -= 1;
             }
 
-            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "monthly" })) {
-              receiptsZip.monthly = await emailMonthlyReceiptsZip({
-                mode: reportMode,
-                year: y,
-                month: m,
-                requestId,
-                auto: true,
-              });
-            } else {
-              receiptsZip.monthly = { ok: true, skipped: true, reason: "disabled" };
-            }
+            receiptsZip = await emailMonthlyReceiptsZip({
+              year: y,
+              month: m,
+              requestId,
+              auto: true,
+            });
 
-            // previous full week (UTC) is handled inside emailWeeklyReceiptsZip
-            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "weekly" })) {
-              receiptsZip.weekly = await emailWeeklyReceiptsZip({ mode: reportMode, requestId, auto: true });
-            } else {
-              receiptsZip.weekly = { ok: true, skipped: true, reason: "disabled" };
-            }
-
-            if ((receiptsZip.monthly && receiptsZip.monthly.ok) || (receiptsZip.weekly && receiptsZip.weekly.ok)) {
+            if (receiptsZip && receiptsZip.ok) {
               try {
                 await recordMailLog({
                   ts: Date.now(),
                   from: RESEND_FROM || "onboarding@resend.dev",
-                  to: Array.isArray(EMAIL_RECEIPTS) ? EMAIL_RECEIPTS : (EMAIL_RECEIPTS ? [EMAIL_RECEIPTS] : []),
-                  subject: `Receipts ZIP — auto (${reportMode})`,
-                  kind: "receipts-zip-auto",
+                  to: receiptsZip.to ? [receiptsZip.to] : [],
+                  subject:
+                    receiptsZip.subject ||
+                    `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
+                  kind: "receipts-zip-month-auto",
                   status: "queued",
-                  resultId: null,
+                  resultId: receiptsZip.resultId || receiptsZip.id || null,
                 });
               } catch {}
             }
           } catch (e) {
             console.error("receipts_zip_month_auto_failed", e?.message || e);
-            receiptsZip = { monthly: { ok: false, error: String(e?.message || e) }, weekly: { ok: false, skipped: true } };
+            receiptsZip = { ok: false, error: String(e?.message || e) };
           }
         } else {
           receiptsZip = { ok: false, skipped: true, disabled: true };
@@ -3485,8 +3363,6 @@ if (action === "send_monthly_chair_reports") {
         const scope = String(body?.scope || "current-month").trim();
         const previewOnly = !!body?.previewOnly;
 
-        const { mode: reportMode } = await getEffectiveReportMode();
-
         if (!to) return REQ_ERR(res, 400, "missing-test-email", { requestId });
 
         const freqNorm = frequency === "all" ? "all" : normalizeReportFrequency(frequency);
@@ -3518,7 +3394,6 @@ if (action === "send_monthly_chair_reports") {
               toOverride: [to],
               subjectPrefix: `[TEST ${freqNorm}] `,
               previewOnly,
-              mode: reportMode,
             });
 
             if (r?.ok) sent++;
@@ -3646,7 +3521,6 @@ if (action === "send_end_of_event_reports") {
       if (action === "save_banquets") {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
-        await maybeWriteShadowListKeys({ kind: "banquets", list });
 
         try {
           for (const b of list) {
@@ -3708,7 +3582,6 @@ if (action === "send_end_of_event_reports") {
       if (action === "save_addons") {
         const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
-        await maybeWriteShadowListKeys({ kind: "addons", list });
 
         try {
           for (const a of list) {
