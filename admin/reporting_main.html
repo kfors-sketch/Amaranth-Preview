@@ -1121,7 +1121,7 @@ async function saveZipPrefs() {
     const r1 = await fetch("/api/router?action=set_receipts_zip_prefs", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...Admin.tokenHeader() },
-      body: JSON.stringify({ monthly, weekly, channel })
+      body: JSON.stringify({ monthly, weekly, mode: channel, channel })
     });
     const j1 = await r1.json().catch(()=>({}));
     if (!r1.ok || (!j1?.ok && !j1?.json?.ok)) throw new Error("ZIP prefs save failed");
