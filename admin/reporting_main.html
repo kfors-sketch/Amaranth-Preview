@@ -574,7 +574,22 @@
       return false;
     }
 
-    function getOrderKey(r){
+    
+    // Some exports include a second "other" row for Online Processing Fee with no item id.
+    // We keep the real fee rows (processing-fee, intl-fee) and drop only the duplicate "other" one.
+    function isDuplicateOtherFeeRow(r){
+      const cat = normalizeStr(r.category || r.type);
+      if (cat !== 'other') return false;
+      const itemId = normalizeStr(r.item_id || r.itemId || r.sku || r.code);
+      if (itemId) return false;
+      const itemName = normalizeStr(r.item || r.item_name || r.description);
+      if (!itemName) return false;
+      const isProc = itemName.includes('processing fee') || itemName.includes('online processing fee');
+      const isIntl = itemName.includes('international') && itemName.includes('fee');
+      return isProc && !isIntl;
+    }
+
+function getOrderKey(r){
       return r.order_id || r.orderId || r.session_id || r.sessionId || r.id || '';
     }
 
@@ -729,9 +744,15 @@
       for (const r of filtered){
         idx++;
         const status = (r.status||'').toLowerCase();
-        const netAmount = Number.isFinite(r._net) ? r._net : Number(r.amount || r.total || r.amount_cents/100 || 0);
-        const feeAlloc = Number.isFinite(r._feeAlloc) ? r._feeAlloc : 0;
-        const grossAmount = Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc);
+        if (isDuplicateOtherFeeRow(r)) continue;
+
+        const isFee = isFeeRow(r);
+        const amt = getAmount(r);
+
+        const netAmount = isFee ? amt : (Number.isFinite(r._net) ? r._net : amt);
+        const feeAlloc = isFee ? 0 : (Number.isFinite(r._feeAlloc) ? r._feeAlloc : 0);
+        // For fee rows, we intentionally do not treat "gross" as meaningful (it would just equal the fee).
+        const grossAmount = isFee ? NaN : (Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc));
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
@@ -751,7 +772,7 @@
 
         const catKey = String(r.category||r.type||'other').toLowerCase();
         byCat[catKey] = byCat[catKey] || {total:0,count:0};
-        if (status !== 'refunded'){
+        if (status !== 'refunded' && !isFee){
           byCat[catKey].total += n;
           byCat[catKey].count++;
         }
