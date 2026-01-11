@@ -1092,14 +1092,9 @@ async function loadZipPrefs() {
     if (mEl) mEl.checked = !!monthly;
     if (wEl) wEl.checked = !!weekly;
 
-    // channel can come from this endpoint OR from global settings; normalize either way
+    // channel comes from this endpoint; keep AUTO as AUTO (do not overwrite the dropdown)
     let channel = normalizeChannelValue(payload?.channel || payload?.reportChannel || payload?.mode || 'auto');
-    if (channel === 'auto') {
-      const fromSettings = await getReportChannelFromSettings();
-      if (fromSettings) channel = fromSettings;
-    }
-
-    const chEl = document.getElementById('reportChannel');
+const chEl = document.getElementById('reportChannel');
     if (chEl) chEl.value = channel;
 
     const resolvedMode = String(payload?.resolvedMode || payload?.resolved || '');
@@ -1122,11 +1117,11 @@ async function saveZipPrefs() {
   try {
     if (status) status.textContent = "Saving…";
 
-    // 1) Save ZIP frequency prefs
+    // 1) Save ZIP frequency prefs (include channel so the API can persist it with the ZIP scheduler)
     const r1 = await fetch("/api/router?action=set_receipts_zip_prefs", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...Admin.tokenHeader() },
-      body: JSON.stringify({ monthly, weekly })
+      body: JSON.stringify({ monthly, weekly, channel })
     });
     const j1 = await r1.json().catch(()=>({}));
     if (!r1.ok || (!j1?.ok && !j1?.json?.ok)) throw new Error("ZIP prefs save failed");
