@@ -119,7 +119,9 @@
         max-width:100%;
       }
     }
-</style>
+
+    .hide-money .money-col{display:none}
+  </style>
 </head>
 <body>
   <div class="container">
@@ -194,7 +196,15 @@
           <button id="btnFullAttendeesCsv" class="btn sm secondary">Full Attendee List</button>
           <button id="btnSample" class="btn sm secondary">Load Sample</button>
           <button id="btnClear" class="btn sm secondary">Clear Local</button>
+        
+        <div class="group" style="margin-left:auto;display:flex;align-items:flex-end;gap:10px;">
+          <label class="muted" style="display:flex;align-items:center;gap:8px;user-select:none;">
+            <input id="hideMoney" type="checkbox" />
+            Hide $ columns (for sharing/printing)
+          </label>
         </div>
+
+</div>
       </div>
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
@@ -245,7 +255,9 @@
                   <th>Item</th>
                   <th>Category</th>
                   <th>Status</th>
-                  <th class="text-right">Amount</th>
+                  <th class="text-right money-col">Net</th>
+                  <th class="text-right money-col">Fee</th>
+                  <th class="text-right money-col">Gross</th>
                   <th>Meta</th>
                 </tr>
               </thead>
@@ -524,6 +536,91 @@
     <script>
     const LS_KEY = 'amaranth-report-rows-v1';
     let rows = [];
+    let derivedRows = [];
+
+    function asNumber(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function getAmount(r){
+      // Prefer explicit numeric fields already on the row.
+      if (r == null) return 0;
+      if (r.amount != null) return asNumber(r.amount);
+      if (r.total != null) return asNumber(r.total);
+      if (r.amount_cents != null) return asNumber(r.amount_cents) / 100;
+      if (r.total_cents != null) return asNumber(r.total_cents) / 100;
+      return 0;
+    }
+
+    function normalizeStr(v){ return String(v||'').trim().toLowerCase(); }
+
+    function isFeeRow(r){
+      const cat = normalizeStr(r.category || r.type);
+      const itemId = normalizeStr(r.item_id || r.itemId || r.sku || r.code);
+      const itemName = normalizeStr(r.item || r.item_name || r.description);
+      if (cat === 'fee' || cat === 'fees') return true;
+      if (itemId === 'processing-fee' || itemId === 'intl-fee') return true;
+      if (itemName.includes('processing fee') || itemName.includes('online processing fee')) return true;
+      if (itemName.includes('international') && itemName.includes('fee')) return true;
+      return false;
+    }
+
+    function getOrderKey(r){
+      return r.order_id || r.orderId || r.session_id || r.sessionId || r.id || '';
+    }
+
+    function getBuyerDisplay(r){
+      return (
+        r.buyer_name ||
+        r.purchaser_name ||
+        r.purchaser ||
+        r.buyer ||
+        r.name ||
+        r.customer_name ||
+        '—'
+      );
+    }
+
+    function recomputeDerivedRows(){
+      // Build a display-only view where fee line items are allocated across real items.
+      // This avoids double "processing fee" rows and gives per-item Gross/Net.
+      const groups = new Map();
+      (rows || []).forEach(r=>{
+        const key = getOrderKey(r);
+        if(!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      });
+
+      const out = [];
+      for (const [key, group] of groups.entries()){
+        const feeRows = group.filter(isFeeRow);
+        const itemRows = group.filter(r=>!isFeeRow(r));
+
+        const feeTotal = feeRows.reduce((s,r)=>s+getAmount(r),0);
+        const subtotal = itemRows.reduce((s,r)=>s+getAmount(r),0);
+        const nItems = itemRows.length || 0;
+
+        itemRows.forEach(r=>{
+          const amt = getAmount(r);
+          let alloc = 0;
+          if (feeTotal > 0){
+            if (subtotal > 0) alloc = feeTotal * (amt / subtotal);
+            else if (nItems > 0) alloc = feeTotal / nItems;
+          }
+          const buyer = getBuyerDisplay(r);
+          // attach derived fields (safe, UI-only)
+          r._buyer = buyer;
+          r._amount = amt;
+          r._feeAlloc = alloc;
+          r._gross = amt + alloc;
+          r._net = amt; // chairman payout when purchaser pays fee
+          out.push(r);
+        });
+      }
+
+      derivedRows = out;
+    }
 
     function $(sel){ return document.querySelector(sel); }
 
@@ -580,7 +677,7 @@
       const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
       const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
 
-      let filtered = rows.slice();
+      let filtered = (derivedRows && derivedRows.length ? derivedRows : rows).slice();
       filtered = filtered.filter(r=>{
         const t = Date.parse(r.date || r.created || r.created_at || '');
         if (!isNaN(fromMs) && t < fromMs) return false;
@@ -615,6 +712,8 @@
 
       let idx = 0, shown = 0;
       let gross = 0;
+      let netTotal = 0;
+      let feeTotal = 0;
       let refundedAmt = 0;
       let paid=0,pending=0,refunded=0;
       const byCat = {};
@@ -622,20 +721,32 @@
       for (const r of filtered){
         idx++;
         const status = (r.status||'').toLowerCase();
-        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
+        const netAmount = Number.isFinite(r._net) ? r._net : Number(r.amount || r.total || r.amount_cents/100 || 0);
+        const feeAlloc = Number.isFinite(r._feeAlloc) ? r._feeAlloc : 0;
+        const grossAmount = Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc);
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
         else if (status === 'refunded') refunded++;
 
-        const a = isFinite(amount) ? amount : 0;
-        gross += a;
-        if (status === 'refunded') refundedAmt += a;
+        const g = isFinite(grossAmount) ? grossAmount : 0;
+        const n = isFinite(netAmount) ? netAmount : 0;
+        const f = isFinite(feeAlloc) ? feeAlloc : 0;
+        if (status === 'refunded'){
+          refundedAmt += n;
+          // refunded items should not count toward totals
+        }else{
+          gross += g;
+          netTotal += n;
+          feeTotal += f;
+        }
 
         const catKey = String(r.category||r.type||'other').toLowerCase();
         byCat[catKey] = byCat[catKey] || {total:0,count:0};
-        byCat[catKey].total += isFinite(amount)?amount:0;
-        byCat[catKey].count++;
+        if (status !== 'refunded'){
+          byCat[catKey].total += n;
+          byCat[catKey].count++;
+        }
 
         if (shown >= maxRows) continue;
         shown++;
@@ -652,7 +763,7 @@
         const t = Date.parse(r.date||r.created||r.created_at||'');
         const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
 
-        const buyer = r.name||r.buyer||r.customer_name||'—';
+        const buyer = r._buyer || r.buyer_name || r.purchaser_name || r.purchaser || r.buyer || r.name || r.customer_name || '—';
         const item  = r.item||r.item_name||r.description||'—';
 
         const metaBits=[];
@@ -670,7 +781,9 @@
                 <span class="dot"></span>
                 <span>${status||'unknown'}</span>
               </span>`),
-          td(isFinite(amount)?'$'+amount.toFixed(2):'—','text-right text-xs'),
+          td(isFinite(netAmount)?'$'+netAmount.toFixed(2):'—','text-right text-xs money-col'),
+          td(isFinite(feeAlloc)?'$'+feeAlloc.toFixed(2):'—','text-right text-xs money-col'),
+          td(isFinite(grossAmount)?'$'+grossAmount.toFixed(2):'—','text-right text-xs money-col'),
           td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
         ];
         cells.forEach(c=>tr.appendChild(c));
@@ -679,7 +792,7 @@
           const pi=r.payment_intent||r.pi;
           const ch=r.charge||r.charge_id;
           if(!pi&&!ch){alert('No Stripe payment info.');return;}
-          openRefundModal({payment_intent:pi,charge:ch,total:amount});
+          openRefundModal({payment_intent:pi,charge:ch,total:netAmount});
         });
 
         tbody.appendChild(tr);
@@ -691,7 +804,7 @@
       else
         $('#totalCount').textContent=`${shown} / ${filtered.length}`;
 
-      const net = gross - refundedAmt;
+      const net = netTotal;
       const grossEl = document.getElementById('grossAmount');
       const netEl = document.getElementById('netAmount');
       if (grossEl) grossEl.textContent = '$' + gross.toFixed(2);
@@ -726,9 +839,11 @@
         if(!r.ok) throw new Error(j?.error||'Fetch failed');
         rows = Array.isArray(j.rows)?j.rows:[];
         saveToLocal(rows);
+        recomputeDerivedRows();
         render();
       }catch(e){
         rows = loadFromLocal();
+        recomputeDerivedRows();
         render();
       }
     }
@@ -1031,6 +1146,7 @@
 
 (function init(){
       rows=loadFromLocal();
+      recomputeDerivedRows();
       render();
       loadFromServer();
       loadReportSettings();
