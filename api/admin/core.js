@@ -64,8 +64,9 @@ let _stripeBySecret = Object.create(null);
  * Auto-reverts to test whenever the LIVE window is expired (via
  * getEffectiveOrderChannel()).
  */
-async function getStripe() {
-  let mode = "test";
+async function getStripe(requestedMode) {
+  let mode = String(requestedMode || "").trim().toLowerCase() || "test";
+if (!requestedMode) {
   try {
     mode = await getEffectiveOrderChannel(); // defined further below
   } catch (e) {
@@ -75,8 +76,8 @@ async function getStripe() {
     );
     mode = "test";
   }
-
-  const env = process.env || {};
+}
+const env = process.env || {};
   const TEST_SECRET = (env.STRIPE_SECRET_KEY_TEST || "").trim();
   const LIVE_SECRET = (env.STRIPE_SECRET_KEY_LIVE || "").trim();
 
@@ -653,7 +654,8 @@ async function getChairEmailsForItemId(id) {
 // ----- order persistence helpers -----
 // NOTE: accepts optional extra object (e.g. { mode: "live" })
 async function saveOrderFromSession(sessionLike, extra = {}) {
-  const stripe = await getStripe();
+  const mode = String(extra?.mode || "").trim().toLowerCase() || (await getEffectiveOrderChannel().catch(() => "test"));
+  const stripe = await getStripe(mode);
   if (!stripe) throw new Error("stripe-not-configured");
 
   const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
@@ -776,6 +778,8 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
 
   let order = {
     id: sid,
+    mode,
+    stripe_livemode: !!s.livemode,
     created: Date.now(),
     payment_intent:
       typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
@@ -1764,6 +1768,7 @@ async function sendItemReportEmailInternal({
   toOverride,
   subjectPrefix,
   previewOnly,
+  mode,
 } = {}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!kind || !id) return { ok: false, error: "missing-kind-or-id" };
@@ -1784,6 +1789,9 @@ async function sendItemReportEmailInternal({
   }
 
   const orders = await loadAllOrdersWithRetry();
+
+  const wantMode = String(mode || \"\").trim().toLowerCase();
+  const filteredOrders = wantMode ? orders.filter((o) => String(o?.mode || \"test\").toLowerCase() === wantMode) : orders;
 
   let startMs =
     typeof explicitStartMs === "number" && !isNaN(explicitStartMs) ? explicitStartMs : undefined;
@@ -2292,23 +2300,23 @@ function monthlyReceiptsZipSentKey(mode, month) {
   return `receiptszip:monthly:${m}:${mm}`;
 }
 
-async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
+async function emailMonthlyReceiptsZip({ mode = "test", year, month, monthId } = {}) {
   if (!resend) return { ok: false, error: "resend-not-configured" };
   if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
 
   const orders = await loadAllOrdersWithRetry();
   const wantMode = String(mode || "test").toLowerCase();
-  const nowMonth = monthIdUTC(Date.now());
+  const targetMonth = String(monthId || "").trim() || (year && month ? `${year}-${String(month).padStart(2,'0')}` : monthIdUTC(Date.now()));
 
   // ✅ LIVE/LIVE_TEST: only send once per month (even if cron runs daily)
   // TEST: allowed to send repeatedly (useful while testing)
   const enforceMonthlyOnce = wantMode === "live" || wantMode === "live_test";
-  const sentKey = monthlyReceiptsZipSentKey(wantMode, nowMonth);
+  const sentKey = monthlyReceiptsZipSentKey(wantMode, targetMonth);
 
   if (enforceMonthlyOnce) {
     const already = await kvGetSafe(sentKey, null);
     if (already) {
-      return { ok: true, skipped: true, month: nowMonth, mode: wantMode, reason: "already-sent" };
+      return { ok: true, skipped: true, month: targetMonth, mode: wantMode, reason: "already-sent" };
     }
   }
 
@@ -2318,7 +2326,7 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
   for (const o of orders) {
     const om = String(o.mode || "test").toLowerCase();
     if (om !== wantMode) continue;
-    if (monthIdUTC(o.created) !== nowMonth) continue;
+    if (monthIdUTC(o.created) !== targetMonth) continue;
 
     const html = renderOrderEmailHTML(o);
     zip.file(`receipt-${wantMode}-${o.id}.html`, html);
@@ -2334,23 +2342,23 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
   );
   const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
 
-  zip.file(`receipts-${wantMode}-${nowMonth}.xlsx`, xlsxBuf);
+  zip.file(`receipts-${wantMode}-${targetMonth}.xlsx`, xlsxBuf);
 
   const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
   const zipB64 = Buffer.from(zipBuf).toString("base64");
 
   const from = RESEND_FROM || "pa_sessions@yahoo.com";
-  const subject = `Monthly Receipts ZIP — ${nowMonth} (${wantMode})`;
+  const subject = `Monthly Receipts ZIP — ${targetMonth} (${wantMode})`;
 
   const payload = {
     from,
     to: [EMAIL_RECEIPTS],
     subject,
-    html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;">Attached: receipts ZIP for <b>${nowMonth}</b> (${wantMode}).</div>`,
+    html: `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;">Attached: receipts ZIP for <b>${targetMonth}</b> (${wantMode}).</div>`,
     reply_to: REPLY_TO || undefined,
     attachments: [
       {
-        filename: `receipts-${wantMode}-${nowMonth}.zip`,
+        filename: `receipts-${wantMode}-${targetMonth}.zip`,
         content: zipB64,
         content_type: "application/zip",
       },
@@ -2359,7 +2367,7 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
 
   const retry = await sendWithRetry(
     () => resend.emails.send(payload),
-    `receipts-zip-monthly:${wantMode}:${nowMonth}`
+    `receipts-zip-monthly:${wantMode}:${targetMonth}`
   );
 
   if (retry.ok) {
@@ -2367,13 +2375,117 @@ async function emailMonthlyReceiptsZip({ mode = "test" } = {}) {
     if (enforceMonthlyOnce) {
       await kvSetSafe(sentKey, {
         sentAt: new Date().toISOString(),
-        month: nowMonth,
+        month: targetMonth,
         mode: wantMode,
         subject,
       });
     }
 
-    return { ok: true, month: nowMonth, mode: wantMode };
+    return { ok: true, month: targetMonth, mode: wantMode };
+  }
+
+  return { ok: false, error: retry.error?.message || String(retry.error) };
+}
+
+
+// Weekly receipts ZIP (previous full week in UTC: Monday 00:00 through next Monday 00:00)
+function isoWeekIdUTC(d) {
+  // Returns YYYY-Www using UTC date
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  // Thursday in current week decides the year.
+  dt.setUTCDate(dt.getUTCDate() + 4 - (dt.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return `${dt.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function weeklyReceiptsZipSentKey(mode, weekId) {
+  const m = String(mode || "test").toLowerCase();
+  const w = String(weekId || "").trim();
+  return `receiptszip:weekly:${m}:${w}`;
+}
+
+async function emailWeeklyReceiptsZip({ mode = "test", weekId, startMs, endMs } = {}) {
+  if (!resend) return { ok: false, error: "resend-not-configured" };
+  if (!EMAIL_RECEIPTS) return { ok: false, error: "EMAIL_RECEIPTS-not-configured" };
+
+  const orders = await loadAllOrdersWithRetry();
+  const wantMode = String(mode || "test").toLowerCase();
+
+  // Default: previous full week (UTC) Monday->Monday
+  const now = new Date();
+  const utcDay = now.getUTCDay() || 7; // 1..7 (Mon..Sun)
+  const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  thisMonday.setUTCDate(thisMonday.getUTCDate() - (utcDay - 1));
+  const prevMonday = new Date(thisMonday.getTime() - 7 * 86400000);
+  const nextMonday = new Date(thisMonday.getTime()); // end of prev week
+
+  const sMs = typeof startMs === "number" && !isNaN(startMs) ? startMs : prevMonday.getTime();
+  const eMs = typeof endMs === "number" && !isNaN(endMs) ? endMs : nextMonday.getTime();
+  const wid = String(weekId || "").trim() || isoWeekIdUTC(new Date(sMs));
+
+  const enforceWeeklyOnce = wantMode === "live" || wantMode === "live_test";
+  const sentKey = weeklyReceiptsZipSentKey(wantMode, wid);
+
+  if (enforceWeeklyOnce) {
+    const already = await kvGetSafe(sentKey, null);
+    if (already) {
+      return { ok: true, skipped: true, week: wid, mode: wantMode, reason: "already-sent" };
+    }
+  }
+
+  const rows = [];
+  const zip = new JSZip();
+
+  for (const o of orders) {
+    const om = String(o.mode || "test").toLowerCase();
+    if (om !== wantMode) continue;
+
+    const createdMs = typeof o.created === "number" ? o.created : Date.parse(o.created || "");
+    if (!createdMs || isNaN(createdMs)) continue;
+    if (createdMs < sMs || createdMs >= eMs) continue;
+
+    const html = renderOrderEmailHTML(o);
+    zip.file(`receipt-${wantMode}-${o.id}.html`, html);
+    rows.push(...buildReceiptXlsxRows(o));
+  }
+
+  const xlsxRaw = await objectsToXlsxBuffer(RECEIPT_XLSX_HEADERS, rows, [], "Receipts");
+  const xlsxBuf = Buffer.isBuffer(xlsxRaw) ? xlsxRaw : Buffer.from(xlsxRaw);
+
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+
+  const subject = `Receipts ZIP (weekly) — ${wantMode} — ${wid} (UTC)`;
+  const attachments = [
+    { filename: `receipts-weekly-${wantMode}-${wid}.zip`, content: zipBuf },
+    { filename: `receipts-weekly-${wantMode}-${wid}.xlsx`, content: xlsxBuf },
+  ];
+
+  const retry = await sendWithRetry(
+    () =>
+      resend.emails.send({
+        from: RESEND_FROM || "onboarding@resend.dev",
+        to: EMAIL_RECEIPTS,
+        reply_to: REPLY_TO || undefined,
+        subject,
+        html: `<p>Weekly receipts ZIP for <b>${wantMode}</b>, week <b>${wid}</b> (UTC).</p>`,
+        attachments,
+      }),
+    `receipts-zip-weekly:${wantMode}:${wid}`
+  );
+
+  if (retry.ok) {
+    if (enforceWeeklyOnce) {
+      await kvSetSafe(sentKey, {
+        sentAt: new Date().toISOString(),
+        week: wid,
+        mode: wantMode,
+        subject,
+        startMs: sMs,
+        endMs: eMs,
+      });
+    }
+    return { ok: true, week: wid, mode: wantMode, startMs: sMs, endMs: eMs };
   }
 
   return { ok: false, error: retry.error?.message || String(retry.error) };
@@ -2501,6 +2613,7 @@ export {
   EMAIL_RECEIPTS,
   sendReceiptXlsxBackup,
   emailMonthlyReceiptsZip,
+  emailWeeklyReceiptsZip,
   emailFinalReceiptsZip,
 
   verifyOrderHash,
