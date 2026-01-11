@@ -64,9 +64,8 @@ let _stripeBySecret = Object.create(null);
  * Auto-reverts to test whenever the LIVE window is expired (via
  * getEffectiveOrderChannel()).
  */
-async function getStripe(requestedMode) {
-  let mode = String(requestedMode || "").trim().toLowerCase() || "test";
-if (!requestedMode) {
+async function getStripe() {
+  let mode = "test";
   try {
     mode = await getEffectiveOrderChannel(); // defined further below
   } catch (e) {
@@ -76,8 +75,8 @@ if (!requestedMode) {
     );
     mode = "test";
   }
-}
-const env = process.env || {};
+
+  const env = process.env || {};
   const TEST_SECRET = (env.STRIPE_SECRET_KEY_TEST || "").trim();
   const LIVE_SECRET = (env.STRIPE_SECRET_KEY_LIVE || "").trim();
 
@@ -610,6 +609,30 @@ async function fetchSessionAndItems(stripe, sid) {
   return { session: s, lineItems };
 }
 
+// ---------------------------------------------------------------------------
+// ✅ DATA LIST RESOLUTION (banquets / addons)
+// - Prevents chair email lookup failures when items are stored under v2 keys.
+// ---------------------------------------------------------------------------
+async function loadBanquetsListSafe() {
+  const keys = ["banquets_v2", "banquets:2026", "banquets_live", "banquets"];
+  for (const k of keys) {
+    const v = await kvGetSafe(k, null);
+    if (Array.isArray(v) && v.length) return v;
+  }
+  const v = await kvGetSafe("banquets", []);
+  return Array.isArray(v) ? v : [];
+}
+
+async function loadAddonsListSafe() {
+  const keys = ["grand_court_addons", "addons_v2", "addons:2026", "addons_live", "addons"];
+  for (const k of keys) {
+    const v = await kvGetSafe(k, null);
+    if (Array.isArray(v) && v.length) return v;
+  }
+  const v = await kvGetSafe("addons", []);
+  return Array.isArray(v) ? v : [];
+}
+
 // ----- Chair email resolution -----
 async function getChairEmailsForItemId(id) {
   const safeSplit = (val) =>
@@ -619,7 +642,7 @@ async function getChairEmailsForItemId(id) {
       .filter(Boolean);
 
   try {
-    const banquets = await kvGetSafe("banquets", []);
+    const banquets = await loadBanquetsListSafe();
     if (Array.isArray(banquets)) {
       const b = banquets.find((x) => String(x?.id || "") === String(id));
       if (b) {
@@ -632,7 +655,7 @@ async function getChairEmailsForItemId(id) {
   } catch {}
 
   try {
-    const addons = await kvGetSafe("addons", []);
+    const addons = await loadAddonsListSafe();
     if (Array.isArray(addons)) {
       const a = addons.find((x) => String(x?.id || "") === String(id));
       if (a) {
@@ -654,8 +677,7 @@ async function getChairEmailsForItemId(id) {
 // ----- order persistence helpers -----
 // NOTE: accepts optional extra object (e.g. { mode: "live" })
 async function saveOrderFromSession(sessionLike, extra = {}) {
-  const mode = String(extra?.mode || "").trim().toLowerCase() || (await getEffectiveOrderChannel().catch(() => "test"));
-  const stripe = await getStripe(mode);
+  const stripe = await getStripe();
   if (!stripe) throw new Error("stripe-not-configured");
 
   const sid = typeof sessionLike === "string" ? sessionLike : sessionLike.id;
@@ -778,8 +800,6 @@ async function saveOrderFromSession(sessionLike, extra = {}) {
 
   let order = {
     id: sid,
-    mode,
-    stripe_livemode: !!s.livemode,
     created: Date.now(),
     payment_intent:
       typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "",
