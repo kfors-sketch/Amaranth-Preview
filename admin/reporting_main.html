@@ -1037,6 +1037,17 @@
   <script src="/assets/js/admin-help.js"></script>
   <script>
 // ---------------- Receipts ZIP prefs ----------------
+function normalizeChannelValue(v){
+  const s = String(v || 'auto').trim();
+  if (!s) return 'auto';
+  // accept either dash or underscore
+  if (s === 'live-test' || s === 'live_test' || s === 'livetest') return 'live_test';
+  if (s === 'test') return 'test';
+  if (s === 'live') return 'live';
+  if (s === 'auto') return 'auto';
+  return s;
+}
+
 async function loadOrderChannelLabel() {
   try {
     const r = await fetch("/api/router?type=settings", { headers: Admin.tokenHeader() });
@@ -1047,24 +1058,55 @@ async function loadOrderChannelLabel() {
   } catch {}
 }
 
+async function getReportChannelFromSettings(){
+  try{
+    const r = await fetch('/api/router?action=get_settings', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', ...Admin.tokenHeader() },
+      body: JSON.stringify({})
+    });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || !j?.ok) return null;
+    const eff = j?.effective || {};
+    // prefer an explicit report channel setting if present
+    const ch = eff?.REPORT_CHANNEL || eff?.REPORTS_CHANNEL || eff?.REPORT_CHANNEL_OVERRIDE || null;
+    return ch ? normalizeChannelValue(ch) : null;
+  }catch{
+    return null;
+  }
+}
+
 async function loadZipPrefs() {
   const status = document.getElementById("zipPrefsStatus");
   try {
     const r = await fetch("/api/router?type=receipts_zip_prefs", { headers: Admin.tokenHeader() });
     const j = await r.json();
     const payload = j?.json || j;
-    const prefs = payload?.prefs || {};
-    const channel = String(payload?.channel || 'auto');
-    const resolvedMode = String(payload?.resolvedMode || '');
-    const monthly = !!prefs.monthly;
-    const weekly = !!prefs.weekly;
+
+    const prefs = payload?.prefs || payload?.settings || {};
+    const monthly = (prefs.monthly === true || prefs.monthly === 'true' || prefs.monthly === 1);
+    const weekly  = (prefs.weekly  === true || prefs.weekly  === 'true' || prefs.weekly  === 1);
+
     const mEl = document.getElementById("zipMonthly");
     const wEl = document.getElementById("zipWeekly");
-    if (mEl) mEl.checked = monthly;
-    if (wEl) wEl.checked = weekly;
+    if (mEl) mEl.checked = !!monthly;
+    if (wEl) wEl.checked = !!weekly;
+
+    // channel can come from this endpoint OR from global settings; normalize either way
+    let channel = normalizeChannelValue(payload?.channel || payload?.reportChannel || payload?.mode || 'auto');
+    if (channel === 'auto') {
+      const fromSettings = await getReportChannelFromSettings();
+      if (fromSettings) channel = fromSettings;
+    }
+
     const chEl = document.getElementById('reportChannel');
-    if (chEl) chEl.value = (channel === 'live-test' ? 'live_test' : channel);
-    if (status) status.textContent = resolvedMode ? `Loaded. Using: ${resolvedMode}` : 'Loaded.';
+    if (chEl) chEl.value = channel;
+
+    const resolvedMode = String(payload?.resolvedMode || payload?.resolved || '');
+    if (status) {
+      const modeText = resolvedMode ? `Using: ${resolvedMode}` : `Channel: ${channel}`;
+      status.textContent = `Loaded. ${modeText} • Monthly=${monthly ? "on" : "off"} • Weekly=${weekly ? "on" : "off"}`;
+    }
   } catch (e) {
     if (status) status.textContent = "Could not load (check admin token).";
   }
@@ -1074,17 +1116,38 @@ async function saveZipPrefs() {
   const status = document.getElementById("zipPrefsStatus");
   const monthly = !!document.getElementById("zipMonthly")?.checked;
   const weekly = !!document.getElementById("zipWeekly")?.checked;
-  const channel = String(document.getElementById('reportChannel')?.value || 'auto');
+  const channelRaw = String(document.getElementById('reportChannel')?.value || 'auto');
+  const channel = normalizeChannelValue(channelRaw);
+
   try {
     if (status) status.textContent = "Saving…";
-    const r = await fetch("/api/router?action=set_receipts_zip_prefs", {
+
+    // 1) Save ZIP frequency prefs
+    const r1 = await fetch("/api/router?action=set_receipts_zip_prefs", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...Admin.tokenHeader() },
-      body: JSON.stringify({ monthly, weekly, channel })
+      body: JSON.stringify({ monthly, weekly })
     });
-    const j = await r.json();
-    if (!j?.ok && !j?.json?.ok) throw new Error("save failed");
-    if (status) status.textContent = `Saved. Monthly=${monthly ? "on" : "off"}, Weekly=${weekly ? "on" : "off"}.`;
+    const j1 = await r1.json().catch(()=>({}));
+    if (!r1.ok || (!j1?.ok && !j1?.json?.ok)) throw new Error("ZIP prefs save failed");
+
+    // 2) Save Report Channel (used by Chair Reports & Receipts ZIP) via shared settings endpoint
+    // (This endpoint already exists in this page for REPORT_WEEKDAY / REPORT_FREQUENCY)
+    const r2 = await fetch('/api/router?action=save_settings', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', ...Admin.tokenHeader() },
+      body: JSON.stringify({ REPORT_CHANNEL: channel })
+    });
+    const j2 = await r2.json().catch(()=>({}));
+    if (!r2.ok || (!j2?.ok && !j2?.json?.ok)) {
+      // Don't fail the whole save if only channel fails, but do warn.
+      if (status) status.textContent = `Saved ZIP prefs, but Report Channel did not save (check token / endpoint).`;
+      await loadZipPrefs();
+      return;
+    }
+
+    if (status) status.textContent = "Saved. Reloading…";
+    await loadZipPrefs();
   } catch (e) {
     if (status) status.textContent = "Save failed (check admin token).";
   }
@@ -1093,6 +1156,7 @@ async function saveZipPrefs() {
 document.getElementById("btnSaveZipPrefs")?.addEventListener("click", saveZipPrefs);
 loadOrderChannelLabel();
 loadZipPrefs();
+
 
 </script>
 </body>
