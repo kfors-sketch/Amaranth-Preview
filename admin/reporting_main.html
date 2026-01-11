@@ -199,6 +199,63 @@
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
 
+    <div class="card mb-16">
+          <div class="flex between mb-8">
+            <div>
+              <div class="section-label">Overview</div>
+              <h3>
+                Orders &amp; Payments
+                <button
+                  type="button"
+                  class="help-btn"
+                  data-help-id="reporting_orders"
+                  aria-label="Help for Orders and Payments"
+                >?</button>
+              </h3>
+              <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
+            </div>
+            <div class="text-right">
+              <div class="badge">
+                <span id="totalCount">0</span>&nbsp; rows
+              </div>
+              <div class="mt-4">
+                <label for="rowsLimit" class="muted text-xs">Rows shown</label><br/>
+                <select id="rowsLimit" class="text-xs" style="margin-top:2px;height:24px;border-radius:999px;border:1px solid #d1d5db;padding:0 6px;">
+                  <option value="10">10</option>
+                  <option value="15" selected>15</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+              <div class="mt-4 text-xs muted">
+                Gross: <strong id="grossAmount">$0.00</strong><br/>
+                Net: <strong id="netAmount">$0.00</strong><br/>
+                Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Buyer</th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th class="text-right">Amount</th>
+                  <th>Meta</th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+
+
         <div class="row" style="margin-top:16px;">
       <div class="col" style="flex: 1 1 480px; max-width: 560px;">
         <div class="card mb-12">
@@ -290,62 +347,6 @@
     </div>
 
 <div class="row">
-      <div class="col">
-        <div class="card">
-          <div class="flex between mb-8">
-            <div>
-              <div class="section-label">Overview</div>
-              <h3>
-                Orders &amp; Payments
-                <button
-                  type="button"
-                  class="help-btn"
-                  data-help-id="reporting_orders"
-                  aria-label="Help for Orders and Payments"
-                >?</button>
-              </h3>
-              <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
-            </div>
-            <div class="text-right">
-              <div class="badge">
-                <span id="totalCount">0</span>&nbsp; rows
-              </div>
-              <div class="mt-4">
-                <label for="rowsLimit" class="muted text-xs">Rows shown</label><br/>
-                <select id="rowsLimit" class="text-xs" style="margin-top:2px;height:24px;border-radius:999px;border:1px solid #d1d5db;padding:0 6px;">
-                  <option value="10">10</option>
-                  <option value="15" selected>15</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="all">All</option>
-                </select>
-              </div>
-              <div class="mt-4 text-xs muted">
-                Total: <strong id="totalAmount">$0.00</strong><br/>
-                Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
-              </div>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Buyer</th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th class="text-right">Amount</th>
-                  <th>Meta</th>
-                </tr>
-              </thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
       <div class="col">
         <div class="card mb-12">
           <div class="section-label">Local Tools</div>
@@ -524,21 +525,547 @@
     const LS_KEY = 'amaranth-report-rows-v1';
     let rows = [];
 
-    function $(sel){
-  const el = document.querySelector(sel);
-  if (el) return el;
+    function $(sel){ return document.querySelector(sel); }
 
-  // Safe fallback: prevents the whole dashboard from crashing if a control is temporarily removed/renamed.
-  // Missing elements become no-op proxies (addEventListener, textContent, innerHTML, etc.).
-  return new Proxy({}, {
-    get(_t, prop){
-      if (prop === 'addEventListener' || prop === 'removeEventListener') return () => {};
-      if (prop === 'classList') return { add(){}, remove(){}, toggle(){} };
-      if (prop === 'style') return {};
-      return undefined;
-    },
-    set(_t, _prop, _value){ return true; }
-  });
+    function loadFromLocal(){
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if(!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)? parsed: [];
+      }catch(e){
+        console.warn('Failed to load local rows', e);
+        return [];
+      }
+    }
+    function saveToLocal(data){
+      try{
+        localStorage.setItem(LS_KEY, JSON.stringify(data || []));
+      }catch(e){}
+    }
+
+    function buildServerQuery(extra){
+      const params = new URLSearchParams();
+      const df = $('#dateFrom').value;
+      const dt = $('#dateTo').value;
+      const cat = $('#category').value;
+      const st  = $('#status').value;
+      const q   = $('#search').value.trim();
+      if (df) params.set('from', df);
+      if (dt) params.set('to', dt);
+      if (cat) params.set('category', cat);
+      if (st) params.set('status', st);
+      if (q) params.set('search', q);
+      if (extra && typeof extra === 'object') {
+        for (const [k,v] of Object.entries(extra)){
+          if (v !== undefined && v !== '') params.set(k, v);
+        }
+      }
+      if (typeof extra === 'string' && extra) {
+        // allow passing pre-built query strings from per-item tools
+        return extra.startsWith('?') ? extra : ('?' + extra);
+      }
+      return params.toString() ? '?' + params.toString() : '';
+    }
+
+    function render(){
+      const tbody = $('#tbody');
+      tbody.innerHTML = '';
+      const df = $('#dateFrom').value;
+      const dt = $('#dateTo').value;
+      const cat = $('#category').value;
+      const st  = $('#status').value;
+      const q   = $('#search').value.trim().toLowerCase();
+
+      const fromMs = df ? Date.parse(df + 'T00:00:00Z') : NaN;
+      const toMs   = dt ? Date.parse(dt + 'T23:59:59Z') : NaN;
+
+      let filtered = rows.slice();
+      filtered = filtered.filter(r=>{
+        const t = Date.parse(r.date || r.created || r.created_at || '');
+        if (!isNaN(fromMs) && t < fromMs) return false;
+        if (!isNaN(toMs) && t > toMs) return false;
+        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
+        if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
+        if (q){
+          const hay = [
+            r.name,r.buyer,r.email,r.item,r.item_name,
+            r.address,r.city,r.state,r.zip,r.country,
+            r.phone,r.notes,r.metadata && JSON.stringify(r.metadata)
+          ].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      filtered.sort((a,b)=>{
+        const ta = Date.parse(a.date || a.created || a.created_at || '')||0;
+        const tb = Date.parse(b.date || b.created || b.created_at || '')||0;
+        return ta - tb;
+      });
+
+      let maxRows = Infinity;
+      const limitEl = $('#rowsLimit');
+      if (limitEl){
+        if (limitEl.value !== 'all'){
+          const n = parseInt(limitEl.value,10);
+          if (n > 0) maxRows = n;
+        }
+      }
+
+      let idx = 0, shown = 0;
+      let gross = 0;
+      let refundedAmt = 0;
+      let paid=0,pending=0,refunded=0;
+      const byCat = {};
+
+      for (const r of filtered){
+        idx++;
+        const status = (r.status||'').toLowerCase();
+        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
+
+        if (status === 'paid') paid++;
+        else if (status === 'pending') pending++;
+        else if (status === 'refunded') refunded++;
+
+        const a = isFinite(amount) ? amount : 0;
+        gross += a;
+        if (status === 'refunded') refundedAmt += a;
+
+        const catKey = String(r.category||r.type||'other').toLowerCase();
+        byCat[catKey] = byCat[catKey] || {total:0,count:0};
+        byCat[catKey].total += isFinite(amount)?amount:0;
+        byCat[catKey].count++;
+
+        if (shown >= maxRows) continue;
+        shown++;
+
+        const tr = document.createElement('tr');
+
+        function td(text,cls){
+          const el=document.createElement('td');
+          if(cls)el.className=cls;
+          el.innerHTML=text;
+          return el;
+        }
+
+        const t = Date.parse(r.date||r.created||r.created_at||'');
+        const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
+
+        const buyer = r.name||r.buyer||r.customer_name||'—';
+        const item  = r.item||r.item_name||r.description||'—';
+
+        const metaBits=[];
+        if(r.phone)metaBits.push(`📞 ${r.phone}`);
+        if(r.city||r.state)metaBits.push(`📍 ${[r.city,r.state].filter(Boolean).join(', ')}`);
+        if(r.order_id||r.id)metaBits.push(`ID: ${r.order_id||r.id}`);
+
+        const cells = [
+          td(idx,'text-xs muted'),
+          td(dateStr,'text-xs'),
+          td(`<div class="text-xs">${buyer}</div><div class="text-xs muted">${r.email||''}</div>`),
+          td(`<div class="text-xs">${item}</div><div class="text-xs muted">${r.notes||r.memo||''}</div>`),
+          td(`<span class="badge-sm tag-muted">${r.category||r.type||'—'}</span>`),
+          td(`<span class="status-icon ${status}">
+                <span class="dot"></span>
+                <span>${status||'unknown'}</span>
+              </span>`),
+          td(isFinite(amount)?'$'+amount.toFixed(2):'—','text-right text-xs'),
+          td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
+        ];
+        cells.forEach(c=>tr.appendChild(c));
+
+        tr.addEventListener('click',()=>{
+          const pi=r.payment_intent||r.pi;
+          const ch=r.charge||r.charge_id;
+          if(!pi&&!ch){alert('No Stripe payment info.');return;}
+          openRefundModal({payment_intent:pi,charge:ch,total:amount});
+        });
+
+        tbody.appendChild(tr);
+      }
+
+      if(filtered.length===0) $('#totalCount').textContent='0';
+      else if(shown>=filtered.length || !Number.isFinite(maxRows))
+        $('#totalCount').textContent=String(filtered.length);
+      else
+        $('#totalCount').textContent=`${shown} / ${filtered.length}`;
+
+      const net = gross - refundedAmt;
+      const grossEl = document.getElementById('grossAmount');
+      const netEl = document.getElementById('netAmount');
+      if (grossEl) grossEl.textContent = '$' + gross.toFixed(2);
+      if (netEl) netEl.textContent = '$' + net.toFixed(2);
+      $('#paidCount').textContent = paid;
+      $('#pendingCount').textContent = pending;
+      $('#refundedCount').textContent = refunded;
+
+      const totalsDiv = $('#totalsByCategory');
+      totalsDiv.innerHTML='';
+      const cats = Object.entries(byCat);
+      if(!cats.length){
+        totalsDiv.textContent='No rows in current filter window.';
+      } else {
+        cats.forEach(([catKey,info])=>{
+          const line=document.createElement('div');
+          line.className='mb-4';
+          line.innerHTML=
+            `<span class="pill tag-muted">${catKey}</span>
+             <span class="text-xs muted">Count: ${info.count}</span>
+             <span class="text-xs muted"> • Total: $${info.total.toFixed(2)}</span>`;
+          totalsDiv.appendChild(line);
+        });
+      }
+    }
+
+    async function loadFromServer(){
+      try{
+        const qs = buildServerQuery();
+        const r = await fetch('/api/router?type=orders'+qs,{cache:'no-store'});
+        const j = await r.json();
+        if(!r.ok) throw new Error(j?.error||'Fetch failed');
+        rows = Array.isArray(j.rows)?j.rows:[];
+        saveToLocal(rows);
+        render();
+      }catch(e){
+        rows = loadFromLocal();
+        render();
+      }
+    }
+
+    document.getElementById('fileImport').addEventListener('change', async e=>{
+      const file=e.target.files[0]; if(!file)return;
+      const text=await file.text();
+      let data=[];
+      try{
+        if(file.name.endsWith('.json') || text.trim().startsWith('['))
+          data=JSON.parse(text);
+      }catch(err){alert('Failed to parse');return;}
+      rows = Array.isArray(data)?data:[];
+      saveToLocal(rows);
+      render();
+      e.target.value='';
+    });
+
+    document.getElementById('btnExportCsv').addEventListener('click', async ()=>{
+      const qs=buildServerQuery();
+      await downloadServerCsv(qs);
+    });
+
+    document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
+      const qs=buildServerQuery();
+      await downloadServerCsv(qs);
+    });
+
+    async function downloadServerCsv(qs){
+      // qs is typically returned like "?start=YYYY-MM-DD&end=YYYY-MM-DD&category=..."
+      // but this endpoint already has "?type=orders_csv" so we must join with "&".
+      if (typeof qs === 'string' && qs){
+        if (qs.startsWith('?')) qs = '&' + qs.slice(1);
+        else if (!qs.startsWith('&')) qs = '&' + qs;
+      } else {
+        qs = '';
+      }
+      return downloadCsvFrom('/api/router?type=orders_csv'+qs,'amaranth-report');
+    }
+
+    async function downloadCsvFrom(url,namePrefix){
+      try{
+        const r=await fetch(url,{cache:'no-store'});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const blob=await r.blob();
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`${namePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a); a.click(); a.remove();
+        return true;
+      }catch(e){
+        alert('Download failed');
+      }
+    }
+
+    document.getElementById('btnPrint').addEventListener('click',()=>window.print());
+
+    document.getElementById('btnClear').addEventListener('click',()=>{
+      if(prompt('Type CLEAR to remove only local rows')==='CLEAR'){
+        localStorage.removeItem(LS_KEY);
+        rows=[];
+        render();
+      }
+    });
+
+    document.getElementById('btnSample').addEventListener('click',()=>{
+      rows=[]; // keeping sample off
+      render();
+    });
+
+    ['dateFrom','dateTo','category','status','search','rowsLimit']
+      .forEach(id=>document.getElementById(id)?.addEventListener('input',render));
+
+    const caches={banquet:null,addon:null,other:null};
+
+    function normalizeList(kind,list){
+      return (list||[]).map(x=>({
+        id:String(x.id||x.itemId||x.slug||x.code||x.name||''),
+        name:String(x.name||x.title||x.label||x.slug||x.id||'(unnamed)'),
+        chairEmails:Array.isArray(x.chairEmails)?x.chairEmails
+          :String(x.chairEmails||x.chairs||'').split(',').map(s=>s.trim()).filter(Boolean)
+      }));
+    }
+
+    async function fetchList(kind){
+      if(caches[kind]) return caches[kind];
+      const typeMap={banquet:'banquets',addon:'addons',other:'products'};
+      const listType=typeMap[kind];
+      let list=[];
+      try{
+        const r=await fetch(`/api/router?type=${listType}`,{cache:'no-store'});
+        if(r.ok){
+          const j=await r.json();
+          list=normalizeList(kind,j[listType]);
+        }
+      }catch{}
+      caches[kind]=list;
+      return list;
+    }
+
+    document.getElementById('actCategory').addEventListener('change',async()=>{
+      const kind=$('#actCategory').value;
+      const list=await fetchList(kind);
+      const sel=$('#actChoice');
+      sel.innerHTML='<option value="" disabled selected>Choose…</option>';
+      list.forEach(it=>{
+        const opt=document.createElement('option');
+        opt.value=it.id;
+        opt.dataset.label=it.name;
+        opt.textContent=it.name+(it.chairEmails.length?' — '+it.chairEmails.join(', '):'');
+        sel.appendChild(opt);
+      });
+    });
+
+    $('#scopeMode').addEventListener('change',()=>{
+      $('#scopeRangeRow').style.display =
+        $('#scopeMode').value==='custom' ? 'flex' : 'none';
+    });
+
+    document.getElementById('btnActDownload').addEventListener('click',async()=>{
+      const kind=$('#actCategory').value;
+      const opt=$('#actChoice').selectedOptions[0];
+      if(!kind)return alert('Choose category');
+      if(!opt)return alert('Choose item');
+      const id=opt.value;
+      const label=opt.dataset.label;
+      const extra = new URLSearchParams({
+        category:kind,
+        item_id:id,
+        item:label
+      }).toString();
+      await downloadServerCsv(extra);
+    });
+
+    document.getElementById('btnActEmail').addEventListener('click',async()=>{
+      const kind=$('#actCategory').value;
+      const opt=$('#actChoice').selectedOptions[0];
+      if(!kind)return alert('Choose category');
+      if(!opt)return alert('Choose item');
+      const id=opt.value;
+      const label=opt.dataset.label;
+      const scopeMode=$('#scopeMode').value;
+
+      const payload={kind,id,label,scope:scopeMode};
+      if(scopeMode==='custom'){
+        const s=$('#scopeStart').value;
+        const e=$('#scopeEnd').value;
+        if(!s||!e)return alert('Both dates required');
+        payload.startYMD=s; payload.endYMD=e;
+      }
+
+      $('#sendMsg').textContent='Sending…';
+      try{
+        const r=await fetch('/api/router?action=send_item_report',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(payload)
+        });
+        const j=await r.json();
+        if(!r.ok) throw new Error(j?.error||j?.message||'Failed');
+        $('#sendMsg').textContent=`Email queued. (${j.count||0} rows)`;
+      }catch(e){
+        $('#sendMsg').textContent='Send failed: '+e.message;
+      }
+    });
+
+    let currentRefundCtx=null;
+
+    function openRefundModal(ctx){
+      currentRefundCtx=ctx;
+      $('#rfType').value='full';
+      $('#rfAmount').value='';
+      $('#rfAmtWrap').style.display='none';
+      $('#rfInfo').textContent=`PI: ${ctx.payment_intent||'—'}  Charge: ${ctx.charge||'—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+      $('#refundModal').style.display='flex';
+      $('#refundModal').setAttribute('aria-hidden','false');
+    }
+
+    function closeRefundModal(){
+      $('#refundModal').style.display='none';
+      $('#refundModal').setAttribute('aria-hidden','true');
+      currentRefundCtx=null;
+    }
+
+    $('#rfType').addEventListener('change',()=>{
+      $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
+    });
+    $('#rfCancel').addEventListener('click',closeRefundModal);
+    $('#rfSubmit').addEventListener('click',async()=>{
+      if(!currentRefundCtx)return;
+      const headers={'Content-Type':'application/json'};
+      const token=localStorage.getItem('amaranth_report_token');
+      if(token)headers.Authorization='Bearer '+token;
+
+      let amount_cents;
+      if($('#rfType').value==='partial'){
+        const v=Number($('#rfAmount').value||0);
+        if(!isFinite(v)||v<=0)return alert('Enter amount');
+        amount_cents=Math.round(v*100);
+      }
+      const payload={
+        payment_intent:currentRefundCtx.payment_intent,
+        charge:currentRefundCtx.charge,
+        ...(amount_cents?{amount_cents}:{})
+      };
+
+      try{
+        const r=await fetch('/api/router?action=create_refund',{
+          method:'POST',headers,body:JSON.stringify(payload)
+        });
+        const j=await r.json();
+        if(!r.ok) throw new Error(j?.error||'Failed');
+        alert('Refund created');
+        closeRefundModal();
+        loadFromServer();
+      }catch(e){
+        alert('Refund failed: '+e.message);
+      }
+    });
+
+    function getAuthHeaders(){
+      const token=localStorage.getItem('amaranth_report_token')||'';
+      const headers={'Content-Type':'application/json'};
+      if(token) headers.Authorization='Bearer '+token;
+      return headers;
+    }
+
+    async function loadReportSettings(){
+      const statusEl=$('#reportSettingsStatus');
+      const helpEl=$('#reportSettingsHelp');
+      try{
+        const r=await fetch('/api/router?action=get_settings',{
+          method:'POST',headers:getAuthHeaders(),body:JSON.stringify({})
+        });
+        const j=await r.json();
+        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+
+        const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
+        $('#reportWeekday').value=weekday;
+        statusEl.textContent='';
+        helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+      }catch{
+        statusEl.textContent='Could not load settings.';
+        helpEl.textContent='';
+      }
+    }
+
+    $('#btnSaveReportSettings').addEventListener('click',async()=>{
+      const weekday=$('#reportWeekday').value;
+      const statusEl=$('#reportSettingsStatus');
+      statusEl.textContent='Saving…';
+      try{
+        const r=await fetch('/api/router?action=save_settings',{
+          method:'POST',
+          headers:getAuthHeaders(),
+          body:JSON.stringify({
+            REPORT_FREQUENCY:'weekly',
+            REPORT_WEEKDAY:weekday
+          })
+        });
+        const j=await r.json();
+        if(!r.ok||!j.ok) throw new Error(j?.error||j?.message||'Failed');
+        statusEl.textContent='Saved.';
+        $('#reportSettingsHelp').textContent=
+          `Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
+      }catch(e){
+        statusEl.textContent='Save failed: '+e.message;
+      }
+    });
+
+    
+    // Send test chair report emails immediately (does not affect scheduled sends)
+    $('#btnSendTestReports')?.addEventListener('click', async () => {
+      const out = $('#testReportOut');
+      if (out) out.textContent = 'Running test…';
+
+      try {
+        const payload = {
+          to: ($('#testReportTo')?.value || 'kfors@verizon.net').trim(),
+          frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
+          scope: ($('#testReportScope')?.value || 'current-month').trim(),
+          previewOnly: !!$('#testPreviewOnly')?.checked,
+          channel: String(document.getElementById('reportChannel')?.value || 'auto'),
+        };
+
+        const r = await fetch('/api/router?action=send_test_chair_reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(payload),
+        });
+
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j?.error || j?.message || ('HTTP ' + r.status));
+
+        if (out) out.textContent = JSON.stringify(j, null, 2);
+      } catch (e) {
+        if (out) out.textContent = 'ERROR: ' + (e?.message || String(e));
+      }
+    });
+
+(function init(){
+      rows=loadFromLocal();
+      render();
+      loadFromServer();
+      loadReportSettings();
+    })();
+  </script>
+  
+
+
+
+<!-- Shared help popup logic -->
+  <script src="/assets/js/admin.js"></script>
+  <script src="/assets/js/admin-help.js"></script>
+  <script>
+// ---------------- Receipts ZIP prefs ----------------
+function normalizeChannelValue(v){
+  const s = String(v || 'auto').trim();
+  if (!s) return 'auto';
+  if (s === 'live-test' || s === 'live_test' || s === 'livetest') return 'live_test';
+  if (s === 'test') return 'test';
+  if (s === 'live') return 'live';
+  if (s === 'auto') return 'auto';
+  return s;
+}
+function toBool(v){
+  return v === true || v === 'true' || v === 1 || v === '1' || v === 'on';
+}
+
+async function loadOrderChannelLabel() {
+  try {
+    const r = await fetch("/api/router?type=settings", { headers: Admin.tokenHeader() });
+    const j = await r.json();
+    const ch = j?.json?.settings?.ORDER_CHANNEL || j?.settings?.ORDER_CHANNEL || j?.ORDER_CHANNEL;
+    const el = document.getElementById("orderChannelLabel");
+    if (el) el.textContent = ch || "unknown";
+  } catch {}
 }
 
 async function loadZipPrefs() {
@@ -547,18 +1074,32 @@ async function loadZipPrefs() {
     const r = await fetch("/api/router?type=receipts_zip_prefs", { headers: Admin.tokenHeader() });
     const j = await r.json();
     const payload = j?.json || j;
-    const prefs = payload?.prefs || {};
-    const channel = String(payload?.channel || 'auto');
-    const resolvedMode = String(payload?.resolvedMode || '');
-    const monthly = !!prefs.monthly;
-    const weekly = !!prefs.weekly;
+
+    // ✅ Your API shape (from your console):
+    // {
+    //   ok:true,
+    //   prefs:{ channel:"auto", receiptZip:{monthly:false, weekly:false}},
+    //   mode:"live"
+    // }
+    const selectedChannel = normalizeChannelValue(payload?.prefs?.channel || payload?.channel || 'auto');
+    const resolvedMode = normalizeChannelValue(payload?.mode || payload?.resolvedMode || selectedChannel);
+
+    const rz = payload?.prefs?.receiptZip || payload?.prefs?.receipt_zip || payload?.receiptZip || payload?.prefs || {};
+    const monthly = toBool(rz?.monthly);
+    const weekly  = toBool(rz?.weekly);
+
     const mEl = document.getElementById("zipMonthly");
     const wEl = document.getElementById("zipWeekly");
-    if (mEl) mEl.checked = monthly;
-    if (wEl) wEl.checked = weekly;
+    if (mEl) mEl.checked = !!monthly;
+    if (wEl) wEl.checked = !!weekly;
+
     const chEl = document.getElementById('reportChannel');
-    if (chEl) chEl.value = (channel === 'live-test' ? 'live_test' : channel);
-    if (status) status.textContent = resolvedMode ? `Loaded. Using: ${resolvedMode}` : 'Loaded.';
+    if (chEl) chEl.value = selectedChannel;
+
+    if (status) {
+      status.textContent =
+        `Loaded. Selected=${selectedChannel} • Using=${resolvedMode} • Monthly=${monthly ? "on" : "off"} • Weekly=${weekly ? "on" : "off"}`;
+    }
   } catch (e) {
     if (status) status.textContent = "Could not load (check admin token).";
   }
@@ -567,18 +1108,37 @@ async function loadZipPrefs() {
 async function saveZipPrefs() {
   const status = document.getElementById("zipPrefsStatus");
   const monthly = !!document.getElementById("zipMonthly")?.checked;
-  const weekly = !!document.getElementById("zipWeekly")?.checked;
-  const channel = String(document.getElementById('reportChannel')?.value || 'auto');
+  const weekly  = !!document.getElementById("zipWeekly")?.checked;
+  const channel = normalizeChannelValue(document.getElementById('reportChannel')?.value || 'auto');
+
   try {
     if (status) status.textContent = "Saving…";
+
+    // Send in the shapes your backend is clearly using (prefs.channel + prefs.receiptZip).
+    // Also include flat keys for backward compatibility (some older versions expected monthly/weekly at top level).
+    const body = {
+      channel,
+      mode: channel, // harmless if ignored; some server code used "mode"
+      prefs: {
+        channel,
+        receiptZip: { monthly, weekly }
+      },
+      receiptZip: { monthly, weekly },
+      monthly,
+      weekly
+    };
+
     const r = await fetch("/api/router?action=set_receipts_zip_prefs", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...Admin.tokenHeader() },
-      body: JSON.stringify({ monthly, weekly, channel })
+      body: JSON.stringify(body)
     });
-    const j = await r.json();
-    if (!j?.ok && !j?.json?.ok) throw new Error("save failed");
-    if (status) status.textContent = `Saved. Monthly=${monthly ? "on" : "off"}, Weekly=${weekly ? "on" : "off"}.`;
+
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || (!j?.ok && !j?.json?.ok)) throw new Error(j?.error || j?.json?.error || "save failed");
+
+    if (status) status.textContent = "Saved. Reloading…";
+    await loadZipPrefs();
   } catch (e) {
     if (status) status.textContent = "Save failed (check admin token).";
   }
@@ -587,6 +1147,7 @@ async function saveZipPrefs() {
 document.getElementById("btnSaveZipPrefs")?.addEventListener("click", saveZipPrefs);
 loadOrderChannelLabel();
 loadZipPrefs();
+
 
 </script>
 </body>
