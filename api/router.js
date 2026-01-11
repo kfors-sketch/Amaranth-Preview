@@ -60,8 +60,11 @@ import {
 
   // ✅ Receipts ZIP helpers
   emailMonthlyReceiptsZip,
+  emailWeeklyReceiptsZip,
   emailFinalReceiptsZip,
 } from "./admin/core.js";
+
+import { getReportingPrefs, setReportingPrefs, resolveChannel, shouldSendReceiptZip } from "./admin/report-channel.js";
 
 import {
   isInternationalOrder,
@@ -242,6 +245,17 @@ const DEFAULT_FEATURE_FLAGS = {
   banquets_v2_preview: false,
   catalog_v2_preview: false,
 };
+
+
+async function getEffectiveReportMode() {
+  let prefs = { channel: "auto", receiptZip: { monthly: true, weekly: false } };
+  try {
+    prefs = await getReportingPrefs();
+  } catch {}
+  const isProd = String(process.env.VERCEL_ENV || process.env.NODE_ENV || "").toLowerCase() === "production";
+  const mode = resolveChannel({ requested: prefs?.channel, isProduction: isProd });
+  return { prefs, mode };
+}
 
 function coerceBool(v) {
   if (typeof v === "boolean") return v;
@@ -1175,6 +1189,20 @@ export default async function handler(req, res) {
           lockdown,
         });
       }
+
+
+      if (type === "receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const { prefs, mode } = await getEffectiveReportMode();
+        return REQ_OK(res, { requestId, ok: true, prefs: prefs?.receiptZip || { monthly: false, weekly: false }, channel: prefs?.channel || "auto", resolvedMode: mode });
+      }
+
+      if (type === "reporting_prefs") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const { prefs, mode } = await getEffectiveReportMode();
+        return REQ_OK(res, { requestId, ok: true, prefs, resolvedMode: mode });
+      }
+
 
       if (type === "feature_flags") {
         if (!(await requireAdminAuth(req, res))) return;
@@ -3107,7 +3135,31 @@ function normalizeCountryCode2(raw) {
         }
       }
 
-      if (action === "send_monthly_chair_reports") {
+      
+      if (action === "set_receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const body = await readJsonBody(req);
+        const monthly = !!body?.monthly;
+        const weekly = !!body?.weekly;
+        const channel = body?.channel ? String(body.channel) : undefined;
+
+        const next = await setReportingPrefs({
+          receiptZip: { monthly, weekly },
+          ...(channel ? { channel } : {}),
+        });
+
+        return REQ_OK(res, { requestId, ok: true, prefs: next });
+      }
+
+      if (action === "set_reporting_channel") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const body = await readJsonBody(req);
+        const channel = String(body?.channel || "").trim();
+        const next = await setReportingPrefs({ channel });
+        return REQ_OK(res, { requestId, ok: true, prefs: next });
+      }
+
+if (action === "send_monthly_chair_reports") {
         await loadAllOrdersWithRetry();
 
         let schedulerMod;
@@ -3123,6 +3175,8 @@ function normalizeCountryCode2(raw) {
         }
 
         const baseNow = new Date();
+
+        const { prefs: reportingPrefs, mode: reportMode } = await getEffectiveReportMode();
 
         const wrappedSendItemReport = async (opts) => {
           const kind = String(opts?.kind || "").toLowerCase();
@@ -3149,7 +3203,7 @@ function normalizeCountryCode2(raw) {
             scheduledAt = new Date(ts).toISOString();
           }
 
-          return sendItemReportEmailInternal({ ...opts, scheduledAt });
+          return sendItemReportEmailInternal({ ...opts, scheduledAt, mode: reportMode });
         };
 
         const { sent, skipped, errors, itemsLog } = await runScheduledChairReports({
@@ -3159,7 +3213,7 @@ function normalizeCountryCode2(raw) {
 
         // ✅ Also send last-month receipts ZIP
         // (Can be disabled for testing via DISABLE_RECEIPTS_ZIP_AUTO=1)
-        let receiptsZip = { ok: false, skipped: true };
+        let receiptsZip = { monthly: { ok: false, skipped: true }, weekly: { ok: false, skipped: true } };
         const disableReceiptsZip = String(process.env.DISABLE_RECEIPTS_ZIP_AUTO || "0") === "1";
         if (!disableReceiptsZip) {
           try {
@@ -3174,31 +3228,41 @@ function normalizeCountryCode2(raw) {
               y -= 1;
             }
 
-            receiptsZip = await emailMonthlyReceiptsZip({
-              year: y,
-              month: m,
-              requestId,
-              auto: true,
-            });
+            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "monthly" })) {
+              receiptsZip.monthly = await emailMonthlyReceiptsZip({
+                mode: reportMode,
+                year: y,
+                month: m,
+                requestId,
+                auto: true,
+              });
+            } else {
+              receiptsZip.monthly = { ok: true, skipped: true, reason: "disabled" };
+            }
 
-            if (receiptsZip && receiptsZip.ok) {
+            // previous full week (UTC) is handled inside emailWeeklyReceiptsZip
+            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "weekly" })) {
+              receiptsZip.weekly = await emailWeeklyReceiptsZip({ mode: reportMode, requestId, auto: true });
+            } else {
+              receiptsZip.weekly = { ok: true, skipped: true, reason: "disabled" };
+            }
+
+            if ((receiptsZip.monthly && receiptsZip.monthly.ok) || (receiptsZip.weekly && receiptsZip.weekly.ok)) {
               try {
                 await recordMailLog({
                   ts: Date.now(),
                   from: RESEND_FROM || "onboarding@resend.dev",
-                  to: receiptsZip.to ? [receiptsZip.to] : [],
-                  subject:
-                    receiptsZip.subject ||
-                    `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
-                  kind: "receipts-zip-month-auto",
+                  to: Array.isArray(EMAIL_RECEIPTS) ? EMAIL_RECEIPTS : (EMAIL_RECEIPTS ? [EMAIL_RECEIPTS] : []),
+                  subject: `Receipts ZIP — auto (${reportMode})`,
+                  kind: "receipts-zip-auto",
                   status: "queued",
-                  resultId: receiptsZip.resultId || receiptsZip.id || null,
+                  resultId: null,
                 });
               } catch {}
             }
           } catch (e) {
             console.error("receipts_zip_month_auto_failed", e?.message || e);
-            receiptsZip = { ok: false, error: String(e?.message || e) };
+            receiptsZip = { monthly: { ok: false, error: String(e?.message || e) }, weekly: { ok: false, skipped: true } };
           }
         } else {
           receiptsZip = { ok: false, skipped: true, disabled: true };
@@ -3363,6 +3427,8 @@ function normalizeCountryCode2(raw) {
         const scope = String(body?.scope || "current-month").trim();
         const previewOnly = !!body?.previewOnly;
 
+        const { mode: reportMode } = await getEffectiveReportMode();
+
         if (!to) return REQ_ERR(res, 400, "missing-test-email", { requestId });
 
         const freqNorm = frequency === "all" ? "all" : normalizeReportFrequency(frequency);
@@ -3394,6 +3460,7 @@ function normalizeCountryCode2(raw) {
               toOverride: [to],
               subjectPrefix: `[TEST ${freqNorm}] `,
               previewOnly,
+              mode: reportMode,
             });
 
             if (r?.ok) sent++;
