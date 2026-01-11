@@ -233,18 +233,6 @@
             <option value="full">Full history</option>
           </select>
         </div>
-
-
-        <div class="group" style="max-width:220px">
-          <label class="muted">Report Channel</label>
-          <select id="reportChannel">
-            <option value="auto" selected>Auto (use Order Channel)</option>
-            <option value="test">Test</option>
-            <option value="live_test">Live-Test</option>
-            <option value="live">Live</option>
-          </select>
-        </div>
-
         <div class="group" style="max-width:220px">
           <label class="muted">Preview only</label>
           <div style="height:32px;display:flex;align-items:center;gap:8px;">
@@ -269,6 +257,18 @@
   <p class="muted" style="margin-top:6px;">
     Uses the selected <strong>Report Channel</strong> (below) or falls back to the <strong>Order Channel</strong> in Admin Settings (<code id="orderChannelLabel">…</code>) to decide whether it’s pulling from Stripe TEST vs LIVE.
   </p>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+    <div style="min-width:220px;">
+      <label class="muted">Report Channel (Chair Reports &amp; Receipts ZIP)</label>
+      <select id="reportChannel" style="width:100%;height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px">
+        <option value="auto" selected>Auto (use Order Channel)</option>
+        <option value="test">Test</option>
+        <option value="live_test">Live-Test</option>
+        <option value="live">Live</option>
+      </select>
+    </div>
+  </div>
 
   <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin-top:10px;">
     <label style="display:flex;gap:8px;align-items:center;">
