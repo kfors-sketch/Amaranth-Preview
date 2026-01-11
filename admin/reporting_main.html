@@ -289,9 +289,7 @@
       </div>
     </div>
 
-<div class="row">
-      <div class="col">
-        <div class="card">
+<div class="card mb-16">
           <div class="flex between mb-8">
             <div>
               <div class="section-label">Overview</div>
@@ -325,51 +323,8 @@
                 Net: <strong id="netAmount">$0.00</strong><br/>
                 Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
               </div>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Buyer</th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th class="text-right">Amount</th>
-                  <th>Meta</th>
-                </tr>
-              </thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
 
-      <div class="col">
-        <div class="card mb-12">
-          <div class="section-label">Local Tools</div>
-          <h3>
-            Import / Export
-            <button
-              type="button"
-              class="help-btn"
-              data-help-id="reporting_import"
-              aria-label="Help for Import and Export"
-            >?</button>
-          </h3>
-          <p class="muted">Work offline by importing .json or .csv. This never overwrites data on the server.</p>
-          <div class="controls mt-4">
-            <div class="group">
-              <label class="muted">Import from file</label>
-              <input id="fileImport" type="file" accept=".json,.csv" />
-            </div>
-          </div>
-          <p class="muted mt-4">Use “Export Filtered (.xlsx)” above to download directly from the server with all filters applied.</p>
-        </div>
-
-        <!-- WEEKLY-ONLY AUTOMATION -->
+<!-- WEEKLY-ONLY AUTOMATION -->
         <div class="card mb-12">
           <div class="section-label">Automation</div>
           <h3>
@@ -725,7 +680,14 @@ function render(){
       else
         $('#totalCount').textContent=`${shown} / ${filtered.length}`;
 
-      $('#totalAmount').textContent='$'+total.toFixed(2);
+      // Gross/Net (per your rules: purchaser pays processing fees)
+      const grossEl = $('#grossAmount');
+      const netEl = $('#netAmount');
+      if (grossEl) grossEl.textContent = '$' + (grossCents/100).toFixed(2);
+      if (netEl) netEl.textContent = '$' + (netCents/100).toFixed(2);
+      // Back-compat: if a legacy Total field exists, show Gross there.
+      const totalEl = $('#totalAmount');
+      if (totalEl) totalEl.textContent = '$' + (grossCents/100).toFixed(2);
       $('#paidCount').textContent = paid;
       $('#pendingCount').textContent = pending;
       $('#refundedCount').textContent = refunded;
