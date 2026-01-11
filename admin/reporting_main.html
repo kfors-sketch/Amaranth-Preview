@@ -789,9 +789,9 @@
                 <span class="dot"></span>
                 <span>${status||'unknown'}</span>
               </span>`),
-          td(isFinite(netAmount)?'$'+netAmount.toFixed(2):'—','text-right text-xs money-col'),
-          td(isFinite(feeAlloc)?'$'+feeAlloc.toFixed(2):'—','text-right text-xs money-col'),
-          td(isFinite(grossAmount)?'$'+grossAmount.toFixed(2):'—','text-right text-xs money-col'),
+          td(isFinite(netAmount)?'$'+netAmount.toFixed(2):'—','text-right text-xs'),
+
+          td(isFinite(grossAmount)?'$'+grossAmount.toFixed(2):'—','text-right text-xs'),
           td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
         ];
         cells.forEach(c=>tr.appendChild(c));
