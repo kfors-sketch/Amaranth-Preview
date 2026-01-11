@@ -119,8 +119,6 @@
         max-width:100%;
       }
     }
-
-    .hide-money .money-col{display:none}
   </style>
 </head>
 <body>
@@ -196,14 +194,6 @@
           <button id="btnFullAttendeesCsv" class="btn sm secondary">Full Attendee List</button>
           <button id="btnSample" class="btn sm secondary">Load Sample</button>
           <button id="btnClear" class="btn sm secondary">Clear Local</button>
-        
-        <div class="group" style="margin-left:auto;display:flex;align-items:flex-end;gap:10px;">
-          <label class="muted" style="display:flex;align-items:center;gap:8px;user-select:none;">
-            <input id="hideMoney" type="checkbox" />
-            Hide $ columns (for sharing/printing)
-          </label>
-        </div>
-
 </div>
       </div>
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
@@ -255,9 +245,9 @@
                   <th>Item</th>
                   <th>Category</th>
                   <th>Status</th>
-                  <th class="text-right money-col">Net</th>
-                  <th class="text-right money-col">Fee</th>
-                  <th class="text-right money-col">Gross</th>
+                  <th class="text-right">Net</th>
+                  
+                  <th class="text-right">Gross</th>
                   <th>Meta</th>
                 </tr>
               </thead>
