@@ -1,6 +1,5 @@
 // /api/router.js
 import crypto from "crypto";
-import { getReportingPrefs, setReportingPrefs, resolveChannel } from "./admin/report-channel.js";
 
 import {
   kv,
@@ -257,16 +256,12 @@ const DEFAULT_FEATURE_FLAGS = {
 };
 
 
-async async function getEffectiveReportMode() {
-  const fallback = { channel: "auto", receiptZip: { monthly: false, weekly: false } };
-  let prefs = fallback;
+async function getEffectiveReportMode() {
+  let prefs = { channel: "auto", receiptZip: { monthly: true, weekly: false } };
   try {
     prefs = await getReportingPrefs();
   } catch {}
-  const isProd =
-    String(process.env.VERCEL_ENV || process.env.NODE_ENV || "")
-      .toLowerCase()
-      .trim() === "production";
+  const isProd = String(process.env.VERCEL_ENV || process.env.NODE_ENV || "").toLowerCase() === "production";
   const mode = resolveChannel({ requested: prefs?.channel, isProduction: isProd });
   return { prefs, mode };
 }
@@ -341,6 +336,55 @@ async function getCatalogCategoriesSafe() {
   });
 
   return out;
+}
+
+// ============================================================================
+// ✅ DATA LIST RESOLUTION (banquets / addons)
+// - Prevents "old banquets" / "missing addons" when the site is using v2 keys.
+// - We prefer the newest non-empty list among known keys, but keep legacy keys working.
+// ============================================================================
+async function loadBanquetsListSafe() {
+  const keys = ["banquets_v2", "banquets:2026", "banquets_live", "banquets"];
+  for (const k of keys) {
+    const v = await kvGetSafe(k, null);
+    if (Array.isArray(v) && v.length) return v;
+  }
+  const v = await kvGetSafe("banquets", []);
+  return Array.isArray(v) ? v : [];
+}
+
+async function loadAddonsListSafe() {
+  const keys = ["grand_court_addons", "addons_v2", "addons:2026", "addons_live", "addons"];
+  for (const k of keys) {
+    const v = await kvGetSafe(k, null);
+    if (Array.isArray(v) && v.length) return v;
+  }
+  const v = await kvGetSafe("addons", []);
+  return Array.isArray(v) ? v : [];
+}
+
+async function maybeWriteShadowListKeys({ kind, list }) {
+  // Write legacy keys AND any detected v2 keys so front-end pages stay consistent.
+  // This is best-effort and never throws.
+  try {
+    const { flags } = await loadFeatureFlagsSafe().catch(() => ({ flags: {} }));
+    const wantBanquetsV2 = !!flags?.banquets_v2_preview;
+    if (kind === "banquets") {
+      const hasV2 = Array.isArray(await kvGetSafe("banquets_v2", null));
+      if (wantBanquetsV2 || hasV2) await kvSetSafe("banquets_v2", list);
+      // Optional year key if you used it before
+      const hasYear = Array.isArray(await kvGetSafe("banquets:2026", null));
+      if (hasYear) await kvSetSafe("banquets:2026", list);
+    }
+    if (kind === "addons") {
+      const hasV2 = Array.isArray(await kvGetSafe("addons_v2", null));
+      const hasGca = Array.isArray(await kvGetSafe("grand_court_addons", null));
+      if (hasGca) await kvSetSafe("grand_court_addons", list);
+      if (hasV2) await kvSetSafe("addons_v2", list);
+      const hasYear = Array.isArray(await kvGetSafe("addons:2026", null));
+      if (hasYear) await kvSetSafe("addons:2026", list);
+    }
+  } catch {}
 }
 
 // ============================================================================
@@ -1047,8 +1091,8 @@ export default async function handler(req, res) {
           }
         };
 
-        const banquets = (await kvGetSafe("banquets", [])) || [];
-        const addons = (await kvGetSafe("addons", [])) || [];
+        const banquets = await loadBanquetsListSafe();
+        const addons = await loadAddonsListSafe();
 
         addSlots(banquets, "banquet");
         addSlots(addons, "addon");
@@ -1172,12 +1216,12 @@ export default async function handler(req, res) {
       if (type === "banquets")
         return REQ_OK(res, {
           requestId,
-          banquets: (await kvGetSafe("banquets")) || [],
+          banquets: await loadBanquetsListSafe(),
         });
       if (type === "addons")
         return REQ_OK(res, {
           requestId,
-          addons: (await kvGetSafe("addons")) || [],
+          addons: await loadAddonsListSafe(),
         });
       if (type === "products")
         return REQ_OK(res, {
@@ -3602,6 +3646,7 @@ if (action === "send_end_of_event_reports") {
       if (action === "save_banquets") {
         const list = Array.isArray(body.banquets) ? body.banquets : [];
         await kvSetSafe("banquets", list);
+        await maybeWriteShadowListKeys({ kind: "banquets", list });
 
         try {
           for (const b of list) {
@@ -3663,6 +3708,7 @@ if (action === "send_end_of_event_reports") {
       if (action === "save_addons") {
         const list = Array.isArray(body.addons) ? body.addons : [];
         await kvSetSafe("addons", list);
+        await maybeWriteShadowListKeys({ kind: "addons", list });
 
         try {
           for (const a of list) {
