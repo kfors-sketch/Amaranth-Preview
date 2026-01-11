@@ -568,7 +568,18 @@
       return params.toString() ? '?' + params.toString() : '';
     }
 
-    function render(){
+    function parseMoney(v){
+      if (v == null) return NaN;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string'){
+        const s = v.replace(/[^0-9.\-]/g,'');
+        const n = Number(s);
+        return isFinite(n) ? n : NaN;
+      }
+      return NaN;
+    }
+
+function render(){
       const tbody = $('#tbody');
       tbody.innerHTML = '';
       const df = $('#dateFrom').value;
@@ -622,7 +633,17 @@
       for (const r of filtered){
         idx++;
         const status = (r.status||'').toLowerCase();
-        const amount = Number(r.amount || r.total || r.amount_cents/100 || 0);
+        const amount = (() => {
+          // Prefer numeric fields; fall back to string parsing (e.g., "$10.00")
+          const direct = parseMoney(r.amount ?? r.total ?? r.gross ?? r.total_amount ?? r.totalAmount);
+          if (isFinite(direct)) return direct;
+
+          const cents = (r.amount_cents ?? r.total_cents ?? r.gross_cents ?? r.total_amount_cents ?? r.totalAmountCents);
+          if (isFinite(Number(cents))) return Number(cents) / 100;
+
+          const alt = parseMoney(r.line_total ?? r.lineTotal ?? r.total_display ?? r.display_total);
+          return isFinite(alt) ? alt : 0;
+        })();
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
@@ -630,7 +651,11 @@
 
         const a = isFinite(amount) ? amount : 0;
         gross += a;
-        if (status === 'refunded') refundedAmt += a;
+        const refundedCents = (r.refunded_amount_cents ?? r.refund_cents ?? r.refundAmountCents ?? r.refunded_cents ?? null);
+        const refundedDirect = parseMoney(r.refunded_amount ?? r.refund_amount ?? r.refundAmount);
+        if (isFinite(Number(refundedCents))) refundedAmt += Number(refundedCents) / 100;
+        else if (isFinite(refundedDirect)) refundedAmt += refundedDirect;
+        else if (status === 'refunded') refundedAmt += a;
 
         const catKey = String(r.category||r.type||'other').toLowerCase();
         byCat[catKey] = byCat[catKey] || {total:0,count:0};
@@ -652,7 +677,7 @@
         const t = Date.parse(r.date||r.created||r.created_at||'');
         const dateStr = isNaN(t)?'—':new Date(t).toLocaleString();
 
-        const buyer = r.name||r.buyer||r.customer_name||'—';
+        const buyer = r.name||r.buyer||r.purchaser_name||r.purchaser||r.customer_name||r.customer_email||r.email||'—';
         const item  = r.item||r.item_name||r.description||'—';
 
         const metaBits=[];
@@ -675,11 +700,29 @@
         ];
         cells.forEach(c=>tr.appendChild(c));
 
-        tr.addEventListener('click',()=>{
+        tr.addEventListener('click', async ()=>{
           const pi=r.payment_intent||r.pi;
           const ch=r.charge||r.charge_id;
-          if(!pi&&!ch){alert('No Stripe payment info.');return;}
-          openRefundModal({payment_intent:pi,charge:ch,total:amount});
+
+          if (pi || ch){
+            openRefundModal({payment_intent:pi,charge:ch,total:amount});
+            return;
+          }
+
+          // Fallback: try to locate a Stripe session id (cs_*) and explain what's missing.
+          const sid =
+            r.id || r.session_id || r.sessionId || r.orderId || r.checkout_session_id || r.checkoutSessionId ||
+            Object.values(r||{}).find(v=>typeof v==='string' && v.startsWith('cs_')) || '';
+
+          alert(
+            sid
+              ? `This row has a Stripe session id (${sid}) but the row data does not include payment_intent or charge.
+
+To issue refunds inside this admin page, the /api/router?type=orders rows must include payment_intent and/or charge (or we need a lookup endpoint to resolve ${sid} → payment_intent).
+
+For now, refunds must be done in Stripe for this order.`
+              : 'No Stripe payment info on this row.'
+          );
         });
 
         tbody.appendChild(tr);
