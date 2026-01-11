@@ -705,7 +705,8 @@ function getOrderKey(r){
         const t = Date.parse(r.date || r.created || r.created_at || '');
         if (!isNaN(fromMs) && t < fromMs) return false;
         if (!isNaN(toMs) && t > toMs) return false;
-        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
+        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase() && !isFeeRow(r)) return false;
+        if (isDuplicateOtherFeeRow(r)) return false;
         if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
         if (q){
           const hay = [
