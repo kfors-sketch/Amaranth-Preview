@@ -246,8 +246,7 @@
                   <th>Category</th>
                   <th>Status</th>
                   <th class="text-right">Net</th>
-                  
-                  <th class="text-right">Gross</th>
+                  <th class="text-right">Gross</th
                   <th>Meta</th>
                 </tr>
               </thead>
@@ -535,11 +534,30 @@
 
     function getAmount(r){
       // Prefer explicit numeric fields already on the row.
+      // (Your exports use different field names depending on source, so we support several.)
       if (r == null) return 0;
+
+      // Common totals
       if (r.amount != null) return asNumber(r.amount);
       if (r.total != null) return asNumber(r.total);
+      if (r.line_total != null) return asNumber(r.line_total);
+      if (r.lineTotal != null) return asNumber(r.lineTotal);
+      if (r.line_amount != null) return asNumber(r.line_amount);
+      if (r.lineAmount != null) return asNumber(r.lineAmount);
+
+      // Unit/qty derived totals
+      if (r.unit_price != null && r.qty != null) return asNumber(r.unit_price) * asNumber(r.qty);
+      if (r.unitPrice != null && r.qty != null) return asNumber(r.unitPrice) * asNumber(r.qty);
+      if (r.price != null && r.qty != null) return asNumber(r.price) * asNumber(r.qty);
+
+      // Cents variants
       if (r.amount_cents != null) return asNumber(r.amount_cents) / 100;
       if (r.total_cents != null) return asNumber(r.total_cents) / 100;
+      if (r.line_total_cents != null) return asNumber(r.line_total_cents) / 100;
+      if (r.lineTotalCents != null) return asNumber(r.lineTotalCents) / 100;
+      if (r.unit_price_cents != null && r.qty != null) return (asNumber(r.unit_price_cents) / 100) * asNumber(r.qty);
+      if (r.unitPriceCents != null && r.qty != null) return (asNumber(r.unitPriceCents) / 100) * asNumber(r.qty);
+
       return 0;
     }
 
