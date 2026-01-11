@@ -63,6 +63,9 @@ import {
   emailFinalReceiptsZip,
 } from "./admin/core.js";
 
+import { getReportingPrefs, setReportingPrefs, resolveChannel, shouldSendReceiptZip } from "./admin/report-channel.js";
+
+
 import {
   isInternationalOrder,
   computeInternationalFeeCents,
@@ -204,6 +207,16 @@ function getUrl(req) {
   const host = req?.headers?.host || req?.headers?.["host"] || "localhost";
   return new URL(req.url, `http://${host}`);
 }
+
+async function getEffectiveReportMode() {
+  const prefs = await getReportingPrefs();
+  const isProduction =
+    String(process.env.VERCEL_ENV || "").toLowerCase() === "production" ||
+    String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  const mode = resolveChannel({ requested: prefs.channel, isProduction });
+  return { prefs, mode };
+}
+
 
 // Pull order mode from Stripe session metadata (preferred), else fall back to current.
 async function resolveModeFromSession(sessionLike) {
@@ -988,6 +1001,13 @@ export default async function handler(req, res) {
       }
 
       // ✅ NEW: Lockdown status (admin-only; handy for quick checks)
+      if (type === "receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const prefs = await getReportingPrefs();
+        const { mode } = await getEffectiveReportMode();
+        return REQ_OK(res, { requestId, ok: true, prefs, mode });
+      }
+
       if (type === "lockdown_status") {
         if (!(await requireAdminAuth(req, res))) return;
         const st = await getLockdownStateSafe();
@@ -3107,6 +3127,29 @@ function normalizeCountryCode2(raw) {
         }
       }
 
+      if (action === "set_receipts_zip_prefs") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const body = await readJsonBody(req);
+        const monthly = !!body?.monthly;
+        const weekly = !!body?.weekly;
+        const channel = body?.channel ? String(body.channel) : undefined;
+
+        const next = await setReportingPrefs({
+          receiptZip: { monthly, weekly },
+          ...(channel ? { channel } : {}),
+        });
+
+        return REQ_OK(res, { requestId, ok: true, prefs: next });
+      }
+
+      if (action === "set_reporting_channel") {
+        if (!(await requireAdminAuth(req, res))) return;
+        const body = await readJsonBody(req);
+        const channel = String(body?.channel || "").trim();
+        const next = await setReportingPrefs({ channel });
+        return REQ_OK(res, { requestId, ok: true, prefs: next });
+      }
+
       if (action === "send_monthly_chair_reports") {
         await loadAllOrdersWithRetry();
 
@@ -3124,6 +3167,8 @@ function normalizeCountryCode2(raw) {
 
         const baseNow = new Date();
 
+
+        const { prefs: reportingPrefs, mode: reportMode } = await getEffectiveReportMode();
         const wrappedSendItemReport = async (opts) => {
           const kind = String(opts?.kind || "").toLowerCase();
 
@@ -3149,7 +3194,7 @@ function normalizeCountryCode2(raw) {
             scheduledAt = new Date(ts).toISOString();
           }
 
-          return sendItemReportEmailInternal({ ...opts, scheduledAt });
+          return sendItemReportEmailInternal({ ...opts, scheduledAt, mode: reportMode });
         };
 
         const { sent, skipped, errors, itemsLog } = await runScheduledChairReports({
@@ -3159,187 +3204,22 @@ function normalizeCountryCode2(raw) {
 
         // ✅ Also send last-month receipts ZIP
         // (Can be disabled for testing via DISABLE_RECEIPTS_ZIP_AUTO=1)
-        let receiptsZip = { ok: false, skipped: true };
+        let receiptsZip = { monthly: { ok: false, skipped: true }, weekly: { ok: false, skipped: true } };
         const disableReceiptsZip = String(process.env.DISABLE_RECEIPTS_ZIP_AUTO || "0") === "1";
         if (!disableReceiptsZip) {
           try {
-            const now = new Date();
-
-            // previous month in UTC
-            let y = now.getUTCFullYear();
-            let m = now.getUTCMonth() + 1; // 1-12 current
-            m -= 1;
-            if (m <= 0) {
-              m = 12;
-              y -= 1;
+            const { receiptZip } = reportingPrefs || {};
+            // weekly
+            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "weekly" })) {
+              receiptsZip.weekly = await emailWeeklyReceiptsZip({ mode: reportMode });
             }
-
-            receiptsZip = await emailMonthlyReceiptsZip({
-              year: y,
-              month: m,
-              requestId,
-              auto: true,
-            });
-
-            if (receiptsZip && receiptsZip.ok) {
-              try {
-                await recordMailLog({
-                  ts: Date.now(),
-                  from: RESEND_FROM || "onboarding@resend.dev",
-                  to: receiptsZip.to ? [receiptsZip.to] : [],
-                  subject:
-                    receiptsZip.subject ||
-                    `Monthly receipts ZIP — ${String(y)}-${String(m).padStart(2, "0")}`,
-                  kind: "receipts-zip-month-auto",
-                  status: "queued",
-                  resultId: receiptsZip.resultId || receiptsZip.id || null,
-                });
-              } catch {}
+            // monthly
+            if (shouldSendReceiptZip({ prefs: reportingPrefs, kind: "monthly" })) {
+              receiptsZip.monthly = await emailMonthlyReceiptsZip({ mode: reportMode });
             }
           } catch (e) {
-            console.error("receipts_zip_month_auto_failed", e?.message || e);
-            receiptsZip = { ok: false, error: String(e?.message || e) };
+            console.error("receipts_zip_auto_failed", e?.message || e);
           }
-        } else {
-          receiptsZip = { ok: false, skipped: true, disabled: true };
-        }
-
-        // Monthly log email to admins (REPORTS_LOG_TO)
-        try {
-          const logRecipients = REPORTS_LOG_TO.split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
-
-          if (resend && logRecipients.length) {
-            const ts = new Date();
-            const dateStr = ts.toISOString().slice(0, 10);
-            const timeStr = ts.toISOString();
-
-            const firstOfMonth = new Date(
-              Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), 1, 0, 0, 0, 0)
-            );
-            const firstIso = firstOfMonth.toISOString();
-
-            const esc = (s) => String(s || "").replace(/</g, "&lt;");
-
-            const rowsHtml = (itemsLog || []).length
-              ? itemsLog
-                  .map((it, idx) => {
-                    const status = it.skipped ? "SKIPPED" : it.ok ? "OK" : "ERROR";
-                    const rowsLabel = it.skipped ? "-" : it.count;
-                    const errorText = it.skipped ? it.skipReason || "" : it.error || "";
-
-                    return `
-              <tr>
-                <td style="padding:4px;border:1px solid #ddd;">${idx + 1}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.id)}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.label)}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(it.kind)}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(status)}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${rowsLabel}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(
-                  (it.to || []).join(", ")
-                )}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(
-                  (it.bcc || []).join(", ")
-                )}</td>
-                <td style="padding:4px;border:1px solid #ddd;">${esc(errorText)}</td>
-              </tr>`;
-                  })
-                  .join("")
-              : `<tr><td colspan="9" style="padding:6px;border:1px solid #ddd;">No items processed.</td></tr>`;
-
-            const receiptsZipLine = (() => {
-              const rz = receiptsZip || {};
-              const ok = !!rz.ok;
-              const err = rz.error ? String(rz.error) : "";
-              const label = ok
-                ? "OK"
-                : rz.skipped
-                ? "SKIPPED"
-                : "ERROR";
-              return `<p style="margin:8px 0 2px;">Receipts ZIP (auto last month): <b>${esc(
-                label
-              )}</b>${err ? ` — <span style="color:#b91c1c;">${esc(err)}</span>` : ""}</p>`;
-            })();
-
-            const html = `
-              <div style="font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;">
-                <h2 style="margin-bottom:4px;">Scheduled Chair Reports Log</h2>
-                <p style="margin:2px 0;">Run time (UTC): <b>${esc(timeStr)}</b></p>
-                <p style="margin:2px 0;">Scope: <b>current-month</b></p>
-                <p style="margin:2px 0;"><strong>Coverage (UTC): from ${esc(
-                  firstIso
-                )} through ${esc(timeStr)}.</strong></p>
-                <p style="margin:2px 0;font-size:12px;color:#555;">requestId: ${esc(
-                  requestId
-                )}</p>
-                <p style="margin:6px 0 10px;">
-                  Sent: <b>${sent}</b> &nbsp; | &nbsp;
-                  Skipped: <b>${skipped}</b> &nbsp; | &nbsp;
-                  Errors: <b>${errors}</b>
-                </p>
-                ${receiptsZipLine}
-                <table style="border-collapse:collapse;border:1px solid #ccc;font-size:13px;">
-                  <thead>
-                    <tr>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">#</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">ID</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Label</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Kind</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Status</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Rows</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">To</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">BCC</th>
-                      <th style="padding:4px;border:1px solid #ddd;background:#f3f4f6;">Error / Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>${rowsHtml}</tbody>
-                </table>
-              </div>
-            `;
-
-            const subject = `Scheduled chair report log — ${dateStr}`;
-
-            const payload = {
-              from: RESEND_FROM || "onboarding@resend.dev",
-              to: logRecipients,
-              subject,
-              html,
-              reply_to: REPLY_TO || undefined,
-            };
-
-            const retry = await sendWithRetry(
-              () => resend.emails.send(payload),
-              "monthly-log"
-            );
-            if (retry.ok) {
-              const sendResult = retry.result;
-              await recordMailLog({
-                ts: Date.now(),
-                from: payload.from,
-                to: logRecipients,
-                subject,
-                resultId: sendResult?.id || null,
-                kind: "monthly-log",
-                status: "queued",
-              });
-            } else {
-              const err = retry.error;
-              await recordMailLog({
-                ts: Date.now(),
-                from: payload.from,
-                to: logRecipients,
-                subject,
-                resultId: null,
-                kind: "monthly-log",
-                status: "error",
-                error: String(err?.message || err),
-              });
-            }
-          }
-        } catch (e) {
-          console.error("monthly_log_email_failed", e?.message || e);
         }
 
         return REQ_OK(res, {
@@ -3363,6 +3243,8 @@ function normalizeCountryCode2(raw) {
         const scope = String(body?.scope || "current-month").trim();
         const previewOnly = !!body?.previewOnly;
 
+
+        const { mode: reportMode } = await getEffectiveReportMode();
         if (!to) return REQ_ERR(res, 400, "missing-test-email", { requestId });
 
         const freqNorm = frequency === "all" ? "all" : normalizeReportFrequency(frequency);
