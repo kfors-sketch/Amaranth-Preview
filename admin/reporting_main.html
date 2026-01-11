@@ -640,6 +640,23 @@ function getOrderKey(r){
           r._net = amt; // chairman payout when purchaser pays fee
           out.push(r);
         });
+
+        // Re-add fee rows (one processing fee + optional international fee) so they show in the table.
+        // Drop the duplicate "other Online Processing Fee" row that has no item id.
+        feeRows.forEach(r=>{
+          try{
+            if (typeof isDuplicateOtherFeeRow === 'function' && isDuplicateOtherFeeRow(r)) return;
+          }catch(e){}
+          const amt = getAmount(r);
+          const buyer = getBuyerDisplay(r);
+          r._buyer = buyer;
+          r._amount = amt;
+          r._feeAlloc = 0;
+          r._gross = amt;
+          r._net = amt;
+          out.push(r);
+        });
+
       }
 
       derivedRows = out;
