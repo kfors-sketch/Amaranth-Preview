@@ -199,6 +199,63 @@
       <p class="muted mt-4">These controls affect what you see in the table below and most downloads. Server data is never deleted from this page—only your local cache.</p>
     </div>
 
+    <div class="card mb-16">
+          <div class="flex between mb-8">
+            <div>
+              <div class="section-label">Overview</div>
+              <h3>
+                Orders &amp; Payments
+                <button
+                  type="button"
+                  class="help-btn"
+                  data-help-id="reporting_orders"
+                  aria-label="Help for Orders and Payments"
+                >?</button>
+              </h3>
+              <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
+            </div>
+            <div class="text-right">
+              <div class="badge">
+                <span id="totalCount">0</span>&nbsp; rows
+              </div>
+              <div class="mt-4">
+                <label for="rowsLimit" class="muted text-xs">Rows shown</label><br/>
+                <select id="rowsLimit" class="text-xs" style="margin-top:2px;height:24px;border-radius:999px;border:1px solid #d1d5db;padding:0 6px;">
+                  <option value="10">10</option>
+                  <option value="15" selected>15</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+              <div class="mt-4 text-xs muted">
+                Gross: <strong id="grossAmount">$0.00</strong><br/>
+                Net: <strong id="netAmount">$0.00</strong><br/>
+                Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Buyer</th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th class="text-right">Amount</th>
+                  <th>Meta</th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+
+
         <div class="row" style="margin-top:16px;">
       <div class="col" style="flex: 1 1 480px; max-width: 560px;">
         <div class="card mb-12">
@@ -290,62 +347,6 @@
     </div>
 
 <div class="row">
-      <div class="col">
-        <div class="card">
-          <div class="flex between mb-8">
-            <div>
-              <div class="section-label">Overview</div>
-              <h3>
-                Orders &amp; Payments
-                <button
-                  type="button"
-                  class="help-btn"
-                  data-help-id="reporting_orders"
-                  aria-label="Help for Orders and Payments"
-                >?</button>
-              </h3>
-              <p class="muted">Filtered by the controls above. Click a row for refund tools.</p>
-            </div>
-            <div class="text-right">
-              <div class="badge">
-                <span id="totalCount">0</span>&nbsp; rows
-              </div>
-              <div class="mt-4">
-                <label for="rowsLimit" class="muted text-xs">Rows shown</label><br/>
-                <select id="rowsLimit" class="text-xs" style="margin-top:2px;height:24px;border-radius:999px;border:1px solid #d1d5db;padding:0 6px;">
-                  <option value="10">10</option>
-                  <option value="15" selected>15</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="all">All</option>
-                </select>
-              </div>
-              <div class="mt-4 text-xs muted">
-                Total: <strong id="totalAmount">$0.00</strong><br/>
-                Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
-              </div>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Buyer</th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th class="text-right">Amount</th>
-                  <th>Meta</th>
-                </tr>
-              </thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
       <div class="col">
         <div class="card mb-12">
           <div class="section-label">Local Tools</div>
@@ -613,7 +614,8 @@
       }
 
       let idx = 0, shown = 0;
-      let total = 0;
+      let gross = 0;
+      let refundedAmt = 0;
       let paid=0,pending=0,refunded=0;
       const byCat = {};
 
@@ -626,7 +628,9 @@
         else if (status === 'pending') pending++;
         else if (status === 'refunded') refunded++;
 
-        total += isFinite(amount)?amount:0;
+        const a = isFinite(amount) ? amount : 0;
+        gross += a;
+        if (status === 'refunded') refundedAmt += a;
 
         const catKey = String(r.category||r.type||'other').toLowerCase();
         byCat[catKey] = byCat[catKey] || {total:0,count:0};
@@ -687,7 +691,11 @@
       else
         $('#totalCount').textContent=`${shown} / ${filtered.length}`;
 
-      $('#totalAmount').textContent='$'+total.toFixed(2);
+      const net = gross - refundedAmt;
+      const grossEl = document.getElementById('grossAmount');
+      const netEl = document.getElementById('netAmount');
+      if (grossEl) grossEl.textContent = '$' + gross.toFixed(2);
+      if (netEl) netEl.textContent = '$' + net.toFixed(2);
       $('#paidCount').textContent = paid;
       $('#pendingCount').textContent = pending;
       $('#refundedCount').textContent = refunded;
