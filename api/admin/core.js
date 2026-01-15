@@ -1760,6 +1760,10 @@ async function sendItemReportEmailInternal({
   endMs: explicitEndMs,
   scheduledAt,
   scheduled_at,
+
+  // ✅ ADD THIS
+  mode,
+
   // test tools
   toOverride,
   subjectPrefix,
@@ -1784,6 +1788,23 @@ async function sendItemReportEmailInternal({
   }
 
   const orders = await loadAllOrdersWithRetry();
+
+  // ✅ Filter orders by report channel (test/live_test/live) when provided
+  const normMode = (v) => {
+    const s = String(v || "").trim().toLowerCase();
+    if (s === "live-test" || s === "livetest") return "live_test";
+    if (s === "test" || s === "live_test" || s === "live") return s;
+    return "";
+  };
+
+  const wantMode = normMode(mode);
+  const ordersForMode = wantMode
+    ? (orders || []).filter((o) => {
+        const m = normMode(o?.mode || o?.orderMode || o?.order_channel || o?.channel);
+        return m === wantMode;
+      })
+    : orders;
+
 
   let startMs =
     typeof explicitStartMs === "number" && !isNaN(explicitStartMs) ? explicitStartMs : undefined;
@@ -1816,7 +1837,7 @@ async function sendItemReportEmailInternal({
   const isDirectoryBase = base === "directory";
   const isProceedingsBase = base === "proceedings";
 
-  const rosterAll = collectAttendeesFromOrders(orders, {
+  const rosterAll = collectAttendeesFromOrders(ordersForMode, {
     includeAddress: includeAddressForThisItem,
     categories: [String(kind).toLowerCase()],
     startMs,
