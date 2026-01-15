@@ -229,7 +229,7 @@
                 </select>
               </div>
               <div class="mt-4 text-xs muted">
-                Gross: <strong id="grossAmount">$0.00</strong><br/>
+                Refund: <strong id="grossAmount">$0.00</strong><br/>
                 Net: <strong id="netAmount">$0.00</strong><br/>
                 Paid: <span id="paidCount">0</span> • Pending: <span id="pendingCount">0</span> • Refunded: <span id="refundedCount">0</span>
               </div>
@@ -246,7 +246,7 @@
                   <th>Category</th>
                   <th>Status</th>
                   <th class="text-right">Net</th>
-                  <th class="text-right">Gross</th
+                  <th class="text-right">Refund</th>
                   <th>Meta</th>
                 </tr>
               </thead>
@@ -499,10 +499,17 @@
   <!-- Refund Modal -->
   <div id="refundModal" aria-hidden="true">
     <div class="modal-inner">
-      <h4>Issue Refund</h4>
-      <p class="muted">Create a Stripe refund for this payment.</p>
+      <h4>Refund tools</h4>
+      <p class="muted">Use “Stripe Refund” if Stripe IDs are available, or “Mark Refunded (Manual)” to track it in reports without touching Stripe.</p>
+
+      <div class="border-top">
+        <div class="text-xs muted">Suggested Refund Amount</div>
+        <div style="font-size:18px;font-weight:700;margin-top:2px;" id="rfSuggested">$0.00</div>
+        <div class="text-xs muted" id="rfSuggestedHint">This is Net + allocated fee for this item (order-level fee, cents-accurate).</div>
+      </div>
+
       <div class="mt-8">
-        <label class="muted">Type</label>
+        <label class="muted">Stripe refund type</label>
         <select id="rfType" class="w-100" style="height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px">
           <option value="full">Full refund</option>
           <option value="partial">Partial amount</option>
@@ -512,24 +519,76 @@
         <label class="muted">Amount (USD)</label>
         <input id="rfAmount" type="number" min="0" step="0.01" class="w-100" style="height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px" />
       </div>
+
+      <div class="mt-4">
+        <label class="muted">Note (optional)</label>
+        <input id="rfNote" type="text" class="w-100" placeholder="e.g., cancelled meal" style="height:32px;border-radius:8px;border:1px solid #d1d5db;padding:0 8px;font-size:13px" />
+      </div>
+
       <p class="muted mt-4" id="rfInfo"></p>
+
       <div class="modal-actions">
-        <button id="rfCancel" class="btn secondary sm">Cancel</button>
-        <button id="rfSubmit" class="btn sm">Refund</button>
+        <button id="rfCancel" class="btn secondary sm">Close</button>
+        <button id="rfManual" class="btn secondary sm">Mark Refunded (Manual)</button>
+        <button id="rfSubmit" class="btn sm">Stripe Refund</button>
       </div>
     </div>
   </div>
 
-  
-    <!-- TEST CHAIR REPORT EMAILS -->
+  <!-- TEST CHAIR REPORT EMAILS -->
     <script>
     const LS_KEY = 'amaranth-report-rows-v1';
     let rows = [];
     let derivedRows = [];
+    let manualRefundRecords = []; // loaded from server
+    let manualRefundsByRowId = new Map(); // rowId -> record
 
     function asNumber(v){
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
+    }
+
+
+    function toCents(v){
+      const n = Number(v || 0);
+      if (!Number.isFinite(n)) return 0;
+      return Math.round(n * 100);
+    }
+    function fromCents(c){
+      const n = Number(c || 0);
+      if (!Number.isFinite(n)) return 0;
+      return n / 100;
+    }
+
+    function allocateFeeCentsAcrossItems(itemAmtsCents, feeTotalCents){
+      // Proportional allocation with deterministic penny distribution.
+      const n = itemAmtsCents.length;
+      if (feeTotalCents <= 0 || n === 0) return new Array(n).fill(0);
+      const subtotalCents = itemAmtsCents.reduce((s,c)=>s + (Number(c)||0), 0);
+      if (subtotalCents <= 0){
+        const base = Math.floor(feeTotalCents / n);
+        let rem = feeTotalCents - base * n;
+        return itemAmtsCents.map((_,i)=> base + (rem-- > 0 ? 1 : 0));
+      }
+      const alloc = new Array(n).fill(0);
+      const rema = new Array(n).fill(0);
+      let used = 0;
+      for (let i=0;i<n;i++){
+        const amt = Number(itemAmtsCents[i]) || 0;
+        const numer = feeTotalCents * amt;
+        const base = Math.floor(numer / subtotalCents);
+        const rem = numer - base * subtotalCents;
+        alloc[i] = base;
+        rema[i] = rem;
+        used += base;
+      }
+      let left = feeTotalCents - used;
+      const idx = [...alloc.keys()].sort((a,b)=> rema[b] - rema[a]);
+      for (let k=0; k<idx.length && left>0; k++){
+        alloc[idx[k]] += 1;
+        left--;
+      }
+      return alloc;
     }
 
     function getAmount(r){
@@ -593,6 +652,30 @@ function getOrderKey(r){
       return r.order_id || r.orderId || r.session_id || r.sessionId || r.id || '';
     }
 
+    function stableISODate(r){
+      const v = r.date || r.created || r.created_at || r.createdAt || '';
+      const t = Date.parse(v);
+      if (isNaN(t)) return '';
+      return new Date(t).toISOString();
+    }
+
+    function getItemId(r){
+      return String(r.item_id || r.itemId || r.sku || r.code || '').trim();
+    }
+
+    // RowId is the stable match key for manual refunds.
+    // It tries to be deterministic across reloads and exports.
+    function makeRowId(r){
+      const orderKey = getOrderKey(r) || '';
+      const itemId = getItemId(r) || '';
+      const buyer = (r._buyer || r.buyer_name || r.purchaser_name || r.purchaser || r.buyer || r.name || r.customer_name || '').trim();
+      const iso = stableISODate(r);
+      const amtCents = toCents(getAmount(r));
+      // include attendee when present (banquets/addons)
+      const attendee = String(r.attendee || r.attendee_name || r.attendeeName || '').trim();
+      return [orderKey, itemId, buyer, attendee, iso, String(amtCents)].join('|');
+    }
+
     function getBuyerDisplay(r){
       return (
         r.buyer_name ||
@@ -624,22 +707,27 @@ function getOrderKey(r){
         const subtotal = itemRows.reduce((s,r)=>s+getAmount(r),0);
         const nItems = itemRows.length || 0;
 
-        itemRows.forEach(r=>{
-          const amt = getAmount(r);
-          let alloc = 0;
-          if (feeTotal > 0){
-            if (subtotal > 0) alloc = feeTotal * (amt / subtotal);
-            else if (nItems > 0) alloc = feeTotal / nItems;
-          }
+        // Cents-accurate allocation of order-level fee across item rows (deterministic pennies).
+        const itemAmtsCents = itemRows.map(r=>toCents(getAmount(r)));
+        const feeTotalCents = toCents(feeTotal);
+        const allocCentsArr = allocateFeeCentsAcrossItems(itemAmtsCents, feeTotalCents);
+
+        itemRows.forEach((r,i)=>{
+          const amtCents = itemAmtsCents[i] || 0;
+          const allocCents = allocCentsArr[i] || 0;
+
           const buyer = getBuyerDisplay(r);
           // attach derived fields (safe, UI-only)
           r._buyer = buyer;
-          r._amount = amt;
-          r._feeAlloc = alloc;
-          r._gross = amt + alloc;
-          r._net = amt; // chairman payout when purchaser pays fee
+          r._rowId = makeRowId(r);
+          r._amount = fromCents(amtCents);
+          r._feeAlloc = fromCents(allocCents);
+          r._refund = fromCents(amtCents + allocCents); // what to refund to stay fee-neutral (based on allocated fee)
+          r._gross = r._refund; // legacy alias
+          r._net = fromCents(amtCents); // chairman payout when purchaser pays fee
           out.push(r);
         });
+
 
         // Re-add fee rows (one processing fee + optional international fee) so they show in the table.
         // Drop the duplicate "other Online Processing Fee" row that has no item id.
@@ -650,13 +738,42 @@ function getOrderKey(r){
           const amt = getAmount(r);
           const buyer = getBuyerDisplay(r);
           r._buyer = buyer;
+          r._rowId = makeRowId(r);
           r._amount = amt;
           r._feeAlloc = 0;
+          r._refund = NaN;
           r._gross = amt;
           r._net = amt;
           out.push(r);
         });
 
+
+        // Add an audit line for each manual refund record on this order (admin-only).
+        if (manualRefundRecords && manualRefundRecords.length){
+          for (const rec of manualRefundRecords){
+            if (!rec) continue;
+            if (String(rec.orderId || rec.order_id || '') !== String(key)) continue;
+
+            out.push({
+              date: rec.markedAt ? new Date(rec.markedAt).toISOString() : (rec.createdAt || ''),
+              buyer: (rec.buyer || ''),
+              email: '',
+              item: `REMOVED/REFUNDED: ${rec.itemName || rec.item || '(item)'}${rec.qty ? (' ×' + rec.qty) : ''}`,
+              notes: rec.note || '',
+              category: 'note',
+              status: 'refunded',
+              amount: 0,
+              order_id: key,
+              _buyer: rec.buyer || '—',
+              _amount: 0,
+              _feeAlloc: 0,
+              _refund: NaN,
+              _gross: 0,
+              _net: 0,
+              _rowId: String(rec.rowId || ''),
+            });
+          }
+        }
       }
 
       derivedRows = out;
@@ -766,16 +883,16 @@ function getOrderKey(r){
         const isFee = isFeeRow(r);
         const amt = getAmount(r);
 
-        // Fee rows: show amount under Net, and show Gross as —
+        // Fee rows: show amount under Net, and show Refund as —
         const netAmount = isFee ? amt : (Number.isFinite(r._net) ? r._net : amt);
         const feeAlloc = isFee ? 0 : (Number.isFinite(r._feeAlloc) ? r._feeAlloc : 0);
-        const grossAmount = isFee ? NaN : (Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc));
+        const refundAmount = isFee ? NaN : (Number.isFinite(r._refund) ? r._refund : (Number.isFinite(r._gross) ? r._gross : (netAmount + feeAlloc)));
 
         if (status === 'paid') paid++;
         else if (status === 'pending') pending++;
         else if (status === 'refunded') refunded++;
 
-        const g = isFinite(grossAmount) ? grossAmount : 0;
+        const g = isFinite(refundAmount) ? refundAmount : 0;
         const n = isFinite(netAmount) ? netAmount : 0;
         const f = isFinite(feeAlloc) ? feeAlloc : 0;
         if (status === 'refunded'){
@@ -831,7 +948,7 @@ function getOrderKey(r){
               </span>`),
           td(isFinite(netAmount)?'$'+netAmount.toFixed(2):'—','text-right text-xs'),
 
-          td(isFinite(grossAmount)?'$'+grossAmount.toFixed(2):'—','text-right text-xs'),
+          td(isFinite(refundAmount)?'$'+refundAmount.toFixed(2):'—','text-right text-xs'),
           td(metaBits.map(x=>`<div class="text-xs muted">${x}</div>`).join(''))
         ];
         cells.forEach(c=>tr.appendChild(c));
@@ -839,8 +956,16 @@ function getOrderKey(r){
         tr.addEventListener('click',()=>{
           const pi=r.payment_intent||r.pi;
           const ch=r.charge||r.charge_id;
-          if(!pi&&!ch){alert('No Stripe payment info.');return;}
-          openRefundModal({payment_intent:pi,charge:ch,total:netAmount});
+          openRefundModal({
+            payment_intent:pi,
+            charge:ch,
+            total:netAmount,
+            refund:isFinite(refundAmount)?refundAmount:netAmount,
+            orderKey:getOrderKey(r),
+            item:(r.item||r.item_name||r.description||''),
+            buyer:(r._buyer||buyer||''),
+            row:r
+          });
         });
 
         tbody.appendChild(tr);
@@ -879,6 +1004,53 @@ function getOrderKey(r){
       }
     }
 
+    async function loadManualRefundsForOrderIds(orderIds){
+      try{
+        const uniq = Array.from(new Set((orderIds||[]).filter(Boolean)));
+        if (!uniq.length){
+          manualRefundRecords = [];
+          manualRefundsByRowId = new Map();
+          return;
+        }
+        const r = await fetch('/api/router?action=get_manual_refunds', {
+          method:'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ orderIds: uniq })
+        });
+        const j = await r.json().catch(()=>({}));
+        if (!r.ok) throw new Error(j?.error || j?.message || ('HTTP '+r.status));
+        const recs = Array.isArray(j.records) ? j.records : (Array.isArray(j.manualRefunds) ? j.manualRefunds : []);
+        manualRefundRecords = recs || [];
+        manualRefundsByRowId = new Map();
+        for (const rec of manualRefundRecords){
+          if (rec && rec.rowId) manualRefundsByRowId.set(String(rec.rowId), rec);
+        }
+      }catch(e){
+        // If the router action isn't deployed yet, we stay silent and keep going.
+        manualRefundRecords = [];
+        manualRefundsByRowId = new Map();
+      }
+    }
+
+    function applyManualRefundMarks(){
+      if (!manualRefundsByRowId || manualRefundsByRowId.size === 0) return;
+
+      // Mark matching base rows as refunded (so they disappear from totals).
+      for (const r of (rows || [])){
+        const rowId = r._rowId || makeRowId(r);
+        r._rowId = rowId;
+        const rec = manualRefundsByRowId.get(rowId);
+        if (!rec) continue;
+
+        r.status = 'refunded';
+        const note = String(rec.note || '').trim();
+        const prefix = 'REFUNDED (manual)' + (note ? (': ' + note) : '');
+        const existing = String(r.notes || r.memo || '');
+        const combined = existing ? (prefix + ' • ' + existing) : prefix;
+        r.notes = combined;
+      }
+    }
+
     async function loadFromServer(){
       try{
         const qs = buildServerQuery();
@@ -886,11 +1058,16 @@ function getOrderKey(r){
         const j = await r.json();
         if(!r.ok) throw new Error(j?.error||'Fetch failed');
         rows = Array.isArray(j.rows)?j.rows:[];
+        // Load and apply manual refund marks from KV
+        await loadManualRefundsForOrderIds(rows.map(getOrderKey));
+        applyManualRefundMarks();
         saveToLocal(rows);
         recomputeDerivedRows();
         render();
       }catch(e){
         rows = loadFromLocal();
+        await loadManualRefundsForOrderIds(rows.map(getOrderKey));
+        applyManualRefundMarks();
         recomputeDerivedRows();
         render();
       }
@@ -1035,7 +1212,13 @@ function getOrderKey(r){
       const label=opt.dataset.label;
       const scopeMode=$('#scopeMode').value;
 
-      const payload={kind,id,label,scope:scopeMode};
+      const payload={
+        kind,
+        id,
+        label,
+        scope: scopeMode,
+        channel: String(document.getElementById('reportChannel')?.value || 'auto'),
+      };
       if(scopeMode==='custom'){
         const s=$('#scopeStart').value;
         const e=$('#scopeEnd').value;
@@ -1061,17 +1244,51 @@ function getOrderKey(r){
     let currentRefundCtx=null;
 
     function openRefundModal(ctx){
-      currentRefundCtx=ctx;
-      $('#rfType').value='full';
-      $('#rfAmount').value='';
-      $('#rfAmtWrap').style.display='none';
-      $('#rfInfo').textContent=`PI: ${ctx.payment_intent||'—'}  Charge: ${ctx.charge||'—'}  Row Total: $${(ctx.total||0).toFixed(2)}`;
+      currentRefundCtx = ctx || null;
+
+      // Reset UI
+      $('#rfType').value = 'full';
+      $('#rfAmount').value = '';
+      $('#rfAmtWrap').style.display = 'none';
+      if ($('#rfNote')) $('#rfNote').value = '';
+
+      const suggested = Number(ctx?.refund || 0);
+      if (document.getElementById('rfSuggested')){
+        document.getElementById('rfSuggested').textContent = '$' + (isFinite(suggested) ? suggested.toFixed(2) : '0.00');
+      }
+
+      const pi = ctx?.payment_intent || '';
+      const ch = ctx?.charge || '';
+      const hasStripe = !!pi || !!ch;
+
+      const infoParts = [];
+      infoParts.push(`Order: ${ctx?.orderKey || '—'}`);
+      if (ctx?.buyer) infoParts.push(`Buyer: ${ctx.buyer}`);
+      if (ctx?.item) infoParts.push(`Item: ${ctx.item}`);
+      infoParts.push(`Stripe PI: ${pi || '—'}  Charge: ${ch || '—'}`);
+
+      if (!hasStripe){
+        infoParts.push('Stripe IDs not found for this row. Use “Mark Refunded (Manual)” and refund in Stripe by entering the amount yourself.');
+      }else{
+        infoParts.push('Stripe IDs found. You can also use “Stripe Refund” from here.');
+      }
+
+      $('#rfInfo').textContent = infoParts.join('
+');
+
+      const submit = document.getElementById('rfSubmit');
+      if (submit){
+        submit.disabled = !hasStripe;
+        submit.style.opacity = hasStripe ? '1' : '.45';
+        submit.style.cursor = hasStripe ? 'pointer' : 'not-allowed';
+      }
+
       $('#refundModal').style.display='flex';
       $('#refundModal').setAttribute('aria-hidden','false');
     }
 
     function closeRefundModal(){
-      $('#refundModal').style.display='none';
+$('#refundModal').style.display='none';
       $('#refundModal').setAttribute('aria-hidden','true');
       currentRefundCtx=null;
     }
@@ -1080,6 +1297,53 @@ function getOrderKey(r){
       $('#rfAmtWrap').style.display = $('#rfType').value==='partial'?'block':'none';
     });
     $('#rfCancel').addEventListener('click',closeRefundModal);
+
+    // Manual refund marker (does NOT call Stripe). This is for tracking and chair reports.
+    $('#rfManual')?.addEventListener('click', async ()=>{
+      if(!currentRefundCtx || !currentRefundCtx.row) return;
+
+      const note = ($('#rfNote')?.value || '').trim();
+      // 1) Update local row status so it disappears from totals (and can be filtered as refunded)
+      try{
+        currentRefundCtx.row.status = 'refunded';
+        const prefix = note ? ('REFUNDED: ' + note) : 'REFUNDED';
+        const existing = String(currentRefundCtx.row.notes || currentRefundCtx.row.memo || '');
+        const combined = existing ? (prefix + ' • ' + existing) : prefix;
+        if (currentRefundCtx.row.notes != null) currentRefundCtx.row.notes = combined;
+        else currentRefundCtx.row.notes = combined;
+        saveToLocal(rows);
+      }catch(e){}
+
+      // 2) Best-effort persist to server (requires router action; safe to fail until added)
+      try{
+        const headers = getAuthHeaders();
+        const payload = {
+          orderId: currentRefundCtx.orderKey || getOrderKey(currentRefundCtx.row),
+          rowId: currentRefundCtx.row?._rowId || makeRowId(currentRefundCtx.row),
+          itemId: getItemId(currentRefundCtx.row),
+          itemName: currentRefundCtx.item || (currentRefundCtx.row.item || currentRefundCtx.row.item_name || currentRefundCtx.row.description || ''),
+          qty: 1,
+          createdAt: currentRefundCtx.row.date || currentRefundCtx.row.created || currentRefundCtx.row.created_at || null,
+          note,
+          markedAt: Date.now(),
+          // Admin-only convenience field (not required by router)
+          suggestedRefundCents: Math.round(Number(currentRefundCtx.refund || 0) * 100),
+        };
+        await fetch('/api/router?action=mark_manual_refund', {
+          method:'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+      }catch(e){
+        // ignore until router is wired
+      }
+
+      recomputeDerivedRows();
+      render();
+      closeRefundModal();
+      alert('Marked refunded (manual). Now refund in Stripe using the Suggested Refund Amount.');
+    });
+
     $('#rfSubmit').addEventListener('click',async()=>{
       if(!currentRefundCtx)return;
       const headers={'Content-Type':'application/json'};
@@ -1194,8 +1458,12 @@ function getOrderKey(r){
 
 (function init(){
       rows=loadFromLocal();
-      recomputeDerivedRows();
-      render();
+      // Load manual refund marks for local cache, then refresh from server
+      loadManualRefundsForOrderIds(rows.map(getOrderKey)).then(()=>{
+        applyManualRefundMarks();
+        recomputeDerivedRows();
+        render();
+      });
       loadFromServer();
       loadReportSettings();
     })();
