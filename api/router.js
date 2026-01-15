@@ -547,6 +547,8 @@ function isWriteAction(action) {
     "save_checkout_mode",
     "clear_orders",
     "create_refund",
+    "mark_manual_refund",
+    "unmark_manual_refund",
     "send_full_report",
     "send_month_to_date",
     "send_monthly_chair_reports",
@@ -3396,7 +3398,106 @@ if (action === "send_end_of_event_reports") {
         }
       }
 
+      
       // =========================================================================
+      // Manual refund marks (for refunds performed directly in Stripe)
+      // Persist a "row is refunded/removed" mark in KV so reporting_main can hide it
+      // and add a REMOVED/REFUNDED line in exports.
+      //
+      // KV keys:
+      // - manual_refunds:index                 (SET of orderIds)
+      // - manual_refunds:byOrder:<orderId>     (JSON array of refund mark records)
+      // =========================================================================
+
+      if (action === "mark_manual_refund") {
+        const ok = await requireAdminAuth(req, res);
+        if (!ok) return;
+
+        // honor lockdown for any write action (this action is included in isWriteAction)
+        // (enforceLockdownIfNeeded is called earlier for write actions; this is extra safety)
+        await enforceLockdownIfNeeded(req, res, action, requestId);
+        if (res.writableEnded) return;
+
+        const orderId = String(body?.orderId || body?.order_id || "").trim();
+        const rowId = String(body?.rowId || body?.row_id || body?.rowKey || "").trim();
+
+        if (!orderId) return REQ_ERR(res, 400, "missing-orderId", { requestId });
+        if (!rowId) return REQ_ERR(res, 400, "missing-rowId", { requestId });
+
+        const rec = {
+          orderId,
+          rowId,
+          itemId: String(body?.itemId || body?.item_id || "").trim() || null,
+          itemName: String(body?.itemName || body?.item_name || body?.item || "").trim() || null,
+          qty: Number.isFinite(Number(body?.qty)) ? Number(body.qty) : null,
+          createdAt: String(body?.createdAt || body?.created_at || "").trim() || null,
+          note: String(body?.note || "").trim() || null,
+          markedAt: new Date().toISOString(),
+        };
+
+        const byOrderKey = `manual_refunds:byOrder:${orderId}`;
+
+        const existing = (await kvGetSafe(byOrderKey, [])) || [];
+        const list = Array.isArray(existing) ? existing : [];
+
+        // Upsert by rowId (so you can re-mark the same row without duplicates)
+        const without = list.filter((x) => String(x?.rowId || "") !== rowId);
+        without.push(rec);
+
+        await kvSetSafe(byOrderKey, without);
+        await kvSaddSafe("manual_refunds:index", orderId);
+
+        return REQ_OK(res, { requestId, ok: true, saved: true, orderId, rowId });
+      }
+
+      if (action === "unmark_manual_refund") {
+        const ok = await requireAdminAuth(req, res);
+        if (!ok) return;
+
+        await enforceLockdownIfNeeded(req, res, action, requestId);
+        if (res.writableEnded) return;
+
+        const orderId = String(body?.orderId || body?.order_id || "").trim();
+        const rowId = String(body?.rowId || body?.row_id || body?.rowKey || "").trim();
+
+        if (!orderId) return REQ_ERR(res, 400, "missing-orderId", { requestId });
+        if (!rowId) return REQ_ERR(res, 400, "missing-rowId", { requestId });
+
+        const byOrderKey = `manual_refunds:byOrder:${orderId}`;
+        const existing = (await kvGetSafe(byOrderKey, [])) || [];
+        const list = Array.isArray(existing) ? existing : [];
+        const next = list.filter((x) => String(x?.rowId || "") !== rowId);
+        await kvSetSafe(byOrderKey, next);
+
+        return REQ_OK(res, { requestId, ok: true, removed: true, orderId, rowId });
+      }
+
+      // Read back manual refund marks (admin only). Optional filter by orderIds.
+      if (action === "get_manual_refunds") {
+        const ok = await requireAdminAuth(req, res);
+        if (!ok) return;
+
+        const orderIdsIn = Array.isArray(body?.orderIds) ? body.orderIds : null;
+        let orderIds = orderIdsIn
+          ? orderIdsIn.map((x) => String(x || "").trim()).filter(Boolean)
+          : await kvSmembersSafe("manual_refunds:index");
+
+        // de-dupe
+        orderIds = Array.from(new Set(orderIds));
+
+        const out = [];
+        for (const oid of orderIds) {
+          const byOrderKey = `manual_refunds:byOrder:${oid}`;
+          const list = (await kvGetSafe(byOrderKey, [])) || [];
+          if (Array.isArray(list)) {
+            for (const rec of list) out.push(rec);
+          }
+        }
+
+        return REQ_OK(res, { requestId, ok: true, count: out.length, records: out });
+      }
+
+// =========================================================================
       // ✅ FIXED: save_* actions no longer overwrite reportFrequency to "monthly"
       // =========================================================================
 
