@@ -1273,8 +1273,7 @@ function getOrderKey(r){
         infoParts.push('Stripe IDs found. You can also use “Stripe Refund” from here.');
       }
 
-      $('#rfInfo').textContent = infoParts.join('
-');
+       $('#rfInfo').textContent = infoParts.join('\n');
 
       const submit = document.getElementById('rfSubmit');
       if (submit){
