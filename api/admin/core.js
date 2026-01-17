@@ -2022,6 +2022,14 @@ async function sendItemReportEmailInternal({
       attendee_title: r.attendee_title,
       attendee_phone: r.attendee_phone,
     };
+    
+	// ✅ Court fields (needed because we add these headers for banquets + certain addons)
+      if ((EMAIL_COLUMNS || []).includes("court")) {
+      baseRow.court = r.court || "";
+    }
+      if ((EMAIL_COLUMNS || []).includes("court_number")) {
+      baseRow.court_number = r.court_number || "";
+    }
 
 
     if (isPreRegBase) {
