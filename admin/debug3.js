@@ -187,6 +187,86 @@
     return r;
   }
 
+  // ---------- Order Patch (Court Name / #) ----------
+  async function patchLoadOrder() {
+    const idEl = document.getElementById("patchOrderId");
+    const oid = String(idEl ? idEl.value : "").trim();
+    if (!oid) {
+      alert("Enter an Order ID first (cs_live_… / cs_test_…)." );
+      return;
+    }
+
+    // Reuse existing preview endpoint to help admins copy/paste court info
+    const r = await apiGet(`/api/router?type=debug_order_preview&id=${encodeURIComponent(oid)}`);
+    writeOut(document.getElementById("patchOut"), r);
+
+    // Best-effort prefill from whatever is already present
+    try {
+      const o = r.json?.json?.order || r.json?.order || r.json?.data?.order || r.json?.orderPreview || null;
+      const lines = o?.lines || o?.json?.lines || [];
+      const firstMeta = Array.isArray(lines) && lines.length ? (lines[0]?.meta || {}) : {};
+
+      const courtName =
+        String(
+          firstMeta.attendeeCourt ||
+            firstMeta.attendeeCourtName ||
+            firstMeta.attendee_court ||
+            firstMeta.attendee_court_name ||
+            firstMeta.court ||
+            firstMeta.courtName ||
+            firstMeta.court_name ||
+            ""
+        ).trim();
+
+      const courtNo =
+        String(
+          firstMeta.attendeeCourtNumber ||
+            firstMeta.attendeeCourtNo ||
+            firstMeta.attendeeCourtNum ||
+            firstMeta.attendee_court_number ||
+            firstMeta.attendee_court_no ||
+            firstMeta.attendee_court_num ||
+            firstMeta.courtNumber ||
+            firstMeta.courtNo ||
+            firstMeta.court_no ||
+            ""
+        ).trim();
+
+      const cn = document.getElementById("patchCourtName");
+      const cno = document.getElementById("patchCourtNo");
+      if (cn && courtName && !String(cn.value || "").trim()) cn.value = courtName;
+      if (cno && courtNo && !String(cno.value || "").trim()) cno.value = courtNo;
+    } catch {}
+
+    return r;
+  }
+
+  async function patchCourtSave() {
+    const oid = String((document.getElementById("patchOrderId")?.value || "").trim());
+    const courtName = String((document.getElementById("patchCourtName")?.value || "").trim());
+    const courtNo = String((document.getElementById("patchCourtNo")?.value || "").trim());
+    const overwrite = !!document.getElementById("patchOverwrite")?.checked;
+
+    if (!oid) {
+      alert("Order ID is required.");
+      return;
+    }
+    if (!courtName && !courtNo) {
+      alert("Enter Court Name and/or Court #.");
+      return;
+    }
+
+    const r = await apiPost("/api/router?action=admin_patch_order_court", {
+      orderId: oid,
+      courtName,
+      courtNo,
+      overwrite,
+    });
+
+    writeOut(document.getElementById("patchOut"), r);
+    return r;
+  }
+
   async function lastMail() {
     const r = await apiGet("/api/router?type=lastmail");
     writeOut($("mailOut"), r);
@@ -221,6 +301,10 @@
 
     bind("btnOrderPreview", orderPreview);
     bind("btnOrderHash", orderHashVerify);
+
+    // Order patch
+    bind("btnPatchLoad", patchLoadOrder);
+    bind("btnPatchCourt", patchCourtSave);
 
     bind("btnLastMail", lastMail);
     bind("btnAdminLog", adminLogTail);

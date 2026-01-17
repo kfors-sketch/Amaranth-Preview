@@ -137,6 +137,53 @@
         <pre id="orderOut">{}</pre>
       </div>
 
+      <!-- ORDER PATCH: COURT NAME / # (legacy fix for chair reports) -->
+      <div class="card span-6">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h2 style="margin:0;font-size:18px;">Order Patch — Court Name / #</h2>
+            <div class="sub" style="margin:4px 0 0;">
+              Fix older stored orders so chair reports/export show correct <strong>Court</strong> and <strong>Court #</strong>.
+            </div>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="row">
+          <div class="field" style="flex:1;min-width:320px;">
+            <label>Order ID (Stripe Checkout Session)</label>
+            <input id="patchOrderId" placeholder="cs_live_..." />
+          </div>
+          <button class="btn" id="btnPatchLoad">Load</button>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <div class="field" style="flex:1;min-width:320px;">
+            <label>Court Name</label>
+            <input id="patchCourtName" placeholder='e.g., "Grand Court of PA"' />
+          </div>
+          <div class="field" style="min-width:180px;">
+            <label>Court #</label>
+            <input id="patchCourtNo" placeholder="123" />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <label class="row" style="gap:8px;align-items:center;margin:0;">
+            <input type="checkbox" id="patchOverwrite" />
+            <span class="muted">Overwrite existing values (default is “fill blanks only”).</span>
+          </label>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnPatchCourt">Save Patch</button>
+          <span class="muted">Requires endpoint <code>action=admin_patch_order_court</code> (admin-only).</span>
+        </div>
+
+        <pre id="patchOut">{}</pre>
+      </div>
+
       <!-- MAIL LOG -->
       <div class="card span-6">
         <div class="row" style="justify-content:space-between;">
