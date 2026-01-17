@@ -58,6 +58,11 @@ import {
   getEffectiveOrderChannel,
   purgeOrdersByMode,
 
+  // ✅ Admin patch helpers
+  patchOrderCourtFields,
+  rehashOrderAfterAdminPatch,
+  clearOrdersCache,
+
   // ✅ Receipts ZIP helpers
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
@@ -3044,6 +3049,77 @@ function normalizeCountryCode2(raw) {
         };
         await kvSetSafe(LOCKDOWN_KEY, payload);
         return REQ_OK(res, { requestId, ok: true, lockdown: payload });
+      }
+
+      // ✅ NEW: Patch older orders with missing Court/Court# (admin-only)
+      // Used by /admin/debug3.html to repair legacy data so chair reports are correct.
+      if (action === "admin_patch_order_court") {
+        const orderId = String(body?.orderId || body?.id || "").trim();
+        const courtName = String(body?.courtName || body?.court || "").trim();
+        const courtNo = String(body?.courtNo || body?.court_number || body?.courtNumber || "").trim();
+        const overwrite = coerceBool(body?.overwrite ?? false);
+
+        if (!orderId) {
+          return REQ_ERR(res, 400, "missing-orderId", { requestId });
+        }
+        if (!courtName && !courtNo) {
+          return REQ_ERR(res, 400, "missing-court", {
+            requestId,
+            message: "Provide courtName and/or courtNo.",
+          });
+        }
+
+        const key = `order:${orderId}`;
+        const existing = await kvGetSafe(key, null);
+        if (!existing) {
+          return REQ_ERR(res, 404, "order-not-found", { requestId, orderId });
+        }
+
+        const patched = patchOrderCourtFields(existing, { courtName, courtNo, overwrite });
+        if (!patched) {
+          return REQ_ERR(res, 500, "patch-failed", { requestId, orderId });
+        }
+
+        const finalOrder = rehashOrderAfterAdminPatch(patched, {
+          patchedBy: String(getClientIp(req) || ""),
+          patchNote: "court_name_number",
+        });
+
+        await kvSetSafe(key, finalOrder);
+
+        // Also keep a small patch audit trail (last 100)
+        try {
+          const logKey = "admin:order_patches";
+          const entry = {
+            ts: Date.now(),
+            at: new Date().toISOString(),
+            requestId,
+            action,
+            orderId,
+            courtName,
+            courtNo,
+            overwrite,
+            ip: String(getClientIp(req) || ""),
+          };
+          await kv.lpush(logKey, entry);
+          await kv.ltrim(logKey, 0, 99);
+        } catch {}
+
+        // Clear warm-cache so next report run doesn't reuse stale in-memory orders
+        try {
+          clearOrdersCache();
+        } catch {}
+
+        return REQ_OK(res, {
+          requestId,
+          ok: true,
+          orderId,
+          patched: {
+            courtName,
+            courtNo,
+            overwrite,
+          },
+        });
       }
 
       if (action === "save_feature_flags") {
