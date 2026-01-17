@@ -855,12 +855,22 @@ async function kvIncrSafe(key, delta = 1) {
   return next;
 }
 
+async function kvScardSafe(key, fallback = 0) {
+  try {
+    if (kv && typeof kv.scard === "function") {
+      return await kv.scard(key);
+    }
+  } catch (e) {}
+  return fallback;
+}
+
+
 function visitsKey(mode, parts) {
   const m = String(mode || "test").trim().toLowerCase() || "test";
   return [VISITS_KEY_PREFIX, m, ...parts].join(":");
 }
 
-async function trackVisitInternal({ path, mode, now }) {
+async function trackVisitInternal({ path, mode, now, vid }) {
   const pathname = normalizeVisitPath(path);
   if (!shouldCountVisit(pathname)) return { ok: true, skipped: true, path: pathname };
 
@@ -878,14 +888,27 @@ async function trackVisitInternal({ path, mode, now }) {
   const kDayPath = visitsKey(mode, ["day", day, "path", safePathKey]);
   const kMonthPath = visitsKey(mode, ["month", month, "path", safePathKey]);
 
-  await Promise.all([
+  // unique (Option A)
+  const visitor = String(vid || "").trim();
+  const hasVisitor = visitor && visitor.length >= 6;
+  const kDayUniqueSet = visitsKey(mode, ["day", day, "unique_set"]);
+  const kDayPathUniqueSet = visitsKey(mode, ["day", day, "path", safePathKey, "unique_set"]);
+
+  const ops = [
     kvIncrSafe(kTotal, 1),
     kvIncrSafe(kDayTotal, 1),
     kvIncrSafe(kMonthTotal, 1),
     kvSaddSafe(visitsKey(mode, ["pages"]), pathname),
     kvIncrSafe(kDayPath, 1),
     kvIncrSafe(kMonthPath, 1),
-  ]);
+  ];
+
+  if (hasVisitor) {
+    ops.push(kvSaddSafe(kDayUniqueSet, visitor));
+    ops.push(kvSaddSafe(kDayPathUniqueSet, visitor));
+  }
+
+  await Promise.all(ops);
 
   return { ok: true, path: pathname, day, month, mode };
 }
@@ -911,7 +934,12 @@ export default async function handler(req, res) {
             url.pathname ||
             "/";
           const mode = await getEffectiveOrderChannel().catch(() => "test");
-          const out = await trackVisitInternal({ path: pathParam, mode, now: new Date() });
+          const vidParam =
+            url.searchParams.get("vid") ||
+            url.searchParams.get("visitorId") ||
+            url.searchParams.get("v") ||
+            "";
+          const out = await trackVisitInternal({ path: pathParam, mode, now: new Date(), vid: vidParam });
           // For GET beacon calls, 204 is fine, but we return JSON for easier debugging.
           return REQ_OK(res, { requestId, ...out });
         } catch (e) {
@@ -2026,14 +2054,21 @@ export default async function handler(req, res) {
           const pagePath = normalizeVisitPath(page);
 
           let total = 0;
+          let unique = 0;
+
+          const enc = encodeURIComponent(pagePath);
 
           for (let i = 0; i < days; i++) {
             const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-            const k = `${base}:day:${d}:path:${encodeURIComponent(pagePath)}`;
-            total += Number(await kvGetSafe(k, 0)) || 0;
+
+            const kTotal = `${base}:day:${d}:path:${enc}`;
+            total += Number(await kvGetSafe(kTotal, 0)) || 0;
+
+            const kUniqSet = `${base}:day:${d}:path:${enc}:unique_set`;
+            unique += Number(await kvScardSafe(kUniqSet, 0)) || 0;
           }
 
-          if (total > 0) results.push({ page: pagePath, total });
+          if (total > 0) results.push({ page: pagePath, total, unique });
         }
 
         results.sort((a, b) => b.total - a.total);
@@ -2069,10 +2104,14 @@ return REQ_ERR(res, 400, "unknown-type", { requestId });
             String(url.searchParams.get("path") || url.searchParams.get("p") || "");
           const fallbackPath = url.pathname || "/";
           const mode = await getEffectiveOrderChannel().catch(() => "test");
+          const vidParam =
+            String(body?.vid || body?.visitorId || body?.v || "") ||
+            String(url.searchParams.get("vid") || url.searchParams.get("visitorId") || url.searchParams.get("v") || "");
           const out = await trackVisitInternal({
             path: pathParam || fallbackPath,
             mode,
             now: new Date(),
+            vid: vidParam,
           });
           return REQ_OK(res, { requestId, ...out });
         } catch (e) {
