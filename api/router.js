@@ -2616,6 +2616,27 @@ if (isPreReg && !votingLabel) {
                       attendeeEmail: l.meta?.attendeeEmail || "",
                       attendeeNotes: l.meta?.attendeeNotes || "",
                       dietaryNote: l.meta?.dietaryNote || "",
+					  attendeeCourt:
+                          (l.meta?.attendeeCourt ||
+                          l.meta?.attendeeCourtName ||
+                          l.meta?.attendee_court ||
+                          l.meta?.attendee_court_name ||
+                          l.meta?.court ||
+                          l.meta?.courtName ||
+                          l.meta?.court_name ||
+                          ""),
+                      attendeeCourtNumber:
+                          (l.meta?.attendeeCourtNumber ||
+                          l.meta?.attendeeCourtNo ||
+                          l.meta?.attendeeCourtNum ||
+                          l.meta?.attendee_court_number ||
+                          l.meta?.attendee_court_no ||
+                          l.meta?.attendee_court_num ||
+                          l.meta?.courtNumber ||
+                          l.meta?.court_no ||
+                          l.meta?.courtNo ||
+                          l.meta?.courtNum ||
+                          ""),
                       votingStatus:
                         (l.meta?.votingStatus ||
                           l.meta?.voting_status ||
