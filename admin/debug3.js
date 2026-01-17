@@ -285,6 +285,100 @@
     return r;
   }
 
+  // ---------- Orders Export (all orders / all lines) ----------
+  function buildOrdersParams() {
+    const days = String(($("ordersDays")?.value || "").trim());
+    const start = String(($("ordersStart")?.value || "").trim());
+    const end = String(($("ordersEnd")?.value || "").trim());
+    const category = String(($("ordersCategory")?.value || "").trim());
+    const item_id = String(($("ordersItemId")?.value || "").trim());
+    const item = String(($("ordersItem")?.value || "").trim());
+    const q = String(($("ordersQ")?.value || "").trim());
+    const mode = String(($("ordersMode")?.value || "").trim());
+
+    const params = new URLSearchParams();
+
+    // Match router behavior: if days is set, it overrides start/end
+    if (days) {
+      params.set("days", days);
+    } else {
+      if (start) params.set("start", start);
+      if (end) params.set("end", end);
+    }
+
+    if (category) params.set("category", category);
+    if (item_id) params.set("item_id", item_id);
+    if (item) params.set("item", item);
+    if (q) params.set("q", q);
+    if (mode) params.set("mode", mode);
+
+    return params;
+  }
+
+  function updateOrdersUrl() {
+    const params = buildOrdersParams();
+    const url = `/api/router?type=orders_csv&${params.toString()}`;
+    const el = $("ordersUrl");
+    if (el) el.value = url;
+    return url;
+  }
+
+  async function ordersPreview() {
+    const params = buildOrdersParams();
+    updateOrdersUrl();
+    const url = `/api/router?type=orders&${params.toString()}`;
+    const r = await apiGet(url);
+    writeOut($("ordersOut"), r);
+    return r;
+  }
+
+  async function ordersDownloadXlsx() {
+    const url = updateOrdersUrl();
+    const res = await fetch(url, { method: "GET", headers: authHeaders() });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      alert(`Download failed: ${res.status}${txt ? `\n${txt.slice(0, 300)}` : ""}`);
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    const href = URL.createObjectURL(blob);
+    a.href = href;
+    a.download = "orders.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 2000);
+  }
+
+  function wireOrdersExport() {
+    const ids = [
+      "ordersCategory",
+      "ordersMode",
+      "ordersItemId",
+      "ordersItem",
+      "ordersQ",
+      "ordersMode",
+      "ordersDays",
+      "ordersStart",
+      "ordersEnd",
+    ];
+
+    for (const id of ids) {
+      const el = $(id);
+      if (!el) continue;
+      el.addEventListener("input", updateOrdersUrl);
+      if (el.tagName === "SELECT") el.addEventListener("change", updateOrdersUrl);
+    }
+
+    const p = $("btnOrdersPreview");
+    const d = $("btnOrdersDownload");
+    if (p) p.addEventListener("click", ordersPreview);
+    if (d) d.addEventListener("click", ordersDownloadXlsx);
+
+    updateOrdersUrl();
+  }
+
   // ---------- wire up ----------
   function wire() {
     const bind = (id, fn) => {
@@ -306,8 +400,14 @@
     bind("btnPatchLoad", patchLoadOrder);
     bind("btnPatchCourt", patchCourtSave);
 
+    // Orders export
+    wireOrdersExport();
+
     bind("btnLastMail", lastMail);
     bind("btnAdminLog", adminLogTail);
+
+    // Visits
+    wireVisits();
   }
 
   // ---------- init ----------
@@ -372,11 +472,11 @@
     const summary = await apiGet(`/api/router?type=visits_summary&mode=${qsMode}&days=${qsDays}`);
     const pages = await apiGet(`/api/router?type=visits_pages&mode=${qsMode}&days=${qsDays}&limit=50`);
 
-    if (summary && summary.ok) outEl.textContent = formatVisitsSummary(summary.data);
-    else outEl.textContent = `Error: ${summary && summary.error ? summary.error : "unknown"}`;
+    if (summary && summary.ok) outEl.textContent = formatVisitsSummary(summary.json);
+    else outEl.textContent = `Error: ${summary ? summary.status : "?"}`;
 
-    if (pages && pages.ok) topEl.textContent = formatTopPages(pages.data);
-    else topEl.textContent = `Error: ${pages && pages.error ? pages.error : "unknown"}`;
+    if (pages && pages.ok) topEl.textContent = formatTopPages(pages.json);
+    else topEl.textContent = `Error: ${pages ? pages.status : "?"}`;
   }
 
   async function exportVisitsXlsx() {

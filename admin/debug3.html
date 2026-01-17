@@ -184,6 +184,89 @@
         <pre id="patchOut">{}</pre>
       </div>
 
+      <!-- ORDERS EXPORT (Last line of defense) -->
+      <div class="card span-12">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h2 style="margin:0;font-size:18px;">Orders Export (All Orders / All Lines)</h2>
+            <div class="sub" style="margin:4px 0 0;">Build an <b>admin-only</b> download link for <code>type=orders_csv</code> with filters. This is your “last line of defense” spreadsheet.</div>
+          </div>
+          <div class="row" style="gap:8px;">
+            <button class="btn" id="btnOrdersPreview">Preview (JSON)</button>
+            <button class="btn primary" id="btnOrdersDownload">Download XLSX</button>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="row" style="flex-wrap:wrap;gap:10px;">
+          <div class="field" style="min-width:180px;">
+            <label>Category</label>
+            <select id="ordersCategory">
+              <option value="">(any)</option>
+              <option value="banquet">Banquets</option>
+              <option value="addon">Add-ons</option>
+              <option value="catalog">Catalog</option>
+              <option value="supplies">Supplies</option>
+              <option value="charity">Charity</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="field" style="min-width:220px;flex:1;">
+            <label>Item ID (exact)</label>
+            <input id="ordersItemId" placeholder="e.g., past-grands-luncheon" />
+          </div>
+
+          <div class="field" style="min-width:220px;flex:1;">
+            <label>Item text search</label>
+            <input id="ordersItem" placeholder="e.g., luncheon" />
+          </div>
+
+          <div class="field" style="min-width:220px;flex:1;">
+            <label>Search (q)</label>
+            <input id="ordersQ" placeholder="name / email / phone / notes" />
+          </div>
+        </div>
+
+        <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px;">
+          <div class="field" style="min-width:180px;">
+            <label>Mode</label>
+            <select id="ordersMode">
+              <option value="">All (no filter)</option>
+              <option value="live">Live</option>
+              <option value="test">Test</option>
+              <option value="live_test">Live Test</option>
+            </select>
+            <div class="sub">Filters orders by stamped order mode.</div>
+          </div>
+
+          <div class="field" style="min-width:180px;">
+            <label>Days (last N)</label>
+            <input id="ordersDays" type="number" min="1" step="1" placeholder="30" />
+            <div class="sub">If set, overrides Start/End.</div>
+          </div>
+
+          <div class="field" style="min-width:220px;">
+            <label>Start (YYYY-MM-DD)</label>
+            <input id="ordersStart" placeholder="2026-01-01" />
+          </div>
+
+          <div class="field" style="min-width:220px;">
+            <label>End (YYYY-MM-DD)</label>
+            <input id="ordersEnd" placeholder="2026-01-31" />
+          </div>
+
+          <div class="field" style="min-width:220px;flex:1;">
+            <label>Built URL</label>
+            <input id="ordersUrl" readonly />
+            <div class="sub">Tip: you can copy/paste this URL into a new tab.</div>
+          </div>
+        </div>
+
+        <pre id="ordersOut">{}</pre>
+      </div>
+
       <!-- MAIL LOG -->
       <div class="card span-6">
         <div class="row" style="justify-content:space-between;">
