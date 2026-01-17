@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="2026 Grand Court of Pennsylvania - Order of the Amaranth">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=home-v3.2" /><!-- bump -->
+  <link rel="stylesheet" href="assets/css/styles.css?v=home-v3.2" />
   <title>Home</title>
 
   <style>
-    /* Center content on page */
     .container {
       text-align: center;
       max-width: 900px;
@@ -17,8 +16,6 @@
       padding: 1rem;
       color: #1f2937;
     }
-
-    /* Title section */
     .session-title {
       font-size: 2.8rem;
       font-weight: 900;
@@ -27,7 +24,6 @@
       margin-bottom: 0.4rem;
       color: #1f2937;
     }
-
     .session-subtitle {
       font-size: 1.4rem;
       font-weight: 600;
@@ -35,8 +31,6 @@
       text-align: center;
       margin-bottom: 1.1rem;
     }
-
-    /* NEW: Highlighted intro message (easier to read) */
     .intro-highlight {
       max-width: 760px;
       margin: 1rem auto 1.5rem;
@@ -47,8 +41,7 @@
       border-radius: 14px;
       box-shadow: 0 4px 16px rgba(0,0,0,.08);
       backdrop-filter: saturate(120%) blur(2px);
-      -webkit-backdrop-filter: saturate(120%) blur(2px);
-      text-align: left; /* easier reading */
+      text-align: left;
     }
     .intro-highlight p{
       margin: 0;
@@ -64,66 +57,21 @@
       font-style: italic;
       color: #111827;
     }
-
-    /* Prevent margin-collapsing and control spacing cleanly */
-    .hero { padding-bottom: .25rem; }
-
     .panel {
       margin: .25rem auto 1.25rem;
-      border-top: 1px solid transparent;
-      text-align: center;
       max-width: 720px;
       background: rgba(255,255,255,0.40);
       border: 1px solid rgba(229,231,235,0.45);
       border-radius: 12px;
       padding: 1rem;
       box-shadow: 0 2px 10px rgba(0,0,0,.06);
-      backdrop-filter: saturate(120%) blur(2px);
-      -webkit-backdrop-filter: saturate(120%) blur(2px);
-    }
-
-    .panel img {
-      display: block;
-      margin: 0.5rem auto;
-      border-radius: 8px;
-    }
-
-    /* Logo area fix */
-    .logo {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-decoration: none;
-      color: inherit;
-    }
-    .logo img {
-      display: block;
-      width: 80px;
-      height: auto;
-    }
-    .logo span {
-      display: block;
-      margin-top: 0.25rem;
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #1f2937;
-    }
-
-    /* Responsive titles */
-    @media (max-width: 600px) {
-      .session-title { font-size: 2.1rem; }
-      .session-subtitle { font-size: 1.2rem; }
-      .intro-highlight { padding: 1.15rem 1.2rem; }
-      .intro-highlight p { font-size: 1.05rem; }
     }
   </style>
 </head>
 
 <body>
-  <!-- Wallpaper -->
   <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
 
-  <!-- Header / Nav -->
   <header class="site-header">
     <div class="container header-inner">
       <a class="logo" href="home.html">
@@ -134,20 +82,12 @@
         <span class="nav-current">Home</span>
         <a href="banquet.html">Banquets</a>
         <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
-
-        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
-
-        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
-
         <a href="order.html">Order</a>
         <a href="contact.html">Contact</a>
       </nav>
     </div>
   </header>
 
-  <!-- Main Content -->
   <main class="container mt-lg">
     <h1 class="session-title">
       2026 Grand Court of Pennsylvania<br>
@@ -155,7 +95,6 @@
     </h1>
     <h2 class="session-subtitle">Adventure Is Out There</h2>
 
-    <!-- NEW: Better readable intro block -->
     <div class="intro-highlight">
       <p>
         As we wrap up one incredible Grand Court year and set our sights
@@ -163,20 +102,15 @@
         the fun at our Grand Court Session, <strong>Adventure Is Out There!</strong>
         This is our chance to celebrate the memories we’ve made, laugh with
         friends who’ve traveled every mile with us, and look ahead with
-        excitement to the journeys still to come. Together, we’ll honor
-        where we’ve been, embrace what’s next, and launch into the future
-        with curiosity, courage, and joy—because the greatest adventures
-        are always shared.
+        excitement to the journeys still to come.
       </p>
       <div class="intro-signature">— HL Stacy Anthony, Grand Royal Matron</div>
     </div>
 
-    <!-- QR Section -->
     <section class="panel" id="qr">
       <h3>Quick Access</h3>
       <p>Scan this QR to open this homepage:</p>
-      <img src="/assets/img/qr-code1.svg" alt="QR code to this homepage" style="width:180px;height:auto;">
-      <p style="display:none;"><small>We’ll replace this with the real QR when your final URL is locked.</small></p>
+      <img src="/assets/img/qr-code1.svg" alt="QR code" style="width:180px;">
     </section>
   </main>
 
@@ -186,92 +120,9 @@
 
   <script src="assets/js/main.js" defer></script>
 
-  <!-- Hide Product Catalog link if no visible items -->
-  <script>
-  (async function(){
-    const link = document.querySelector('[data-catalog-link]');
-    if (!link) return;
-
-    async function fetchJson(url){
-      try {
-        const r = await fetch(url, { cache: 'no-store' });
-        if (!r.ok) return null;
-        return await r.json();
-      } catch(e){ return null; }
-    }
-
-    let items = [];
-    // Only use the supported endpoint; your router exposes ?type=products
-    let j = await fetchJson('/api/router?type=products');
-    if (Array.isArray(j?.products)) items = j.products;
-
-    // Fallback to embedded list if present
-    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
-
-    const now = Date.now();
-    const hasVisible = (items || []).some(i => {
-      if (!i || i.active === false) return false;
-      const s = i.publishStart ? Date.parse(i.publishStart) : null;
-      const e = i.publishEnd ? Date.parse(i.publishEnd) : null;
-      return (s == null || now >= s) && (e == null || now <= e);
-    });
-
-    if (!hasVisible) link.style.display = 'none';
-  })();
-  </script>
-
-  <!-- Maintenance check -->
-  <script>
-  (async () => {
-    try {
-      // Use your router's settings endpoint (JSON)
-      const resp = await fetch('/api/router?type=settings', { cache: 'no-store' });
-      if (!resp.ok) throw new Error('settings not available');
-      const data = await resp.json();
-
-      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
-      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
-
-      if (on === 'true' || on === true) {
-        document.body.innerHTML = `
-          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
-            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
-            <p style="font-size:1.2em;max-width:500px;">
-              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
-            </p>
-          </div>
-        `;
-      }
-    } catch (err) {
-      console.error('Maintenance check failed:', err);
-    }
-  })();
-  </script>
-
-<script>
-(async function(){
-  async function hasActive(cat){
-    try{
-      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
-      if (!r.ok) return true;
-      const j = await r.json();
-      return !!(j && j.hasActive);
-    }catch(e){
-      // fail open: show links if API fails
-      return true;
-    }
-  }
-  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
-  for (const a of links){
-    const cat = a.getAttribute("data-cat") || "";
-    const ok = await hasActive(cat);
-    if (!ok) a.style.display = "none";
-  }
-})();
-</script>
   <script src="/assets/js/visits.js?v=visits-v1"></script>
 
-  <!-- Visitor tracking -->
+  <!-- Visitor tracking (with anonymous visitor ID) -->
   <script>
   (function () {
     try {
@@ -283,10 +134,23 @@
         path.startsWith('/assets')
       ) return;
 
-      fetch(`/api/router?type=track_visit&path=${encodeURIComponent(path)}`, {
-        method: 'GET',
-        keepalive: true
-      });
+      const KEY = 'amaranth_visitor_id';
+      let visitorId = localStorage.getItem(KEY);
+      if (!visitorId) {
+        visitorId =
+          'v_' +
+          Math.random().toString(36).slice(2) +
+          Date.now().toString(36);
+        localStorage.setItem(KEY, visitorId);
+      }
+
+      fetch(
+        `/api/router?type=track_visit&path=${encodeURIComponent(path)}&vid=${encodeURIComponent(visitorId)}`,
+        {
+          method: 'GET',
+          keepalive: true
+        }
+      );
     } catch (e) {}
   })();
   </script>
