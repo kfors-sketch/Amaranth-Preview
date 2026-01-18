@@ -64,6 +64,7 @@ import {
   clearOrdersCache,
 
   // ✅ Receipts ZIP helpers
+  emailWeeklyReceiptsZip,
   emailMonthlyReceiptsZip,
   emailFinalReceiptsZip,
 } from "./admin/core.js";
@@ -779,6 +780,10 @@ async function sendPostOrderEmails(order, requestId) {
 // ✅ VISITS COUNTER (KV ground truth)
 // - Public endpoint: POST /api/router?action=track_visit  (no auth)
 // - Optional GET:    /api/router?type=track_visit&path=/home.html (no auth)
+// - Admin endpoints:
+//     GET /api/router?type=visits_summary&mode=auto|test|live_test|live&days=30
+//     GET /api/router?type=visits_pages&mode=auto|test|live_test|live&days=30&limit=50
+//     GET /api/router?type=visits_export&mode=auto|test|live_test|live&days=30   (xlsx)
 // - Stores totals + per-day + per-month + per-path, split by channel (test/live_test/live)
 // ============================================================================
 const VISITS_KEY_PREFIX = "visits";
@@ -793,6 +798,7 @@ function ymUtc(d = new Date()) {
 function normalizeVisitPath(p) {
   const raw = String(p || "").trim();
   if (!raw) return "/";
+
   // strip protocol/host if someone passed full URL
   try {
     if (raw.startsWith("http://") || raw.startsWith("https://")) {
@@ -800,9 +806,9 @@ function normalizeVisitPath(p) {
       return normalizeVisitPath(u.pathname || "/");
     }
   } catch {}
+
   const noQuery = raw.split("?")[0].split("#")[0].trim();
   let out = noQuery.startsWith("/") ? noQuery : `/${noQuery}`;
-  // basic cleanup
   out = out.replace(/\/{2,}/g, "/");
   if (out.length > 256) out = out.slice(0, 256);
   return out || "/";
@@ -830,7 +836,8 @@ function shouldCountVisit(pathname) {
     p.endsWith(".svg") ||
     p.endsWith(".ico") ||
     p.endsWith(".map")
-  ) return false;
+  )
+    return false;
 
   return true;
 }
@@ -842,13 +849,10 @@ async function kvIncrSafe(key, delta = 1) {
     }
     if (kv && typeof kv.incr === "function") {
       if (delta === 1) return await kv.incr(key);
-      // fall back for non-1 deltas
+      // fall through for non-1 deltas
     }
-  } catch (e) {
-    // fall through
-  }
+  } catch {}
 
-  // fallback: get + set
   const prev = Number(await kvGetSafe(key, 0)) || 0;
   const next = prev + Number(delta || 0);
   await kvSetSafe(key, next);
@@ -860,10 +864,9 @@ async function kvScardSafe(key, fallback = 0) {
     if (kv && typeof kv.scard === "function") {
       return await kv.scard(key);
     }
-  } catch (e) {}
+  } catch {}
   return fallback;
 }
-
 
 function visitsKey(mode, parts) {
   const m = String(mode || "test").trim().toLowerCase() || "test";
@@ -888,7 +891,7 @@ async function trackVisitInternal({ path, mode, now, vid }) {
   const kDayPath = visitsKey(mode, ["day", day, "path", safePathKey]);
   const kMonthPath = visitsKey(mode, ["month", month, "path", safePathKey]);
 
-  // unique (Option A)
+  // unique sets (optional)
   const visitor = String(vid || "").trim();
   const hasVisitor = visitor && visitor.length >= 6;
   const kDayUniqueSet = visitsKey(mode, ["day", day, "unique_set"]);
@@ -913,6 +916,58 @@ async function trackVisitInternal({ path, mode, now, vid }) {
   return { ok: true, path: pathname, day, month, mode };
 }
 
+// Admin helpers for visit reads
+async function resolveVisitsMode(qMode) {
+  const mode = String(qMode || "auto").trim().toLowerCase();
+  const effectiveMode =
+    mode === "auto"
+      ? await getEffectiveOrderChannel().catch(() => "test")
+      : mode;
+
+  if (!["test", "live_test", "live"].includes(effectiveMode)) {
+    return { ok: false, effectiveMode, error: "invalid-mode" };
+  }
+  return { ok: true, effectiveMode };
+}
+
+async function getVisitsDailyRows(effectiveMode, days) {
+  const base = `visits:${effectiveMode}`;
+  const rows = [];
+  for (let i = 0; i < days; i++) {
+    const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const total = Number(await kvGetSafe(`${base}:day:${day}:total`, 0)) || 0;
+    const unique = Number(await kvScardSafe(`${base}:day:${day}:unique_set`, 0)) || 0;
+    rows.push({ day, total, unique });
+  }
+  return rows; // newest-first
+}
+
+async function getVisitsTopPages(effectiveMode, days) {
+  const base = `visits:${effectiveMode}`;
+  const pages = (await kvSmembersSafe(`${base}:pages`)) || [];
+  const results = [];
+
+  for (const page of pages) {
+    const pagePath = normalizeVisitPath(page);
+    const enc = encodeURIComponent(pagePath);
+
+    let total = 0;
+    let unique = 0;
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      total += Number(await kvGetSafe(`${base}:day:${d}:path:${enc}`, 0)) || 0;
+      unique += Number(await kvScardSafe(`${base}:day:${d}:path:${enc}:unique_set`, 0)) || 0;
+    }
+
+    if (total > 0) results.push({ page: pagePath, total, unique });
+  }
+
+  results.sort((a, b) => b.total - a.total);
+  return results;
+}
+
+
 // -------------- main handler --------------
 export default async function handler(req, res) {
   const requestId = getRequestId(req);
@@ -923,59 +978,237 @@ export default async function handler(req, res) {
     const action = url.searchParams.get("action");
     const type = url.searchParams.get("type");
 
-    // ---------- GET ----------
-    if (req.method === "GET") {
-      // ✅ Public: track a visit (no auth)
-      if (type === "track_visit") {
-        try {
-          const pathParam =
-            url.searchParams.get("path") ||
-            url.searchParams.get("p") ||
-            url.pathname ||
-            "/";
-          const mode = await getEffectiveOrderChannel().catch(() => "test");
-          const vidParam =
-            url.searchParams.get("vid") ||
-            url.searchParams.get("visitorId") ||
-            url.searchParams.get("v") ||
-            "";
-          const out = await trackVisitInternal({ path: pathParam, mode, now: new Date(), vid: vidParam });
-          // For GET beacon calls, 204 is fine, but we return JSON for easier debugging.
-          return REQ_OK(res, { requestId, ...out });
-        } catch (e) {
-          return errResponse(res, 500, "track-visit-failed", req, e);
-        }
+// ---------- GET ----------
+if (req.method === "GET") {
+  // Small local helpers (avoid repeating logic)
+  const resolveVisitsModeLocal = async () => {
+    const modeRaw = String(q.mode || "auto").trim().toLowerCase();
+    const effectiveMode =
+      modeRaw === "auto"
+        ? await getEffectiveOrderChannel().catch(() => "test")
+        : modeRaw;
+
+    if (effectiveMode !== "test" && effectiveMode !== "live_test" && effectiveMode !== "live") {
+      return { ok: false, modeRaw, effectiveMode };
+    }
+    return { ok: true, modeRaw, effectiveMode };
+  };
+
+  const getScard = async (key) => {
+    // kvScardSafe preferred
+    if (typeof kvScardSafe === "function") {
+      return Number(await kvScardSafe(key, 0)) || 0;
+    }
+    // fallback to kv.scard if available
+    if (kv && typeof kv.scard === "function") {
+      try {
+        return Number(await kv.scard(key)) || 0;
+      } catch {
+        return 0;
+      }
+    }
+    return 0;
+  };
+
+  // ✅ Public: track a visit (no auth)
+  if (type === "track_visit") {
+    try {
+      const pathParam =
+        url.searchParams.get("path") ||
+        url.searchParams.get("p") ||
+        url.pathname ||
+        "/";
+      const mode = await getEffectiveOrderChannel().catch(() => "test");
+      const vidParam =
+        url.searchParams.get("vid") ||
+        url.searchParams.get("visitorId") ||
+        url.searchParams.get("v") ||
+        "";
+      const out = await trackVisitInternal({
+        path: pathParam,
+        mode,
+        now: new Date(),
+        vid: vidParam,
+      });
+      return REQ_OK(res, { requestId, ...out });
+    } catch (e) {
+      return errResponse(res, 500, "track-visit-failed", req, e);
+    }
+  }
+
+  // ================= VISITS: SUMMARY (ADMIN) =================
+  if (type === "visits_summary") {
+    if (!(await requireAdminAuth(req, res))) return;
+
+    const days = Math.max(1, Math.min(365, parseInt(q.days || "30", 10) || 30));
+    const m = await resolveVisitsModeLocal();
+    if (!m.ok) return REQ_ERR(res, 400, "invalid-mode", { requestId, mode: m.modeRaw });
+
+    const base = `visits:${m.effectiveMode}`;
+    const rows = [];
+
+    for (let i = 0; i < days; i++) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const total = Number(await kvGetSafe(`${base}:day:${day}:total`, 0)) || 0;
+      const unique = await getScard(`${base}:day:${day}:unique_set`);
+      rows.push({ day, total, unique });
+    }
+
+    return REQ_OK(res, { requestId, ok: true, mode: m.effectiveMode, days, rows });
+  }
+
+  // ================= VISITS: TOP PAGES (ADMIN) =================
+  if (type === "visits_pages") {
+    if (!(await requireAdminAuth(req, res))) return;
+
+    const days = Math.max(1, Math.min(365, parseInt(q.days || "30", 10) || 30));
+    const limit = Math.max(1, Math.min(200, parseInt(q.limit || "50", 10) || 50));
+
+    const m = await resolveVisitsModeLocal();
+    if (!m.ok) return REQ_ERR(res, 400, "invalid-mode", { requestId, mode: m.modeRaw });
+
+    const base = `visits:${m.effectiveMode}`;
+    const pages = (await kvSmembersSafe(`${base}:pages`)) || [];
+
+    const results = [];
+    for (const page of pages) {
+      const pagePath =
+        typeof normalizeVisitPath === "function"
+          ? normalizeVisitPath(page)
+          : String(page || "/");
+      const enc = encodeURIComponent(pagePath);
+
+      let total = 0;
+      let unique = 0;
+
+      for (let i = 0; i < days; i++) {
+        const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        total += Number(await kvGetSafe(`${base}:day:${day}:path:${enc}`, 0)) || 0;
+        unique += await getScard(`${base}:day:${day}:path:${enc}:unique_set`);
       }
 
+      if (total > 0) results.push({ page: pagePath, total, unique });
+    }
 
-      if (type === "smoketest") {
-        const out = await handleSmoketest();
-        return REQ_OK(res, { requestId, ...out });
+    results.sort((a, b) => b.total - a.total);
+
+    return REQ_OK(res, {
+      requestId,
+      ok: true,
+      mode: m.effectiveMode,
+      days,
+      pages: results.slice(0, limit),
+    });
+  }
+
+  // ================= VISITS: EXPORT XLSX (ADMIN) =================
+  // One-sheet XLSX export using objectsToXlsxBuffer(headers, rows, [], sheetName)
+  if (type === "visits_export") {
+    if (!(await requireAdminAuth(req, res))) return;
+
+    const days = Math.max(1, Math.min(365, parseInt(q.days || "30", 10) || 30));
+    const m = await resolveVisitsModeLocal();
+    if (!m.ok) return REQ_ERR(res, 400, "invalid-mode", { requestId, mode: m.modeRaw });
+
+    const base = `visits:${m.effectiveMode}`;
+
+    // Daily summary
+    const daily = [];
+    for (let i = 0; i < days; i++) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const total = Number(await kvGetSafe(`${base}:day:${day}:total`, 0)) || 0;
+      const unique = await getScard(`${base}:day:${day}:unique_set`);
+      daily.push({ day, total, unique });
+    }
+
+    // Top pages (window totals)
+    const pagesSet = (await kvSmembersSafe(`${base}:pages`)) || [];
+    const topPages = [];
+
+    for (const page of pagesSet) {
+      const pagePath =
+        typeof normalizeVisitPath === "function"
+          ? normalizeVisitPath(page)
+          : String(page || "/");
+      const enc = encodeURIComponent(pagePath);
+
+      let total = 0;
+      let unique = 0;
+
+      for (let i = 0; i < days; i++) {
+        const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        total += Number(await kvGetSafe(`${base}:day:${day}:path:${enc}`, 0)) || 0;
+        unique += await getScard(`${base}:day:${day}:path:${enc}:unique_set`);
       }
 
-      if (type === "lastmail") {
-        const out = await handleLastMail();
-        return REQ_OK(res, { requestId, ...out });
-      }
+      if (total > 0) topPages.push({ page: pagePath, total, unique });
+    }
 
-      if (type === "debug_mail_recent") {
-        // Admin-only: list recent mail logs (requires recordMailLog to push into mail:logs)
-        if (!(await requireAdminAuth(req, res))) return;
+    topPages.sort((a, b) => b.total - a.total);
 
-        const limitRaw = url.searchParams.get("limit") || "20";
-        let limit = Number(limitRaw);
-        if (!Number.isFinite(limit)) limit = 20;
-        limit = Math.max(1, Math.min(200, Math.floor(limit)));
+    // One sheet export
+    const rows = [];
+    rows.push({ section: "Daily Summary", day: "", page: "", total: "", unique: "" });
 
-        let logs = [];
-        try {
-          logs = await kv.lrange("mail:logs", 0, limit - 1);
-        } catch (e) {
-          return errResponse(res, 500, "debug-mail-recent-failed", req, e);
-        }
+    for (const r of daily) {
+      rows.push({ section: "daily", day: r.day, page: "", total: r.total, unique: r.unique });
+    }
 
-        return REQ_OK(res, { requestId, ok: true, limit, logs });
-      }
+    rows.push({ section: "", day: "", page: "", total: "", unique: "" });
+    rows.push({ section: "Top Pages (window totals)", day: "", page: "", total: "", unique: "" });
+
+    for (const p of topPages) {
+      rows.push({ section: "page", day: "", page: p.page, total: p.total, unique: p.unique });
+    }
+
+    const headers = ["section", "day", "page", "total", "unique"];
+    const buf = await objectsToXlsxBuffer(headers, rows, [], "Visits");
+
+    const filename = `visits_${m.effectiveMode}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    res.statusCode = 200;
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.end(buf);
+    return;
+  }
+
+  // ===== existing debug endpoints continue unchanged =====
+
+  if (type === "smoketest") {
+    const out = await handleSmoketest();
+    return REQ_OK(res, { requestId, ...out });
+  }
+
+  if (type === "lastmail") {
+    const out = await handleLastMail();
+    return REQ_OK(res, { requestId, ...out });
+  }
+
+  if (type === "debug_mail_recent") {
+    if (!(await requireAdminAuth(req, res))) return;
+
+    const limitRaw = url.searchParams.get("limit") || "20";
+    let limit = Number(limitRaw);
+    if (!Number.isFinite(limit)) limit = 20;
+    limit = Math.max(1, Math.min(200, Math.floor(limit)));
+
+    let logs = [];
+    try {
+      logs = await kv.lrange("mail:logs", 0, limit - 1);
+    } catch (e) {
+      return errResponse(res, 500, "debug-mail-recent-failed", req, e);
+    }
+
+    return REQ_OK(res, { requestId, ok: true, limit, logs });
+  }
+
+  // ✅ IMPORTANT: keep GET open; do NOT close the GET block here.
+  // The GET block should end only once, right before POST begins.
+
 
 
       if (type === "debug_token") {
@@ -2026,63 +2259,7 @@ export default async function handler(req, res) {
           return errResponse(res, 500, "send-item-report-failed", req, e, { kind, id, scope });
         }
       }
-
-            // ================= VISITS: TOP PAGES (ADMIN) =================
-      // Returns top pages over the last N days (default 30).
-      // Requires admin auth.
-      if (type === "visits_pages") {
-        if (!(await requireAdminAuth(req, res))) return;
-
-        const mode = String(q.mode || "auto");
-        const days = Math.max(1, Math.min(365, parseInt(q.days || "30", 10) || 30));
-        const limit = Math.max(1, Math.min(200, parseInt(q.limit || "50", 10) || 50));
-
-        const effectiveMode =
-          mode === "auto"
-            ? await getEffectiveOrderChannel().catch(() => "test")
-            : String(mode || "test").toLowerCase();
-
-        if (effectiveMode !== "test" && effectiveMode !== "live_test" && effectiveMode !== "live") {
-          return REQ_ERR(res, 400, "invalid-mode", { requestId, mode });
-        }
-
-        const base = `visits:${effectiveMode}`;
-        const pages = (await kvSmembersSafe(`${base}:pages`)) || [];
-        const results = [];
-
-        for (const page of pages) {
-          const pagePath = normalizeVisitPath(page);
-
-          let total = 0;
-          let unique = 0;
-
-          const enc = encodeURIComponent(pagePath);
-
-          for (let i = 0; i < days; i++) {
-            const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-
-            const kTotal = `${base}:day:${d}:path:${enc}`;
-            total += Number(await kvGetSafe(kTotal, 0)) || 0;
-
-            const kUniqSet = `${base}:day:${d}:path:${enc}:unique_set`;
-            unique += Number(await kvScardSafe(kUniqSet, 0)) || 0;
-          }
-
-          if (total > 0) results.push({ page: pagePath, total, unique });
-        }
-
-        results.sort((a, b) => b.total - a.total);
-        return REQ_OK(res, {
-          requestId,
-          ok: true,
-          mode: effectiveMode,
-          days,
-          pages: results.slice(0, limit),
-        });
-      }
-
-return REQ_ERR(res, 400, "unknown-type", { requestId });
-    }
+    } // ✅ IMPORTANT: this closes `if (req.method === "GET") { ... }`
 
     // ---------- POST ----------
     if (req.method === "POST") {
