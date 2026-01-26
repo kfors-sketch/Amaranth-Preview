@@ -2442,8 +2442,12 @@ async function emailWeeklyReceiptsZip({ mode = "test" } = {}) {
 
   const orders = await loadAllOrdersWithRetry();
   const wantMode = String(mode || "test").toLowerCase();
-  const weekKey = weekKeyUTC(Date.now())
-  const { startMs, endMs } = weekRangeUTC(Date.now());
+  const _now = Date.now();
+  // Weekly ZIP should cover the *previous completed* Mon→Sun week (UTC),
+  // since the cron runs Monday morning.
+  const _prevWeekNow = _now - 7 * 24 * 60 * 60 * 1000;
+  const weekKey = weekKeyUTC(_prevWeekNow);
+  const { startMs, endMs } = weekRangeUTC(_prevWeekNow);
 
   // ✅ LIVE/LIVE_TEST: only send once per month (even if cron runs daily)
   // TEST: allowed to send repeatedly (useful while testing)
