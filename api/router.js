@@ -1783,6 +1783,7 @@ if (req.method === "GET") {
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
           endMs = parseYMD(endParam);
+          if (!isNaN(endMs) && /^\d{4}-\d{2}-\d{2}$/.test(String(endParam || ''))) endMs += 24 * 60 * 60 * 1000;
         } else if (cfgStart || cfgEnd || cfgDays) {
           if (cfgDays) {
             endMs = Date.now() + 1;
@@ -1790,6 +1791,7 @@ if (req.method === "GET") {
           } else {
             startMs = parseYMD(cfgStart);
             endMs = parseYMD(cfgEnd);
+             if (!isNaN(endMs) && /^\d{4}-\d{2}-\d{2}$/.test(String(cfgEnd || ''))) endMs += 24 * 60 * 60 * 1000;
           }
         }
 
@@ -1939,6 +1941,7 @@ if (req.method === "GET") {
         } else if (startParam || endParam) {
           startMs = parseYMD(startParam);
           endMs = parseYMD(endParam);
+            if (!isNaN(endMs) && /^\d{4}-\d{2}-\d{2}$/.test(String(endParam || ''))) endMs += 24 * 60 * 60 * 1000;
         }
 
         const cats = (url.searchParams.get("category") || "banquet,addon")
@@ -2247,10 +2250,7 @@ if (req.method === "GET") {
         if (!(await enforceLockdownIfNeeded(req, res, "send_item_report", requestId))) return;
 
         try {
-          const startYMD = String(url.searchParams.get("startYMD") || url.searchParams.get("start") || url.searchParams.get("startDate") || "").trim();
-          const endYMD = String(url.searchParams.get("endYMD") || url.searchParams.get("end") || url.searchParams.get("endDate") || "").trim();
-          const mode = String(url.searchParams.get("mode") || url.searchParams.get("channel") || "").trim();
-          const result = await sendItemReportEmailInternal({ kind, id, label, scope, startYMD, endYMD, mode });
+          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
           if (!result?.ok) {
             return REQ_ERR(res, 500, result?.error || "send-failed", {
               requestId,
@@ -2597,10 +2597,7 @@ if (req.method === "GET") {
           const id = String(body?.id || "").trim();
           const label = String(body?.label || "").trim();
           const scope = String(body?.scope || "current-month");
-          const startYMD = String(body?.startYMD || body?.startDate || body?.start || "").trim();
-          const endYMD = String(body?.endYMD || body?.endDate || body?.end || "").trim();
-          const mode = String(body?.mode || body?.channel || body?.reportChannel || "").trim();
-          const result = await sendItemReportEmailInternal({ kind, id, label, scope, startYMD, endYMD, mode });
+          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
           if (!result.ok)
             return REQ_ERR(res, 500, result.error || "send-failed", {
               requestId,
