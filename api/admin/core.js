@@ -1836,9 +1836,6 @@ async function sendItemReportEmailInternal({
   scope = "current-month",
   startDate,
   endDate,
-  // Accept admin UI aliases
-  startYMD,
-  endYMD,
   startMs: explicitStartMs,
   endMs: explicitEndMs,
   scheduledAt,
@@ -1900,12 +1897,12 @@ async function sendItemReportEmailInternal({
     endMs = Date.now() + 1;
   }
 
-  if (scope === "custom" && startMs == null && endMs == null) {
-    if (startDate || startYMD) {
+  if (scope === "custom") {
+    if (startMs == null) {
       const dStart = parseYMD(startDate || startYMD);
       if (!isNaN(dStart)) startMs = dStart;
     }
-    if (endDate || endYMD) {
+    if (endMs == null) {
       const dEnd = parseYMD(endDate || endYMD);
       if (!isNaN(dEnd)) endMs = dEnd + 24 * 60 * 60 * 1000;
     }
