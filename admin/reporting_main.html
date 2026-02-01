@@ -805,8 +805,8 @@ function getOrderKey(r){
       const cat = $('#category').value;
       const st  = $('#status').value;
       const q   = $('#search').value.trim();
-      if (df) params.set('from', df);
-      if (dt) params.set('to', dt);
+      if (df) { params.set('from', df); params.set('start', df); }
+      if (dt) { params.set('to', dt); params.set('end', dt); }
       if (cat) params.set('category', cat);
       if (st) params.set('status', st);
       if (q) params.set('search', q);
@@ -1195,11 +1195,36 @@ function getOrderKey(r){
       if(!opt)return alert('Choose item');
       const id=opt.value;
       const label=opt.dataset.label;
-      const extra = new URLSearchParams({
-        category:kind,
-        item_id:id,
-        item:label
-      }).toString();
+
+      // Respect scope settings for per-item downloads
+      const scopeMode = ($('#scopeMode')?.value || 'full').trim();
+      let startYMD = '';
+      let endYMD = '';
+
+      if (scopeMode === 'current-month'){
+        const now = new Date();
+        const y = now.getUTCFullYear();
+        const m = String(now.getUTCMonth()+1).padStart(2,'0');
+        startYMD = `${y}-${m}-01`;
+        // end = today (UTC) so it matches your server's UTC-based reporting windows
+        const d = String(now.getUTCDate()).padStart(2,'0');
+        endYMD = `${y}-${m}-${d}`;
+      } else if (scopeMode === 'custom'){
+        startYMD = ($('#scopeStart')?.value || '').trim();
+        endYMD = ($('#scopeEnd')?.value || '').trim();
+        if(!startYMD || !endYMD) return alert('Both dates required');
+      }
+
+      // Build query for server export. Include both (from/to) and (start/end) for compatibility.
+      const extraObj = {
+        category: kind,
+        item_id: id,
+        item: label,
+      };
+      if (startYMD) { extraObj.from = startYMD; extraObj.start = startYMD; }
+      if (endYMD)   { extraObj.to   = endYMD;   extraObj.end   = endYMD;   }
+
+      const extra = new URLSearchParams(extraObj).toString();
       await downloadServerCsv(extra);
     });
 
