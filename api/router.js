@@ -1249,7 +1249,9 @@ if (req.method === "GET") {
       if (type === "debug_chair_preview") {
         const id = url.searchParams.get("id") || "";
         const scope = url.searchParams.get("scope") || "full";
-        const out = await handleChairPreview({ id, scope });
+        const startYMD = String(url.searchParams.get("startYMD") || url.searchParams.get("start") || url.searchParams.get("from") || "").trim();
+        const endYMD = String(url.searchParams.get("endYMD") || url.searchParams.get("end") || url.searchParams.get("to") || "").trim();
+        const out = await handleChairPreview({ id, scope, startYMD, endYMD });
         return REQ_OK(res, { requestId, ...out });
       }
 
@@ -2214,16 +2216,11 @@ if (req.method === "GET") {
         const id = String(url.searchParams.get("id") || "").trim();
         const label = String(url.searchParams.get("label") || "").trim();
         const scope = String(url.searchParams.get("scope") || "current-month").trim();
-        const startYMD = String(url.searchParams.get("startYMD") || url.searchParams.get("start") || "").trim();
-        const endYMD = String(url.searchParams.get("endYMD") || url.searchParams.get("end") || "").trim();
+        const startYMD = String(url.searchParams.get("startYMD") || url.searchParams.get("start") || url.searchParams.get("from") || "").trim();
+        const endYMD = String(url.searchParams.get("endYMD") || url.searchParams.get("end") || url.searchParams.get("to") || "").trim();
         const dryRun = coerceBool(url.searchParams.get("dryRun") || url.searchParams.get("dry_run") || "");
 
         if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
-
-        // If using custom date range, both dates are required.
-        if (scope === "custom" && (!startYMD || !endYMD)) {
-          return REQ_ERR(res, 400, "missing-date-range", { requestId, scope, startYMD, endYMD });
-        }
 
         // Dry-run: provide a safe preview (no email)
         if (dryRun) {
@@ -2239,16 +2236,12 @@ if (req.method === "GET") {
               id,
               label: label || out?.label || out?.name || "",
               scope,
-              startYMD: startYMD || undefined,
-              endYMD: endYMD || undefined,
               preview: out,
             });
           } catch (e) {
             return errResponse(res, 500, "send-item-report-dryrun-failed", req, e, {
               id,
               scope,
-              startYMD,
-              endYMD,
             });
           }
         }
@@ -2267,7 +2260,7 @@ if (req.method === "GET") {
           }
           return REQ_OK(res, { requestId, ok: true, ...result });
         } catch (e) {
-          return errResponse(res, 500, "send-item-report-failed", req, e, { kind, id, scope, startYMD, endYMD });
+          return errResponse(res, 500, "send-item-report-failed", req, e, { kind, id, scope });
         }
       }
     } // ✅ IMPORTANT: this closes `if (req.method === "GET") { ... }`
@@ -2605,14 +2598,8 @@ if (req.method === "GET") {
           const id = String(body?.id || "").trim();
           const label = String(body?.label || "").trim();
           const scope = String(body?.scope || "current-month");
-          const startYMD = String(body?.startYMD || body?.start || "").trim();
-          const endYMD = String(body?.endYMD || body?.end || "").trim();
-
-          // If using custom date range, both dates are required.
-          if (scope === "custom" && (!startYMD || !endYMD)) {
-            return REQ_ERR(res, 400, "missing-date-range", { requestId, scope, startYMD, endYMD });
-          }
-
+          const startYMD = String(body?.startYMD || body?.start || body?.from || "").trim();
+          const endYMD = String(body?.endYMD || body?.end || body?.to || "").trim();
           const result = await sendItemReportEmailInternal({ kind, id, label, scope, startYMD, endYMD });
           if (!result.ok)
             return REQ_ERR(res, 500, result.error || "send-failed", {
