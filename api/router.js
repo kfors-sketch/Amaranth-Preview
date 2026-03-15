@@ -2250,7 +2250,17 @@ if (req.method === "GET") {
         if (!(await enforceLockdownIfNeeded(req, res, "send_item_report", requestId))) return;
 
         try {
-          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+          const startMs = Number(url.searchParams.get("startMs") || "");
+          const endMs = Number(url.searchParams.get("endMs") || "");
+
+          const payload = { kind, id, label, scope };
+
+          if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+          payload.startMs = startMs;
+          payload.endMs = endMs;
+        }
+
+         const result = await sendItemReportEmailInternal(payload);
           if (!result?.ok) {
             return REQ_ERR(res, 500, result?.error || "send-failed", {
               requestId,
