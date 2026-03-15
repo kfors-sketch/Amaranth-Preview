@@ -34,8 +34,14 @@ async function handleOrdersCsv(url, res) {
   const all = await loadAllOrderRows();
 
   const daysParam = url.searchParams.get("days");
-  const startParam = url.searchParams.get("start");
-  const endParam = url.searchParams.get("end");
+
+const startParam =
+  url.searchParams.get("start") ||
+  url.searchParams.get("from");
+
+const endParam =
+  url.searchParams.get("end") ||
+  url.searchParams.get("to");
 
   const { effective } = await getEffectiveSettings();
   const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
