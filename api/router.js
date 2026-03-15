@@ -2213,77 +2213,86 @@ if (req.method === "GET") {
       // - If dryRun is falsey, requires admin auth and will send the email.
       // --------------------------------------------------------------------
       if (type === "send_item_report") {
-        const kind = String(url.searchParams.get("kind") || "").trim().toLowerCase();
-        const id = String(url.searchParams.get("id") || "").trim();
-        const label = String(url.searchParams.get("label") || "").trim();
-        const scope = String(url.searchParams.get("scope") || "current-month").trim();
-        const dryRun = coerceBool(url.searchParams.get("dryRun") || url.searchParams.get("dry_run") || "");
+  const kind = String(url.searchParams.get("kind") || "").trim().toLowerCase();
+  const id = String(url.searchParams.get("id") || "").trim();
+  const label = String(url.searchParams.get("label") || "").trim();
+  const scope = String(url.searchParams.get("scope") || "current-month").trim();
+  const dryRun = coerceBool(
+    url.searchParams.get("dryRun") || url.searchParams.get("dry_run") || ""
+  );
 
-        if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
+  if (!id) return REQ_ERR(res, 400, "missing-id", { requestId });
 
-        // Dry-run: provide a safe preview (no email)
-        if (dryRun) {
-          try {
-            // We reuse the existing preview helper. It uses itemcfg + orders to show
-            // what *would* be sent, without sending anything.
-            const out = await handleChairPreview({ id, scope });
-            return REQ_OK(res, {
-              requestId,
-              ok: true,
-              dryRun: true,
-              kind: kind || (out?.kind || ""),
-              id,
-              label: label || out?.label || out?.name || "",
-              scope,
-              preview: out,
-            });
-          } catch (e) {
-            return errResponse(res, 500, "send-item-report-dryrun-failed", req, e, {
-              id,
-              scope,
-            });
-          }
-        }
+  // Dry-run: provide a safe preview (no email)
+  if (dryRun) {
+    try {
+      const out = await handleChairPreview({ id, scope });
+      return REQ_OK(res, {
+        requestId,
+        ok: true,
+        dryRun: true,
+        kind: kind || (out?.kind || ""),
+        id,
+        label: label || out?.label || out?.name || "",
+        scope,
+        preview: out,
+      });
+    } catch (e) {
+      return errResponse(res, 500, "send-item-report-dryrun-failed", req, e, {
+        id,
+        scope,
+      });
+    }
+  }
 
-        // Real send: admin-only + respects lockdown
-        if (!(await requireAdminAuth(req, res))) return;
-        if (!(await enforceLockdownIfNeeded(req, res, "send_item_report", requestId))) return;
+  // Real send: admin-only + respects lockdown
+  if (!(await requireAdminAuth(req, res))) return;
+  if (!(await enforceLockdownIfNeeded(req, res, "send_item_report", requestId))) return;
 
-        try {
-          const startMs = Number(url.searchParams.get("startMs") || "");
-          const endMs = Number(url.searchParams.get("endMs") || "");
+  try {
+    const startMs = Number(url.searchParams.get("startMs") || "");
+    const endMs = Number(url.searchParams.get("endMs") || "");
+    const startYMD = String(
+      url.searchParams.get("startYMD") ||
+        url.searchParams.get("start") ||
+        ""
+    ).trim();
+    const endYMD = String(
+      url.searchParams.get("endYMD") ||
+        url.searchParams.get("end") ||
+        ""
+    ).trim();
+    const mode = String(url.searchParams.get("mode") || "").trim();
 
-          const payload = { kind, id, label, scope };
+    const payload = { kind, id, label, scope };
 
-          if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
-          payload.startMs = startMs;
-          payload.endMs = endMs;
-        }
+    if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      payload.startMs = startMs;
+      payload.endMs = endMs;
+    }
 
-         const result = await sendItemReportEmailInternal(payload);
-          if (!result?.ok) {
-            return REQ_ERR(res, 500, result?.error || "send-failed", {
-              requestId,
-              ...(result || {}),
-            });
-          }
-          return REQ_OK(res, { requestId, ok: true, ...result });
-        } catch (e) {
-          return errResponse(res, 500, "send-item-report-failed", req, e, { kind, id, scope });
-        }
-      }
-    } // ✅ IMPORTANT: this closes `if (req.method === "GET") { ... }`
+    if (startYMD) payload.startYMD = startYMD;
+    if (endYMD) payload.endYMD = endYMD;
+    if (mode) payload.mode = mode;
 
-    // ---------- POST ----------
-    if (req.method === "POST") {
-      let body = {};
-      try {
-        if (action !== "stripe_webhook") {
-          body = await readJsonBody(req);
-        }
-      } catch (e) {
-        return errResponse(res, 400, "invalid-json", req, e);
-      }
+    const result = await sendItemReportEmailInternal(payload);
+
+    if (!result?.ok) {
+      return REQ_ERR(res, 500, result?.error || "send-failed", {
+        requestId,
+        ...(result || {}),
+      });
+    }
+
+    return REQ_OK(res, { requestId, ok: true, ...result });
+  } catch (e) {
+    return errResponse(res, 500, "send-item-report-failed", req, e, {
+      kind,
+      id,
+      scope,
+    });
+  }
+}
 
 
       // ✅ Public: track a visit (no auth)
