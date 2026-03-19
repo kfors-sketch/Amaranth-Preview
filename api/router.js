@@ -1659,8 +1659,12 @@ if (req.method === "GET") {
         }
 
         const daysParam = url.searchParams.get("days");
-        const startParam = url.searchParams.get("start");
-        const endParam = url.searchParams.get("end");
+        const startParam =
+          url.searchParams.get("start") ||
+          url.searchParams.get("from");
+        const endParam =
+          url.searchParams.get("end") ||
+          url.searchParams.get("to");
 
         const { effective } = await getEffectiveSettings();
         const cfgDays = Number(effective.REPORT_ORDER_DAYS || 0) || 0;
@@ -2607,7 +2611,28 @@ if (req.method === "GET") {
           const id = String(body?.id || "").trim();
           const label = String(body?.label || "").trim();
           const scope = String(body?.scope || "current-month");
-          const result = await sendItemReportEmailInternal({ kind, id, label, scope });
+
+          const payload = { kind, id, label, scope };
+
+          const startYMD = String(
+            body?.startYMD || body?.start || body?.from || ""
+          ).trim();
+          const endYMD = String(
+            body?.endYMD || body?.end || body?.to || ""
+          ).trim();
+
+          if (scope === "custom") {
+            if (startYMD) payload.startMs = parseYMD(startYMD);
+            if (endYMD) {
+              let endMs = parseYMD(endYMD);
+              if (!isNaN(endMs) && /^\d{4}-\d{2}-\d{2}$/.test(endYMD)) {
+                endMs += 24 * 60 * 60 * 1000;
+              }
+              payload.endMs = endMs;
+            }
+          }
+
+          const result = await sendItemReportEmailInternal(payload);
           if (!result.ok)
             return REQ_ERR(res, 500, result.error || "send-failed", {
               requestId,
