@@ -1018,6 +1018,75 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
+// ---------------------------------------------------------------------------
+// Combine Directory + Proceedings rows (presentation only; no storage changes)
+// ---------------------------------------------------------------------------
+function combineDirectoryProceedingsRows(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const out = new Map();
+
+  const keyOf = (r) => [
+    String(r?.date || ""),
+    String(r?.attendee || ""),
+    String(r?.attendee_title || ""),
+    String(r?.attendee_phone || ""),
+    String(r?.attendee_email || ""),
+    String(r?.court || ""),
+    String(r?.court_number || ""),
+    String(r?.attendee_addr1 || ""),
+    String(r?.attendee_addr2 || ""),
+    String(r?.attendee_city || ""),
+    String(r?.attendee_state || ""),
+    String(r?.attendee_postal || ""),
+    String(r?.attendee_country || ""),
+    String(r?.id || ""),
+  ].join("|");
+
+  const pushNote = (parts, val) => {
+    const s = String(val || "").trim();
+    if (!s) return;
+    if (!parts.includes(s)) parts.push(s);
+  };
+
+  for (const r of list) {
+    const itemBase = baseKey(r?.item_id || r?._itemId || r?.item || "");
+    if (itemBase !== "directory" && itemBase !== "proceedings") continue;
+
+    const key = keyOf(r);
+    if (!out.has(key)) {
+      out.set(key, {
+        ...r,
+        directory: "",
+        directory_qty: "",
+        proceedings: "",
+        proceedings_qty: "",
+        notes_parts: [],
+      });
+    }
+
+    const row = out.get(key);
+    const qty = Number(r?.qty || 0);
+    if (itemBase === "directory") {
+      row.directory = "Directory";
+      row.directory_qty = Number(row.directory_qty || 0) + qty;
+    }
+    if (itemBase === "proceedings") {
+      row.proceedings = "Proceedings";
+      row.proceedings_qty = Number(row.proceedings_qty || 0) + qty;
+    }
+    pushNote(row.notes_parts, r?.notes);
+  }
+
+  return Array.from(out.values()).map((row) => {
+    const next = { ...row };
+    next.notes = (next.notes_parts || []).join("; ");
+    delete next.notes_parts;
+    if (!next.directory_qty) next.directory_qty = "";
+    if (!next.proceedings_qty) next.proceedings_qty = "";
+    return next;
+  });
+}
+
 // --- Helper to estimate Stripe fee from items + shipping ---
 function computeStripeProcessingFeeFromLines(
   lines,
@@ -1919,6 +1988,7 @@ async function sendItemReportEmailInternal({
   const isPreRegBase = base === "pre-reg";
   const isDirectoryBase = base === "directory";
   const isProceedingsBase = base === "proceedings";
+  const isDirectoryProceedingsCombined = isDirectoryBase || isProceedingsBase;
 
   const rosterAll = collectAttendeesFromOrders(ordersForMode, {
     includeAddress: includeAddressForThisItem,
@@ -1928,13 +1998,22 @@ async function sendItemReportEmailInternal({
   });
 
   const wantBase = (s) => String(s || "").toLowerCase().split(":")[0];
-  const filtered = rosterAll.filter(
-    (r) =>
-      wantBase(r.item_id) === wantBase(id) ||
+  let filtered = rosterAll.filter((r) => {
+    const rowBase = wantBase(r.item_id || r._itemId || r.item || "");
+    if (isDirectoryProceedingsCombined) {
+      return rowBase === "directory" || rowBase === "proceedings";
+    }
+    return (
+      rowBase === wantBase(id) ||
       (!r.item_id &&
         label &&
         String(r.item || "").toLowerCase().includes(String(label).toLowerCase()))
-  );
+    );
+  });
+
+  if (isDirectoryProceedingsCombined) {
+    filtered = combineDirectoryProceedingsRows(filtered);
+  }
 
   let EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   let EMAIL_HEADER_LABELS = {
@@ -1981,6 +2060,51 @@ async function sendItemReportEmailInternal({
       attendee_country: "Country",
       item: "Item",
       qty: "Qty",
+      notes: "Notes",
+    };
+  }
+
+  if (isDirectoryProceedingsCombined) {
+    EMAIL_COLUMNS = [
+      "#",
+      "date",
+      "attendee",
+      "attendee_title",
+      "attendee_phone",
+      "court",
+      "court_number",
+      "attendee_email",
+      "attendee_addr1",
+      "attendee_addr2",
+      "attendee_city",
+      "attendee_state",
+      "attendee_postal",
+      "attendee_country",
+      "directory",
+      "directory_qty",
+      "proceedings",
+      "proceedings_qty",
+      "notes",
+    ];
+    EMAIL_HEADER_LABELS = {
+      "#": "#",
+      date: "Date",
+      attendee: "Attendee",
+      attendee_title: "Title",
+      attendee_phone: "Phone",
+      court: "Court",
+      court_number: "Court #",
+      attendee_email: "Email",
+      attendee_addr1: "Address 1",
+      attendee_addr2: "Address 2",
+      attendee_city: "City",
+      attendee_state: "State",
+      attendee_postal: "Postal",
+      attendee_country: "Country",
+      directory: "Directory",
+      directory_qty: "Qty",
+      proceedings: "Proceedings",
+      proceedings_qty: "Qty",
       notes: "Notes",
     };
   }
@@ -2119,11 +2243,18 @@ async function sendItemReportEmailInternal({
       baseRow.voting_status = deriveVotingStatus(r);
     }
 
-    const itemFields = isLoveGiftBase
-      ? { item_name: ip.item_name, item_price: ip.item_price }
-      : isBanquetKind
-        ? { item: bm.item, meal_type: bm.meal_type }
-        : { item: r.item };
+    const itemFields = isDirectoryProceedingsCombined
+      ? {
+          directory: r.directory || "",
+          directory_qty: r.directory_qty || "",
+          proceedings: r.proceedings || "",
+          proceedings_qty: r.proceedings_qty || "",
+        }
+      : isLoveGiftBase
+        ? { item_name: ip.item_name, item_price: ip.item_price }
+        : isBanquetKind
+          ? { item: bm.item, meal_type: bm.meal_type }
+          : { item: r.item };
 
     if (includeAddressForThisItem) {
       return {
@@ -2136,12 +2267,12 @@ async function sendItemReportEmailInternal({
         attendee_postal: r.attendee_postal,
         attendee_country: r.attendee_country,
         ...itemFields,
-        qty: r.qty,
+        ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }),
         notes: r.notes,
       };
     }
 
-    return { ...baseRow, ...itemFields, qty: r.qty, notes: r.notes };
+    return { ...baseRow, ...itemFields, ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }), notes: r.notes };
   });
 
     // ✅ XLSX ATTACHMENT (always attach for chair reports)
@@ -2172,9 +2303,11 @@ async function sendItemReportEmailInternal({
 
 const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
-  const baseNameRaw = label || id || "report";
+  const reportLabel = isDirectoryProceedingsCombined ? "Directory & Proceedings" : (label || id || "report");
+  const reportIdForFile = isDirectoryProceedingsCombined ? "directory_proceedings" : (id || "item");
+  const baseNameRaw = reportLabel;
   const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-  const filename = `Report_${id || "item"}_${scope || "current"}.xlsx`;
+  const filename = `Report_${reportIdForFile}_${scope || "current"}.xlsx`;
 
   const toListPref = await getChairEmailsForItemId(id);
   const { effective } = await getEffectiveSettings();
@@ -2239,7 +2372,7 @@ const today = new Date();
 
   const coverageText = formatCoverageRange({ startMs, endMs, rows: sorted });
 
-  const subject = `Report — ${prettyKind}: ${label || id}`;
+  const subject = `Report — ${prettyKind}: ${reportLabel}`;
   const emailSubject = `${(subjectPrefix || "").toString()}${subject}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
