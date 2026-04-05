@@ -2314,12 +2314,10 @@ async function sendItemReportEmailInternal({
       numbered.push({
         "#": "",
         date: "",
-        directory: "TOTAL COST",
-        directory_qty: {
-        formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})*${directoryPrice}`},
-        proceedings: "TOTAL COST",
-        proceedings_qty: {
-        formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})*${proceedingsPrice}`},
+        directory: "TOTAL QTY",
+        directory_qty: { formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})` },
+        proceedings: "TOTAL QTY",
+        proceedings_qty: { formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})` },
         attendee: "",
         attendee_title: "",
         attendee_phone: "",
