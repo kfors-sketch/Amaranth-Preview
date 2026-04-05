@@ -1629,7 +1629,19 @@ async function objectsToXlsxBuffer(
   for (const r of rows || []) {
     const obj = {};
     for (const c of columns || []) obj[c] = r?.[c] ?? "";
-    ws.addRow(obj);
+    const added = ws.addRow(obj);
+    for (const c of columns || []) {
+      const v = r?.[c];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const cell = added.getCell(c);
+        if (Object.prototype.hasOwnProperty.call(v, "formula")) {
+          cell.value = { formula: v.formula, result: v.result ?? undefined };
+        }
+        if (v.numFmt) cell.numFmt = v.numFmt;
+        if (v.font) cell.font = v.font;
+        if (v.alignment) cell.alignment = v.alignment;
+      }
+    }
     if (spacerRows) ws.addRow({});
   }
 
@@ -2415,12 +2427,39 @@ async function sendItemReportEmailInternal({
         date: "",
         directory: "TOTAL COST",
         directory_qty: {
-          formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})*${directoryPrice || 0}`
+          formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})*${directoryPrice || 0}`,
+          numFmt: '$#,##0.00'
         },
         proceedings: "TOTAL COST",
         proceedings_qty: {
-          formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})*${proceedingsPrice || 0}`
+          formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})*${proceedingsPrice || 0}`,
+          numFmt: '$#,##0.00'
         },
+        attendee: "",
+        attendee_title: "",
+        attendee_phone: "",
+        court: "",
+        court_number: "",
+        attendee_email: "",
+        attendee_addr1: "",
+        attendee_addr2: "",
+        attendee_city: "",
+        attendee_state: "",
+        attendee_postal: "",
+        attendee_country: "",
+        notes: "",
+      });
+
+      numbered.push({
+        "#": "",
+        date: "",
+        directory: "COMBINED COST",
+        directory_qty: {
+          formula: `(SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})*${directoryPrice || 0})+(SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})*${proceedingsPrice || 0})`,
+          numFmt: '$#,##0.00'
+        },
+        proceedings: "",
+        proceedings_qty: "",
         attendee: "",
         attendee_title: "",
         attendee_phone: "",
