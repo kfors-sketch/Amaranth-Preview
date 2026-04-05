@@ -2300,16 +2300,93 @@ async function sendItemReportEmailInternal({
       // Data occupies rows 2..(2*n), with blanks in between; the totals row is added after that.
       const lastDataScanRow = numbered.length * 2;
 
-      const toFormulaSum = (vals) => {
-        const nums = (vals || [])
-          .map((v) => Number(v || 0))
-          .filter((v) => Number.isFinite(v) && v !== 0);
-        if (!nums.length) return "0";
-        return nums.map((v) => String(Number(v.toFixed(2)))).join("+");
+      const coerceDollarPrice = (obj) => {
+        if (!obj || typeof obj !== "object") return 0;
+        const candidates = [
+          obj.price,
+          obj.unitPrice,
+          obj.amount,
+          obj.cost,
+          obj.value,
+          obj.priceDollars,
+          obj.price_dollars,
+          obj.unit_price,
+          obj.price_cents,
+          obj.unitPriceCents,
+          obj.unit_price_cents,
+        ];
+        for (const raw of candidates) {
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n <= 0) continue;
+          return n > 1000 ? Number((n / 100).toFixed(2)) : n;
+        }
+        return 0;
       };
 
-      const dirCosts = sorted.map((r) => Number(r.directory_cost_value || 0));
-      const procCosts = sorted.map((r) => Number(r.proceedings_cost_value || 0));
+      const configuredPriceFor = async (baseId, labelText) => {
+        const wantBase = baseKey(baseId);
+        const wantLabel = String(labelText || "").trim().toLowerCase();
+
+        try {
+          const addons = (await kvGetSafe("addons", [])) || [];
+          if (Array.isArray(addons)) {
+            const exact = addons.find((a) => {
+              const ids = [
+                a?.id,
+                a?.itemId,
+                a?.item_id,
+                a?.slotKey,
+                a?.slot,
+                a?.key,
+              ]
+                .map((v) => baseKey(v))
+                .filter(Boolean);
+              return ids.includes(wantBase);
+            });
+            const fuzzy = !exact
+              ? addons.find((a) => {
+                  const txt = [
+                    a?.name,
+                    a?.label,
+                    a?.title,
+                    a?.itemName,
+                    a?.item_name,
+                  ]
+                    .map((v) => String(v || "").toLowerCase())
+                    .join(" ");
+                  return wantLabel && txt.includes(wantLabel);
+                })
+              : null;
+
+            const picked = exact || fuzzy;
+            const fromAddons = coerceDollarPrice(picked);
+            if (fromAddons > 0) return fromAddons;
+          }
+        } catch {}
+
+        try {
+          const directCfg = await kvHgetallSafe(`itemcfg:${wantBase}`);
+          const fromDirect = coerceDollarPrice(directCfg);
+          if (fromDirect > 0) return fromDirect;
+        } catch {}
+
+        try {
+          const idx = (await kvSmembersSafe("itemcfg:index")) || [];
+          for (const rawId of idx) {
+            const rawBase = baseKey(rawId);
+            const rawText = String(rawId || "").toLowerCase();
+            if (rawBase !== wantBase && !(wantLabel && rawText.includes(wantLabel))) continue;
+            const cfg = await kvHgetallSafe(`itemcfg:${rawId}`);
+            const price = coerceDollarPrice(cfg);
+            if (price > 0) return price;
+          }
+        } catch {}
+
+        return 0;
+      };
+
+      const directoryPrice = await configuredPriceFor("directory", "directory");
+      const proceedingsPrice = await configuredPriceFor("proceedings", "proceedings");
 
       numbered.push({
         "#": "",
@@ -2337,9 +2414,13 @@ async function sendItemReportEmailInternal({
         "#": "",
         date: "",
         directory: "TOTAL COST",
-        directory_qty: { formula: toFormulaSum(dirCosts) },
+        directory_qty: {
+          formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})*${directoryPrice || 0}`
+        },
         proceedings: "TOTAL COST",
-        proceedings_qty: { formula: toFormulaSum(procCosts) },
+        proceedings_qty: {
+          formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})*${proceedingsPrice || 0}`
+        },
         attendee: "",
         attendee_title: "",
         attendee_phone: "",
