@@ -1018,7 +1018,6 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
-
 // ---------------------------------------------------------------------------
 // Combine Directory + Proceedings rows (presentation only; no storage changes)
 // ---------------------------------------------------------------------------
@@ -1059,33 +1058,22 @@ function combineDirectoryProceedingsRows(rows) {
         ...r,
         directory: "",
         directory_qty: "",
-        directory_cost: "",
         proceedings: "",
         proceedings_qty: "",
-        proceedings_cost: "",
-        combined_cost: "",
         notes_parts: [],
       });
     }
 
     const row = out.get(key);
     const qty = Number(r?.qty || 0);
-    const gross = Number(r?.gross || 0);
-
     if (itemBase === "directory") {
       row.directory = "Directory";
       row.directory_qty = Number(row.directory_qty || 0) + qty;
-      row.directory_cost = Number(row.directory_cost || 0) + gross;
     }
     if (itemBase === "proceedings") {
       row.proceedings = "Proceedings";
       row.proceedings_qty = Number(row.proceedings_qty || 0) + qty;
-      row.proceedings_cost = Number(row.proceedings_cost || 0) + gross;
     }
-
-    row.combined_cost =
-      Number(row.directory_cost || 0) + Number(row.proceedings_cost || 0);
-
     pushNote(row.notes_parts, r?.notes);
   }
 
@@ -1095,9 +1083,6 @@ function combineDirectoryProceedingsRows(rows) {
     delete next.notes_parts;
     if (!next.directory_qty) next.directory_qty = "";
     if (!next.proceedings_qty) next.proceedings_qty = "";
-    if (!next.directory_cost) next.directory_cost = "";
-    if (!next.proceedings_cost) next.proceedings_cost = "";
-    if (!next.combined_cost) next.combined_cost = "";
     return next;
   });
 }
@@ -2013,13 +1998,22 @@ async function sendItemReportEmailInternal({
   });
 
   const wantBase = (s) => String(s || "").toLowerCase().split(":")[0];
-  const filtered = rosterAll.filter(
-    (r) =>
-      wantBase(r.item_id) === wantBase(id) ||
+  let filtered = rosterAll.filter((r) => {
+    const rowBase = wantBase(r.item_id || r._itemId || r.item || "");
+    if (isDirectoryProceedingsCombined) {
+      return rowBase === "directory" || rowBase === "proceedings";
+    }
+    return (
+      rowBase === wantBase(id) ||
       (!r.item_id &&
         label &&
         String(r.item || "").toLowerCase().includes(String(label).toLowerCase()))
-  );
+    );
+  });
+
+  if (isDirectoryProceedingsCombined) {
+    filtered = combineDirectoryProceedingsRows(filtered);
+  }
 
   let EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
   let EMAIL_HEADER_LABELS = {
@@ -2069,17 +2063,15 @@ async function sendItemReportEmailInternal({
       notes: "Notes",
     };
   }
+
   if (isDirectoryProceedingsCombined) {
     EMAIL_COLUMNS = [
       "#",
       "date",
       "directory",
       "directory_qty",
-      "directory_cost",
       "proceedings",
       "proceedings_qty",
-      "proceedings_cost",
-      "combined_cost",
       "attendee",
       "attendee_title",
       "attendee_phone",
@@ -2097,13 +2089,6 @@ async function sendItemReportEmailInternal({
     EMAIL_HEADER_LABELS = {
       "#": "#",
       date: "Date",
-      directory: "Directory",
-      directory_qty: "Qty",
-      directory_cost: "Cost",
-      proceedings: "Proceedings",
-      proceedings_qty: "Qty",
-      proceedings_cost: "Cost",
-      combined_cost: "Combined Cost",
       attendee: "Attendee",
       attendee_title: "Title",
       attendee_phone: "Phone",
@@ -2116,6 +2101,10 @@ async function sendItemReportEmailInternal({
       attendee_state: "State",
       attendee_postal: "Postal",
       attendee_country: "Country",
+      directory: "Directory",
+      directory_qty: "Qty",
+      proceedings: "Proceedings",
+      proceedings_qty: "Qty",
       notes: "Notes",
     };
   }
@@ -2258,14 +2247,8 @@ async function sendItemReportEmailInternal({
       ? {
           directory: r.directory || "",
           directory_qty: r.directory_qty || "",
-          directory_cost:
-            r.directory_cost === "" ? "" : Number(r.directory_cost || 0).toFixed(2),
           proceedings: r.proceedings || "",
           proceedings_qty: r.proceedings_qty || "",
-          proceedings_cost:
-            r.proceedings_cost === "" ? "" : Number(r.proceedings_cost || 0).toFixed(2),
-          combined_cost:
-            r.combined_cost === "" ? "" : Number(r.combined_cost || 0).toFixed(2),
         }
       : isLoveGiftBase
         ? { item_name: ip.item_name, item_price: ip.item_price }
@@ -2292,51 +2275,13 @@ async function sendItemReportEmailInternal({
     return { ...baseRow, ...itemFields, ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }), notes: r.notes };
   });
 
-  let finalNumbered = numbered;
-  if (isDirectoryProceedingsCombined) {
-    const dirTotalQty = numbered.reduce((sum, row) => sum + Number(row.directory_qty || 0), 0);
-    const procTotalQty = numbered.reduce((sum, row) => sum + Number(row.proceedings_qty || 0), 0);
-    const dirTotalCost = numbered.reduce((sum, row) => sum + Number(row.directory_cost || 0), 0);
-    const procTotalCost = numbered.reduce((sum, row) => sum + Number(row.proceedings_cost || 0), 0);
-    const combinedTotalCost = dirTotalCost + procTotalCost;
-
-    finalNumbered = [
-      ...numbered,
-      {},
-      {
-        "#": "",
-        date: "TOTALS",
-        directory: dirTotalQty ? "Directory" : "",
-        directory_qty: dirTotalQty ? dirTotalQty : "",
-        directory_cost: dirTotalCost ? dirTotalCost.toFixed(2) : "",
-        proceedings: procTotalQty ? "Proceedings" : "",
-        proceedings_qty: procTotalQty ? procTotalQty : "",
-        proceedings_cost: procTotalCost ? procTotalCost.toFixed(2) : "",
-        combined_cost: combinedTotalCost ? combinedTotalCost.toFixed(2) : "",
-        attendee: "",
-        attendee_title: "",
-        attendee_phone: "",
-        court: "",
-        court_number: "",
-        attendee_email: "",
-        attendee_addr1: "",
-        attendee_addr2: "",
-        attendee_city: "",
-        attendee_state: "",
-        attendee_postal: "",
-        attendee_country: "",
-        notes: "Actual ordered totals",
-      },
-    ];
-  }
-
     // ✅ XLSX ATTACHMENT (always attach for chair reports)
   // FIX: Always generate a valid workbook. If there are no rows, Excel will still contain the header row.
   let xlsxBuf = null;
   try {
     const xlsxRaw = await objectsToXlsxBuffer(
       EMAIL_COLUMNS,
-      finalNumbered, // may be []
+      numbered, // may be []
       EMAIL_HEADER_LABELS,
       "Report",
       { spacerRows: true, autoFit: true }
@@ -2358,9 +2303,11 @@ async function sendItemReportEmailInternal({
 
 const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
-  const baseNameRaw = label || id || "report";
+  const reportLabel = isDirectoryProceedingsCombined ? "Directory & Proceedings" : (label || id || "report");
+  const reportIdForFile = isDirectoryProceedingsCombined ? "directory_proceedings" : (id || "item");
+  const baseNameRaw = reportLabel;
   const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-  const filename = `Report_${isDirectoryProceedingsCombined ? "directory_proceedings" : (id || "item")}_${scope || "current"}.xlsx`;
+  const filename = `Report_${reportIdForFile}_${scope || "current"}.xlsx`;
 
   const toListPref = await getChairEmailsForItemId(id);
   const { effective } = await getEffectiveSettings();
@@ -2425,11 +2372,11 @@ const today = new Date();
 
   const coverageText = formatCoverageRange({ startMs, endMs, rows: sorted });
 
-  const subject = `Report — ${prettyKind}: ${isDirectoryProceedingsCombined ? "Directory & Proceedings" : (label || id)}`;
+  const subject = `Report — ${prettyKind}: ${reportLabel}`;
   const emailSubject = `${(subjectPrefix || "").toString()}${subject}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
-      <p>Attached is the Excel report for <b>${prettyKind}</b> “${isDirectoryProceedingsCombined ? "Directory & Proceedings" : (label || id)}”.</p>
+      <p>Attached is the Excel report for <b>${prettyKind}</b> “${label || id}”.</p>
       <p>Rows: <b>${sorted.length}</b></p>
       <div style="font-size:12px;color:#555;margin:2px 0;">Scope: ${scopeLabel}</div>
       ${coverageText ? `<p style="font-size:12px;color:#555;margin:2px 0 0;">${coverageText}</p>` : ""}
