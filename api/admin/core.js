@@ -1018,6 +1018,7 @@ function flattenOrderToRows(o) {
   return rows;
 }
 
+
 // ---------------------------------------------------------------------------
 // Combine Directory + Proceedings rows (presentation only; no storage changes)
 // ---------------------------------------------------------------------------
@@ -1085,6 +1086,68 @@ function combineDirectoryProceedingsRows(rows) {
     if (!next.proceedings_qty) next.proceedings_qty = "";
     return next;
   });
+}
+
+function coerceConfiguredPriceToDollars(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (Math.abs(n) >= 1000) return Math.round(n) / 100;
+  return n;
+}
+
+function extractConfiguredItemPriceDollars(item) {
+  if (!item || typeof item !== "object") return null;
+  const candidates = [
+    item.price,
+    item.unitPrice,
+    item.priceDollars,
+    item.price_dollars,
+    item.displayPrice,
+    item.amount,
+    item.cost,
+    item.value,
+    item.priceCents,
+    item.price_cents,
+    item.unit_price,
+    item.unit_price_cents,
+    item.unitPriceCents,
+    item.costCents,
+    item.amountCents,
+    item.bundleTotalCents,
+  ];
+  for (const c of candidates) {
+    const dollars = coerceConfiguredPriceToDollars(c);
+    if (dollars != null) return dollars;
+  }
+  return null;
+}
+
+async function getConfiguredDirectoryProceedingsPrices() {
+  const result = { directory: 0, proceedings: 0 };
+  const sources = [];
+  try { sources.push(await kvGetSafe("addons", [])); } catch {}
+  try { sources.push(await kvGetSafe("banquets", [])); } catch {}
+
+  for (const src of sources) {
+    if (!Array.isArray(src)) continue;
+    for (const item of src) {
+      const base = baseKey(item?.id || item?.itemId || item?.slug || item?.name || item?.label || "");
+      if (base !== "directory" && base !== "proceedings") continue;
+      const dollars = extractConfiguredItemPriceDollars(item);
+      if (dollars == null) continue;
+      result[base] = dollars;
+    }
+  }
+
+  for (const base of ["directory", "proceedings"]) {
+    if (result[base] > 0) continue;
+    const cfg = await kvHgetallSafe(`itemcfg:${base}`);
+    const dollars = extractConfiguredItemPriceDollars(cfg);
+    if (dollars != null) result[base] = dollars;
+  }
+
+  return result;
 }
 
 // --- Helper to estimate Stripe fee from items + shipping ---
@@ -1871,7 +1934,7 @@ function collectAttendeesFromOrders(
         court_number: r.court_number,
         item: r.item,
         item_id: r.item_id,
-        qty: r.qty,
+        ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }),
         notes: r.notes,
       };
 
@@ -2011,8 +2074,13 @@ async function sendItemReportEmailInternal({
     );
   });
 
+  let configuredDirectoryPrice = 0;
+  let configuredProceedingsPrice = 0;
   if (isDirectoryProceedingsCombined) {
     filtered = combineDirectoryProceedingsRows(filtered);
+    const configuredPrices = await getConfiguredDirectoryProceedingsPrices();
+    configuredDirectoryPrice = Number(configuredPrices.directory || 0);
+    configuredProceedingsPrice = Number(configuredPrices.proceedings || 0);
   }
 
   let EMAIL_COLUMNS = ["#", "date", "attendee", "attendee_title", "attendee_phone", "item", "qty", "notes"];
@@ -2070,8 +2138,11 @@ async function sendItemReportEmailInternal({
       "date",
       "directory",
       "directory_qty",
+      "directory_cost",
       "proceedings",
       "proceedings_qty",
+      "proceedings_cost",
+      "combined_cost",
       "attendee",
       "attendee_title",
       "attendee_phone",
@@ -2089,6 +2160,13 @@ async function sendItemReportEmailInternal({
     EMAIL_HEADER_LABELS = {
       "#": "#",
       date: "Date",
+      directory: "Directory",
+      directory_qty: "Qty",
+      directory_cost: "Cost",
+      proceedings: "Proceedings",
+      proceedings_qty: "Qty",
+      proceedings_cost: "Cost",
+      combined_cost: "Combined Cost",
       attendee: "Attendee",
       attendee_title: "Title",
       attendee_phone: "Phone",
@@ -2101,10 +2179,6 @@ async function sendItemReportEmailInternal({
       attendee_state: "State",
       attendee_postal: "Postal",
       attendee_country: "Country",
-      directory: "Directory",
-      directory_qty: "Qty",
-      proceedings: "Proceedings",
-      proceedings_qty: "Qty",
       notes: "Notes",
     };
   }
@@ -2244,12 +2318,22 @@ async function sendItemReportEmailInternal({
     }
 
     const itemFields = isDirectoryProceedingsCombined
-      ? {
-          directory: r.directory || "",
-          directory_qty: r.directory_qty || "",
-          proceedings: r.proceedings || "",
-          proceedings_qty: r.proceedings_qty || "",
-        }
+      ? (() => {
+          const dirQtyNum = Number(r.directory_qty || 0);
+          const procQtyNum = Number(r.proceedings_qty || 0);
+          const dirCostNum = dirQtyNum * configuredDirectoryPrice;
+          const procCostNum = procQtyNum * configuredProceedingsPrice;
+          const combinedCostNum = dirCostNum + procCostNum;
+          return {
+            directory: r.directory || "",
+            directory_qty: r.directory_qty || "",
+            directory_cost: dirQtyNum ? dirCostNum.toFixed(2) : "",
+            proceedings: r.proceedings || "",
+            proceedings_qty: r.proceedings_qty || "",
+            proceedings_cost: procQtyNum ? procCostNum.toFixed(2) : "",
+            combined_cost: combinedCostNum ? combinedCostNum.toFixed(2) : "",
+          };
+        })()
       : isLoveGiftBase
         ? { item_name: ip.item_name, item_price: ip.item_price }
         : isBanquetKind
@@ -2267,7 +2351,7 @@ async function sendItemReportEmailInternal({
         attendee_postal: r.attendee_postal,
         attendee_country: r.attendee_country,
         ...itemFields,
-        ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }),
+        qty: r.qty,
         notes: r.notes,
       };
     }
@@ -2275,13 +2359,51 @@ async function sendItemReportEmailInternal({
     return { ...baseRow, ...itemFields, ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }), notes: r.notes };
   });
 
+  let finalNumbered = numbered;
+  if (isDirectoryProceedingsCombined) {
+    const dirTotalQty = numbered.reduce((sum, row) => sum + Number(row.directory_qty || 0), 0);
+    const procTotalQty = numbered.reduce((sum, row) => sum + Number(row.proceedings_qty || 0), 0);
+    const dirTotalCost = numbered.reduce((sum, row) => sum + Number(row.directory_cost || 0), 0);
+    const procTotalCost = numbered.reduce((sum, row) => sum + Number(row.proceedings_cost || 0), 0);
+    const combinedTotalCost = dirTotalCost + procTotalCost;
+
+    finalNumbered = [
+      ...numbered,
+      {},
+      {
+        "#": "",
+        date: "TOTALS",
+        directory: dirTotalQty ? "Directory" : "",
+        directory_qty: dirTotalQty ? dirTotalQty : "",
+        directory_cost: dirTotalCost ? dirTotalCost.toFixed(2) : "",
+        proceedings: procTotalQty ? "Proceedings" : "",
+        proceedings_qty: procTotalQty ? procTotalQty : "",
+        proceedings_cost: procTotalCost ? procTotalCost.toFixed(2) : "",
+        combined_cost: combinedTotalCost ? combinedTotalCost.toFixed(2) : "",
+        attendee: "",
+        attendee_title: "",
+        attendee_phone: "",
+        court: "",
+        court_number: "",
+        attendee_email: "",
+        attendee_addr1: "",
+        attendee_addr2: "",
+        attendee_city: "",
+        attendee_state: "",
+        attendee_postal: "",
+        attendee_country: "",
+        notes: "Configured price source: addons/itemcfg",
+      },
+    ];
+  }
+
     // ✅ XLSX ATTACHMENT (always attach for chair reports)
   // FIX: Always generate a valid workbook. If there are no rows, Excel will still contain the header row.
   let xlsxBuf = null;
   try {
     const xlsxRaw = await objectsToXlsxBuffer(
       EMAIL_COLUMNS,
-      numbered, // may be []
+      finalNumbered, // may be []
       EMAIL_HEADER_LABELS,
       "Report",
       { spacerRows: true, autoFit: true }
@@ -2303,11 +2425,9 @@ async function sendItemReportEmailInternal({
 
 const today = new Date();
   const dateStr = today.toISOString().slice(0, 10);
-  const reportLabel = isDirectoryProceedingsCombined ? "Directory & Proceedings" : (label || id || "report");
-  const reportIdForFile = isDirectoryProceedingsCombined ? "directory_proceedings" : (id || "item");
-  const baseNameRaw = reportLabel;
+  const baseNameRaw = label || id || "report";
   const baseName = baseNameRaw.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-  const filename = `Report_${reportIdForFile}_${scope || "current"}.xlsx`;
+  const filename = `Report_${id || "item"}_${scope || "current"}.xlsx`;
 
   const toListPref = await getChairEmailsForItemId(id);
   const { effective } = await getEffectiveSettings();
@@ -2372,7 +2492,7 @@ const today = new Date();
 
   const coverageText = formatCoverageRange({ startMs, endMs, rows: sorted });
 
-  const subject = `Report — ${prettyKind}: ${reportLabel}`;
+  const subject = `Report — ${prettyKind}: ${label || id}`;
   const emailSubject = `${(subjectPrefix || "").toString()}${subject}`;
   const tablePreview = `
     <div style="font-family:system-ui,Segoe UI,Arial,sans-serif">
