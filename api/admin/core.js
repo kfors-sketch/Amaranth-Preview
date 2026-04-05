@@ -2187,27 +2187,6 @@ async function sendItemReportEmailInternal({
 
     const splitItemAndPrice = (val) => {
       const s = String(val || "").trim();
-// ---- ADD TOTAL QTY ROW (Directory + Proceedings) ----
-let totalDirQty = 0;
-let totalProcQty = 0;
-
-for (const r of sorted) {
-  const name = String(r.item || "").toLowerCase();
-  if (name.includes("directory")) totalDirQty += Number(r.qty || 0);
-  if (name.includes("proceedings")) totalProcQty += Number(r.qty || 0);
-}
-
-numbered.push({});
-numbered.push({
-  "#": "",
-  Date: "",
-  Directory: "TOTAL",
-  Qty: totalDirQty,
-  Proceedings: "TOTAL",
-  Qty_2: totalProcQty
-});
-// ---- END TOTALS ----
-
       // Match a trailing price like "$25" or "$25.00" (optionally preceded by dash/colon)
       const m = s.match(/^(.*?)(?:\s*[-–—:]\s*)?\$\s*([0-9]{1,6}(?:\.[0-9]{1,2})?)\s*$/);
       if (!m) return { item_name: s, item_price: "" };
@@ -2295,6 +2274,40 @@ numbered.push({
 
     return { ...baseRow, ...itemFields, ...(isDirectoryProceedingsCombined ? {} : { qty: r.qty }), notes: r.notes };
   });
+
+  if (isDirectoryProceedingsCombined) {
+    const totalDirectoryQty = sorted.reduce(
+      (sum, r) => sum + Number(r?.directory_qty || 0),
+      0
+    );
+    const totalProceedingsQty = sorted.reduce(
+      (sum, r) => sum + Number(r?.proceedings_qty || 0),
+      0
+    );
+
+    numbered.push({
+      "#": "",
+      date: "",
+      directory: "TOTAL",
+      directory_qty: totalDirectoryQty || "",
+      proceedings: "TOTAL",
+      proceedings_qty: totalProceedingsQty || "",
+      attendee: "",
+      attendee_title: "",
+      attendee_phone: "",
+      court: "",
+      court_number: "",
+      attendee_email: "",
+      attendee_addr1: "",
+      attendee_addr2: "",
+      attendee_city: "",
+      attendee_state: "",
+      attendee_postal: "",
+      attendee_country: "",
+      notes: "",
+    });
+  }
+
 
     // ✅ XLSX ATTACHMENT (always attach for chair reports)
   // FIX: Always generate a valid workbook. If there are no rows, Excel will still contain the header row.
