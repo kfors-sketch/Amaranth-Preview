@@ -2068,6 +2068,10 @@ async function sendItemReportEmailInternal({
     EMAIL_COLUMNS = [
       "#",
       "date",
+      "directory",
+      "directory_qty",
+      "proceedings",
+      "proceedings_qty",
       "attendee",
       "attendee_title",
       "attendee_phone",
@@ -2080,10 +2084,6 @@ async function sendItemReportEmailInternal({
       "attendee_state",
       "attendee_postal",
       "attendee_country",
-      "directory",
-      "directory_qty",
-      "proceedings",
-      "proceedings_qty",
       "notes",
     ];
     EMAIL_HEADER_LABELS = {
