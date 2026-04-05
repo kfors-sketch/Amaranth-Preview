@@ -2187,6 +2187,27 @@ async function sendItemReportEmailInternal({
 
     const splitItemAndPrice = (val) => {
       const s = String(val || "").trim();
+// ---- ADD TOTAL QTY ROW (Directory + Proceedings) ----
+let totalDirQty = 0;
+let totalProcQty = 0;
+
+for (const r of sorted) {
+  const name = String(r.item || "").toLowerCase();
+  if (name.includes("directory")) totalDirQty += Number(r.qty || 0);
+  if (name.includes("proceedings")) totalProcQty += Number(r.qty || 0);
+}
+
+numbered.push({});
+numbered.push({
+  "#": "",
+  Date: "",
+  Directory: "TOTAL",
+  Qty: totalDirQty,
+  Proceedings: "TOTAL",
+  Qty_2: totalProcQty
+});
+// ---- END TOTALS ----
+
       // Match a trailing price like "$25" or "$25.00" (optionally preceded by dash/colon)
       const m = s.match(/^(.*?)(?:\s*[-–—:]\s*)?\$\s*([0-9]{1,6}(?:\.[0-9]{1,2})?)\s*$/);
       if (!m) return { item_name: s, item_price: "" };
