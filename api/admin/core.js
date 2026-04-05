@@ -1060,19 +1060,24 @@ function combineDirectoryProceedingsRows(rows) {
         directory_qty: "",
         proceedings: "",
         proceedings_qty: "",
+        directory_cost_value: 0,
+        proceedings_cost_value: 0,
         notes_parts: [],
       });
     }
 
     const row = out.get(key);
     const qty = Number(r?.qty || 0);
+    const gross = Number(r?.gross || 0);
     if (itemBase === "directory") {
       row.directory = "Directory";
       row.directory_qty = Number(row.directory_qty || 0) + qty;
+      row.directory_cost_value = Number(row.directory_cost_value || 0) + gross;
     }
     if (itemBase === "proceedings") {
       row.proceedings = "Proceedings";
       row.proceedings_qty = Number(row.proceedings_qty || 0) + qty;
+      row.proceedings_cost_value = Number(row.proceedings_cost_value || 0) + gross;
     }
     pushNote(row.notes_parts, r?.notes);
   }
@@ -2294,13 +2299,47 @@ async function sendItemReportEmailInternal({
       // With spacerRows:true, each data row is followed by a blank row.
       // Data occupies rows 2..(2*n), with blanks in between; the totals row is added after that.
       const lastDataScanRow = numbered.length * 2;
+
+      const toFormulaSum = (vals) => {
+        const nums = (vals || [])
+          .map((v) => Number(v || 0))
+          .filter((v) => Number.isFinite(v) && v !== 0);
+        if (!nums.length) return "0";
+        return nums.map((v) => String(Number(v.toFixed(2)))).join("+");
+      };
+
+      const dirCosts = sorted.map((r) => Number(r.directory_cost_value || 0));
+      const procCosts = sorted.map((r) => Number(r.proceedings_cost_value || 0));
+
       numbered.push({
         "#": "",
         date: "",
-        directory: "TOTAL",
+        directory: "TOTAL QTY",
         directory_qty: { formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})` },
-        proceedings: "TOTAL",
+        proceedings: "TOTAL QTY",
         proceedings_qty: { formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})` },
+        attendee: "",
+        attendee_title: "",
+        attendee_phone: "",
+        court: "",
+        court_number: "",
+        attendee_email: "",
+        attendee_addr1: "",
+        attendee_addr2: "",
+        attendee_city: "",
+        attendee_state: "",
+        attendee_postal: "",
+        attendee_country: "",
+        notes: "",
+      });
+
+      numbered.push({
+        "#": "",
+        date: "",
+        directory: "TOTAL COST",
+        directory_qty: { formula: toFormulaSum(dirCosts) },
+        proceedings: "TOTAL COST",
+        proceedings_qty: { formula: toFormulaSum(procCosts) },
         attendee: "",
         attendee_title: "",
         attendee_phone: "",
