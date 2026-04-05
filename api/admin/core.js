@@ -2276,36 +2276,46 @@ async function sendItemReportEmailInternal({
   });
 
   if (isDirectoryProceedingsCombined) {
-    const totalDirectoryQty = sorted.reduce(
-      (sum, r) => sum + Number(r?.directory_qty || 0),
-      0
-    );
-    const totalProceedingsQty = sorted.reduce(
-      (sum, r) => sum + Number(r?.proceedings_qty || 0),
-      0
-    );
+    const colLetter = (n) => {
+      let s = "";
+      let x = Number(n || 0);
+      while (x > 0) {
+        const rem = (x - 1) % 26;
+        s = String.fromCharCode(65 + rem) + s;
+        x = Math.floor((x - 1) / 26);
+      }
+      return s || "A";
+    };
 
-    numbered.push({
-      "#": "",
-      date: "",
-      directory: "TOTAL",
-      directory_qty: totalDirectoryQty || "",
-      proceedings: "TOTAL",
-      proceedings_qty: totalProceedingsQty || "",
-      attendee: "",
-      attendee_title: "",
-      attendee_phone: "",
-      court: "",
-      court_number: "",
-      attendee_email: "",
-      attendee_addr1: "",
-      attendee_addr2: "",
-      attendee_city: "",
-      attendee_state: "",
-      attendee_postal: "",
-      attendee_country: "",
-      notes: "",
-    });
+    const dirQtyCol = colLetter((EMAIL_COLUMNS || []).indexOf("directory_qty") + 1);
+    const procQtyCol = colLetter((EMAIL_COLUMNS || []).indexOf("proceedings_qty") + 1);
+
+    if (dirQtyCol && procQtyCol && numbered.length > 0) {
+      // With spacerRows:true, each data row is followed by a blank row.
+      // Data occupies rows 2..(2*n), with blanks in between; the totals row is added after that.
+      const lastDataScanRow = numbered.length * 2;
+      numbered.push({
+        "#": "",
+        date: "",
+        directory: "TOTAL",
+        directory_qty: { formula: `SUM(${dirQtyCol}2:${dirQtyCol}${lastDataScanRow})` },
+        proceedings: "TOTAL",
+        proceedings_qty: { formula: `SUM(${procQtyCol}2:${procQtyCol}${lastDataScanRow})` },
+        attendee: "",
+        attendee_title: "",
+        attendee_phone: "",
+        court: "",
+        court_number: "",
+        attendee_email: "",
+        attendee_addr1: "",
+        attendee_addr2: "",
+        attendee_city: "",
+        attendee_state: "",
+        attendee_postal: "",
+        attendee_country: "",
+        notes: "",
+      });
+    }
   }
 
 
