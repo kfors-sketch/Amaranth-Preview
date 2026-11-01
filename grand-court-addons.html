@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Grand Court Add-Ons">
+  <meta name="description" content="Grand Court of Pennsylvania Add-Ons">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/styles.css?v=addons-v11"><!-- bumped -->
-  <title>Grand Court Add-Ons</title>
+  <title>Grand Court of Pennsylvania Add-Ons</title>
 </head>
 
 <body data-page="addons">
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/pa-2026-watermark.jpg')"></div>
 
   <!-- Header / Logo + Nav -->
   <header class="site-header">
@@ -22,13 +22,14 @@
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <span class="nav-current">Grand Court Add-Ons</span>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <span class="nav-current">Grand Court of Pennsylvania Add-Ons</span>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
         
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a>) -->
 
-        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a>) -->
 
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
@@ -37,7 +38,7 @@
   </header>
 
   <main class="container mt-lg">
-    <h1 class="page-title">Grand Court Add-Ons</h1>
+    <h1 class="page-title">Grand Court of Pennsylvania Add-Ons</h1>
 
 
 
@@ -64,7 +65,7 @@
         <div class="grid-3">
           <input name="courtName" placeholder="Court Name *" required>
           <input name="courtNumber" placeholder="Court # *" required>
-          <span></span>
+          <input name="jurisdiction" placeholder="Jurisdiction *" required>
         </div>
 
         <!-- NEW: Membership (Voting / Non-Voting) -->
@@ -116,11 +117,12 @@
       <nav class="site-nav nav footer-nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <span class="nav-current">Grand Court Add-Ons</span>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <span class="nav-current">Grand Court of Pennsylvania Add-Ons</span>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
         
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a>) -->
 
         <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
 
@@ -129,7 +131,7 @@
       </nav>
     </div>
 
-    <div class="container tiny">© 2025</div>
+    <div class="container tiny">© 2026</div>
   </footer>
 
   <style>
@@ -139,6 +141,11 @@
     .addon label{display:flex;flex-direction:column;gap:6px}
     .addon input,.addon select{padding:.55rem .7rem;border:1px solid #d1d5db;border-radius:.5rem;background:rgba(255,255,255,0.9)}
     .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .transportation-box .transport-passenger label{display:flex;flex-direction:column;gap:6px}
+    @media (max-width: 760px){
+      .grid-3{grid-template-columns:1fr}
+      .transportation-box .transport-passenger{grid-template-columns:1fr !important}
+    }
   </style>
 
   <!-- Core site scripts (order matters) -->
@@ -148,7 +155,7 @@
   <script src="assets/js/cart.js"></script>
   <script src="assets/js/data-store.js"></script>
   <script src="assets/js/site-boot.js"></script>
-  <script src="assets/js/grand-court-addons.js"></script>
+  <script src="assets/js/grand-court-addons.js?v=transportation-v1"></script>
 
   <!-- =========================================================
        SORT ORDER SUPPORT (public add-ons)
@@ -292,6 +299,7 @@
         const courtBits = [];
         if (a?.courtName) courtBits.push(String(a.courtName).replace(/</g,'&lt;'));
         if (a?.courtNumber) courtBits.push('#' + String(a.courtNumber).replace(/</g,'&lt;'));
+        if (a?.jurisdiction) courtBits.push('(' + String(a.jurisdiction).replace(/</g,'&lt;') + ')');
         const courtLine = courtBits.length
           ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Court: ${courtBits.join(' ')}</div>`
           : '';
@@ -342,8 +350,10 @@ return `
         const courtName   = (fd.get('courtName')||'').trim();
         const courtNumber = (fd.get('courtNumber')||'').trim();
         
-      if (!courtName || !courtNumber) {
-        alert('Court Name and Court # are required.');
+      const jurisdiction = (fd.get('jurisdiction')||'').trim();
+      
+      if (!courtName || !courtNumber || !jurisdiction) {
+        alert('Court Name, Court #, and Jurisdiction are required.');
         return;
       }
 const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
@@ -394,6 +404,7 @@ const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting
         Cart.addAttendee({
           name, email, phone, title, notes,
           courtName, courtNumber, memberType,
+          jurisdiction,
           address1, address2, city, state, postal, country
         });
         attForm.reset();
@@ -452,7 +463,25 @@ const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting
           if (copy?.meta && Object.prototype.hasOwnProperty.call(copy.meta,'attendeeNotes')){
             delete copy.meta.attendeeNotes;
           }
-          const out = _add(copy);
+                    // Ensure attendee court/jurisdiction is included for Stripe + chair emails
+          try{
+            const st = (window.Cart && typeof Cart.get === 'function') ? (Cart.get() || {}) : {};
+            const attId = copy?.attendeeId;
+            const att = (st.attendees||[]).find(a => String(a.id) === String(attId));
+            if (att){
+              copy.meta = copy.meta || {};
+              if (copy.meta.court == null) copy.meta.court = att.courtName || '';
+              if (copy.meta.court_number == null) copy.meta.court_number = att.courtNumber || '';
+              if (copy.meta.jurisdiction == null) copy.meta.jurisdiction = att.jurisdiction || '';
+              if (copy.meta.memberType == null) copy.meta.memberType = att.memberType || '';
+              if (copy.meta.attendeeName == null) copy.meta.attendeeName = att.name || '';
+              if (copy.meta.attendeeTitle == null) copy.meta.attendeeTitle = att.title || '';
+              if (copy.meta.attendeeEmail == null) copy.meta.attendeeEmail = att.email || '';
+              if (copy.meta.attendeePhone == null) copy.meta.attendeePhone = att.phone || '';
+            }
+          }catch(e){}
+
+const out = _add(copy);
 
           // ✅ Match Banquets UX: ping + confirmation popup (addons page only)
           try {
@@ -587,5 +616,7 @@ const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting
   })();
   </script>
 
+
+  <script src="assets/js/tours-nav-helper.js"></script>
 </body>
 </html>

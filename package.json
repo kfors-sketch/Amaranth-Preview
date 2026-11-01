@@ -1,5 +1,8 @@
 {
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "engines": { "node": "22.x" },
   "dependencies": {
     "@vercel/kv": "^1.0.0",

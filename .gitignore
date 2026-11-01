@@ -1,0 +1,46 @@
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+
+# Installed/generated dependencies
+node_modules/
+
+# Vercel local state
+.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# Temporary files and editor artifacts
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Automated test output
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# Generated exports and local customer/order data
+exports/
+local-data/
+customer-data/
+order-data/
+orders-export-*
+customers-export-*
+*.local.csv
+*.local.xlsx
+*.local.json

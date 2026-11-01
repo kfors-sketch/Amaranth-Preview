@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Order page for checkout and attendee assignments.">
+  <meta name="description" content="Order page for Banquet and Addon Items checkout and attendee assignments.">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/css/styles.css?v=order-v8" />
   <title>Cart</title>
@@ -110,12 +110,12 @@
   <script src="https://js.stripe.com/v3"></script>
   <!-- Optional: set your publishable key here as a fallback (safe to expose) -->
   <script>
-    window.STRIPE_PUBLISHABLE_KEY = "pk_test_51SBDHKF9brZtHXuA8XTuAes5eBfBG1e95bFeEjWwLwlsuk36PSJxB88HjuqSV1SBlYNJ2CWbHgnv96VIU3Qf6hW400P7jB4s30";
+    window.STRIPE_PUBLISHABLE_KEY = "pk_test_51TY3vXGg1QXirtD4gdHo13cuAyIwpbHPCrdXUtdNudrBvaeVaiVaW3Jf1kOWE9jHJsHsetAG8G4YdyIVVPFnxjw100JCIzYgKW";
   </script>
 </head>
 
 <body data-page="order">
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/pa-2026-watermark.jpg')"></div>
   <!-- Header / Logo + Nav -->
   <header class="site-header">
     <div class="container header-inner">
@@ -126,14 +126,17 @@
       <nav class="site-nav nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
-        <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
-        <span class="nav-current">Cart</span>
+        <a href="/grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+		<!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <!-- <a href="supplies.html">Supplies</a> -->
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+		<span class="nav-current">Cart</span>
         <a href="/contact.html">Contact</a>
       
         
-        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        
 
         <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
 </nav>
@@ -145,7 +148,7 @@
 
 <section class="card page-instructions" style="margin-top:16px;">
   <h3>Before You Checkout</h3>
-  <p><strong>Banquets and Grand Court Add-Ons</strong> are assigned to <strong>attendees</strong>. Please review attendee names, selections, quantities, and <strong>Dietary Notes</strong> carefully.</p>
+  <p><strong>Banquets and Grand Court of Pennsylvania Add-Ons</strong> are assigned to <strong>attendees</strong>. Please review attendee names, selections, quantities, and <strong>Dietary Notes</strong> carefully.</p>
   <p>The <strong>Purchaser Information</strong> section is used for <strong>checkout, billing, and receipts</strong>.</p>
 </section>
 
@@ -225,20 +228,22 @@
       <nav class="site-nav nav footer-nav">
         <a href="/home.html">Home</a>
         <a href="/banquet.html">Banquets</a>
-        <a href="/grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <a href="/grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+		<!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <a href="supplies.html">Supplies</a>
         <span class="nav-current">Cart</span>
         <a href="/contact.html">Contact</a>
       
         
-        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        
 
         <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
 </nav>
     </div>
 
-    <div class="container tiny">© 2025</div>
+    <div class="container tiny">© 2026</div>
   </footer>
 
   <!-- Optional legacy scripts -->
@@ -407,5 +412,7 @@
   })();
   </script>
 
+
+  <script src="assets/js/tours-nav-helper.js"></script>
 </body>
 </html>

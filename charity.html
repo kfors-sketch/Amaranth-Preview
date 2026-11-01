@@ -9,8 +9,8 @@
   <title>Charity</title>
 </head>
 
-<body class="shop" data-page="shop">
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+<body class="shop charity-page" data-page="shop">
+  <div class="wallpaper" style="--wallpaper:url('/assets/img/charity-wallpaper.jpg?v=2'); background-image:url('/assets/img/charity-wallpaper.jpg?v=2');"></div>
 
   <!-- Header / Logo + Nav -->
   <header class="site-header">
@@ -21,15 +21,17 @@
       <span class="site-title">Order of the Amaranth</span>
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
-        <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="product-catalog.html">Product Catalog</a>
-        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
-        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+        <!-- <a href="banquet.html">Banquets</a> -->
+        <!-- <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a> -->
+        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        
+        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <a href="supplies.html">Supplies</a>
+        
 
         <span class="nav-current">Charity</span>
-        <a href="order.html">Cart</a>
-        <a href="contact.html">Contact</a>
+        <a href="shop-cart.html">Cart</a>
+        <a href="contact-2.html">Contact</a>
       </nav>
     </div>
   </header>
@@ -73,14 +75,15 @@
       <nav class="site-nav nav footer-nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <a href="product-catalog.html">Product Catalog</a>
-        <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a>
-        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
-
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        
+        <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <a href="supplies.html">Supplies</a>
+        
         <span class="nav-current">Charity</span>
-        <a href="order.html">Cart</a>
-        <a href="contact.html">Contact</a>
+        <a href="shop-cart.html">Cart</a>
+        <a href="contact-2.html">Contact</a>
       </nav>
     </div>
 
@@ -452,19 +455,15 @@
     async function loadAndRender(){
       let rawItems = [];
       try {
-        const resp = await fetch('/api/router?type=charity', { cache: 'no-store' });
+        const resp = await fetch('/api/router?type=catalog_items&cat=charity', { cache: 'no-store' });
         if (resp.ok){
           const data = await resp.json();
-          if (Array.isArray(data.charity) && data.charity.length){
-            rawItems = data.charity;
+          if (Array.isArray(data.items) && data.items.length){
+            rawItems = data.items;
           }
         }
       } catch (e){
         console.warn('Product fetch failed, falling back to static items:', e);
-      }
-
-      if (!rawItems.length){
-        rawItems = (window.CHARITY_ITEMS || []);
       }
 
       // NEW: apply visibility filter + sortOrder sort (then name)
@@ -526,12 +525,22 @@
     .badge-soldout { background: #fee2e2; color:#991b1b; }
 
     .thumb{ display:block; border:0; padding:0; background:none; cursor:zoom-in; width:100%; }
-    .thumb img{
-      width:100%;
-      height:180px;
-      object-fit:cover;
-      border-radius:10px;
-    }
+    
+.thumb{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:180px;
+}
+
+.thumb img{
+  width:auto;
+  max-width:100%;
+  max-height:140px;
+  object-fit:contain;
+  border-radius:10px;
+}
+
 
     .item-name{
       font-weight:700;
@@ -658,6 +667,19 @@
 .item-card .meta{font-size:12px;color:#555;margin-top:6px}
 .item-card .btn{margin-top:10px}
 @media (min-width:1100px){ .items-grid{grid-template-columns:repeat(4,minmax(220px,1fr));} }
+
+/* Charity-only wallpaper override (ensures this page uses charity-wallpaper) */
+body.charity-page{
+  background: none !important;
+}
+body.charity-page .wallpaper{
+  background-image: var(--wallpaper) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+}
+
 </style>
 
   <!-- Core site scripts (order matters) -->

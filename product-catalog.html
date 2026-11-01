@@ -22,7 +22,7 @@
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
         <span class="nav-current">Product Catalog</span>
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
@@ -72,7 +72,7 @@
       <nav class="site-nav nav footer-nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
         <span class="nav-current">Product Catalog</span>
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
@@ -459,12 +459,6 @@
         }
       } catch (e){
         console.warn('Product fetch failed, falling back to static items:', e);
-      }
-
-      if (!rawItems.length){
-        rawItems =
-          (window.DataStore && DataStore.getItems && DataStore.getItems()) ||
-          (window.CATALOG_ITEMS || []);
       }
 
       // NEW: apply visibility filter + sortOrder sort (then name)

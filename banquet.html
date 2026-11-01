@@ -10,7 +10,7 @@
 </head>
 
 <body data-page="banquets">
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/pa-2026-watermark.jpg')"></div>
 
   <!-- Header / Logo + Nav -->
   <header class="site-header">
@@ -22,13 +22,14 @@
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <span class="nav-current">Banquets</span>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
         
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a>  -->
 
-        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a>  -->
 
         <a href="order.html">Cart</a>
         <a href="contact.html">Contact</a>
@@ -64,7 +65,7 @@
         <div class="grid-3">
           <input name="courtName" placeholder="Court Name *" required>
           <input name="courtNumber" placeholder="Court # *" required>
-          <span></span>
+          <input name="jurisdiction" placeholder="Jurisdiction *" required>
         </div>
         <div class="grid-3">
           <div style="display:flex;flex-direction:column;gap:6px;">
@@ -115,11 +116,12 @@
       <nav class="site-nav nav footer-nav">
         <a href="home.html">Home</a>
         <span class="nav-current">Banquets</span>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+                <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
         
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a> -->
 
         <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
 
@@ -128,7 +130,7 @@
       </nav>
     </div>
 
-    <div class="container tiny">© 2025</div>
+    <div class="container tiny">© 2026</div>
   </footer>
 
   <!-- Optional legacy scripts -->
@@ -262,6 +264,7 @@
         const courtBits = [];
         if (a?.courtName) courtBits.push(escHtml(a.courtName));
         if (a?.courtNumber) courtBits.push('#' + escHtml(a.courtNumber));
+        if (a?.jurisdiction) courtBits.push('(' + escHtml(a.jurisdiction) + ')');
         const courtLine = courtBits.length ? `<div class="tiny" style="opacity:.85;margin-top:2px;">Court: ${courtBits.join(' ')}</div>` : '';
 
         const memberLabel = (a?.memberType === 'voting') ? 'Voting' : ((a?.memberType === 'non_voting') ? 'Non-Voting' : '');
@@ -308,8 +311,10 @@ return `
       const courtName   = (fd.get('courtName')||'').trim();
       const courtNumber = (fd.get('courtNumber')||'').trim();
       
-      if (!courtName || !courtNumber) {
-        alert('Court Name and Court # are required.');
+      const jurisdiction = (fd.get('jurisdiction')||'').trim();
+      
+      if (!courtName || !courtNumber || !jurisdiction) {
+        alert('Court Name, Court #, and Jurisdiction are required.');
         return;
       }
 const memberType  = (fd.get('memberType')||'').trim(); // "voting" | "non_voting"
@@ -355,6 +360,7 @@ if (!address1) missing.push('Address line 1');
         memberType,
         courtNumber,
         courtName,
+        jurisdiction,
         address1, address2, city, state, postal, country
       });
       form.reset();
@@ -411,7 +417,7 @@ if (!address1) missing.push('Address line 1');
         defaultChoice = b.options.find(o => o && o.price != null && o.disabled !== true) || b.options[0];
       }
       if (!defaultChoice) {
-        defaultChoice = { id: 'standard', label: 'Standard', price: (b.price != null ? b.price : 0) };
+        defaultChoice = { label: '', price: (b.price != null ? b.price : 0) };
       }
       const unitPrice = normalizePrice(defaultChoice.price);
 
@@ -464,14 +470,14 @@ if (!address1) missing.push('Address line 1');
         const dup = (st.lines || []).some(l =>
           l.attendeeId === attendeeId &&
           l.itemType === 'banquet' &&
-          String(l.itemId).startsWith(b.id + ':')
+          String(l.itemId) === String(b.id)
         );
         if (dup){ alert('This attendee is already assigned to this banquet.'); return; }
 
         Cart.addLine({
           attendeeId,
           itemType: 'banquet',
-          itemId: b.id + ":" + (defaultChoice.id || 'standard'),
+          itemId: b.id,
           itemName: `${b.name}${mealChoice ? ` (${mealChoice})` : ''}`,
           qty: 1,
           unitPrice,
@@ -491,7 +497,12 @@ if (!address1) missing.push('Address line 1');
             attendeeCity:   att?.city     || "",
             attendeeState:  att?.state    || "",
             attendeePostal: att?.postal   || "",
-            attendeeCountry:att?.country  || "US"
+            attendeeCountry:att?.country  || "US",
+            // court / jurisdiction (for reports + chair emails)
+            court: att?.courtName || "",
+            court_number: att?.courtNumber || "",
+            jurisdiction: att?.jurisdiction || "",
+            memberType: att?.memberType || ""
           }
         });
 
@@ -522,13 +533,11 @@ if (!address1) missing.push('Address line 1');
         console.warn('Server banquets fetch failed:', e);
       }
 
-      if (!list.length && Array.isArray(window.BANQUETS)) {
-        list = window.BANQUETS;
-      }
-
-      // ✅ Apply SAME public sort as requested (active-now filter then sortOrder)
+      // ✅ Public page: show only active, published, public banquets
       list
         .filter(b => b.active !== false)
+        .filter(b => b.hiddenFromPublic !== true)
+        .filter(b => b.groupOnly !== true)
         .filter(b => isWithinWindow(b, nowTs))
         .sort((a,b) => (Number(a.sortOrder ?? 1000) - Number(b.sortOrder ?? 1000)))
         .forEach(addBanquet);
@@ -688,5 +697,7 @@ if (!address1) missing.push('Address line 1');
   })();
   </script>
 
+
+  <script src="assets/js/tours-nav-helper.js"></script>
 </body>
 </html>

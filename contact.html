@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Contact — 2026 Grand Court of Pennsylvania - Order of the Amaranth">
+  <meta name="description" content="Contact — 2026 Grand Court of Pennsylvania Order of the Amaranth">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/styles.css?v=contact-v3" /><!-- bump -->
   <title>Contact Us</title>
@@ -174,7 +174,7 @@
 
 <body>
   <!-- Wallpaper -->
-  <div class="wallpaper" style="--wallpaper: url('/assets/img/wallpaper.jpg')"></div>
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/pa-2026-watermark.jpg')"></div>
 
   <!-- Header / Nav (same structure as home, but Contact as current) -->
   <header class="site-header">
@@ -186,13 +186,15 @@
       <nav class="site-nav nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
-        <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
+                <a href="tours.html" data-tours-link>Tours</a>
+        <a href="tours.html" data-tours-link>Tours</a>
+<!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
 
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a>  -->
 
-        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a>  -->
 
         <a href="order.html">Cart</a>
         <span class="nav-current">Contact</span>
@@ -206,10 +208,10 @@
       2026 Grand Court of Pennsylvania<br>
       Order of the Amaranth
     </h1>
-    <h2 class="session-subtitle">Adventure Is Out There</h2>
+    <h2 class="session-subtitle">Let Your Peacock Spirit Soar</h2>
 
     <p class="org-intro">
-      If you have questions about registrations, banquets, Grand Court add-ons,
+      If you have questions about registrations, banquets, Grand Court of Pennsylvania add-ons,
       or general session details, please use the form below and we will respond as soon as possible.
     </p>
 
@@ -220,6 +222,7 @@
       </div>
 
       <form id="contact-form" class="two-column" novalidate>
+        <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-10000px" />
         <div class="field">
           <label for="cf-name">Your Name *</label>
           <input id="cf-name" name="name" type="text" required />
@@ -240,7 +243,7 @@
           <select id="cf-topic" name="topic" required>
             <option value="">Choose…</option>
             <option value="banquets">Banquets / meal choices</option>
-            <option value="addons">Grand Court add-ons</option>
+            <option value="addons">Grand Court of Pennsylvania add-ons</option>
             <!-- <option value="catalog">Product catalog</option> -->
             <option value="order">Order / checkout issues</option>
             <option value="website">Website problem</option>
@@ -254,7 +257,7 @@
             <option value="">Not sure / Other</option>
             <option value="home">Home</option>
             <option value="banquet">Banquets</option>
-            <option value="addons">Grand Court Add-Ons</option>
+            <option value="addons">Grand Court of Pennsylvania Add-Ons</option>
             <!-- <option value="catalog">Product Catalog</option> -->
             <option value="order">Order</option>
           </select>
@@ -291,11 +294,11 @@
       <nav class="site-nav nav footer-nav">
         <a href="home.html">Home</a>
         <a href="banquet.html">Banquets</a>
-        <a href="grand-court-addons.html">Grand Court Add-Ons</a>
+        <a href="grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a>
         <!-- <a href="product-catalog.html" data-catalog-link>Product Catalog</a> -->
 
         <!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
-        <!-- <a href="supplies.html" data-cat-link data-cat="supplies">Supplies</a> -->
+        <!-- <a href="supplies.html">Supplies</a> -->
 
         <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
 
@@ -304,7 +307,7 @@
       </nav>
     </div>
 
-    <div class="container tiny">© 2025 Order of the Amaranth</div>
+    <div class="container tiny">© 2026 Order of the Amaranth</div>
   </footer>
 
   <script src="assets/js/main.js" defer></script>
@@ -426,7 +429,8 @@
         topic:   form.topic.value,
         page:    form.page.value,
         item:    form.item.value.trim(),
-        message: form.message.value.trim()
+        message: form.message.value.trim(),
+        website: form.website.value
       };
 
       if (!data.name || !data.email || !data.topic || !data.message) {
@@ -503,5 +507,7 @@
   })();
   </script>
 
+
+  <script src="assets/js/tours-nav-helper.js"></script>
 </body>
 </html>

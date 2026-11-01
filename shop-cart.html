@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Order page for Supplies & Charity Items checkout and attendee assignments.">
+  <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/assets/css/styles.css?v=order-v8" />
+  <title>Cart</title>
+  <style>
+    /* Page-specific polish for inline edit positioning */
+    .att-block { margin-bottom:16px }
+    .att-head {
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+      margin:0 0 .25rem 0;
+      font-size:1.1rem;
+      font-weight:800;
+    }
+    .att-head button.edit {
+      padding:.25rem .5rem;
+      font-size:.9rem;
+      border-radius:.375rem;
+    }
+    .att-head button.remove-att {
+      padding:.25rem .5rem;
+      font-size:.85rem;
+      border-radius:.375rem;
+      background:#fee2e2;
+      border:1px solid #fecaca;
+    }
+    .edit-panel {
+      display:none;
+      margin: .35rem 0 .5rem;
+      padding: .5rem;
+      border:1px dashed rgba(0,0,0,.15);
+      border-radius:.5rem;
+      background: rgba(255,255,255,0.55);
+    }
+    .edit-panel .row { display:flex; flex-wrap:wrap; gap:.5rem }
+    .edit-panel label {
+      display:flex; flex-direction:column; gap:4px;
+      min-width: 220px;
+      font-weight:600; font-size:.95rem;
+    }
+    .edit-panel input, .edit-panel textarea, .edit-panel select {
+      padding:.45rem .6rem; border:1px solid #d1d5db; border-radius:.5rem;
+      background: rgba(255,255,255,0.9);
+    }
+
+    /* Tables aligned across all people */
+    .order-table{width:100%;border-collapse:collapse; table-layout:fixed}
+    .order-table th, .order-table td{border-bottom:1px solid #ddd;padding:6px;text-align:left; vertical-align:top}
+    .order-table tfoot td{border-top:2px solid #d1d5db; font-weight:700}
+    .order-table .ta-right{ text-align:right }
+    .order-table .ta-center{ text-align:center }
+
+    /* Consistent column widths via colgroup */
+    .col-item  { width: 50% }  /* Item name */
+    .col-qty    { width: 10% }
+    .col-price  { width: 15% }
+    .col-total  { width: 15% }
+    .col-action { width: 10% }
+
+    .fees-box{
+      margin-top:10px;
+      padding:12px;
+      background: rgba(255,255,255,0.40);
+      border:1px solid rgba(229,231,235,0.45);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      backdrop-filter: saturate(120%) blur(2px);
+      -webkit-backdrop-filter: saturate(120%) blur(2px);
+      border-radius:10px;
+    }
+
+    /* International card fee notice */
+    #intl-fee-note {
+      display:none;
+      margin-top:8px;
+      font-size:.85rem;
+      line-height:1.3;
+      color:#7c2d12;
+      background:#fffbeb;
+      border:1px solid #fed7aa;
+      padding:6px 8px;
+      border-radius:6px;
+    }
+
+    .att-notes,
+    .att-meta {
+      font-size:.9rem;
+      opacity:.95;
+      margin: .1rem 0 .4rem;
+      color:#111;
+    }
+
+    /* Darker order text for better readability */
+    .order-table, .order-table td, .order-table th { color: #111; }
+    .order-table .tiny { color: #111; opacity: .95; }
+
+    /* Small helper for inline status */
+    #checkoutStatus { margin-left:10px; font-size:.95rem }
+    #checkoutStatus.err { color:#b91c1c }
+    #checkoutStatus.ok { color:#065f46 }
+    #checkout[disabled]{ opacity:.7; cursor:not-allowed }
+  </style>
+
+  <!-- Stripe.js (required for redirectToCheckout) -->
+  <script src="https://js.stripe.com/v3"></script>
+  <!-- Optional: set your publishable key here as a fallback (safe to expose) -->
+  <script>
+    window.STRIPE_PUBLISHABLE_KEY = "pk_test_51SBDHKF9brZtHXuA8XTuAes5eBfBG1e95bFeEjWwLwlsuk36PSJxB88HjuqSV1SBlYNJ2CWbHgnv96VIU3Qf6hW400P7jB4s30";
+  </script>
+</head>
+
+<body data-page="order">
+  <div class="wallpaper" style="--wallpaper: url('/assets/img/pa-2026-watermark.jpg')"></div>
+  <!-- Header / Logo + Nav -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="/home.html">
+        <img src="/assets/img/logo.svg" alt="Logo" />
+      </a>
+      <span class="site-title">Order of the Amaranth</span>
+      <nav class="site-nav nav">
+        <a href="/home.html">Home</a>
+        <!-- <a href="/banquet.html">Banquets</a> -->
+        <!-- <a href="/grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a> -->
+        <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+		<!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <a href="supplies.html">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+		<span class="nav-current">Cart</span>
+        <a href="/contact.html">Contact</a>
+      
+        
+        
+
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+</nav>
+    </div>
+  </header>
+
+  <main class="container mt-lg">
+    <h1 class="page-title">Cart</h1>
+
+<section class="card page-instructions" style="margin-top:16px;">
+  <h3>Before You Checkout</h3>
+  <p>Please review your selected items, quantities, and any required item details carefully before proceeding.</p>
+  <p>The <strong>Purchaser Information</strong> section is used for <strong>checkout, billing, shipping (if applicable), and receipts</strong>.</p>
+</section>
+
+
+    <!-- Purchaser -->
+    <section class="card">
+      <h2>Purchaser</h2>
+      <div class="grid-2">
+        <label>Full name
+          <input id="p_name" type="text" placeholder="Your name *" required>
+        </label>
+        <label>Title
+          <input id="p_title" type="text" placeholder="Title *" required>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Email
+          <input id="p_email" type="email" placeholder="you@example.com *" required>
+        </label>
+        <label>Phone
+          <input id="p_phone" type="tel" placeholder="555-555-5555 *" required>
+        </label>
+      </div>
+      <div class="grid-3">
+        <label>Address line 1
+          <input id="p_addr1" type="text" placeholder="Address line 1 *" required>
+        </label>
+        <label>Address line 2
+          <input id="p_addr2" type="text" placeholder="Address line 2">
+        </label>
+        <label>City
+          <input id="p_city" type="text" placeholder="City *" required>
+        </label>
+      </div>
+      <div class="grid-3">
+        <label>State/Province
+          <input id="p_state" type="text" placeholder="State/Province *" required>
+        </label>
+        <label>Postal code
+          <input id="p_zip" type="text" placeholder="Postal code *" required>
+        </label>
+        <label>Country
+          <input id="p_country" type="text" value="US" placeholder="Country *" required>
+        </label>
+      </div>
+    </section>
+
+    <!-- Summary / Lines -->
+    <section class="card mt-lg">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2>Summary</h2>
+        <div><strong>Total: </strong><span id="order-total">$0.00</span></div>
+      </div>
+
+      <div id="order-list" class="mt"></div>
+
+      <div class="fees-box" id="order-summary"></div>
+
+      <!-- International card processing note (shown for non-US countries) -->
+      <div id="intl-fee-note">
+        🌎 Note: Orders with a billing address outside the United States include an additional
+        3% international card processing fee at checkout. This will appear as a separate line on
+        your Stripe payment summary.
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <button id="checkout" class="btn btn-primary mt">Go to Checkout</button>
+        <span id="checkoutStatus" class="tiny"></span>
+      </div>
+      <p class="tiny">You’ll be redirected to Stripe’s secure checkout.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    
+    <div class="container">
+      <nav class="site-nav nav footer-nav">
+        <a href="/home.html">Home</a>
+        <!-- <a href="/banquet.html">Banquets</a> -->
+        <!-- <a href="/grand-court-addons.html">Grand Court of Pennsylvania Add-Ons</a> -->
+        <!-- <a href="/product-catalog.html" data-catalog-link>Product Catalog</a> -->
+		<!-- TEMP: hide Supplies everywhere (we’ll re-enable later) -->
+        <a href="supplies.html">Supplies</a>
+        <a href="charity.html" data-cat-link data-cat="charity">Charity</a>
+		<span class="nav-current">Cart</span>
+        <a href="/contact.html">Contact</a>
+      
+        
+        
+
+        <!-- <a href="charity.html" data-cat-link data-cat="charity">Charity</a> -->
+</nav>
+    </div>
+
+    <div class="container tiny">© 2025</div>
+  </footer>
+
+  <!-- Optional legacy scripts -->
+  <script src="/assets/js/main.js" defer></script>
+
+  <!-- ===== Phone helpers (US dashes; keep +international) ===== -->
+  <script>
+    function digitsOnly(s){ return String(s||'').replace(/\D+/g,''); }
+    function formatUS(d){
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return d.slice(0,3) + '-' + d.slice(3);
+      return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6,10);
+    }
+    function formatPhoneLive(inputEl){
+      const raw = (inputEl.value||'').trim();
+      if (raw.startsWith('+')) return;             // keep international intact
+      const d = digitsOnly(raw).slice(0,10);       // cap to 10 for US mask
+      inputEl.value = formatUS(d);
+    }
+  </script>
+
+  <!-- Core site scripts (order matters) -->
+  <script src="/assets/js/site-settings.js"></script>
+  <script src="/assets/js/items.js"></script>
+  <script src="/assets/js/banquets.js"></script>
+  <script src="/assets/js/cart.js"></script>
+  <script src="/assets/js/data-store.js"></script>
+  <script src="/assets/js/site-boot.js"></script>
+
+  <!-- Order page logic (rendering + shipping + checkout) -->
+  <script src="/assets/js/supplies.js"></script>
+  <script src="/assets/js/charity.js"></script>
+  <script src="/assets/js/order-page.js"></script>
+
+  <!-- Page-specific wiring: phone formatting + international fee notice -->
+  <script>
+    (function(){
+      const phone = document.getElementById('p_phone');
+      if (phone) {
+        phone.addEventListener('input', () => formatPhoneLive(phone));
+        phone.addEventListener('blur', () => formatPhoneLive(phone));
+      }
+
+      const countryInput = document.getElementById('p_country');
+      const intlNote = document.getElementById('intl-fee-note');
+
+      function updateIntlNote() {
+        if (!countryInput || !intlNote) return;
+        const val = (countryInput.value || '').trim().toUpperCase();
+        // Only show for clearly non-US entries
+        if (val && val !== 'US' && val !== 'USA' && val !== 'UNITED STATES') {
+          intlNote.style.display = 'block';
+        } else {
+          intlNote.style.display = 'none';
+        }
+      }
+
+      if (countryInput) {
+        countryInput.addEventListener('input', updateIntlNote);
+        countryInput.addEventListener('change', updateIntlNote);
+        // initial state (default "US" hides it)
+        updateIntlNote();
+      }
+    })();
+  </script>
+
+  <!-- Hide Product Catalog link if no visible items -->
+  <script>
+  (async function(){
+    const link = document.querySelector('[data-catalog-link]');
+    if (!link) return;
+
+    async function fetchJson(url){
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch(e){ return null; }
+    }
+
+    let items = [];
+    let j = await fetchJson('/api/router?type=products');
+    if (Array.isArray(j?.products)) items = j.products;
+
+    if (!items.length && Array.isArray(window.CATALOG_ITEMS)) items = window.CATALOG_ITEMS;
+
+    const now = Date.now();
+    const hasVisible = (items || []).some(i => {
+      if (!i || i.active === false) return false;
+      const s = i.publishStart ? Date.parse(i.publishStart) : null;
+      const e = i.publishEnd   ? Date.parse(i.publishEnd) : null;
+      return (s == null || now >= s) && (e == null || now <= e);
+    });
+
+    if (!hasVisible) link.style.display = 'none';
+  })();
+  </script>
+
+  <!-- Maintenance check -->
+  <script>
+  (async () => {
+    try {
+      const resp = await fetch('/api/router?type=settings');
+      const data = await resp.json();
+
+      const on  = data?.effective?.MAINTENANCE_ON ?? data?.MAINTENANCE_ON;
+      const msg = data?.effective?.MAINTENANCE_MESSAGE ?? data?.MAINTENANCE_MESSAGE;
+
+      if (on === 'true' || on === true) {
+        document.body.innerHTML = `
+          <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#fef2f2;color:#b91c1c;font-family:sans-serif;text-align:center;padding:20px">
+            <h1 style="font-size:2em;margin-bottom:12px;">🛠 Under Maintenance</h1>
+            <p style="font-size:1.2em;max-width:500px;">
+              ${msg || 'The site is temporarily unavailable. Please check back soon.'}
+            </p>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('Maintenance check failed:', err);
+    }
+  })();
+  </script>
+
+
+<script>
+(async function(){
+  async function hasActive(cat){
+    try{
+      const r = await fetch("/api/router?type=catalog_has_active&cat=" + encodeURIComponent(cat), { cache: "no-store" });
+      if (!r.ok) return true;
+      const j = await r.json();
+      return !!(j && j.hasActive);
+    }catch(e){
+      // fail open: show links if API fails
+      return true;
+    }
+  }
+  const links = Array.from(document.querySelectorAll("[data-cat-link][data-cat]"));
+  for (const a of links){
+    const cat = a.getAttribute("data-cat") || "";
+    const ok = await hasActive(cat);
+    if (!ok) a.style.display = "none";
+  }
+})();
+</script>
+  <script src="/assets/js/visits.js?v=visits-v1"></script>
+
+  <!-- Visitor tracking -->
+  <script>
+  (function () {
+    try {
+      const path = location.pathname;
+      if (
+        path.startsWith('/admin') ||
+        path.includes('debug') ||
+        path.startsWith('/api') ||
+        path.startsWith('/assets')
+      ) return;
+
+      fetch(`/api/router?type=track_visit&path=${encodeURIComponent(path)}`, {
+        method: 'GET',
+        keepalive: true
+      });
+    } catch (e) {}
+  })();
+  </script>
+
+</body>
+</html>
