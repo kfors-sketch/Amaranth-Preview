@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amaranth Admin — Reporting Dashboard</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Reporting Dashboard`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
 
   <!-- Shared styles (includes .help-btn and modal styles) -->
@@ -123,7 +126,10 @@
 </head>
 <body>
   <div class="container">
-    <div class="heading-row">
+    <div style="margin-bottom:10px;font-size:13px;font-weight:700;color:#6b7280">
+      Grand Court of Pennsylvania Admin
+    </div>
+     <div class="heading-row">
       <div>
         <h2>
           Reporting Dashboard
@@ -172,6 +178,8 @@
             <option value="">All</option>
             <option value="banquet">Banquets</option>
             <option value="addon">Add-ons</option>
+            <option value="transportation">Transportation</option>
+            <option value="tour">Tours</option>
             <option value="catalog">Catalog</option>
           </select>
         </div>
@@ -270,7 +278,7 @@
       <div class="controls mt-4">
         <div class="group" style="max-width:320px">
           <label class="muted">Send to</label>
-          <input id="testReportTo" type="email" value="kfors@verizon.net" />
+          <input id="testReportTo" type="email" value="" />
         </div>
 
         <div class="group" style="max-width:220px">
@@ -383,7 +391,7 @@
             >?</button>
           </h3>
           <p class="muted">
-            Reports are sent <strong>weekly</strong> to banquet, add-on, and catalog chairs on the day you choose below.
+            Reports are sent <strong>weekly</strong> to banquet, add-on, transportation, tour, and catalog chairs on the day you choose below.
           </p>
 
           <div class="controls mt-4">
@@ -434,6 +442,8 @@
                 <option value="" selected disabled>Choose…</option>
                 <option value="banquet">Banquets</option>
                 <option value="addon">Add-ons</option>
+                <option value="transportation">Transportation</option>
+                <option value="tour">Tours</option>
                 <option value="other">Catalog</option>
               </select>
             </div>
@@ -621,6 +631,62 @@
     }
 
     function normalizeStr(v){ return String(v||'').trim().toLowerCase(); }
+
+    function getMetaObject(r){
+      const raw = r?.meta ?? r?.metadata ?? r?.item_meta ?? r?.itemMeta ?? null;
+      if (!raw) return {};
+      if (typeof raw === 'object') return raw;
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch(e) {
+          return {};
+        }
+      }
+      return {};
+    }
+
+    function getRowCategory(r){
+      const meta = getMetaObject(r);
+      const raw = normalizeStr(
+        meta.category ||
+        meta.itemCategory ||
+        r.category ||
+        r.type ||
+        r.itemType ||
+        r.item_type ||
+        ''
+      );
+
+      if (raw === 'transport' || raw === 'transportation' || raw === 'airport' || raw === 'shuttle') {
+        return 'transportation';
+      }
+      if (raw === 'tour' || raw === 'tours') {
+        return 'tour';
+      }
+      if (raw === 'product' || raw === 'products' || raw === 'catalog' || raw === 'other') {
+        return raw === 'other' ? 'catalog' : raw;
+      }
+      if (raw === 'addon' || raw === 'add-on' || raw === 'addons') {
+        const itemId = normalizeStr(r.item_id || r.itemId || r.sku || r.code);
+        const itemName = normalizeStr(r.item || r.item_name || r.description || r.itemName);
+        if (itemId.includes('transport') || itemName.includes('transport') || meta.transportation) return 'transportation';
+        if (itemId.includes('tour') || itemName.includes('tour') || meta.tour) return 'tour';
+        return 'addon';
+      }
+      return raw || 'other';
+    }
+
+    function prettyCategoryLabel(cat){
+      const c = getRowCategory({ category: cat });
+      if (c === 'banquet') return 'Banquet';
+      if (c === 'addon') return 'Add-on';
+      if (c === 'transportation') return 'Transportation';
+      if (c === 'tour') return 'Tour';
+      if (c === 'catalog') return 'Catalog';
+      return cat || '—';
+    }
 
     function isFeeRow(r){
       const cat = normalizeStr(r.category || r.type);
@@ -839,13 +905,13 @@ function getOrderKey(r){
         const t = Date.parse(r.date || r.created || r.created_at || '');
         if (!isNaN(fromMs) && t < fromMs) return false;
         if (!isNaN(toMs) && t > toMs) return false;
-        if (cat && String(r.category||'').toLowerCase() !== cat.toLowerCase()) return false;
+        if (cat && getRowCategory(r) !== normalizeStr(cat)) return false;
         if (st && String(r.status||'').toLowerCase() !== st.toLowerCase()) return false;
         if (q){
           const hay = [
             r.name,r.buyer,r.email,r.item,r.item_name,
             r.address,r.city,r.state,r.zip,r.country,
-            r.phone,r.notes,r.metadata && JSON.stringify(r.metadata)
+            r.phone,r.notes,r.metadata && JSON.stringify(r.metadata), r.meta && JSON.stringify(r.meta)
           ].join(' ').toLowerCase();
           if (!hay.includes(q)) return false;
         }
@@ -906,7 +972,7 @@ function getOrderKey(r){
           }
         }
 
-        const catKey = String(r.category||r.type||'other').toLowerCase();
+        const catKey = getRowCategory(r);
         byCat[catKey] = byCat[catKey] || {total:0,count:0};
         if (status !== 'refunded' && !isFee){
           byCat[catKey].total += n;
@@ -941,7 +1007,7 @@ function getOrderKey(r){
           td(dateStr,'text-xs'),
           td(`<div class="text-xs">${buyer}</div><div class="text-xs muted">${r.email||''}</div>`),
           td(`<div class="text-xs">${item}</div><div class="text-xs muted">${r.notes||r.memo||''}</div>`),
-          td(`<span class="badge-sm tag-muted">${r.category||r.type||'—'}</span>`),
+          td(`<span class="badge-sm tag-muted">${prettyCategoryLabel(getRowCategory(r))}</span>`),
           td(`<span class="status-icon ${status}">
                 <span class="dot"></span>
                 <span>${status||'unknown'}</span>
@@ -1054,7 +1120,10 @@ function getOrderKey(r){
     async function loadFromServer(){
       try{
         const qs = buildServerQuery();
-        const r = await fetch('/api/router?type=orders'+qs,{cache:'no-store'});
+        const r = await fetch('/api/router?type=orders'+qs,{
+        cache:'no-store',
+        headers:getAuthHeaders()
+    });
         const j = await r.json();
         if(!r.ok) throw new Error(j?.error||'Fetch failed');
         rows = Array.isArray(j.rows)?j.rows:[];
@@ -1093,8 +1162,14 @@ function getOrderKey(r){
     });
 
     document.getElementById('btnFullAttendeesCsv').addEventListener('click', async ()=>{
-      const qs=buildServerQuery();
-      await downloadServerCsv(qs);
+      let qs=buildServerQuery();
+      if (typeof qs === 'string' && qs){
+        if (qs.startsWith('?')) qs = '&' + qs.slice(1);
+        else if (!qs.startsWith('&')) qs = '&' + qs;
+      } else {
+        qs = '';
+      }
+      await downloadCsvFrom('/api/router?type=full_attendees_csv'+qs,'amaranth-full-attendees');
     });
 
     async function downloadServerCsv(qs){
@@ -1111,7 +1186,10 @@ function getOrderKey(r){
 
     async function downloadCsvFrom(url,namePrefix){
       try{
-        const r=await fetch(url,{cache:'no-store'});
+        const r=await fetch(url,{
+        cache:'no-store',
+        headers:getAuthHeaders()
+    });
         if(!r.ok) throw new Error('HTTP '+r.status);
         const blob=await r.blob();
         const a=document.createElement('a');
@@ -1148,14 +1226,38 @@ function getOrderKey(r){
       return (list||[]).map(x=>({
         id:String(x.id||x.itemId||x.slug||x.code||x.name||''),
         name:String(x.name||x.title||x.label||x.slug||x.id||'(unnamed)'),
+        type:String(x.type||x.category||'').toLowerCase(),
+        category:String(x.category||x.type||'').toLowerCase(),
         chairEmails:Array.isArray(x.chairEmails)?x.chairEmails
-          :String(x.chairEmails||x.chairs||'').split(',').map(s=>s.trim()).filter(Boolean)
+          :String(x.chairEmails||x.chairs||x.chair?.email||'').split(',').map(s=>s.trim()).filter(Boolean)
       }));
+    }
+
+    function filterCatalogForKind(kind, list){
+      if (kind === 'transportation') {
+        return (list||[]).filter(x =>
+          normalizeStr(x.type) === 'transportation' ||
+          normalizeStr(x.category) === 'transportation' ||
+          normalizeStr(x.id).includes('transport') ||
+          normalizeStr(x.name).includes('transport')
+        );
+      }
+      if (kind === 'tour') {
+        return (list||[]).filter(x =>
+          normalizeStr(x.type) === 'tour' ||
+          normalizeStr(x.type) === 'tours' ||
+          normalizeStr(x.category) === 'tour' ||
+          normalizeStr(x.category) === 'tours' ||
+          normalizeStr(x.id).includes('tour') ||
+          normalizeStr(x.name).includes('tour')
+        );
+      }
+      return list || [];
     }
 
     async function fetchList(kind){
       if(caches[kind]) return caches[kind];
-      const typeMap={banquet:'banquets',addon:'addons',other:'products'};
+      const typeMap={banquet:'banquets',addon:'addons',transportation:'addons',tour:'tours',other:'products'};
       const listType=typeMap[kind];
       let list=[];
       try{
@@ -1165,6 +1267,19 @@ function getOrderKey(r){
           list=normalizeList(kind,j[listType]);
         }
       }catch{}
+
+      // Tours may not have their own endpoint yet; fall back to add-ons tagged as tours.
+      if (kind === 'tour' && !list.length) {
+        try {
+          const r=await fetch('/api/router?type=addons',{cache:'no-store'});
+          if(r.ok){
+            const j=await r.json();
+            list=normalizeList(kind,j.addons);
+          }
+        } catch(e) {}
+      }
+
+      list = filterCatalogForKind(kind, list);
       caches[kind]=list;
       return list;
     }
@@ -1255,7 +1370,7 @@ function getOrderKey(r){
       try{
         const r=await fetch('/api/router?action=send_item_report',{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:{'Content-Type':'application/json', ...getAuthHeaders()},
           body:JSON.stringify(payload)
         });
         const j=await r.json();
@@ -1419,6 +1534,17 @@ $('#refundModal').style.display='none';
 
         const weekday=String(j.effective?.REPORT_WEEKDAY||'1');
         $('#reportWeekday').value=weekday;
+
+        const reportTo =
+          j?.effective?.REPORTS_LOG_TO ||
+          j?.REPORTS_LOG_TO ||
+          '';
+
+        const testInput = document.getElementById('testReportTo');
+        if (testInput && !testInput.value) {
+          testInput.value = reportTo;
+        }
+
         statusEl.textContent='';
         helpEl.textContent=`Weekly reports will be sent every ${$('#reportWeekday').selectedOptions[0].textContent}.`;
       }catch{
@@ -1458,7 +1584,7 @@ $('#refundModal').style.display='none';
 
       try {
         const payload = {
-          to: ($('#testReportTo')?.value || 'kfors@verizon.net').trim(),
+          to: ($('#testReportTo')?.value || '').trim(),
           frequency: ($('#testReportFreq')?.value || 'monthly').trim(),
           scope: ($('#testReportScope')?.value || 'current-month').trim(),
           previewOnly: !!$('#testPreviewOnly')?.checked,

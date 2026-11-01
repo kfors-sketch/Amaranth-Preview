@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin Settings — Amaranth</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Settings`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
@@ -50,7 +53,7 @@
 <body>
   <main class="container">
     <header class="row" style="align-items:center;justify-content:space-between;margin-bottom:12px">
-      <h1 style="margin:0">Admin Settings</h1>
+      <h1 style="margin:0">Grand Court of Pennsylvania Admin Settings</h1>
       <div class="row" style="align-items:center;gap:8px">
         <span id="adminPill" class="pill">Admin Mode</span>
         <a class="btn ghost" href="/admin/index.html" style="height:32px;padding:0 10px;font-size:13px">← Admin Hub</a>
@@ -66,7 +69,7 @@
       </p>
       <div class="row">
         <div>
-          <label for="token">REPORT_TOKEN</label>
+          <label for="token">Admin Access Token</label>
           <input id="token" type="password" placeholder="paste token here" />
         </div>
         <div style="display:flex;align-items:flex-end;gap:8px">
@@ -87,7 +90,7 @@
         </div>
         <div>
           <label for="ccList">REPORTS_CC (comma-separated)</label>
-          <input id="ccList" type="text" placeholder="kfors@verizon.net, another@example.com" />
+          <input id="ccList" type="text" placeholder="admin@example.com, reports@example.com" />
         </div>
       </div>
       <div id="emailMsg" class="muted" style="margin-top:6px"></div>
@@ -311,7 +314,7 @@ $('#logoutBtn').addEventListener('click', ()=>{
     localStorage.removeItem('amaranth_admin_ok');
     localStorage.removeItem('amaranth_admin_pw_ok');
   }catch(e){}
-  location.href = '/admin/login.html';
+  location.href = '/admin/reporting_login.html';
 });
 
 /* ---------- Feature Flags ---------- */

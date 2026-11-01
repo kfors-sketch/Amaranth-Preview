@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Guide & How-To`;
+  </script>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    :root{
+      --bg:#f7f7fb; --fg:#111; --muted:#6b7280; --card:#fff; --line:#e5e7eb;
+      --pill:#eef2ff; --pillfg:#3730a3; --chip:#111; --chip2:#1f2937; --chip3:#065f46;
+      --link:#1f4b99;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+    a{color:var(--link);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
+    .page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .page-title h1{margin:0;font-size:24px}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:var(--pill);color:var(--pillfg);font-weight:700;font-size:12px;border-radius:999px;padding:6px 10px}
+    .muted{color:var(--muted)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:16px;margin:12px 0}
+    h2{font-size:20px;margin:0 0 10px}
+    h3{font-size:16px;margin:12px 0 6px}
+    ul,ol{margin:6px 0 10px 22px}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+    .toc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+    @media (max-width:900px){ .toc{grid-template-columns:1fr} }
+    .toc a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px}
+    .kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 6px;background:#fff;font-family:inherit}
+    .note{background:#fff9db;border:1px solid #f7e3a3;color:#6b5e00;border-radius:10px;padding:10px}
+    .ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:10px;padding:10px}
+    .bad{background:#fef2f2;border:1px solid #fecaca;color:#7f1d1d;border-radius:10px;padding:10px}
+    .inline-chip{display:inline-block;background:#111;color:#fff;border-radius:8px;padding:3px 8px;font-weight:700}
+    .kbdline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-title">
+      <div>
+        <h1>Grand Court of Pennsylvania Admin — Guide & How-To</h1>
+        <div class="muted">For Reporting, Chair Emails, Exports, and Refunds</div>
+      </div>
+      <span class="pill">v1 · Updated <!-- inject date if you like -->2025-11-09</span>
+    </div>
+
+    <div class="card">
+      <h2>Quick Links</h2>
+      <div class="toc">
+        <a href="#overview">Overview & Access</a>
+        <a href="#reporting">Reporting page (step-by-step)</a>
+        <a href="#filters">Filters & Search</a>
+        <a href="#per-item">Per-Item Download / Email (Banquet / Add-On / Catalog)</a>
+        <a href="#totals">Understanding Totals</a>
+        <a href="#table">Table & Columns</a>
+        <a href="#refunds">Refunds (Stripe)</a>
+        <a href="#emails">Chair Emails: monthly, final, test</a>
+        <a href="#troubleshoot">Troubleshooting</a>
+        <a href="#glossary">Glossary</a>
+      </div>
+    </div>
+
+    <div id="overview" class="card">
+      <h2>Overview & Access</h2>
+      <p>
+        The Admin tools live under <code>/admin/</code>. Your main dashboard is the
+        <a href="/admin/index.html">Admin Hub</a>, and the reports are on
+        <a href="/admin/reporting_main.html">Reporting</a>.
+      </p>
+      <ul>
+        <li><strong>Login required:</strong> You must be authenticated; otherwise you’ll be redirected to the login page.</li>
+        <li><strong>Load from Server:</strong> pulls saved Stripe orders from the backend and caches them locally in your browser for fast re-viewing.</li>
+        <li><strong>Local vs Server:</strong> CSV exports and chair emails prefer the server (authoritative); the page can also export the currently visible table as a fallback.</li>
+      </ul>
+    </div>
+
+    <div id="reporting" class="card">
+      <h2>Reporting page (step-by-step)</h2>
+      <ol>
+        <li>Click <span class="inline-chip">Load from Server</span> to fetch the latest orders.</li>
+        <li>Use <a href="#filters">Filters & Search</a> to narrow the view.</li>
+        <li>To export everything in your date/search window, use <strong>Export CSV (Date/Search)</strong>.</li>
+        <li>To export or email for a specific banquet/add-on/catalog item, use
+          <a href="#per-item">Download / Email by Specific Item</a>.</li>
+        <li>Totals update automatically based on what’s visible in the table.</li>
+      </ol>
+      <p class="note"><strong>Heads-up:</strong> “Clear Local” clears only your browser’s cached rows. It does not delete anything on the server.</p>
+    </div>
+
+    <div id="filters" class="card">
+      <h2>Filters & Search</h2>
+      <ul>
+        <li><strong>From / To:</strong> date range filter.</li>
+        <li><strong>Category:</strong> Banquet, Add-On, Donation, or Catalog.</li>
+        <li><strong>Status:</strong> Paid, Refunded, Partial, Pending.</li>
+        <li><strong>Search:</strong> Finds text in order id, purchaser, attendee, item, notes, and category.</li>
+      </ul>
+      <p>These filters change the visible table and are applied to server CSVs (date/search). The per-item area additionally sends the category + the specific item to the server when you download or email.</p>
+    </div>
+
+    <div id="per-item" class="card">
+      <h2>Per-Item Download / Email (Banquet / Add-On / Catalog)</h2>
+      <ol>
+        <li>Choose a <strong>Category</strong> (Banquet, Add-On, or Catalog).</li>
+        <li>Choose the <strong>Item</strong> from the next dropdown.
+          <ul>
+            <li>The list comes from the server (<code>/api/router?type=banquets|addons|products</code>). If that’s unavailable, it falls back to optional local JS lists under <code>/assets/js/</code>.</li>
+          </ul>
+        </li>
+        <li><strong>Scope</strong> (for emails): Current Month or Full Report.</li>
+        <li>Click <strong>Download CSV</strong> for a server-generated CSV limited to that item (plus date/search if set).</li>
+        <li>Click <strong>Email Chair</strong> to email that per-item CSV to the chairperson(s).
+          <ul>
+            <li>Chair emails are stored per item in KV (<code>itemcfg:&lt;id&gt;</code>), with a fallback to <code>REPORTS_CC/BCC</code>.</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="ok"><strong>Tip:</strong> If the file is empty: widen your From/To dates, clear Search, and confirm the item’s ID matches the orders’ <code>itemId</code> metadata.</p>
+    </div>
+
+    <div id="totals" class="card">
+      <h2>Understanding Totals</h2>
+      <ul>
+        <li><strong>Gross / Fees / Net:</strong> Calculated from the visible rows (client-side). Net ≈ Gross − Fees.</li>
+        <li><strong>Category totals:</strong> Banquets, Add-Ons, Donations are summed from visible rows.</li>
+        <li><strong>Count:</strong> Number of visible rows (not number of orders).</li>
+      </ul>
+    </div>
+
+    <div id="table" class="card">
+      <h2>Table & Columns</h2>
+      <ul>
+        <li><strong>Date</strong>: order/line timestamp.</li>
+        <li><strong>Order #</strong>: Stripe Checkout session id.</li>
+        <li><strong>Purchaser / Attendee / Category / Item</strong></li>
+        <li><strong>Qty / Price / Gross / Fees / Net</strong></li>
+        <li><strong>Status</strong>: paid/refunded/partial/pending.</li>
+        <li><strong>Notes</strong>: for banquets, combines attendee notes + dietary notes; for others, item notes.</li>
+        <li><strong>Refund</strong>: appears when a row can be tied to a Stripe charge or payment intent.</li>
+      </ul>
+      <p>Header is sticky; hover highlights a row. “Print / PDF” prints what you see.</p>
+    </div>
+
+    <div id="refunds" class="card">
+      <h2>Refunds (Stripe)</h2>
+      <ol>
+        <li>Click a row’s <strong>Refund</strong> button.</li>
+        <li>Choose <strong>Full</strong> or <strong>Partial</strong> and enter an amount for partials.</li>
+        <li>Click <strong>Refund</strong>. The server creates a Stripe Refund.</li>
+        <li>Reload from server to see updated statuses (the page usually refreshes for you).</li>
+      </ol>
+      <p class="bad"><strong>Important:</strong> Refunds are real—use with care. Make sure you choose the correct row/amount.</p>
+    </div>
+
+    <div id="emails" class="card">
+      <h2>Chair Emails: monthly, final, and test</h2>
+      <ul>
+        <li><strong>Email Chair</strong> (per-item area) — sends a CSV for the chosen banquet/add-on/catalog item to its chairperson(s). Scope: current month or full.</li>
+        <li><strong>Test Email</strong>: from Reporting you can send a quick test to verify the email pipeline; the backend uses <code>RESEND_FROM</code> and falls back to <code>REPORTS_CC/BCC</code> if no direct recipient is provided.</li>
+        <li><strong>Monthly / Final automations</strong>: chairs can receive a monthly summary and a final report after an item’s end date (configured server-side). Ask an admin to confirm the schedule and chair addresses in KV (<code>itemcfg:&lt;id&gt;</code>).</li>
+      </ul>
+    </div>
+
+    <div id="troubleshoot" class="card">
+      <h2>Troubleshooting</h2>
+      <h3>“Download is empty”</h3>
+      <ul>
+        <li>Check <strong>From/To</strong> (widen your date range).</li>
+        <li>Clear <strong>Search</strong> (you may be filtering everything out).</li>
+        <li>Confirm the item’s <strong>ID</strong> matches the orders’ <code>itemId</code> metadata.</li>
+      </ul>
+
+      <h3>“Email failed: unauthorized”</h3>
+      <ul>
+        <li>Admin endpoints require a valid temporary admin token from the login page. If you see this error, log out, log back in, and try again.</li>
+      </ul>
+
+      <h3>Accents look wrong in Excel (e.g., “EntrÃ©e”)</h3>
+      <ul>
+        <li>Use server-generated CSVs—they include a UTF-8 BOM so Excel shows “Entrée” correctly.</li>
+        <li>If importing a local CSV into Excel, choose UTF-8 during import.</li>
+      </ul>
+
+      <h3>“Add-Ons list didn’t populate”</h3>
+      <ul>
+        <li>Check the server list at <code>/api/router?type=addons</code>. If empty, the page falls back to any static list you ship (e.g., <code>/assets/js/addons.js</code>).</li>
+        <li>Make sure static file names match what your page includes.</li>
+      </ul>
+    </div>
+
+    <div id="glossary" class="card">
+      <h2>Glossary</h2>
+      <ul>
+        <li><strong>Banquet / Add-On / Catalog:</strong> Item categories. Used for filtering, exports, and chair routing.</li>
+        <li><strong>Chairperson:</strong> Email recipient(s) for a given item; stored with the item config.</li>
+        <li><strong>KV:</strong> Server key-value store (<code>itemcfg:&lt;id&gt;</code>, <code>banquets</code>, <code>addons</code>, <code>products</code>, order data).</li>
+        <li><strong>Resend:</strong> Email delivery provider (uses <code>RESEND_FROM</code>, <code>REPORTS_CC/BCC</code>, <code>REPLY_TO</code>).</li>
+        <li><strong>Stripe:</strong> Payment & refunds. Orders are flattened to report rows (one row per line item).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="muted">Need more help? Open <a href="/admin/reporting_main.html">Reporting</a> and use the “Help” link to come back here.</div>
+    </div>
+  </div>
+</body>
+</html>

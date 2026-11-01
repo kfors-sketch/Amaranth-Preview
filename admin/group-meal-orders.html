@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grand Court of Pennsylvania Admin — Group Meal Orders</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111827}.container{max-width:1120px;margin:24px auto;padding:0 16px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:16px;margin-bottom:16px}.heading{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}h1{margin:0;font-size:24px}h2{margin:0 0 10px;font-size:17px}.muted{color:#6b7280;font-size:13px}.small{font-size:12px;color:#6b7280}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}label{font-size:12px;font-weight:700;color:#374151;display:block;margin-bottom:4px}input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff;font:inherit}textarea{min-height:80px}.btn{height:34px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-decoration:none}.btn.secondary{background:#fff;color:#111}.btn.success{background:#065f46;border-color:#064e3b}.btn:disabled{opacity:.55;cursor:not-allowed}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.spacer{flex:1}.totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.totalbox{border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:10px}.totalbox strong{display:block;font-size:18px;margin-top:3px}pre{white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:10px;font-size:12px;max-height:220px;overflow:auto}@media(max-width:850px){.grid,.totals{grid-template-columns:1fr}.heading{flex-direction:column}}
+  </style>
+</head>
+<body>
+<main class="container">
+  <div class="heading">
+    <div>
+      <div class="muted" style="font-weight:800">Grand Court of Pennsylvania Admin</div>
+      <h1>Group Meal Orders</h1>
+      <p class="muted">Use this for jurisdiction breakfasts, club board dinners, and other group-only buffet meals. Each group is stored separately for reporting.</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn secondary" href="/admin/index.html">← Admin Hub</a>
+      <a class="btn secondary" href="/admin/reporting_main.html">Reports</a>
+      <a class="btn secondary" href="/admin/manual-reservation-entry.html">Manual Entry</a>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Group Information</h2>
+    <div class="grid">
+      <div><label>Group Type</label><select id="groupType"><option value="jurisdiction" selected>Jurisdiction</option><option value="club_board">Club Board</option></select></div>
+      <div><label>Group Name *</label><input id="groupName" placeholder="Pennsylvania / ADF Board / etc."></div>
+      <div><label>Contact Person</label><input id="contactName"></div>
+      <div><label>Contact Email</label><input id="contactEmail" type="email"></div>
+      <div><label>Contact Phone</label><input id="contactPhone"></div>
+      <div><label>Entered By</label><input id="enteredBy" placeholder="Karl"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Order Type</h2>
+    <div class="grid">
+      <div>
+        <label>Entry Type</label>
+        <select id="entryType">
+          <option value="new" selected>New Group Order</option>
+          <option value="add_on">Add-On to Existing Group Order</option>
+        </select>
+      </div>
+      <div>
+        <label>Add-On Reference / Note</label>
+        <input id="addOnNote" placeholder="Example: late add-on, second check, +3 people">
+      </div>
+      <div>
+        <label>Original Order ID (optional)</label>
+        <input id="parentOrderId" placeholder="Optional if known">
+      </div>
+    </div>
+    <p class="small">
+      Use <strong>Add-On</strong> when a jurisdiction or club board sends extra people after the original order.
+      Reports can combine these by group name and meal while still keeping each late addition as its own audit record.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Meal Order</h2>
+    <div class="grid">
+      <div><label>Meal *</label><select id="meal"></select></div>
+      <div><label>Meal Choice</label><select id="choice"></select></div>
+      <div><label>Quantity *</label><input id="qty" type="number" min="1" step="1" value="1"></div>
+      <div><label>Price Each</label><input id="price" type="number" min="0" step="0.01"></div>
+      <div><label>Decoration Fee Each</label><input id="decorationFee" type="number" min="0" step="0.01"></div>
+      <div><label>Mode</label><select id="mode"><option value="live" selected>Live / Real Order</option><option value="test">Test</option><option value="live_test">Live Test</option></select></div>
+    </div>
+    <div style="margin-top:12px"><label>Dietary / Group Notes</label><textarea id="dietaryNotes" placeholder="Example: 2 gluten-free, 1 vegetarian, seating together, etc."></textarea></div>
+  </section>
+
+  <section class="card">
+    <h2>Payment</h2>
+    <div class="grid">
+      <div><label>Payment Method</label><select id="paymentMethod"><option value="check" selected>Check</option><option value="cash">Cash</option><option value="pending">Pending</option><option value="complimentary">Complimentary</option><option value="other">Other</option></select></div>
+      <div><label>Check Number</label><input id="checkNumber"></div>
+      <div><label>Date Received</label><input id="dateReceived" type="date"></div>
+      <div><label>Amount Paid</label><input id="amountPaid" type="number" step="0.01" min="0"></div>
+      <div><label>Status</label><select id="status"><option value="paid">Paid</option><option value="pending">Pending / Balance Due</option><option value="deposit_pending">Deposit Pending</option><option value="complimentary">Complimentary</option></select></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="totals">
+      <div class="totalbox"><span class="small">Total Charged</span><strong id="totalBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Decoration Fee Total</span><strong id="decorBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Hotel Amount</span><strong id="hotelBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Balance Due</span><strong id="balanceBox">$0.00</strong></div>
+    </div>
+    <p class="small">Group orders also have no online processing fee when entered here.</p>
+    <div class="toolbar" style="margin-top:12px"><button class="btn success" id="btnSave" type="button">Save Group Meal Order</button><button class="btn secondary" id="btnReset" type="button">Clear Form</button></div>
+    <pre id="out" style="display:none"></pre>
+  </section>
+</main>
+<script src="/assets/js/banquets.js"></script>
+<script>
+(function(){
+  const $=id=>document.getElementById(id); let banquets=[];
+  const money=n=>(Number(n||0)).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
+  const num=v=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const keyPart=v=>String(v||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  function groupAggregationKey(groupType, groupName, mealId){
+    return [keyPart(groupType), keyPart(groupName), keyPart(mealId)].filter(Boolean).join('__');
+  }
+  function tokenHeaders(){const t=localStorage.getItem('amaranth_report_token')||localStorage.getItem('adminToken')||localStorage.getItem('amaranth_admin_token')||'';return t?{'Authorization':'Bearer '+t,'x-admin-token':t}:{};}
+  function isTrueFlag(v){ return v === true || String(v || '').toLowerCase() === 'true' || String(v || '') === '1'; }
+  function isGroupOnlyMeal(b){ return isTrueFlag(b && (b.groupOnly ?? b.group_only ?? b.adminOnlyGroupMeal)); }
+  function isBuffetMeal(b){ return isTrueFlag(b && (b.buffet ?? b.buffetStyle ?? b.isBuffet)); }
+
+  async function loadBanquets(){try{const r=await fetch('/api/router?type=banquets',{cache:'no-store'});const j=await r.json();const arr=Array.isArray(j)?j:(Array.isArray(j.banquets)?j.banquets:(Array.isArray(j.items)?j.items:[]));banquets=arr.length?arr:(Array.isArray(window.BANQUETS)?window.BANQUETS:[]);}catch(e){banquets=Array.isArray(window.BANQUETS)?window.BANQUETS:[];}banquets=banquets.filter(b=>b&&b.active!==false&&isGroupOnlyMeal(b)).sort((a,b)=>(Number(a.sortOrder||1000)-Number(b.sortOrder||1000))||String(a.name||'').localeCompare(String(b.name||'')));$('meal').innerHTML='<option value="">Select group-only meal...</option>'+banquets.map(b=>`<option value="${esc(b.id)}">${esc(b.name||b.id)} — ${money(b.price||0)}</option>`).join('');}
+  function banquet(){return banquets.find(b=>String(b.id)===String($('meal').value));}
+  function syncChoice(){const b=banquet();const choices=Array.isArray(b?.mealChoices)?b.mealChoices:[];const buffet=isBuffetMeal(b);$('choice').innerHTML=buffet?'<option value="">Buffet — no meal choice needed</option>':(choices.length?('<option value="">Select...</option>'+choices.map(c=>`<option>${esc(c)}</option>`).join('')):'<option value="">No choice</option>');$('choice').disabled=!!buffet; if(b){$('price').value=Number(b.price||0).toFixed(2);$('decorationFee').value=Number(b.decorationFee||0).toFixed(2);} recalc();}
+  function recalc(){const qty=Math.max(1,Math.round(num($('qty').value)||1));const price=num($('price').value);const decor=num($('decorationFee').value);const total=qty*price;const decorTotal=qty*decor;const paid=num($('amountPaid').value||total);$('totalBox').textContent=money(total);$('decorBox').textContent=money(decorTotal);$('hotelBox').textContent=money(total-decorTotal);$('balanceBox').textContent=money(Math.max(0,total-paid));if(!$('amountPaid').dataset.touched)$('amountPaid').value=total.toFixed(2);}
+  $('meal').addEventListener('change',syncChoice);['qty','price','decorationFee'].forEach(id=>$(id).addEventListener('input',recalc));$('amountPaid').addEventListener('input',()=>{$('amountPaid').dataset.touched='1';recalc();});$('btnReset').addEventListener('click',()=>{if(confirm('Clear this group order form?'))location.reload();});
+  $('btnSave').addEventListener('click',async()=>{const groupName=$('groupName').value.trim();const b=banquet();if(!groupName){alert('Group name is required.');return;}if(!b){alert('Select a meal.');return;}const qty=Math.max(1,Math.round(num($('qty').value)||1));const price=num($('price').value);const entryType=$('entryType').value;const isAddOn=entryType==='add_on';const aggregationKey=groupAggregationKey($('groupType').value,groupName,b.id);const payload={mode:$('mode').value,enteredBy:$('enteredBy').value.trim(),entryType,isAddOn,parentOrderId:$('parentOrderId').value.trim(),addOnNote:$('addOnNote').value.trim(),groupAggregationKey:aggregationKey,group:{groupType:$('groupType').value,groupName,contactName:$('contactName').value.trim(),contactEmail:$('contactEmail').value.trim(),contactPhone:$('contactPhone').value.trim(),isAddOn,parentOrderId:$('parentOrderId').value.trim(),addOnNote:$('addOnNote').value.trim(),groupAggregationKey:aggregationKey},purchaser:{name:groupName,email:$('contactEmail').value.trim(),phone:$('contactPhone').value.trim(),jurisdiction:groupName},payment:{paymentMethod:$('paymentMethod').value,checkNumber:$('checkNumber').value.trim(),dateReceived:$('dateReceived').value,amountPaid:num($('amountPaid').value),status:$('status').value},lines:[{attendeeName:groupName,itemId:b.id,itemName:b.name,category:'banquet',mealChoice:$('choice').disabled?'':$('choice').value,dietaryNotes:$('dietaryNotes').value.trim(),qty,unitPrice:price,price,lineTotal:qty*price,decorationFee:num($('decorationFee').value),buffet:isBuffetMeal(b),groupOnly:true,isAddOn,parentOrderId:$('parentOrderId').value.trim(),addOnNote:$('addOnNote').value.trim(),groupAggregationKey:aggregationKey}]};$('btnSave').disabled=true;try{const r=await fetch('/api/router?action=create_group_meal_order',{method:'POST',headers:{'Content-Type':'application/json',...tokenHeaders()},body:JSON.stringify(payload)});const j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw new Error(j?.error?.message||j?.error||j?.message||('HTTP '+r.status));$('out').style.display='block';$('out').textContent='Saved group meal order:\n'+JSON.stringify(j,null,2);alert(isAddOn ? 'Group meal add-on saved.' : 'Group meal order saved.');}catch(e){alert('Save failed: '+(e.message||e));}finally{$('btnSave').disabled=false;}});
+  (async()=>{$('dateReceived').value=new Date().toISOString().slice(0,10);await loadBanquets();syncChoice();})();
+})();
+</script>
+</body>
+</html>

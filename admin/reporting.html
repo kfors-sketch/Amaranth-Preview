@@ -3,14 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amaranth Admin — Reporting</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Reporting`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
 
   <script>
   // --- Maintenance check before redirect ---
   async function checkMaintenanceAndRedirect(){
     try {
-      const resp = await fetch('/api/admin/settings.js');
+      const resp = await fetch('/api/router?type=settings', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('settings not available');
       const data = await resp.json();
 
       // If maintenance mode is active, show message instead of redirect
@@ -27,19 +31,31 @@
         return; // stop normal redirect
       }
 
-      // otherwise, normal admin redirect
-      if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
+      // otherwise, normal admin redirect using the new token-based auth
+      const token = localStorage.getItem('amaranth_report_token') || '';
+      const exp = parseInt(localStorage.getItem('amaranth_report_token_exp') || '0', 10) || 0;
+
+      if (token && Date.now() < exp) {
         window.location.href = 'reporting_main.html';
       } else {
+        localStorage.removeItem('amaranth_report_token');
+        localStorage.removeItem('amaranth_report_token_exp');
+        localStorage.removeItem('amaranth_admin_pw_ok');
         window.location.href = 'reporting_login.html';
       }
 
     } catch(err){
       console.error('Maintenance check failed:', err);
-      // fallback: still redirect
-      if(localStorage.getItem('amaranth_admin_pw_ok')==='1'){
+      // fallback: still redirect using the new token-based auth
+      const token = localStorage.getItem('amaranth_report_token') || '';
+      const exp = parseInt(localStorage.getItem('amaranth_report_token_exp') || '0', 10) || 0;
+
+      if (token && Date.now() < exp) {
         window.location.href = 'reporting_main.html';
       } else {
+        localStorage.removeItem('amaranth_report_token');
+        localStorage.removeItem('amaranth_report_token_exp');
+        localStorage.removeItem('amaranth_admin_pw_ok');
         window.location.href = 'reporting_login.html';
       }
     }

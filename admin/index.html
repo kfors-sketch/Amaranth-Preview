@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Amaranth Admin — Hub</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Hub`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css">
   <style>
@@ -44,7 +47,10 @@
 </head>
 <body>
   <main class="container">
-    <header>
+    <div style="margin-bottom:10px;font-size:13px;font-weight:700;color:#6b7280">
+       Grand Court of Pennsylvania Admin
+    </div>
+	<header>
       <div>
         <h1>Admin Hub</h1>
         <div id="maintPill" class="pill" style="display:none">Maintenance</div>
@@ -83,9 +89,38 @@
       </div>
 
       <div class="card">
+        <h2>Manual Reservation Entry</h2>
+        <p>
+          Enter mail-in, phone, walk-in, and manually processed reservations.
+          Supports multiple attendees, meal selections, dietary notes,
+          payment tracking, and no processing fees.
+        </p>
+        <a class="btn" href="/admin/manual-reservation-entry.html">
+          Open Manual Reservations
+        </a>
+      </div>
+
+      <div class="card">
+        <h2>Group Meal Orders</h2>
+        <p>
+          Enter jurisdiction and club board breakfast/group meal orders.
+          Track quantities, contacts, checks, balances, and grouped reporting.
+        </p>
+        <a class="btn" href="/admin/group-meal-orders.html">
+          Open Group Orders
+        </a>
+      </div>
+
+      <div class="card">
          <h2>Add-Ons Manager</h2>
          <p>Create and edit add-ons (price, active, publish window, notes).</p>
          <a class="btn" href="/admin/addons.html">Open Add-Ons</a>
+      </div>
+
+      <div class="card">
+        <h2>Tours Manager</h2>
+        <p>Create and edit tours, descriptions, pricing, publish windows, and chair emails.</p>
+        <a class="btn" href="/admin/tours.html">Open Tours</a>
       </div>
 
       <div class="card">
@@ -96,7 +131,7 @@
 
       <div class="card">
         <h2>Supplies Manager</h2>
-        <p>Manage Supreme supplies (categories, prices, activation, publish windows, and chair emails).</p>
+        <p>Manage Grand Court supplies (categories, prices, activation, publish windows, and chair emails).</p>
         <a class="btn" href="/admin/supplies.html">Open Supplies</a>
       </div>
 

@@ -4,6 +4,11 @@
 (function () {
   "use strict";
 
+  if (!localStorage.getItem("amaranth_report_token")) {
+    location.replace("/admin/reporting_login.html");
+    return;
+  }
+
   const API_BASE = "/api/router";
   const TOKEN_KEY = "amaranth_report_token";
 

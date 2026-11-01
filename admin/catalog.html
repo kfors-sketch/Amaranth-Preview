@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Product Catalog — Amaranth</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Product Catalog`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
@@ -42,7 +45,10 @@
 </head>
 <body>
   <main class="container">
-    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+       <div style="margin-bottom:10px;font-size:13px;font-weight:700;color:#6b7280">
+        Grand Court of Pennsylvania Admin
+      </div>
+	  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div>
         <h1>Product Catalog</h1>
         <div class="muted">Create, edit, or retire catalog products</div>
@@ -245,7 +251,7 @@
         localStorage.removeItem('amaranth_report_token');
         localStorage.removeItem('amaranth_admin_ok');
       } catch (e) {}
-      window.location.href = '/admin/login.html';
+      window.location.href = '/admin/reporting_login.html';
     });
   })();
 

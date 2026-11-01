@@ -285,7 +285,7 @@ export async function handleResendTest(req, urlLike) {
     await resend.emails.send({
       from: RESEND_FROM,
       to,
-      subject: "Amaranth Debug — Resend API Test",
+      subject: "Grand Court of Pennsylvania Debug — Resend API Test",
       html: "<p>This is a debug test message.</p>",
     });
     out.sent = true;

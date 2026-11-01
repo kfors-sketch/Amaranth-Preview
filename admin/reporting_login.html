@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amaranth Admin — Reporting Login</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Reporting Login`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <style>
     body {
@@ -68,7 +71,7 @@
 </head>
 <body>
   <div id="loginBox">
-    <h2>Amaranth Admin Access</h2>
+    <h2>Grand Court of Pennsylvania Admin Access</h2>
     <input
       id="pw"
       type="password"
@@ -134,14 +137,20 @@
           body: JSON.stringify({ password: val }),
         });
 
-        const data = await resp.json().catch(() => ({}));
+        const rawText = await resp.text();
+        let data = {};
+        try {
+          data = rawText ? JSON.parse(rawText) : {};
+        } catch (parseErr) {
+          data = { raw: rawText };
+        }
 
         if (!resp.ok || !data || data.ok !== true || !data.token) {
           // Handle specific error cases if the backend provided them
           if (data && data.error === "invalid_password") {
             setMessage("Incorrect password. Try again.", "error");
           } else if (data && data.error === "locked_out") {
-            const secs = data.remainingSeconds || 0;
+            const secs = data.remainingSeconds || data.retryAfter || 0;
             const mins = Math.max(1, Math.round(secs / 60));
             setMessage(
               "Too many failed attempts. Please try again in about " +
@@ -150,8 +159,17 @@
               "error"
             );
           } else {
+            const detail =
+              data?.error?.message ||
+              data?.error ||
+              data?.message ||
+              data?.code ||
+              data?.raw ||
+              rawText ||
+              "unknown error";
+
             setMessage(
-              "Could not log in. Please try again or contact the webmaster.",
+              "Could not log in. HTTP " + resp.status + ": " + String(detail).slice(0, 300),
               "error"
             );
           }

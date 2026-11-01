@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grand Court of Pennsylvania Admin — Manual Reservation Entry</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f7fb;color:#111827}
+    .container{max-width:1220px;margin:24px auto;padding:0 16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:16px;margin-bottom:16px}
+    .heading{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+    h1{margin:0;font-size:24px} h2{margin:0 0 10px;font-size:17px}.muted{color:#6b7280;font-size:13px}.small{font-size:12px;color:#6b7280}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+    label{font-size:12px;font-weight:700;color:#374151;display:block;margin-bottom:4px}
+    input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:8px;background:#fff;font:inherit} textarea{min-height:70px}
+    .btn{height:34px;border-radius:999px;border:1px solid #d1d5db;background:#111;color:#fff;font-size:13px;padding:0 14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-decoration:none}.btn.secondary{background:#fff;color:#111}.btn.warn{background:#b91c1c;border-color:#991b1b}.btn.success{background:#065f46;border-color:#064e3b}.btn:disabled{opacity:.55;cursor:not-allowed}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.spacer{flex:1}
+    table{width:100%;border-collapse:collapse;font-size:13px} th,td{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left;vertical-align:top} th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;background:#f9fafb}.table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:12px}
+    .totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.totalbox{border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:10px}.totalbox strong{display:block;font-size:18px;margin-top:3px}.ok{color:#065f46}.bad{color:#b91c1c}
+    pre{white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:10px;font-size:12px;max-height:220px;overflow:auto}
+    @media(max-width:900px){.grid,.grid.two,.totals{grid-template-columns:1fr}.heading{flex-direction:column}td{min-width:180px}}
+  </style>
+</head>
+<body>
+<main class="container">
+  <div class="heading">
+    <div>
+      <div class="muted" style="font-weight:800">Grand Court of Pennsylvania Admin</div>
+      <h1>Manual Reservation Entry</h1>
+      <p class="muted">Use this for mail-in, phone, or walk-in meal reservations. Mail-in/check/cash orders add no online processing fee.</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn secondary" href="/admin/index.html">← Admin Hub</a>
+      <a class="btn secondary" href="/admin/reporting_main.html">Reports</a>
+      <a class="btn secondary" href="/admin/group-meal-orders.html">Group Meal Orders</a>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Reservation / Purchaser</h2>
+    <div class="grid">
+      <div><label>Name *</label><input id="p_name" autocomplete="name"></div>
+      <div><label>Email</label><input id="p_email" type="email"></div>
+      <div><label>Phone</label><input id="p_phone"></div>
+      <div><label>Jurisdiction</label><input id="p_jurisdiction" placeholder="Pennsylvania"></div>
+      <div><label>Court / Club / Board</label><input id="p_court"></div>
+      <div><label>Address</label><input id="p_address1"></div>
+      <div><label>City</label><input id="p_city"></div>
+      <div><label>State / ZIP</label><input id="p_state_zip" placeholder="PA 17101"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar" style="margin-bottom:10px">
+      <h2 style="margin:0">Meal Lines</h2>
+      <div class="spacer"></div>
+      <button class="btn secondary" id="btnAddLine" type="button">+ Add Meal Line</button>
+      <button class="btn secondary" id="btnDuplicateLast" type="button">Duplicate Last</button>
+    </div>
+    <p class="small">Enter one row for each attendee/meal combination. If one person ordered three meals, enter three lines. If several people ordered the same meal, duplicate the row and change the attendee name.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Attendee</th><th>Meal</th><th>Choice</th><th>Dietary notes</th><th>Qty</th><th>Price</th><th>Decoration fee</th><th></th></tr></thead>
+        <tbody id="lineBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Payment / Tracking</h2>
+    <div class="grid">
+      <div><label>Order Source</label><select id="orderSource"><option value="mail_in" selected>Mail-In</option><option value="phone">Phone</option><option value="walk_in">Walk-In</option><option value="complimentary">Complimentary</option><option value="admin_adjustment">Admin Adjustment</option></select></div>
+      <div><label>Payment Method</label><select id="paymentMethod"><option value="check" selected>Check</option><option value="cash">Cash</option><option value="pending">Pending</option><option value="complimentary">Complimentary</option><option value="other">Other</option></select></div>
+      <div><label>Check Number</label><input id="checkNumber"></div>
+      <div><label>Date Received</label><input id="dateReceived" type="date"></div>
+      <div><label>Amount Paid</label><input id="amountPaid" type="number" step="0.01" min="0"></div>
+      <div><label>Status</label><select id="status"><option value="paid">Paid</option><option value="pending">Pending / Balance Due</option><option value="deposit_pending">Deposit Pending</option><option value="complimentary">Complimentary</option></select></div>
+      <div><label>Entered By</label><input id="enteredBy" placeholder="Karl"></div>
+      <div><label>Mode</label><select id="mode"><option value="live" selected>Live / Real Order</option><option value="test">Test</option><option value="live_test">Live Test</option></select></div>
+    </div>
+    <div style="margin-top:12px"><label>Notes</label><textarea id="notes" placeholder="Paper form notes, seating notes, follow-up needed, etc."></textarea></div>
+  </section>
+
+  <section class="card">
+    <div class="totals">
+      <div class="totalbox"><span class="small">Total Charged</span><strong id="totalBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Decoration Fee Total</span><strong id="decorBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Hotel Amount</span><strong id="hotelBox">$0.00</strong></div>
+      <div class="totalbox"><span class="small">Balance Due</span><strong id="balanceBox">$0.00</strong></div>
+    </div>
+    <p class="small">Processing fee is always <strong>$0.00</strong> on this manual entry page unless you later decide to add a card-payment option.</p>
+    <div class="toolbar" style="margin-top:12px"><button class="btn success" id="btnSave" type="button">Save Manual Reservation</button><button class="btn secondary" id="btnReset" type="button">Clear Form</button></div>
+    <pre id="out" style="display:none"></pre>
+  </section>
+</main>
+<script src="/assets/js/banquets.js"></script>
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  let banquets = [];
+  const money = n => (Number(n||0)).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
+  const num = v => { const n = Number(v||0); return Number.isFinite(n) ? n : 0; };
+  function tokenHeaders(){
+    const t = localStorage.getItem('amaranth_report_token') || localStorage.getItem('adminToken') || localStorage.getItem('amaranth_admin_token') || '';
+    return t ? { 'Authorization':'Bearer '+t, 'x-admin-token':t } : {};
+  }
+  async function loadBanquets(){
+    try{
+      const r = await fetch('/api/router?type=banquets',{cache:'no-store'});
+      const j = await r.json();
+      const arr = Array.isArray(j) ? j : (Array.isArray(j.banquets) ? j.banquets : (Array.isArray(j.items) ? j.items : []));
+      banquets = arr.length ? arr : (Array.isArray(window.BANQUETS) ? window.BANQUETS : []);
+    }catch(e){ banquets = Array.isArray(window.BANQUETS) ? window.BANQUETS : []; }
+    banquets = banquets.filter(b => b && b.active !== false).sort((a,b)=>(Number(a.sortOrder||1000)-Number(b.sortOrder||1000)) || String(a.name||'').localeCompare(String(b.name||'')));
+  }
+  function mealOptions(selected){
+    return ['<option value="">Select meal...</option>'].concat(banquets.map(b=>`<option value="${escapeHtml(b.id)}" ${String(selected||'')===String(b.id)?'selected':''}>${escapeHtml(b.name||b.id)} — ${money(b.price||0)}</option>`)).join('');
+  }
+  function choiceOptions(b, selected){
+    const choices = Array.isArray(b?.mealChoices) ? b.mealChoices : [];
+    if (!choices.length) return '<option value="">No choice</option>';
+    return '<option value="">Select...</option>' + choices.map(c=>`<option ${String(selected||'')===String(c)?'selected':''}>${escapeHtml(c)}</option>`).join('');
+  }
+  function escapeHtml(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function banquetById(id){ return banquets.find(b=>String(b.id)===String(id)); }
+  function addLine(data={}){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td><input class="attendee" value="${escapeHtml(data.attendeeName||'')}"></td>
+      <td><select class="meal">${mealOptions(data.itemId||'')}</select></td>
+      <td><select class="choice"></select></td>
+      <td><input class="dietary" value="${escapeHtml(data.dietaryNotes||'')}"></td>
+      <td><input class="qty" type="number" min="1" step="1" value="${escapeHtml(data.qty||1)}"></td>
+      <td><input class="price" type="number" min="0" step="0.01" value="${escapeHtml(data.unitPrice||0)}"></td>
+      <td><input class="decor" type="number" min="0" step="0.01" value="${escapeHtml(data.decorationFee||0)}"></td>
+      <td><button class="btn warn remove" type="button">Remove</button></td>`;
+    $('lineBody').appendChild(tr);
+    const meal=tr.querySelector('.meal'), choice=tr.querySelector('.choice'), price=tr.querySelector('.price'), decor=tr.querySelector('.decor');
+    function syncFromMeal(force){
+      const b=banquetById(meal.value);
+      choice.innerHTML = choiceOptions(b, data.mealChoice||'');
+      if (b && force){ price.value = Number(b.price||0).toFixed(2); decor.value = Number(b.decorationFee||0).toFixed(2); }
+      recalc();
+    }
+    meal.addEventListener('change',()=>syncFromMeal(true));
+    tr.addEventListener('input',recalc); tr.addEventListener('change',recalc);
+    tr.querySelector('.remove').addEventListener('click',()=>{tr.remove();recalc();});
+    syncFromMeal(!data.unitPrice);
+  }
+  function readLines(){
+    return Array.from(document.querySelectorAll('#lineBody tr')).map(tr=>{
+      const mealId=tr.querySelector('.meal').value; const b=banquetById(mealId);
+      const qty=Math.max(1, Math.round(num(tr.querySelector('.qty').value)||1));
+      const unitPrice=num(tr.querySelector('.price').value);
+      const decorationFee=num(tr.querySelector('.decor').value);
+      return { attendeeName:tr.querySelector('.attendee').value.trim(), itemId:mealId, itemName:b?.name||mealId||'Meal', category:'banquet', mealChoice:tr.querySelector('.choice').value, dietaryNotes:tr.querySelector('.dietary').value.trim(), qty, unitPrice, price:unitPrice, lineTotal:unitPrice*qty, decorationFee };
+    }).filter(l=>l.itemId && l.qty>0);
+  }
+  function recalc(){
+    const lines=readLines(); const total=lines.reduce((s,l)=>s+(num(l.unitPrice)*num(l.qty)),0); const decor=lines.reduce((s,l)=>s+(num(l.decorationFee)*num(l.qty)),0); const paid=num($('amountPaid').value || total); const bal=Math.max(0,total-paid);
+    $('totalBox').textContent=money(total); $('decorBox').textContent=money(decor); $('hotelBox').textContent=money(total-decor); $('balanceBox').textContent=money(bal);
+    if (!$('amountPaid').dataset.touched) $('amountPaid').value=total.toFixed(2);
+  }
+  $('amountPaid').addEventListener('input',()=>{$('amountPaid').dataset.touched='1';recalc();});
+  $('btnAddLine').addEventListener('click',()=>addLine());
+  $('btnDuplicateLast').addEventListener('click',()=>{ const lines=readLines(); addLine(lines[lines.length-1]||{}); });
+  $('btnReset').addEventListener('click',()=>{ if(confirm('Clear this manual reservation form?')) location.reload(); });
+  $('btnSave').addEventListener('click',async()=>{
+    const name=$('p_name').value.trim(); const lines=readLines();
+    if(!name){alert('Purchaser name is required.');return;} if(!lines.length){alert('Add at least one meal line.');return;}
+    const stateZip=$('p_state_zip').value.trim().split(/\s+/);
+    const payload={
+      mode:$('mode').value, orderSource:$('orderSource').value, enteredBy:$('enteredBy').value.trim(), notes:$('notes').value.trim(),
+      purchaser:{name,email:$('p_email').value.trim(),phone:$('p_phone').value.trim(),jurisdiction:$('p_jurisdiction').value.trim(),court:$('p_court').value.trim(),address1:$('p_address1').value.trim(),city:$('p_city').value.trim(),state:stateZip[0]||'',postal:stateZip.slice(1).join(' ')},
+      payment:{paymentMethod:$('paymentMethod').value,checkNumber:$('checkNumber').value.trim(),dateReceived:$('dateReceived').value,amountPaid:num($('amountPaid').value),status:$('status').value},
+      lines
+    };
+    $('btnSave').disabled=true;
+    try{
+      const r=await fetch('/api/router?action=create_manual_order',{method:'POST',headers:{'Content-Type':'application/json',...tokenHeaders()},body:JSON.stringify(payload)});
+      const j=await r.json().catch(()=>({})); if(!r.ok||!j.ok) throw new Error(j?.error?.message||j?.error||j?.message||('HTTP '+r.status));
+      $('out').style.display='block'; $('out').textContent='Saved manual reservation:\n'+JSON.stringify(j,null,2); alert('Manual reservation saved.');
+    }catch(e){ alert('Save failed: '+(e.message||e)); }
+    finally{$('btnSave').disabled=false;}
+  });
+  (async()=>{ $('dateReceived').value=new Date().toISOString().slice(0,10); await loadBanquets(); addLine(); recalc(); })();
+})();
+</script>
+</body>
+</html>

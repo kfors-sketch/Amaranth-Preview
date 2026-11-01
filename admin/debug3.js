@@ -15,6 +15,11 @@
 (() => {
   "use strict";
 
+  if (!localStorage.getItem("amaranth_report_token")) {
+    location.replace("/admin/reporting_login.html");
+    return;
+  }
+
   const LS_TOKEN_KEY = "amaranth_report_token";
 
   // ---------- helpers ----------

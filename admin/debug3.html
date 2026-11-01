@@ -4,7 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Amaranth Admin - Debug Tools 3 — Safety Tools</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Debug Tools 3 — Safety Tools`;
+  </script>
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/css/styles.css?v=debug3-v1" />
 
@@ -54,6 +57,7 @@
 </head>
 
 <body>
+  <script src="/assets/js/admin-debug-auth.js"></script>
   <div class="container">
     <h1>Debug Tools 3 — Safety Tools</h1>
     <p class="sub">
@@ -161,7 +165,7 @@
         <div class="row" style="margin-top:10px;">
           <div class="field" style="flex:1;min-width:320px;">
             <label>Court Name</label>
-            <input id="patchCourtName" placeholder='e.g., "Grand Court of PA"' />
+            <input id="patchCourtName" placeholder='e.g., "Grand Court of Pennsylvania"' />
           </div>
           <div class="field" style="min-width:180px;">
             <label>Court #</label>

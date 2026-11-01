@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Banquet Manager — Amaranth</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Banquet Manager`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
@@ -243,7 +246,10 @@
 </head>
 <body>
   <main class="container">
-    <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="margin-bottom:10px;font-size:13px;font-weight:700;color:#6b7280">
+         Grand Court of Pennsylvania Admin
+      </div>
+	  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div>
         <h1>Banquet Manager</h1>
         <div class="muted">Create, edit, or retire banquets</div>
@@ -266,6 +272,7 @@
         <li><b>Publish Start/End</b>: local date/time (<code>YYYY-MM-DDTHH:MM</code>) for when the product is live/closed.</li>
         <li><b>Report Frequency</b>: controls how often chair reports are sent for this banquet.</li>
         <li><b>Year-over-year Slot</b>: label (e.g. <code>Sunday Night Banquet</code>) to group with similar events across years.</li>
+        <li><b>Group Only / Hidden From Public / Buffet</b>: use for jurisdiction or club board meals entered only through the admin Group Meal Orders page.</li>
       </ul>
     </section>
 
@@ -369,6 +376,38 @@
             <label for="f_price">Ticket Price (USD)</label>
             <input id="f_price" type="number" step="0.01" min="0" placeholder="60.00" />
           </div>
+          <div>
+            <label for="f_decoration_fee">Decoration Fee (USD)</label>
+            <input id="f_decoration_fee" type="number" step="0.01" min="0" placeholder="1.50" />
+            <div class="hint">Included in ticket price; tracked separately for chairman/decorations and hotel settlement.</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="f_hidden_public">Hidden From Public</label>
+            <select id="f_hidden_public">
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+            <div class="hint">Use true for meals that should not appear on the public banquet page.</div>
+          </div>
+          <div>
+            <label for="f_group_only">Group Only</label>
+            <select id="f_group_only">
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+            <div class="hint">Use true for jurisdiction/club board meals entered only by admin.</div>
+          </div>
+          <div>
+            <label for="f_buffet">Buffet Style</label>
+            <select id="f_buffet">
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+            <div class="hint">Use true when no entrée/meal choice is needed.</div>
+          </div>
         </div>
 
         <label for="f_report_freq">Report Frequency</label>
@@ -455,6 +494,8 @@
 
   // ---- Frequency helpers (UI side) ----
   const VALID_FREQS = ["daily","weekly","biweekly","monthly","none"];
+  function boolFlag(v){ return v === true || String(v || '').toLowerCase() === 'true' || String(v || '') === '1'; }
+
   function normalizeFreq(raw){
     const v = String(raw || "").trim().toLowerCase();
     if (!v) return "monthly";
@@ -589,6 +630,15 @@
     } else {
       out.price = Number(out.price) || 0;
     }
+
+    out.decorationFee = (out.decorationFee == null || out.decorationFee === "")
+      ? 0
+      : (Number(out.decorationFee) || 0);
+    out.decorationFee = Math.max(0, Math.round(out.decorationFee * 100) / 100);
+
+    out.hiddenFromPublic = boolFlag(out.hiddenFromPublic ?? out.hidden_from_public);
+    out.groupOnly = boolFlag(out.groupOnly ?? out.group_only ?? out.adminOnlyGroupMeal);
+    out.buffet = boolFlag(out.buffet ?? out.buffetStyle ?? out.isBuffet);
 
     out.active = (out.active !== false);
 
@@ -737,6 +787,12 @@
       const slotLabel = b.slotLabel || "";
       const so = (b.sortOrder == null || b.sortOrder === "") ? 1000 : Number(b.sortOrder);
 
+      const flagsHtml = [
+        b.hiddenFromPublic ? '<span class="mbadge bad">Hidden</span>' : '',
+        b.groupOnly ? '<span class="mbadge">Group Only</span>' : '',
+        b.buffet ? '<span class="mbadge">Buffet</span>' : ''
+      ].filter(Boolean).join(' ');
+
       const activeBadge = (b.active === false)
         ? '<span class="mbadge bad">Active: false</span>'
         : '<span class="mbadge ok">Active: true</span>';
@@ -745,7 +801,7 @@
         <div class="mcard">
           <div class="mhead">
             <div style="min-width:0">
-              <div class="mtitle">${esc(b.name || '')}</div>
+              <div class="mtitle">${esc(b.name || '')}<br>${flagsHtml}</div>
               <div class="mid"><code>${esc(b.id || '')}</code></div>
             </div>
             <div class="muted" style="font-size:12px;white-space:nowrap">Sort: <b>${esc(String(so))}</b></div>
@@ -845,6 +901,10 @@
     $('#f_meals').value = '';
     $('#f_active').value = 'true';
     $('#f_price').value = '';
+    $('#f_decoration_fee').value = '';
+    $('#f_hidden_public').value = 'false';
+    $('#f_group_only').value = 'false';
+    $('#f_buffet').value = 'false';
     $('#f_report_freq').value = 'monthly';
     $('#f_location').value = '';
     $('#f_eventAt').value = '';
@@ -872,6 +932,10 @@
 
     $('#f_active').value = String(n.active !== false);
     $('#f_price').value = n.price ? Number(n.price).toFixed(2) : '';
+    $('#f_decoration_fee').value = n.decorationFee ? Number(n.decorationFee).toFixed(2) : '';
+    $('#f_hidden_public').value = String(!!n.hiddenFromPublic);
+    $('#f_group_only').value = String(!!n.groupOnly);
+    $('#f_buffet').value = String(!!n.buffet);
 
     $('#f_report_freq').value = normalizeFreq(n.reportFrequency || n.report_frequency || "monthly");
 
@@ -891,6 +955,10 @@
     const mealsRaw = $('#f_meals').value.trim();
     const active = $('#f_active').value === 'true';
     const price = parseFloat($('#f_price').value || '0') || 0;
+    const decorationFee = parseFloat($('#f_decoration_fee').value || '0') || 0;
+    const hiddenFromPublic = $('#f_hidden_public').value === 'true';
+    const groupOnly = $('#f_group_only').value === 'true';
+    const buffet = $('#f_buffet').value === 'true';
     const location = $('#f_location').value.trim();
     const freq = normalizeFreq($('#f_report_freq').value || 'monthly');
 
@@ -919,6 +987,10 @@
       id, name, active,
       sortOrder,
       price: Math.round(price * 100) / 100,
+      decorationFee: Math.round(decorationFee * 100) / 100,
+      hiddenFromPublic,
+      groupOnly,
+      buffet,
       mealChoices,
       eventAt: eventAtISO,
       datetime: datetimePretty,
@@ -944,6 +1016,10 @@
 
     const priceNum = Number(o.price);
     if (!Number.isFinite(priceNum) || priceNum <= 0) return 'Ticket Price must be greater than zero.';
+
+    const decorationFeeNum = Number(o.decorationFee || 0);
+    if (!Number.isFinite(decorationFeeNum) || decorationFeeNum < 0) return 'Decoration Fee must be zero or greater.';
+    if (decorationFeeNum > priceNum) return 'Decoration Fee cannot be greater than the Ticket Price.';
 
     if (o.publishStart && o.publishEnd && new Date(o.publishStart) > new Date(o.publishEnd)) {
       return 'Publish End must be after Publish Start.';

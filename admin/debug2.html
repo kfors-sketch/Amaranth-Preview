@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amaranth Admin — Debug Tools 2</title>
+  <script>
+     window.SITE_ADMIN_NAME = "Grand Court of Pennsylvania Admin";
+     document.title = `${window.SITE_ADMIN_NAME} — Debug Tools 2`;
+  </script>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
@@ -171,6 +174,7 @@
   </style>
 </head>
 <body>
+  <script src="/assets/js/admin-debug-auth.js"></script>
   <div class="container">
     <header>
       <div>
@@ -192,7 +196,7 @@
         <p id="authStatus2">Checking admin token…</p>
         <p class="token-warning" id="tokenWarning2" style="display:none;">
           No admin token found. Please log in via
-          <a href="/admin/login.html" class="admin-link">Admin Login</a> first.
+          <a href="/admin/reporting_login.html" class="admin-link">Admin Login</a> first.
         </p>
         <small>All admin-only actions on this page use <code>Authorization: Bearer &lt;token&gt;</code>.</small>
       </div>
@@ -363,7 +367,7 @@
         <select id="cfTopic">
           <option value="website">Website / technical</option>
           <option value="banquets">Banquets</option>
-          <option value="addons">Grand Court add-ons</option>
+          <option value="addons">Supreme add-ons</option>
           <option value="catalog">Product catalog</option>
           <option value="order">Order / checkout</option>
           <option value="general">General question</option>
