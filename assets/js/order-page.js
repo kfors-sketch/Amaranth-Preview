@@ -18,6 +18,15 @@
     return n > 0 && n < 1 ? Math.round(n * 100) : n;
   }
 
+  function truthyFlag(v) {
+    return v === true || String(v || "").toLowerCase() === "true" || String(v || "") === "1";
+  }
+
+  function isPublicVisibleBanquet(b) {
+    return !truthyFlag(b?.hiddenFromPublic ?? b?.hidden_from_public) &&
+           !truthyFlag(b?.groupOnly ?? b?.group_only ?? b?.adminOnlyGroupMeal);
+  }
+
   // Simple email check
   function looksLikeEmail(s) {
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || "").trim());
@@ -197,6 +206,68 @@ function isCorsageCustom(meta){
   const c = resolveCorsageChoice(meta).toLowerCase();
   return !!(meta && meta.corsageIsCustom) || c.includes("custom") || c === "c" || c === "other" || c === "special";
 }
+
+function escapeHtml(v){
+  return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c] || c));
+}
+
+function resolveTransportation(meta){
+  const m = meta || {};
+  const t = m.transportation && typeof m.transportation === "object" ? m.transportation : null;
+  if (!t) return null;
+  return t;
+}
+
+function formatTransportPassengers(passengers){
+  const arr = Array.isArray(passengers) ? passengers : [];
+  if (!arr.length) return "";
+  return arr.map((p, i) => {
+    const bits = [p?.name, p?.phone, p?.email].map(x => String(x || "").trim()).filter(Boolean);
+    return `Passenger ${i + 1}: ${escapeHtml(bits.join(" • "))}`;
+  }).join("<br>");
+}
+
+function formatTransportLeg(label, leg){
+  if (!leg || !leg.needed) return `${label}: No`;
+  const bits = [
+    leg.airport ? `Airport: ${leg.airport}` : "",
+    leg.airline ? `Airline: ${leg.airline}` : "",
+    leg.flight ? `Flight: ${leg.flight}` : "",
+    leg.datetime ? `Time: ${leg.datetime}` : "",
+    leg.notes ? `Notes: ${leg.notes}` : "",
+  ].filter(Boolean).map(escapeHtml);
+  return `${label}: Yes${bits.length ? "<br>" + bits.join("<br>") : ""}`;
+}
+
+function transportationDetailHtml(meta){
+  const t = resolveTransportation(meta);
+  if (!t) return "";
+  const parts = [];
+  const passengers = formatTransportPassengers(t.passengers);
+  if (passengers) parts.push(`<strong>Passengers</strong><br>${passengers}`);
+  parts.push(formatTransportLeg("Pickup", t.pickup));
+  parts.push(formatTransportLeg("Drop-off", t.dropoff));
+  if (t.paymentMode) parts.push(`Payment mode: ${escapeHtml(t.paymentMode)}`);
+  return `<div class="tiny" style="opacity:.9;margin-top:4px;line-height:1.35;">${parts.join("<br>")}</div>`;
+}
+
+function tourDetailHtml(meta){
+  const m = meta || {};
+  if (String(m.category || "").toLowerCase() !== "tour" && !m.tourRegistration && !Array.isArray(m.tourAttendees)) return "";
+  const reg = (m.tourRegistration && typeof m.tourRegistration === "object") ? m.tourRegistration : (Array.isArray(m.tourAttendees) ? m.tourAttendees[0] : null) || {};
+  const parts = [];
+  const phone = String(m.cellPhone || m.attendeePhone || reg.cellPhone || "").trim();
+  const accessibility = String(m.accessibility || m.mobilityAccessibility || reg.accessibility || "").trim();
+  const notes = String(m.itemNote || m.notes || reg.notes || "").trim();
+  const dateTime = String(m.tourDateTime || "").trim();
+  const location = String(m.tourLocation || "").trim();
+  if (dateTime) parts.push(`Date/Time: ${escapeHtml(dateTime)}`);
+  if (location) parts.push(`Meeting Location: ${escapeHtml(location)}`);
+  if (phone) parts.push(`Cell: ${escapeHtml(phone)}`);
+  if (accessibility) parts.push(`Mobility / Accessibility: ${escapeHtml(accessibility)}`);
+  if (notes) parts.push(`Notes: ${escapeHtml(notes)}`);
+  return parts.length ? `<div class="tiny" style="opacity:.9;margin-top:4px;line-height:1.35;">${parts.join("<br>")}</div>` : "";
+}
 // ================================================================
 
   // ===== shared attendee storage key (same as other pages) =====
@@ -304,6 +375,8 @@ function isCorsageCustom(meta){
           const banquetNotes = isBanquet ? lnMeta || lnAtt : "";
 
                     const itemNote = !isBanquet ? resolveItemNote(l.meta) : "";
+          const transportDetail = !isBanquet ? transportationDetailHtml(l.meta) : "";
+          const tourDetail = !isBanquet ? tourDetailHtml(l.meta) : "";
 
           const isPreReg = /pre\s*reg/i.test(String(l.itemName||"")) || /pre[\s_-]*reg/i.test(String(l.itemId||""));
           const memberLabelForLine = (attObj?.memberType === "voting") ? "Voting" : ((attObj?.memberType === "non_voting") ? "Non-Voting" : "");
@@ -311,12 +384,12 @@ function isCorsageCustom(meta){
             ? `<div class="tiny" style="opacity:.85;">Member: ${memberLabelForLine}</div>`
             : "";
 
-          const detail = memberLine + (banquetNotes
+          const detail = memberLine + transportDetail + tourDetail + (banquetNotes
             ? `<div class="tiny" style="opacity:.85;">Notes: ${banquetNotes.replace(
                 /</g,
                 "&lt;"
               )}</div>`
-            : itemNote
+            : (!tourDetail && itemNote)
             ? `<div class="tiny" style="opacity:.85;">Note: ${itemNote.replace(
                 /</g,
                 "&lt;"
@@ -698,7 +771,7 @@ const fee = feeCents / 100;
         <div style="font-size:1.1em"><strong>Total (charged at checkout)</strong>: ${money(total)}</div>
         <p class="tiny" style="margin:.25rem 0 0;">
           The processing fees above are calculated on your entire order
-          (banquets, Grand Court add-ons, merchandise, and shipping &amp; handling)
+          (banquets, Grand Court of Pennsylvania add-ons, merchandise, and shipping &amp; handling)
           and will be shown as separate line items on the secure Stripe checkout page.
           For cards issued outside the United States, the international card processing fee
           (if shown above) is also added as a separate line at checkout.
@@ -747,6 +820,19 @@ const fee = feeCents / 100;
     };
   }
 
+  function findBanquetByLine(line) {
+    try {
+      const id = String(line?.itemId || line?.id || "").trim();
+      const name = String(line?.itemName || "").trim().toLowerCase();
+      const list = Array.isArray(window.BANQUETS) ? window.BANQUETS : [];
+      return list.find((b) => String(b?.id || "").trim() === id) ||
+             list.find((b) => String(b?.name || "").trim().toLowerCase() === name) ||
+             null;
+    } catch {
+      return null;
+    }
+  }
+
   // Build payload (including shipping line)
   function buildPayloadFromCart() {
     const st = Cart.get() || { lines: [], attendees: [] };
@@ -783,10 +869,22 @@ const fee = feeCents / 100;
         meta.attendeeMemberType = att.memberType || "";
       }
 
-      // Make sure banquet notes follow our rule
+      // Make sure banquet notes follow our rule.
+      // Also snapshot decoration/hotel split at checkout time so future reports remain accurate
+      // even if the banquet setup is edited later.
       if (l.itemType === "banquet") {
         const attNotes = att && att.notes ? String(att.notes) : "";
         if (!meta.attendeeNotes && attNotes) meta.attendeeNotes = attNotes;
+
+        const banquetCfg = findBanquetByLine(l);
+        const decorationFee = Number(banquetCfg?.decorationFee || l.decorationFee || meta.decorationFee || 0) || 0;
+        if (decorationFee > 0) {
+          meta.decorationFee = Math.round(decorationFee * 100) / 100;
+          const unit = Number(normalizePrice(l.unitPrice)) || 0;
+          meta.hotelAmount = Math.max(0, Math.round((unit - meta.decorationFee) * 100) / 100);
+        } else {
+          meta.decorationFee = 0;
+        }
       }
 
       // Preserve bundle fields if present on the line
@@ -847,6 +945,11 @@ const fee = feeCents / 100;
       setStatus("Contacting payment server…", false);
 
       const purchaser = readPurchaser();
+
+      const currentCart = Cart.get() || { lines: [] };
+      if (!Array.isArray(currentCart.lines) || currentCart.lines.length === 0) {
+        throw new Error("Your cart is empty.");
+      }
 
       // Strict client-side validation to match required fields
       const missing = [];
