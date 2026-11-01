@@ -23,7 +23,7 @@ html,body{
   content: "";
   position: fixed;
   inset: 0;
-  background-image: var(--wallpaper, url('/assets/img/pa-2026-watermark.jpg'));
+  background-image: url('/assets/img/wallpaper.jpg');
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
@@ -104,24 +104,6 @@ nav a{ font-weight:500; }
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
 @media(max-width:800px){.grid-3,.grid-2{grid-template-columns:1fr}}
-
-/* Default wallpaper (used on desktop + landscape) */
-.wallpaper::before {
-  background-image: var(--wallpaper, url('/assets/img/pa-2026-watermark.jpg'));
-  background-size: contain;   /* 👈 key change */
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-color: #ffffff; /* or transparent / light gray */
-}
-/* Portrait override (mobile vertical) */
-@media (max-aspect-ratio: 3/4) {
-  .wallpaper::before {
-    background-image: var(--wallpaper, url('/assets/img/pa-2026-watermark.jpg')); /* different image for phones */
-    background-size: contain;
-    background-position: center center;
-    background-repeat: no-repeat;
-  }
-}
 
 /* =========================
    Admin Help Popups
