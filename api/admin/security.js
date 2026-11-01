@@ -324,7 +324,6 @@ export async function handleAdminLogin({ password, ip, userAgent }) {
 
   console.log("[admin-login] SUCCESS", {
     ip: safeIP,
-    tokenPrefix: token ? token.slice(0, 12) : null,
     ttlSeconds: ADMIN_TOKEN_TTL_SEC,
   });
 
