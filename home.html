@@ -66,6 +66,31 @@
       padding: 1rem;
       box-shadow: 0 2px 10px rgba(0,0,0,.06);
     }
+
+    .phone-banner {
+      display: none;
+    }
+
+    @media (max-width: 767px) and (orientation: portrait) {
+      body {
+        background: #fff8f1;
+      }
+
+      .wallpaper {
+        display: none;
+      }
+
+      .phone-banner {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .session-title {
+        font-size: clamp(1.65rem, 6vw, 2.15rem);
+        line-height: 1.2;
+      }
+    }
   </style>
 </head>
 
@@ -88,6 +113,8 @@
       </nav>
     </div>
   </header>
+
+  <img class="phone-banner" src="/assets/img/wallpaper.jpg" alt="Celebrate Life">
 
   <main class="container mt-lg">
     <h1 class="session-title">
