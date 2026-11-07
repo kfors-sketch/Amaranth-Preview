@@ -81,14 +81,32 @@
       }
 
       .phone-banner {
+        display: grid;
+        grid-template-areas: "artwork";
+      }
+
+      .phone-banner img {
+        grid-area: artwork;
         display: block;
         width: 100%;
         height: auto;
       }
 
-      .session-title {
-        font-size: clamp(1.65rem, 6vw, 2.15rem);
-        line-height: 1.2;
+      .phone-banner-title {
+        grid-area: artwork;
+        align-self: start;
+        justify-self: center;
+        width: 49%;
+        margin: 31% 0 0;
+        text-align: center;
+        font-size: clamp(1rem, 4.6vw, 2rem);
+        line-height: 1.15;
+        color: #1f2937;
+      }
+
+      .session-title,
+      .session-subtitle {
+        display: none;
       }
     }
   </style>
@@ -114,7 +132,10 @@
     </div>
   </header>
 
-  <img class="phone-banner" src="/assets/img/wallpaper.jpg" alt="Celebrate Life">
+  <div class="phone-banner">
+    <img src="/assets/img/wallpaper.jpg" alt="Celebrate Life">
+    <h1 class="phone-banner-title">2027 Pennsylvania Grand Court</h1>
+  </div>
 
   <main class="container mt-lg">
     <h1 class="session-title">
