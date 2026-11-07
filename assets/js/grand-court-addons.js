@@ -625,7 +625,7 @@ if (notes) {
       <section class="card">
         <h2>No add-ons available</h2>
         <p>
-          There are currently no Supreme add-ons open for registration.
+          There are currently no Grand Court add-ons open for registration.
           Please check back later or contact the committee with any questions.
         </p>
       </section>
@@ -1018,5 +1018,3 @@ amtWrap.appendChild(amtLabel);
     init();
   }
 })();
-
-
