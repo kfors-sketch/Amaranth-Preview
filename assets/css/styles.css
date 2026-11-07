@@ -222,3 +222,43 @@ body.help-modal-open{
     background-color: #fff8f1;
   }
 }
+
+/* Match the Grand Court homepage on upright phones. */
+.grand-phone-banner {
+  display: none;
+}
+
+@media (max-width: 767px) and (orientation: portrait) {
+  body.grand-phone-layout {
+    background: #fff8f1;
+  }
+
+  .grand-phone-layout > .wallpaper {
+    display: none;
+  }
+
+  .grand-phone-banner {
+    display: grid;
+    grid-template-areas: "artwork";
+  }
+
+  .grand-phone-banner img {
+    grid-area: artwork;
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .grand-phone-banner-title {
+    grid-area: artwork;
+    align-self: start;
+    justify-self: center;
+    width: 49%;
+    margin: 31% 0 0;
+    text-align: center;
+    font-size: clamp(1rem, 4.6vw, 2rem);
+    font-weight: 700;
+    line-height: 1.15;
+    color: #1f2937;
+  }
+}
