@@ -14,6 +14,10 @@ const defaults = [
 ].map(entry => ({ type: "shop", active: true, ...entry }));
 const catalogKey = "rainbow:ordering:v1:catalog";
 const registrationCents = 1000;
+const membershipLabels = {
+  parent: "Parent", youth: "Youth", youth_leader: "Youth Leader",
+  voting: "Voting", non_voting: "Non-Voting",
+};
 
 const pages = { store: "/rainbow/store.html", session: "/rainbow/annual-session.html" };
 const contactFields = [
@@ -128,7 +132,7 @@ function buildSubmission(body, catalog) {
     const contact = contactInfo(attendee);
     const assembly = field(attendee.assembly, "the sample assembly name");
     const assemblyNumber = field(attendee.assemblyNumber, "the sample assembly number", 30);
-    if (!["voting", "non_voting"].includes(attendee.memberType)) {
+    if (!["parent", "youth", "youth_leader"].includes(attendee.memberType)) {
       invalid("Check each attendee’s registration options.");
     }
     const notes = field(attendee.notes, "attendee notes", 300, false);
@@ -215,7 +219,7 @@ function csv(records) {
       amount(record.processingFee), amount(record.internationalFee), amount(record.totalCents)];
     for (const attendee of record.attendees || [{}]) {
       rows.push(row([...order, ...contactFields.map(([key]) => attendee[key]), attendee.assembly,
-        attendee.assemblyNumber, attendee.memberType, attendee.events?.map(event => event.name).join(" | ") ?? (attendee.lunch ? "Annual Session lunch" : ""), attendee.notes]));
+        attendee.assemblyNumber, membershipLabels[attendee.memberType] ?? attendee.memberType, attendee.events?.map(event => event.name).join(" | ") ?? (attendee.lunch ? "Annual Session lunch" : ""), attendee.notes]));
     }
   }
   return rows.join("\r\n") + "\r\n";
