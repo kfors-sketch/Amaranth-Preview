@@ -56,18 +56,23 @@ function renderCart() {
   updateCartTotal();
 }
 
+function cartSubtotal() {
+  return [...cart.values()].reduce((sum, item) => sum + item.quantity * item.product.cents, 0);
+}
+
 function updateCartTotal() {
-  const total = [...cart.values()].reduce((sum, item) => sum + item.quantity * item.product.cents, 0);
+  const total = cartSubtotal();
   byId("store-total").value = money(total);
   storeForm.querySelector("[type=submit]").disabled = !cart.size || !catalog.checkoutEnabled;
 }
 
 function renderProducts() {
+  if (!catalog.products.length) byId("products").append(make("p", "No merchandise is currently available."));
   for (const product of catalog.products) {
     const card = make("article", "", { class: "product" });
     const option = make("select");
     for (const name of product.options) option.append(make("option", name, { value: name }));
-    const label = make("label", product.options.length > 1 ? "Size" : "Option");
+    const label = make("label", "Option");
     label.append(option);
     const add = make("button", "Add to cart", { type: "button" });
     add.addEventListener("click", () => {
@@ -93,14 +98,27 @@ function updateAttendees() {
     row.querySelector("button").hidden = rows.length === 1;
   });
   byId("add-attendee").disabled = rows.length >= 6;
-  const lunches = attendees.querySelectorAll("[name=lunch]:checked").length;
-  byId("session-total").value = money(rows.length * catalog.registrationCents + lunches * catalog.lunchCents);
+  byId("session-total").value = money(sessionSubtotal());
+}
+
+function sessionSubtotal() {
+  const selected = [...attendees.querySelectorAll("[data-event]:checked")];
+  const extras = selected.reduce((sum, input) => sum + Number(input.dataset.cents), 0);
+  return attendees.children.length * catalog.registrationCents + extras;
 }
 
 function addAttendee() {
   const row = byId("attendee-template").content.firstElementChild.cloneNode(true);
-  row.querySelector(".lunch-label").textContent = "Add sample lunch (" + money(catalog.lunchCents) + ")";
-  row.querySelector("[name=lunch]").addEventListener("change", updateAttendees);
+  const choices = row.querySelector(".attendee-events");
+  if (catalog.events.length) choices.append(make("strong", "Optional banquets and events"));
+  for (const entry of catalog.events) {
+    const label = make("label", "", { class: "check" });
+    const checkbox = make("input", "", { type: "checkbox", value: entry.id, "data-event": "", "data-cents": entry.cents });
+    checkbox.addEventListener("change", updateAttendees);
+    label.append(checkbox, (entry.type === "banquet" ? "Banquet" : "Event") + " · " + entry.name +
+      " (" + (entry.cents ? money(entry.cents) : "Free") + ")" + (entry.detail ? " — " + entry.detail : ""));
+    choices.append(label);
+  }
   row.querySelector("button").addEventListener("click", () => { row.remove(); updateAttendees(); });
   attendees.append(row);
   updateAttendees();
@@ -150,6 +168,7 @@ if (storeForm || sessionForm) request("catalog").then((result) => {
     renderCart();
     storeForm.hidden = false;
     bindCheckout(storeForm, "store", () => ({
+      expectedSubtotal: cartSubtotal(),
       items: [...cart.values()].map(({ product, option, quantity }) => ({ id: product.id, option, quantity })),
     }));
   }
@@ -158,8 +177,11 @@ if (storeForm || sessionForm) request("catalog").then((result) => {
     sessionForm.hidden = false;
     sessionForm.querySelector("[type=submit]").disabled = !catalog.checkoutEnabled;
     bindCheckout(sessionForm, "session", () => ({
-      attendees: [...attendees.children].map(row => Object.fromEntries(
-        [...row.querySelectorAll("[name]")].map(input => [input.name, input.type === "checkbox" ? input.checked : input.value]))),
+      expectedSubtotal: sessionSubtotal(),
+      attendees: [...attendees.children].map(row => ({
+        ...Object.fromEntries([...row.querySelectorAll("[name]")].map(input => [input.name, input.value])),
+        events: [...row.querySelectorAll("[data-event]:checked")].map(input => input.value),
+      })),
     }));
   }
 }).catch((error) => {
