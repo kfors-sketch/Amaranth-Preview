@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { kv } from "@vercel/kv";
 import { getStripe } from "../admin/stripe-mode.js";
 import { requireAdminFromHeaders } from "../admin/security.js";
@@ -5,13 +6,14 @@ import { calculateProcessingFeeCents } from "../admin/checkout-pricing.js";
 import { isInternationalOrder, computeInternationalFeeCents, buildInternationalFeeLineItem } from "../admin/fees.js";
 import { scope, recordsKey, pendingKey, isSubmissionId, isTestSession, saveRainbowPayment } from "./payment.js";
 
-const products = [
+const defaults = [
   { id: "shirt", name: "Rainbow T-shirt", detail: "Sample crewneck • adult S–2XL", cents: 1800, options: ["S", "M", "L", "XL", "2XL"] },
   { id: "pin", name: "Rainbow lapel pin", detail: "Sample commemorative pin", cents: 600, options: ["Standard"] },
   { id: "tote", name: "Rainbow tote bag", detail: "Sample reusable canvas tote", cents: 1200, options: ["Standard"] },
-];
+  { id: "lunch", name: "Annual Session lunch", detail: "Sample banquet", cents: 1500, type: "banquet" },
+].map(entry => ({ type: "shop", active: true, ...entry }));
+const catalogKey = "rainbow:ordering:v1:catalog";
 const registrationCents = 1000;
-const lunchCents = 1500;
 
 const pages = { store: "/rainbow/store.html", session: "/rainbow/annual-session.html" };
 const contactFields = [
@@ -73,7 +75,31 @@ function contactInfo(input) {
   return contact;
 }
 
-function buildSubmission(body) {
+async function loadCatalog(store) {
+  const entries = new Map(defaults.map(entry => [entry.id, entry]));
+  for (const value of Object.values(await store.hgetall(catalogKey) || {})) {
+    const entry = typeof value === "string" ? JSON.parse(value) : value;
+    entries.set(entry.id, entry);
+  }
+  return [...entries.values()];
+}
+
+function catalogEntry(body, existing) {
+  const { type, active, cents } = body;
+  if (!["shop", "banquet", "event"].includes(type) || typeof active !== "boolean" ||
+      !Number.isInteger(cents) || cents < (type === "shop" ? 50 : 0) || cents > 100000) {
+    invalid("Check the category, visibility, and price. Shop items must cost at least $0.50.");
+  }
+  if (existing && existing.type !== type) invalid("The category of an existing item cannot be changed.");
+  const name = field(body.name, "the item name");
+  const detail = field(body.detail, "the description", 240, false);
+  const options = type === "shop" && Array.isArray(body.options) && body.options.length
+    ? [...new Set(body.options.map(option => field(option, "each option", 30)))] : ["Standard"];
+  if (options.length > 12) invalid("Enter up to 12 options.");
+  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options };
+}
+
+function buildSubmission(body, catalog) {
   const id = field(body.id, "the confirmation ID", 36);
   if (!isSubmissionId(id)) invalid("Invalid confirmation ID.");
   const purchaser = contactInfo(body.purchaser);
@@ -81,11 +107,11 @@ function buildSubmission(body) {
 
   const base = { id, kind: body.kind, purchaser };
   if (body.kind === "store") {
-    if (!Array.isArray(body.items) || !body.items.length || body.items.length > 8) invalid("Add sample merchandise to your cart.");
+    if (!Array.isArray(body.items) || !body.items.length || body.items.length > 40) invalid("Add sample merchandise to your cart.");
     const seen = new Set();
     const items = body.items.map((item) => {
       const { id: productId, option, quantity } = item || {};
-      const product = products.find(entry => entry.id === productId);
+      const product = catalog.find(entry => entry.type === "shop" && entry.active && entry.id === productId);
       if (!product || !product.options.includes(option) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
         invalid("Check the item, size, and quantity.");
       }
@@ -102,15 +128,24 @@ function buildSubmission(body) {
     const contact = contactInfo(attendee);
     const assembly = field(attendee.assembly, "the sample assembly name");
     const assemblyNumber = field(attendee.assemblyNumber, "the sample assembly number", 30);
-    if (!["voting", "non_voting"].includes(attendee.memberType) || typeof attendee.lunch !== "boolean") {
+    if (!["voting", "non_voting"].includes(attendee.memberType)) {
       invalid("Check each attendee’s registration options.");
     }
     const notes = field(attendee.notes, "attendee notes", 300, false);
-    return { ...contact, assembly, assemblyNumber, memberType: attendee.memberType, notes, lunch: attendee.lunch };
+    const selected = attendee.events ?? (attendee.lunch === true ? ["lunch"] : []);
+    if (!Array.isArray(selected) || selected.length > 40 || new Set(selected).size !== selected.length) {
+      invalid("Check the selected Annual Session events.");
+    }
+    const events = selected.map(id => {
+      const entry = catalog.find(item => item.id === id && item.type !== "shop" && item.active);
+      if (!entry) invalid("An event is no longer available. Reload the page to see current choices.");
+      return { id, name: entry.name, type: entry.type, cents: entry.cents };
+    });
+    return { ...contact, assembly, assemblyNumber, memberType: attendee.memberType, notes, events };
   });
   return {
     ...base, attendees,
-    totalCents: attendees.reduce((sum, attendee) => sum + registrationCents + (attendee.lunch ? lunchCents : 0), 0),
+    totalCents: attendees.reduce((sum, attendee) => sum + registrationCents + attendee.events.reduce((total, event) => total + event.cents, 0), 0),
   };
 }
 
@@ -122,10 +157,17 @@ function lineItems(submission) {
   if (submission.kind === "store") {
     return submission.items.map(item => price(item.name + " (" + item.option + ")", item.cents, item.quantity));
   }
-  const lunchCount = submission.attendees.filter(person => person.lunch).length;
-  const lines = [price("Annual Session registration", registrationCents, submission.attendees.length)];
-  if (lunchCount) lines.push(price("Annual Session lunch", lunchCents, lunchCount));
-  return lines;
+  const events = new Map();
+  for (const attendee of submission.attendees) {
+    for (const event of attendee.events) {
+      if (event.cents === 0) continue;
+      const item = events.get(event.id) || { ...event, quantity: 0 };
+      item.quantity += 1;
+      events.set(event.id, item);
+    }
+  }
+  return [price("Annual Session registration", registrationCents, submission.attendees.length),
+    ...[...events.values()].map(event => price(event.name, event.cents, event.quantity))];
 }
 
 function withFees(submission, env) {
@@ -162,7 +204,7 @@ function csv(records) {
   const rows = [row(["Confirmation", "Type", "Submitted UTC", "Test result", "Details",
     ...contactFields.map(([, label]) => "Purchaser " + label), "Subtotal USD", "Processing fee USD",
     "International fee USD", "Total USD", ...contactFields.map(([, label]) => "Attendee " + label),
-    "Assembly", "Assembly #", "Membership", "Lunch", "Dietary notes"])];
+    "Assembly", "Assembly #", "Membership", "Banquets and events", "Dietary notes"])];
   const amount = cents => (cents / 100).toFixed(2);
   for (const record of records) {
     const details = record.kind === "store"
@@ -173,7 +215,7 @@ function csv(records) {
       amount(record.processingFee), amount(record.internationalFee), amount(record.totalCents)];
     for (const attendee of record.attendees || [{}]) {
       rows.push(row([...order, ...contactFields.map(([key]) => attendee[key]), attendee.assembly,
-        attendee.assemblyNumber, attendee.memberType, attendee.lunch == null ? "" : attendee.lunch ? "Yes" : "No", attendee.notes]));
+        attendee.assemblyNumber, attendee.memberType, attendee.events?.map(event => event.name).join(" | ") ?? (attendee.lunch ? "Annual Session lunch" : ""), attendee.notes]));
     }
   }
   return rows.join("\r\n") + "\r\n";
@@ -192,7 +234,22 @@ export function createHandler({
     const reportKind = url.searchParams.get("kind");
     try {
       if (req.method === "GET" && action === "catalog") {
-        return json(res, 200, { products, registrationCents, lunchCents, checkoutEnabled: env.RAINBOW_TEST_ENABLED === "1" });
+        const entries = (await loadCatalog(store)).filter(entry => entry.active);
+        return json(res, 200, { products: entries.filter(entry => entry.type === "shop"),
+          events: entries.filter(entry => entry.type !== "shop"), registrationCents,
+          checkoutEnabled: env.RAINBOW_TEST_ENABLED === "1" });
+      }
+      if (action === "manage-catalog" && ["GET", "POST"].includes(req.method)) {
+        if (!(await authorize(req.headers)).ok) return json(res, 401, { error: "Sign in with your Grand admin password." });
+        const entries = await loadCatalog(store);
+        if (req.method === "GET") return json(res, 200, entries);
+        const body = await readBody(req);
+        const existing = entries.find(entry => entry.id === body.id);
+        if (body.id && !existing) return json(res, 404, { error: "This catalog item could not be found." });
+        if (!existing && entries.length >= 80) invalid("The catalog can hold up to 80 entries.");
+        const entry = catalogEntry(body, existing);
+        await store.hset(catalogKey, { [entry.id]: JSON.stringify(entry) });
+        return json(res, 200, entry);
       }
       if (req.method === "POST" && ["checkout", "confirm"].includes(action)) {
         const body = await readBody(req);
@@ -210,17 +267,25 @@ export function createHandler({
         if (env.RAINBOW_TEST_ENABLED !== "1") {
           return json(res, 503, { error: "Rainbow test checkout is turned off." });
         }
-        const submission = withFees(buildSubmission(body), env);
+        if (!isSubmissionId(body.id)) invalid("Invalid confirmation ID.");
+        const draftKey = pendingKey(body.id);
         const origin = returnPage(req, env);
         if (!origin) return json(res, 503, { error: "Open Rainbow on its Grand site URL to test Stripe." });
-        const draftKey = pendingKey(submission.id);
-        const draft = { submission, base: origin + pages[submission.kind], startedAt: Date.now() };
-        const claimed = await store.set(draftKey, draft, { nx: true, ex: 7 * 24 * 60 * 60 });
-        const saved = claimed ? draft : await store.get(draftKey);
-        if (!saved || JSON.stringify(saved.submission) !== JSON.stringify(submission) ||
-            Date.now() - saved.startedAt > 23 * 60 * 60 * 1000) {
+        const signature = JSON.stringify(body);
+        let saved = await store.get(draftKey);
+        if (!saved) {
+          const submission = withFees(buildSubmission(body, await loadCatalog(store)), env);
+          if (body.expectedSubtotal != null && body.expectedSubtotal !== submission.subtotalCents) {
+            return json(res, 409, { error: "Prices have changed. Reload the page before checking out." });
+          }
+          const draft = { submission, signature, base: origin + pages[submission.kind], startedAt: Date.now() };
+          const claimed = await store.set(draftKey, draft, { nx: true, ex: 7 * 24 * 60 * 60 });
+          saved = claimed ? draft : await store.get(draftKey);
+        }
+        if (!saved || saved.signature !== signature || Date.now() - saved.startedAt > 23 * 60 * 60 * 1000) {
           return json(res, 409, { error: "Start a new Rainbow checkout to continue." });
         }
+        const { submission } = saved;
         const metadata = { site_scope: scope, rainbow_submission: submission.id };
         const lines = lineItems(submission);
         if (submission.processingFee > 0) lines.push({
