@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Annual Session registrations | Pennsylvania Rainbow for Girls</title>
+  <link rel="stylesheet" href="/assets/rainbow/site.css">
+  <script src="/assets/js/admin.js" defer></script>
+  <script src="/assets/rainbow/admin.js" defer></script>
+</head>
+<body data-kind="session">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <a class="brand" href="/admin/rainbow/orders.html">
+        <span class="brand-arch" aria-hidden="true"></span>
+        <span><strong>Rainbow for Girls</strong><small>Pennsylvania</small></span>
+      </a>
+      <nav aria-label="Rainbow preview">
+        <a href="/admin/rainbow/orders.html">Merchandise orders</a>
+        <a href="/admin/rainbow/registrations.html" aria-current="page">Annual Session registrations</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="title-band">
+      <div class="shell">
+        <p class="eyebrow">Pennsylvania Rainbow Girls</p>
+        <h1>Annual Session registrations</h1>
+        <p>Review paid Rainbow test registrations.</p>
+      </div>
+    </div>
+    <div class="shell">
+      <aside class="notice"><strong>Test reports.</strong> These reports show paid Rainbow test submissions.</aside>
+      
+      
+      <section id="organizer">
+        <p class="eyebrow">For Organizers</p>
+        <h2>Review test submissions</h2>
+        <p>Use your Grand admin password to view this report or download a CSV.</p>
+        <form id="report-form" class="panel" method="post">
+          <label>Grand admin password <input name="password" type="password" autocomplete="current-password"></label>
+          <div class="actions">
+            <button>Load submissions</button>
+            <button type="button" class="secondary" id="export">Download CSV</button>
+          </div>
+          <p class="feedback" role="status"></p>
+          <div id="records"></div>
+        </form>
+      </section>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="shell"><strong>Pennsylvania Rainbow for Girls</strong><span>Private test preview</span></div>
+  </footer>
+</body>
+</html>
