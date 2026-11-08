@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Merchandise orders | Pennsylvania Rainbow for Girls</title>
+  <title>Orders &amp; registrations | Pennsylvania Rainbow for Girls</title>
   <link rel="stylesheet" href="/assets/rainbow/site.css">
   <script src="/assets/js/admin.js" defer></script>
   <script src="/assets/rainbow/admin.js" defer></script>
@@ -19,8 +19,8 @@
         <span><strong>Rainbow for Girls</strong><small>Pennsylvania</small></span>
       </a>
       <nav aria-label="Rainbow preview">
-        <a href="/admin/rainbow/orders.html" aria-current="page">Merchandise orders</a>
-        <a href="/admin/rainbow/registrations.html">Annual Session registrations</a>
+        <a href="/admin/rainbow/orders.html" aria-current="page">Orders &amp; registrations</a>
+        <a href="/admin/rainbow/registrations.html">Catalog editor</a>
       </nav>
     </div>
   </header>
@@ -28,8 +28,8 @@
     <div class="title-band">
       <div class="shell">
         <p class="eyebrow">Pennsylvania Rainbow Girls</p>
-        <h1>Merchandise orders</h1>
-        <p>Review paid Rainbow test orders.</p>
+        <h1>Orders &amp; registrations</h1>
+        <p>Review paid merchandise orders and Annual Session registrations.</p>
       </div>
     </div>
     <div class="shell">
@@ -40,8 +40,11 @@
         <p class="eyebrow">For Organizers</p>
         <h2>Review test submissions</h2>
         <p>Use your Grand admin password to view this report or download a CSV.</p>
-        <form id="report-form" class="panel" method="post">
+        <form id="admin-form" class="panel" method="post">
           <label>Grand admin password <input name="password" type="password" autocomplete="current-password"></label>
+          <label>Report
+            <select name="kind"><option value="store">Merchandise orders</option><option value="session">Annual Session registrations</option></select>
+          </label>
           <div class="actions">
             <button>Load submissions</button>
             <button type="button" class="secondary" id="export">Download CSV</button>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Annual Session registrations | Pennsylvania Rainbow for Girls</title>
+  <title>Catalog editor | Pennsylvania Rainbow for Girls</title>
   <link rel="stylesheet" href="/assets/rainbow/site.css">
   <script src="/assets/js/admin.js" defer></script>
   <script src="/assets/rainbow/admin.js" defer></script>
@@ -19,8 +19,8 @@
         <span><strong>Rainbow for Girls</strong><small>Pennsylvania</small></span>
       </a>
       <nav aria-label="Rainbow preview">
-        <a href="/admin/rainbow/orders.html">Merchandise orders</a>
-        <a href="/admin/rainbow/registrations.html" aria-current="page">Annual Session registrations</a>
+        <a href="/admin/rainbow/orders.html">Orders &amp; registrations</a>
+        <a href="/admin/rainbow/registrations.html" aria-current="page">Catalog editor</a>
       </nav>
     </div>
   </header>
@@ -28,27 +28,40 @@
     <div class="title-band">
       <div class="shell">
         <p class="eyebrow">Pennsylvania Rainbow Girls</p>
-        <h1>Annual Session registrations</h1>
-        <p>Review paid Rainbow test registrations.</p>
+        <h1>Catalog editor</h1>
+        <p>Manage merchandise, banquets, and Annual Session events.</p>
       </div>
     </div>
     <div class="shell">
-      <aside class="notice"><strong>Test reports.</strong> These reports show paid Rainbow test submissions.</aside>
+      <aside class="notice"><strong>Test reports.</strong> Active entries appear immediately on the matching Rainbow public page.</aside>
       
       
       <section id="organizer">
         <p class="eyebrow">For Organizers</p>
-        <h2>Review test submissions</h2>
-        <p>Use your Grand admin password to view this report or download a CSV.</p>
-        <form id="report-form" class="panel" method="post">
+        <h2>Manage items and events</h2>
+        <p>Use your Grand admin password to open the catalog.</p>
+        <form id="admin-form" class="panel" method="post">
           <label>Grand admin password <input name="password" type="password" autocomplete="current-password"></label>
           <div class="actions">
-            <button>Load submissions</button>
-            <button type="button" class="secondary" id="export">Download CSV</button>
+            <button>Load catalog</button>
           </div>
           <p class="feedback" role="status"></p>
-          <div id="records"></div>
+
         </form>
+        <form id="catalog-form" class="panel" method="post" hidden>
+          <h3 id="catalog-heading">Add an item or event</h3>
+          <input name="id" type="hidden">
+          <div class="fields">
+            <label>Category<select name="type"><option value="shop">Shop item</option><option value="banquet">Banquet</option><option value="event">Other Annual Session event</option></select></label>
+            <label>Name<input name="name" required maxlength="80"></label>
+            <label>Price in dollars<input name="price" type="number" min="0" max="1000" step=".01" required></label>
+          </div>
+          <label>Description<textarea name="detail" maxlength="240" rows="2"></textarea></label>
+          <label id="catalog-options">Shop options, separated by commas<input name="options" placeholder="S, M, L, XL" maxlength="370"></label>
+          <label class="check"><input name="active" type="checkbox" checked> Show on the public page</label>
+          <div class="actions"><button>Save entry</button><button type="button" id="new-entry" class="secondary">Start a new entry</button></div>
+        </form>
+        <div id="records"></div>
       </section>
     </div>
   </main>
