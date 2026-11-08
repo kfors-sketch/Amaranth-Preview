@@ -7,6 +7,11 @@ const editor = document.getElementById("catalog-form");
 const money = cents => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const categories = { shop: "Shop item", banquet: "Banquet", event: "Annual Session event" };
 
+const membershipLabels = {
+  parent: "Parent", youth: "Youth", youth_leader: "Youth Leader",
+  voting: "Voting", non_voting: "Non-Voting",
+};
+
 function paragraph(parent, text) {
   const line = document.createElement("p");
   line.textContent = text;
@@ -27,7 +32,7 @@ function renderReport(list) {
       for (const attendee of record.attendees) {
         const events = attendee.events?.map(event => event.name).join(", ") ?? (attendee.lunch ? "Annual Session lunch" : "");
         paragraph(card, attendee.name + " · " + attendee.assembly + " #" + attendee.assemblyNumber + " · " +
-          (attendee.memberType === "voting" ? "Voting" : "Non-Voting") +
+          (membershipLabels[attendee.memberType] ?? attendee.memberType ?? "") +
           (events ? " · " + events : "") + (attendee.notes ? " · " + attendee.notes : ""));
       }
     }
