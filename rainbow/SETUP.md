@@ -6,8 +6,8 @@ This package starts from the existing Grand site. Upload these files to the root
 | --- | --- |
 | `/rainbow/store.html` | Merchandise, cart, and purchaser details |
 | `/rainbow/annual-session.html` | Annual Session registration, purchaser, and attendee details |
-| `/admin/rainbow/orders.html` | Merchandise orders and CSV |
-| `/admin/rainbow/registrations.html` | Annual Session registrations and CSV |
+| `/admin/rainbow/orders.html` | Merchandise and Annual Session reports and CSVs |
+| `/admin/rainbow/registrations.html` | Catalog editor for merchandise, banquets, and events |
 
 The public HTML pages are accessible by direct link and omitted from Grand's menus and search indexing. The report pages use Grand's admin sign-in to protect their data and CSVs.
 
@@ -19,7 +19,9 @@ The public HTML pages are accessible by direct link and omitted from Grand's men
 4. Use made-up details and an email such as `tester@example.com` for every purchaser and attendee. Use Stripe test card `4242 4242 4242 4242`, any future expiration, and any three-digit CVC. The cart shows the merchandise or registration subtotal. Checkout applies Grand's usual processing and applicable international fees.
 5. Check the corresponding Rainbow admin page for the paid order and try its CSV. Rainbow test payments are stored separately from Grand orders. Rainbow shows a confirmation in the browser.
 
-The sample products, prices, and lunch option are placeholders. Use `RAINBOW_TEST_ENABLED=0` and redeploy to stop new Rainbow test checkouts while keeping the pages available to review.
+Open the catalog editor and sign in with Grand's admin password to add or edit merchandise, banquets, and other events. Leave an entry hidden until you want it on its public page. Banquets and events can be free and are selected individually for each attendee. The sample items are editable. The base Annual Session registration price is currently $10.
+
+For an existing Rainbow installation, upload just `admin/rainbow/orders.html`, `admin/rainbow/registrations.html`, `api/rainbow/orders.js`, `assets/rainbow/admin.js`, `assets/rainbow/order.js`, and `rainbow/annual-session.html` in one commit. The existing webhook and Vercel setting are already compatible. Use `RAINBOW_TEST_ENABLED=0` and redeploy to stop new Rainbow test checkouts while keeping the pages available to review.
 
 ## Remove Rainbow
 
