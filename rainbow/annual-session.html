@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Annual Session | Pennsylvania Rainbow for Girls</title>
+  <link rel="stylesheet" href="/assets/rainbow/site.css">
+  <script src="/assets/rainbow/order.js" defer></script>
+</head>
+<body data-kind="session">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <a class="brand" href="/rainbow/store.html">
+        <span class="brand-arch" aria-hidden="true"></span>
+        <span><strong>Rainbow for Girls</strong><small>Pennsylvania</small></span>
+      </a>
+      <nav aria-label="Rainbow preview">
+        <a href="/rainbow/store.html">Merchandise</a>
+        <a href="/rainbow/annual-session.html" aria-current="page">Annual Session</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="title-band">
+      <div class="shell">
+        <p class="eyebrow">Pennsylvania Rainbow Girls</p>
+        <h1>Annual Session</h1>
+        <p>Register your assembly for Annual Session.</p>
+      </div>
+    </div>
+    <div class="shell">
+      <aside class="notice"><strong>Test mode.</strong> Use fictional contact and attendee information and an email such as tester@example.com. Prices and event options are examples. Use a Stripe test card. No money is charged.</aside>
+      <p id="checkout-result" class="feedback" role="status" hidden></p>
+      <p id="load-error" role="alert" hidden></p>
+      
+      <section id="session">
+        <p class="eyebrow">Event Registration</p>
+        <h2>Register attendees</h2>
+        <p>Try registering up to six sample attendees from one assembly. Date and venue are pending.</p>
+        <form id="session-form" class="panel" method="post" autocomplete="off" hidden>
+          <fieldset class="purchaser">
+            <legend>Purchaser information</legend>
+            <div class="fields">
+            <label>Full name<input name="name" type="text" maxlength="120" required placeholder="Sample Person"></label>
+            <label>Title<input name="title" type="text" maxlength="120" required placeholder="Sample title"></label>
+            <label>Email<input name="email" type="email" maxlength="120" required placeholder="tester@example.com"></label>
+            <label>Phone<input name="phone" type="tel" maxlength="120" required placeholder="717-555-0100"></label>
+            <label>Address line 1<input name="address1" type="text" maxlength="120" required placeholder="123 Sample Street"></label>
+            <label>Address line 2<input name="address2" type="text" maxlength="120"></label>
+            <label>City<input name="city" type="text" maxlength="120" required placeholder="Sample City"></label>
+            <label>State/Province<input name="state" type="text" maxlength="120" required placeholder="PA"></label>
+            <label>Postal code<input name="postal" type="text" maxlength="120" required placeholder="17000"></label>
+            <label>Country<input name="country" type="text" maxlength="120" required value="US"></label>
+            </div>
+          </fieldset>
+          <div id="attendees"></div>
+          <button type="button" id="add-attendee" class="secondary">Add attendee</button>
+          <p class="total">Registration subtotal <output id="session-total" aria-live="polite"></output></p>
+          <p class="fee-note">Grand’s processing fees, where applicable, appear on the Stripe checkout page.</p>
+          <button type="submit">Continue to Stripe test checkout</button>
+          <p class="feedback" role="status"></p>
+        </form>
+      <template id="attendee-template">
+        <fieldset>
+          <legend>Attendee</legend>
+          <div class="fields">
+            <label>Full name<input name="name" type="text" maxlength="120" required placeholder="Sample Person"></label>
+            <label>Title<input name="title" type="text" maxlength="120" required placeholder="Sample title"></label>
+            <label>Email<input name="email" type="email" maxlength="120" required placeholder="tester@example.com"></label>
+            <label>Phone<input name="phone" type="tel" maxlength="120" required placeholder="717-555-0100"></label>
+            <label>Address line 1<input name="address1" type="text" maxlength="120" required placeholder="123 Sample Street"></label>
+            <label>Address line 2<input name="address2" type="text" maxlength="120"></label>
+            <label>City<input name="city" type="text" maxlength="120" required placeholder="Sample City"></label>
+            <label>State/Province<input name="state" type="text" maxlength="120" required placeholder="PA"></label>
+            <label>Postal code<input name="postal" type="text" maxlength="120" required placeholder="17000"></label>
+            <label>Country<input name="country" type="text" maxlength="120" required value="US"></label>
+            <label>Assembly name<input name="assembly" required maxlength="80"></label>
+            <label>Assembly number<input name="assemblyNumber" required maxlength="30"></label>
+            <label>Membership<select name="memberType" required><option value="">Choose one</option><option value="voting">Voting</option><option value="non_voting">Non-Voting</option></select></label>
+          </div>
+          <label>Dietary notes<textarea name="notes" rows="2" maxlength="300"></textarea></label>
+          <label class="check"><input name="lunch" type="checkbox"><span class="lunch-label">Add sample lunch</span></label>
+          <button type="button" class="secondary">Remove attendee</button>
+        </fieldset>
+      </template>
+      </section>
+      
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="shell"><strong>Pennsylvania Rainbow for Girls</strong><span>Private test preview</span></div>
+  </footer>
+</body>
+</html>

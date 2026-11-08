@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Merchandise | Pennsylvania Rainbow for Girls</title>
+  <link rel="stylesheet" href="/assets/rainbow/site.css">
+  <script src="/assets/rainbow/order.js" defer></script>
+</head>
+<body data-kind="store">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <a class="brand" href="/rainbow/store.html">
+        <span class="brand-arch" aria-hidden="true"></span>
+        <span><strong>Rainbow for Girls</strong><small>Pennsylvania</small></span>
+      </a>
+      <nav aria-label="Rainbow preview">
+        <a href="/rainbow/store.html" aria-current="page">Merchandise</a>
+        <a href="/rainbow/annual-session.html">Annual Session</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="title-band">
+      <div class="shell">
+        <p class="eyebrow">Pennsylvania Rainbow Girls</p>
+        <h1>Merchandise</h1>
+        <p>Browse Pennsylvania Rainbow merchandise.</p>
+      </div>
+    </div>
+    <div class="shell">
+      <aside class="notice"><strong>Test mode.</strong> Use fictional contact and attendee information and an email such as tester@example.com. Prices and event options are examples. Use a Stripe test card. No money is charged.</aside>
+      <p id="checkout-result" class="feedback" role="status" hidden></p>
+      <p id="load-error" role="alert" hidden></p>
+      <section id="store">
+        <p class="eyebrow">Rainbow Store</p>
+        <h2>Shop sample merchandise</h2>
+        <p>Choose a sample item, then check out for pickup at Annual Session.</p>
+        <div id="products" class="products"></div>
+        <form id="store-form" class="panel" method="post" autocomplete="off" hidden>
+          <h3>Your cart</h3>
+          <div id="cart" aria-live="polite"></div>
+          <p class="total">Merchandise subtotal <output id="store-total">$0.00</output></p>
+          <fieldset class="purchaser">
+            <legend>Purchaser information</legend>
+            <div class="fields">
+            <label>Full name<input name="name" type="text" maxlength="120" required placeholder="Sample Person"></label>
+            <label>Title<input name="title" type="text" maxlength="120" required placeholder="Sample title"></label>
+            <label>Email<input name="email" type="email" maxlength="120" required placeholder="tester@example.com"></label>
+            <label>Phone<input name="phone" type="tel" maxlength="120" required placeholder="717-555-0100"></label>
+            <label>Address line 1<input name="address1" type="text" maxlength="120" required placeholder="123 Sample Street"></label>
+            <label>Address line 2<input name="address2" type="text" maxlength="120"></label>
+            <label>City<input name="city" type="text" maxlength="120" required placeholder="Sample City"></label>
+            <label>State/Province<input name="state" type="text" maxlength="120" required placeholder="PA"></label>
+            <label>Postal code<input name="postal" type="text" maxlength="120" required placeholder="17000"></label>
+            <label>Country<input name="country" type="text" maxlength="120" required value="US"></label>
+            </div>
+          </fieldset>
+          <p class="fee-note">Grand’s processing fees, where applicable, appear on the Stripe checkout page.</p>
+          <button type="submit">Continue to Stripe test checkout</button>
+          <p class="feedback" role="status"></p>
+        </form>
+      </section>
+      
+      
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="shell"><strong>Pennsylvania Rainbow for Girls</strong><span>Private test preview</span></div>
+  </footer>
+</body>
+</html>
