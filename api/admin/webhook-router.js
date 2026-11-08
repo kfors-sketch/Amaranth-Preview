@@ -1,4 +1,5 @@
 // /api/admin/webhook-router.js
+import { scope, saveRainbowPayment } from "../rainbow/payment.js";
 import {
   REQ_OK,
   REQ_ERR,
@@ -81,6 +82,10 @@ export async function handleWebhookRoute(req, res, ctx = {}) {
       case "checkout.session.async_payment_succeeded": {
         const session = event.data.object;
         if (session?.payment_status !== "paid") break;
+        if (session.metadata?.site_scope === scope) {
+          await saveRainbowPayment(session);
+          break;
+        }
         const mode =
           typeof resolveModeFromSession === "function"
             ? await resolveModeFromSession(session)
@@ -109,7 +114,7 @@ export async function handleWebhookRoute(req, res, ctx = {}) {
 
       case "charge.refunded": {
         const refund = event.data.object;
-        await applyRefundToOrder(refund.charge, refund);
+        if (refund.metadata?.site_scope !== scope) await applyRefundToOrder(refund.charge, refund);
         break;
       }
 
