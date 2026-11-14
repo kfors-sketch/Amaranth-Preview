@@ -8,7 +8,7 @@
   <title>Catalog editor | Pennsylvania Rainbow for Girls</title>
   <link rel="stylesheet" href="/assets/rainbow/site.css">
   <script src="/assets/js/admin.js" defer></script>
-  <script src="/assets/rainbow/admin.js" defer></script>
+  <script src="/assets/rainbow/admin.js?v=merchandise-pictures" defer></script>
 </head>
 <body data-kind="session">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -58,6 +58,10 @@
           </div>
           <label>Description<textarea name="detail" maxlength="240" rows="2"></textarea></label>
           <label id="catalog-options">Shop options, separated by commas<input name="options" placeholder="S, M, L, XL" maxlength="370"></label>
+          <label id="catalog-image">Merchandise image path (optional)
+            <input name="imagePath" maxlength="200" placeholder="/assets/rainbow/merchandise/tshirt.jpg">
+            <small>Upload the JPG, PNG, or WebP to the assets/rainbow/merchandise folder in GitHub, then enter its path here.</small>
+          </label>
           <label class="check"><input name="active" type="checkbox" checked> Show on the public page</label>
           <div class="actions"><button>Save entry</button><button type="button" id="new-entry" class="secondary">Start a new entry</button></div>
         </form>
