@@ -18,15 +18,15 @@ function paragraph(parent, text) {
   parent.append(line);
 }
 
-function renderReport(list) {
+function renderReport(list, kind) {
   records.replaceChildren();
   for (const record of list) {
     const card = document.createElement("article");
     const { purchaser } = record;
     const address = [purchaser.address1, purchaser.address2, purchaser.city, purchaser.state, purchaser.postal, purchaser.country].filter(Boolean).join(", ");
-    paragraph(card, purchaser.name + " · " + purchaser.title + " · " + money(record.totalCents) + " · " + record.status);
+    paragraph(card, purchaser.name + " · " + purchaser.title + " · Payment total " + money(record.totalCents) + " · " + record.status);
     paragraph(card, purchaser.email + " · " + purchaser.phone + " · " + address);
-    if (record.kind === "store") {
+    if (kind === "store") {
       for (const item of record.items) paragraph(card, item.quantity + " × " + item.name + " (" + item.option + ")");
     } else {
       for (const attendee of record.attendees) {
@@ -156,7 +156,7 @@ if (editor) {
     const kind = form.elements.kind.value;
     run(async () => {
       const list = await request("report", { kind });
-      if (form.elements.kind.value === kind) renderReport(list);
+      if (form.elements.kind.value === kind) renderReport(list, kind);
       return list.length + " paid test submission(s).";
     });
   });
