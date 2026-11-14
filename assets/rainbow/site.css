@@ -89,3 +89,5 @@ legend { font-weight: 750; }
 }
 textarea { width: 100%; color: inherit; font: inherit; background: #fff; border: 1px solid #9da5ad; border-radius: .4rem; padding: .5rem .65rem; }
 .fee-note { color: var(--muted); font-size: .88rem; }
+
+.merchandise-image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: .5rem; }

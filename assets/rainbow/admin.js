@@ -94,10 +94,11 @@ function showEditor(entry) {
   fields.name.value = entry?.name || "";
   fields.price.value = entry ? (entry.cents / 100).toFixed(2) : "";
   fields.detail.value = entry?.detail || "";
+  fields.imagePath.value = entry?.imagePath || "";
   fields.options.value = entry?.type === "shop" ? entry.options.join(", ") : "";
   fields.active.checked = entry?.active ?? true;
   document.getElementById("catalog-heading").textContent = entry ? "Edit entry" : "Add an item or event";
-  document.getElementById("catalog-options").hidden = fields.type.value !== "shop";
+  updateShopFields();
 }
 
 function renderCatalog() {
@@ -113,6 +114,12 @@ function renderCatalog() {
     card.append(button);
     records.append(card);
   }
+}
+
+function updateShopFields() {
+  const hide = editor.elements.type.value !== "shop";
+  document.getElementById("catalog-options").hidden = hide;
+  document.getElementById("catalog-image").hidden = hide;
 }
 
 if (editor) {
@@ -131,15 +138,13 @@ if (editor) {
       return list.length + " catalog entries.";
     });
   });
-  editor.elements.type.addEventListener("change", () => {
-    document.getElementById("catalog-options").hidden = editor.elements.type.value !== "shop";
-  });
+  editor.elements.type.addEventListener("change", updateShopFields);
   document.getElementById("new-entry").addEventListener("click", () => { showEditor(); editorStatus.textContent = ""; });
   editor.addEventListener("submit", event => {
     event.preventDefault();
     const fields = editor.elements;
     const body = { id: fields.id.value, type: fields.type.value, name: fields.name.value, detail: fields.detail.value,
-      cents: Math.round(fields.price.valueAsNumber * 100), active: fields.active.checked,
+      imagePath: fields.imagePath.value, cents: Math.round(fields.price.valueAsNumber * 100), active: fields.active.checked,
       options: fields.options.value.split(",").map(option => option.trim()).filter(Boolean) };
     run(async () => {
       const entry = await request("manage-catalog", { body });
