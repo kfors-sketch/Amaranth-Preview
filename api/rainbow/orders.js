@@ -100,7 +100,12 @@ function catalogEntry(body, existing) {
   const options = type === "shop" && Array.isArray(body.options) && body.options.length
     ? [...new Set(body.options.map(option => field(option, "each option", 30)))] : ["Standard"];
   if (options.length > 12) invalid("Enter up to 12 options.");
-  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options };
+  const imagePath = type === "shop"
+    ? field(body.imagePath ?? existing?.imagePath, "the merchandise image path", 200, false) : "";
+  if (imagePath && !/^\/assets\/rainbow\/merchandise\/[a-z0-9_-]+\.(?:jpe?g|png|webp)$/i.test(imagePath)) {
+    invalid("Use a JPG, PNG, or WebP path such as /assets/rainbow/merchandise/tshirt.jpg.");
+  }
+  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options, imagePath };
 }
 
 function buildSubmission(body, catalog) {
