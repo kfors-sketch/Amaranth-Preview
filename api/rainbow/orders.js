@@ -19,7 +19,7 @@ const membershipLabels = {
   voting: "Voting", non_voting: "Non-Voting",
 };
 
-const pages = { store: "/rainbow/store.html", session: "/rainbow/annual-session.html" };
+const pages = { store: "/rainbow/store.html", session: "/rainbow/annual-session.html", cart: "/rainbow/cart.html" };
 const contactFields = [
   ["name", "full name"], ["title", "title"], ["email", "email"], ["phone", "phone"],
   ["address1", "address line 1"], ["address2", "address line 2"], ["city", "city"],
@@ -110,10 +110,17 @@ function buildSubmission(body, catalog) {
   if (!Object.hasOwn(pages, body.kind)) invalid("Choose a submission type.");
 
   const base = { id, kind: body.kind, purchaser };
-  if (body.kind === "store") {
+  if (body.kind === "cart" && (!Array.isArray(body.items) || !Array.isArray(body.attendees))) {
+    invalid("Check your shared cart selections.");
+  }
+  const hasItems = body.kind === "store" || (body.kind === "cart" && body.items?.length);
+  const hasAttendees = body.kind === "session" || (body.kind === "cart" && body.attendees?.length);
+  if (!hasItems && !hasAttendees) invalid("Add merchandise or attendees to your cart.");
+  let items = [];
+  if (hasItems) {
     if (!Array.isArray(body.items) || !body.items.length || body.items.length > 40) invalid("Add sample merchandise to your cart.");
     const seen = new Set();
-    const items = body.items.map((item) => {
+    items = body.items.map((item) => {
       const { id: productId, option, quantity } = item || {};
       const product = catalog.find(entry => entry.type === "shop" && entry.active && entry.id === productId);
       if (!product || !product.options.includes(option) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
@@ -124,11 +131,12 @@ function buildSubmission(body, catalog) {
       seen.add(variant);
       return { name: product.name, option, quantity, cents: product.cents };
     });
-    return { ...base, items, totalCents: items.reduce((sum, item) => sum + item.cents * item.quantity, 0) };
   }
 
-  if (!Array.isArray(body.attendees) || !body.attendees.length || body.attendees.length > 6) invalid("Enter one to six sample attendees.");
-  const attendees = body.attendees.map((attendee) => {
+  if (hasAttendees && (!Array.isArray(body.attendees) || !body.attendees.length || body.attendees.length > 6)) {
+    invalid("Enter one to six sample attendees.");
+  }
+  const attendees = (hasAttendees ? body.attendees : []).map((attendee) => {
     const contact = contactInfo(attendee);
     const assembly = field(attendee.assembly, "the sample assembly name");
     const assemblyNumber = field(attendee.assemblyNumber, "the sample assembly number", 30);
@@ -148,8 +156,11 @@ function buildSubmission(body, catalog) {
     return { ...contact, assembly, assemblyNumber, memberType: attendee.memberType, notes, events };
   });
   return {
-    ...base, attendees,
-    totalCents: attendees.reduce((sum, attendee) => sum + registrationCents + attendee.events.reduce((total, event) => total + event.cents, 0), 0),
+    ...base,
+    ...(hasItems ? { items } : {}),
+    ...(hasAttendees ? { attendees } : {}),
+    totalCents: items.reduce((sum, item) => sum + item.cents * item.quantity, 0) +
+      attendees.reduce((sum, attendee) => sum + registrationCents + attendee.events.reduce((total, event) => total + event.cents, 0), 0),
   };
 }
 
@@ -158,9 +169,8 @@ function lineItems(submission) {
     price_data: { currency: "usd", unit_amount: cents, product_data: { name } },
     quantity,
   });
-  if (submission.kind === "store") {
-    return submission.items.map(item => price(item.name + " (" + item.option + ")", item.cents, item.quantity));
-  }
+  const lines = (submission.items || []).map(item => price(item.name + " (" + item.option + ")", item.cents, item.quantity));
+  if (!submission.attendees?.length) return lines;
   const events = new Map();
   for (const attendee of submission.attendees) {
     for (const event of attendee.events) {
@@ -170,7 +180,7 @@ function lineItems(submission) {
       events.set(event.id, item);
     }
   }
-  return [price("Annual Session registration", registrationCents, submission.attendees.length),
+  return [...lines, price("Annual Session registration", registrationCents, submission.attendees.length),
     ...[...events.values()].map(event => price(event.name, event.cents, event.quantity))];
 }
 
@@ -198,7 +208,7 @@ function returnPage(req, env) {
   return host ? "https://" + host : "";
 }
 
-function csv(records) {
+function csv(records, reportKind) {
   const cell = (value) => {
     const text = String(value ?? "");
     const safe = /^[\s]*[=+\-@]|^[\t\r\n]/.test(text) ? "'" + text : text;
@@ -207,17 +217,17 @@ function csv(records) {
   const row = (values) => values.map(cell).join(",");
   const rows = [row(["Confirmation", "Type", "Submitted UTC", "Test result", "Details",
     ...contactFields.map(([, label]) => "Purchaser " + label), "Subtotal USD", "Processing fee USD",
-    "International fee USD", "Total USD", ...contactFields.map(([, label]) => "Attendee " + label),
+    "International fee USD", "Payment total USD", ...contactFields.map(([, label]) => "Attendee " + label),
     "Assembly", "Assembly #", "Membership", "Banquets and events", "Dietary notes"])];
   const amount = cents => (cents / 100).toFixed(2);
   for (const record of records) {
-    const details = record.kind === "store"
+    const details = reportKind === "store"
       ? record.items.map(item => item.quantity + " × " + item.name + " (" + item.option + ")").join(" | ")
       : "Annual Session";
     const order = [record.id, record.kind, record.createdAt, record.status, details,
       ...contactFields.map(([key]) => record.purchaser[key]), amount(record.subtotalCents),
       amount(record.processingFee), amount(record.internationalFee), amount(record.totalCents)];
-    for (const attendee of record.attendees || [{}]) {
+    for (const attendee of (reportKind === "session" ? record.attendees : [{}])) {
       rows.push(row([...order, ...contactFields.map(([key]) => attendee[key]), attendee.assembly,
         attendee.assemblyNumber, membershipLabels[attendee.memberType] ?? attendee.memberType, attendee.events?.map(event => event.name).join(" | ") ?? (attendee.lunch ? "Annual Session lunch" : ""), attendee.notes]));
     }
@@ -318,15 +328,16 @@ export function createHandler({
         if (!(await authorize(req.headers)).ok) {
           return json(res, 401, { error: "Sign in with your Grand admin password." });
         }
-        if (!Object.hasOwn(pages, reportKind)) return json(res, 400, { error: "Choose a Rainbow report." });
+        if (!["store", "session"].includes(reportKind)) return json(res, 400, { error: "Choose a Rainbow report." });
         const entries = Object.values(await store.hgetall(recordsKey) || {});
         const records = entries.map(value => typeof value === "string" ? JSON.parse(value) : value)
-          .filter(record => record.kind === reportKind)
+          .filter(record => record.kind === reportKind ||
+            (record.kind === "cart" && (reportKind === "store" ? record.items?.length : record.attendees?.length)))
           .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
         if (action === "report") return json(res, 200, records);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", 'attachment; filename="rainbow-' + (reportKind === "store" ? "orders" : "registrations") + '.csv"');
-        return res.end(csv(records));
+        return res.end(csv(records, reportKind));
       }
       return json(res, 404, { error: "Page not found." });
     } catch (error) {
