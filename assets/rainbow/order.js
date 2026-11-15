@@ -115,9 +115,14 @@ function renderProducts() {
       const image = make("img", "", {
         alt: product.name, loading: "lazy", decoding: "async", class: "merchandise-image",
       });
-      image.addEventListener("error", () => image.remove(), { once: true });
+      const preview = make("div");
+      preview.append(image);
+      if (product.imageIllustrative) {
+        preview.append(make("small", "Illustrative mockup. Actual item may differ."));
+      }
+      image.addEventListener("error", () => preview.remove(), { once: true });
       image.src = product.imagePath;
-      card.append(image);
+      card.append(preview);
     }
     card.append(make("h3", product.name), make("p", product.detail), make("strong", money(product.cents)), label, add);
     byId("products").append(card);
