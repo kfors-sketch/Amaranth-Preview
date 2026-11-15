@@ -6,12 +6,22 @@ import { calculateProcessingFeeCents } from "../admin/checkout-pricing.js";
 import { isInternationalOrder, computeInternationalFeeCents, buildInternationalFeeLineItem } from "../admin/fees.js";
 import { scope, recordsKey, pendingKey, isSubmissionId, isTestSession, saveRainbowPayment } from "./payment.js";
 
+const sizesThrough2XL = ["XS", "S", "M", "L", "XL", "2XL"];
+const sizesThrough4XL = [...sizesThrough2XL, "3XL", "4XL"];
+const retiredSampleIds = new Set(["shirt", "pin", "tote"]);
 const defaults = [
-  { id: "shirt", name: "Rainbow T-shirt", detail: "Sample crewneck • adult S–2XL", cents: 1800, options: ["S", "M", "L", "XL", "2XL"] },
-  { id: "pin", name: "Rainbow lapel pin", detail: "Sample commemorative pin", cents: 600, options: ["Standard"] },
-  { id: "tote", name: "Rainbow tote bag", detail: "Sample reusable canvas tote", cents: 1200, options: ["Standard"] },
-  { id: "lunch", name: "Annual Session lunch", detail: "Sample banquet", cents: 1500, type: "banquet" },
-].map(entry => ({ type: "shop", active: true, ...entry }));
+  { id: "sweatpants", name: "Sweatpants", cents: 2000, options: sizesThrough4XL },
+  { id: "state-polo", name: "State Polo Shirts", cents: 2500, options: sizesThrough2XL },
+  { id: "white-hoodies", name: "White Hooded Sweatshirts", detail: "Choose a zip-up or pullover.", cents: 2500,
+    options: ["Zip-up", "Pullover"].flatMap(style => sizesThrough2XL.map(size => style + " · " + size)) },
+  { id: "quarter-zip", name: "Quarter Zip Shirts", cents: 2000, options: sizesThrough4XL.slice(1) },
+  { id: "crew-socks", name: "Rainbow Logo Crew Socks", cents: 1000, options: ["One size fits all"] },
+].map(entry => ({
+  type: "shop", active: true, detail: "", ...entry,
+  imagePath: "/assets/rainbow/merchandise/" + entry.id + ".webp",
+  imageIllustrative: true,
+}));
+defaults.push({ id: "lunch", name: "Annual Session lunch", detail: "Sample banquet", cents: 1500, type: "banquet", active: true });
 const catalogKey = "rainbow:ordering:v1:catalog";
 const registrationCents = 1000;
 const membershipLabels = {
@@ -83,7 +93,7 @@ async function loadCatalog(store) {
   const entries = new Map(defaults.map(entry => [entry.id, entry]));
   for (const value of Object.values(await store.hgetall(catalogKey) || {})) {
     const entry = typeof value === "string" ? JSON.parse(value) : value;
-    entries.set(entry.id, entry);
+    if (entry.type !== "shop" || !retiredSampleIds.has(entry.id)) entries.set(entry.id, entry);
   }
   return [...entries.values()];
 }
@@ -105,7 +115,8 @@ function catalogEntry(body, existing) {
   if (imagePath && !/^\/assets\/rainbow\/merchandise\/[a-z0-9_-]+\.(?:jpe?g|png|webp)$/i.test(imagePath)) {
     invalid("Use a JPG, PNG, or WebP path such as /assets/rainbow/merchandise/tshirt.jpg.");
   }
-  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options, imagePath };
+  const imageIllustrative = Boolean(imagePath && imagePath === existing?.imagePath && existing?.imageIllustrative);
+  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options, imagePath, imageIllustrative };
 }
 
 function buildSubmission(body, catalog) {
