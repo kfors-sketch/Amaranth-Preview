@@ -22,6 +22,10 @@ const defaults = [
   imageIllustrative: true,
 }));
 defaults.push({ id: "lunch", name: "Annual Session lunch", detail: "Sample banquet", cents: 1500, type: "banquet", active: true });
+defaults.push({
+  id: "dinner-banquet", name: "Dinner Banquet", detail: "Sample menu and price for test orders.",
+  cents: 2500, type: "banquet", active: true, mealOptions: ["Chicken", "Beef", "Vegetarian"],
+});
 const catalogKey = "rainbow:ordering:v1:catalog";
 const registrationCents = 1000;
 const membershipLabels = {
@@ -110,13 +114,17 @@ function catalogEntry(body, existing) {
   const options = type === "shop" && Array.isArray(body.options) && body.options.length
     ? [...new Set(body.options.map(option => field(option, "each option", 30)))] : ["Standard"];
   if (options.length > 12) invalid("Enter up to 12 options.");
+  const mealOptions = type === "banquet" && Array.isArray(body.mealOptions)
+    ? [...new Set(body.mealOptions.map(option => field(option, "each meal choice", 60)))]
+    : existing?.mealOptions || [];
+  if (mealOptions.length > 12) invalid("Enter up to 12 meal choices.");
   const imagePath = type === "shop"
     ? field(body.imagePath ?? existing?.imagePath, "the merchandise image path", 200, false) : "";
   if (imagePath && !/^\/assets\/rainbow\/merchandise\/[a-z0-9_-]+\.(?:jpe?g|png|webp)$/i.test(imagePath)) {
     invalid("Use a JPG, PNG, or WebP path such as /assets/rainbow/merchandise/tshirt.jpg.");
   }
   const imageIllustrative = Boolean(imagePath && imagePath === existing?.imagePath && existing?.imageIllustrative);
-  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options, imagePath, imageIllustrative };
+  return { id: existing?.id || randomUUID(), type, active, cents, name, detail, options, mealOptions, imagePath, imageIllustrative };
 }
 
 function buildSubmission(body, catalog) {
@@ -167,7 +175,12 @@ function buildSubmission(body, catalog) {
     const events = selected.map(id => {
       const entry = catalog.find(item => item.id === id && item.type !== "shop" && item.active);
       if (!entry) invalid("An event is no longer available. Reload the page to see current choices.");
-      return { id, name: entry.name, type: entry.type, cents: entry.cents };
+      const meal = attendee.eventMeals?.[id];
+      if (entry.mealOptions?.length && !entry.mealOptions.includes(meal)) {
+        invalid("Choose a meal for " + entry.name + ".");
+      }
+      const name = entry.mealOptions?.length ? entry.name + " (" + meal + ")" : entry.name;
+      return { id, name, type: entry.type, cents: entry.cents };
     });
     return { ...contact, assembly, assemblyNumber, memberType: attendee.memberType, notes, events };
   });
@@ -191,9 +204,10 @@ function lineItems(submission) {
   for (const attendee of submission.attendees) {
     for (const event of attendee.events) {
       if (event.cents === 0) continue;
-      const item = events.get(event.id) || { ...event, quantity: 0 };
+      const key = JSON.stringify([event.id, event.name]);
+      const item = events.get(key) || { ...event, quantity: 0 };
       item.quantity += 1;
-      events.set(event.id, item);
+      events.set(key, item);
     }
   }
   return [...lines, price("Annual Session registration", registrationCents, submission.attendees.length),
