@@ -94,6 +94,7 @@ function showEditor(entry) {
   fields.name.value = entry?.name || "";
   fields.price.value = entry ? (entry.cents / 100).toFixed(2) : "";
   fields.detail.value = entry?.detail || "";
+  if (fields.mealOptions) fields.mealOptions.value = entry?.mealOptions?.join(", ") || "";
   fields.imagePath.value = entry?.imagePath || "";
   fields.options.value = entry?.type === "shop" ? entry.options.join(", ") : "";
   fields.active.checked = entry?.active ?? true;
@@ -120,6 +121,8 @@ function updateShopFields() {
   const hide = editor.elements.type.value !== "shop";
   document.getElementById("catalog-options").hidden = hide;
   document.getElementById("catalog-image").hidden = hide;
+  const meals = document.getElementById("catalog-meals");
+  if (meals) meals.hidden = editor.elements.type.value !== "banquet";
 }
 
 if (editor) {
@@ -144,6 +147,7 @@ if (editor) {
     event.preventDefault();
     const fields = editor.elements;
     const body = { id: fields.id.value, type: fields.type.value, name: fields.name.value, detail: fields.detail.value,
+      mealOptions: fields.mealOptions?.value.split(",").map(option => option.trim()).filter(Boolean),
       imagePath: fields.imagePath.value, cents: Math.round(fields.price.valueAsNumber * 100), active: fields.active.checked,
       options: fields.options.value.split(",").map(option => option.trim()).filter(Boolean) };
     run(async () => {

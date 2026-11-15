@@ -49,6 +49,8 @@ function attendeeDetails(row) {
   return {
     ...Object.fromEntries([...row.querySelectorAll("[name]")].map(input => [input.name, input.value])),
     events: [...row.querySelectorAll("[data-event]:checked")].map(input => input.value),
+    eventMeals: Object.fromEntries([...row.querySelectorAll("[data-meal]:enabled")]
+      .map(input => [input.dataset.meal, input.value])),
   };
 }
 const attendees = byId("attendees");
@@ -157,6 +159,21 @@ function addAttendee(saved = {}) {
     label.append(checkbox, (entry.type === "banquet" ? "Banquet" : "Event") + " · " + entry.name +
       " (" + (entry.cents ? money(entry.cents) : "Free") + ")" + (entry.detail ? " — " + entry.detail : ""));
     choices.append(label);
+    if (entry.mealOptions?.length) {
+      const mealLabel = make("label", "Meal for " + entry.name);
+      const meal = make("select", "", { "data-meal": entry.id, required: "" });
+      meal.append(make("option", "Choose a meal", { value: "" }));
+      for (const option of entry.mealOptions) meal.append(make("option", option, { value: option }));
+      meal.value = entry.mealOptions.includes(saved.eventMeals?.[entry.id]) ? saved.eventMeals[entry.id] : "";
+      const updateMeal = () => {
+        meal.disabled = !checkbox.checked;
+        mealLabel.hidden = meal.disabled;
+      };
+      checkbox.addEventListener("change", updateMeal);
+      updateMeal();
+      mealLabel.append(meal);
+      choices.append(mealLabel);
+    }
   }
   row.querySelector("button").addEventListener("click", () => { row.remove(); updateAttendees(); });
   for (const input of row.querySelectorAll("[name]")) {
@@ -201,12 +218,17 @@ function renderSharedCart() {
 
   for (const [index, attendee] of draft.attendees.entries()) {
     const selected = attendee.events.map(id => events.get(id));
-    const available = selected.every(Boolean);
+    const available = selected.every(entry => entry &&
+      (!entry.mealOptions?.length || entry.mealOptions.includes(attendee.eventMeals?.[entry.id])));
     const cost = catalog.registrationCents + selected.reduce((sum, event) => sum + (event?.cents || 0), 0);
     total += cost;
     unavailable ||= !available;
     const row = make("div", "", { class: "cart-line" });
-    const details = selected.map(event => event?.name || "Unavailable event");
+    const details = selected.map(event => {
+      if (!event) return "Unavailable event";
+      const meal = attendee.eventMeals?.[event.id];
+      return event.mealOptions?.length ? event.name + " (" + (meal || "choose a meal") + ")" : event.name;
+    });
     const remove = make("button", "Remove attendee", { type: "button", class: "secondary" });
     remove.addEventListener("click", () => {
       saveDraft({ ...draft, attendees: draft.attendees.filter((_, i) => i !== index) });
